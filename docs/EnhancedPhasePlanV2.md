@@ -93,10 +93,15 @@ Normalization on load: precompute all sample counts (e.g., frame_samples, pre_ro
 - Underflow → zero‑padding; overflow policy applied per config.
 - Stats: drops_total, overflows_total, utilization (current fill/capacity), continuity_gaps.
 
-## VAD with fallback (Phase III)
-- Primary: model‑based VAD (e.g., Silero). Fallback: energy‑based VAD with a 1–2s baseline noise calibration on startup.
-- Smoothing: EMA over last N windows to reduce flicker.
-- Stuck detection: if variance in VAD output < epsilon for > X seconds, reload model or switch to fallback.
+## VAD with progressive energy gating (Phase III)
+- Primary: model‑based VAD (Silero V5) with energy pre-gating
+- Energy VAD: Progressive 4-level implementation
+  - Level 1 (MVP): Simple RMS gate at -40 dBFS
+  - Level 2: Adaptive threshold with noise floor tracking
+  - Level 3: Debounced state machine (can run standalone)
+  - Level 4: Full implementation with filters, ZCR, pre-emphasis
+- Smoothing: EMA over last N windows to reduce flicker
+- Energy gating reduces ML inference by 60-80% in typical scenarios
 
 ## Chunking (Phase IV)
 - Equal‑power crossfade over overlap region.
@@ -141,11 +146,15 @@ Deliverables:
 Tests: overflow/underflow handling; concurrent stress; stats accuracy.
 **Status:** Implemented using rtrb library with producer/consumer split for real-time audio processing. Tested and validated.
 
-### Phase III: VAD with fallback — 📋 PLANNED
+### Phase III: VAD with progressive energy gating — 📋 PLANNED
 Deliverables:
-- Model load with health checks; fallback EnergyVAD with baseline calibration; smoothing; stuck detection and auto fallback; ONNX runtime probe.
-Tests: model missing → fallback; debouncing and smoothing; pre‑buffering; noise robustness; stuck detection.
-**Status:** Next priority after Phase 1 bug fixes. VAD fork already available.
+- Silero V5 model integration via vendored fork
+- Progressive energy VAD implementation (Level 1 for MVP, upgradeable to Levels 2-4)
+- Energy pre-gating to reduce ML inference calls by 60-80%
+- Simple SILENCE/SPEECH state machine with debouncing
+- Event generation (SpeechStart/SpeechEnd) via mpsc channel
+Tests: energy gating effectiveness; speech detection accuracy; real-time performance; graceful degradation without ONNX
+**Status:** Next priority after Phase 1 bug fixes. VAD fork already available. Full energy VAD spec in docs/Reference/EnergyBasedVAD.md.
 
 ### Phase IV: Intelligent chunking — 📋 PLANNED
 Deliverables:

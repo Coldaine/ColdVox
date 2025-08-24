@@ -4,13 +4,14 @@ Status: Planned (Phase 2 complete with rtrb ring buffer)
 
 ### Scope
 - Integrate Silero V5 VAD (vendored ONNX crate) on 16 kHz mono audio
+- Implement progressive energy VAD system (starting with Level 1 gating)
 - Emit simple SpeechStart/SpeechEnd events with basic debouncing
 - Process audio from ring buffer without blocking capture
 
 Non‑Goals (Phase 3):
-- Fallback VAD mechanisms
-- Pre/post-roll buffering
-- Health monitoring or auto-recovery
+- Full energy VAD implementation (Level 4) - progressive enhancement later
+- Pre/post-roll buffering - add when needed
+- Health monitoring or auto-recovery - keep it simple
 - STT integration (Phase 4)
 
 ---
@@ -19,14 +20,82 @@ Non‑Goals (Phase 3):
 - Phase 2 ring buffer: `crates/app/src/audio/ring_buffer.rs` (rtrb‑based)
 - Audio format: 16 kHz, mono, i16; 320-sample frames (20ms)
 - Vendored VAD crate: `Forks/ColdVox-voice_activity_detector` (Silero V5, 512-sample windows)
+- Reference spec: `docs/Reference/EnergyBasedVAD.md` (full energy VAD algorithm)
 
 ## Architecture
 Callback (CPAL) → Ring buffer (rtrb) → VAD Task → Events (SpeechStart/SpeechEnd)
 
+Components:
+- **Energy VAD**: Progressive system starting with Level 1 (simple gate)
+- **Silero VAD**: ML-based detection for frames passing energy gate
+- **State Machine**: Simple SILENCE/SPEECH with debounce timers
+
 Notes:
 - VAD task reads from ring buffer in batches (non-blocking)
 - Buffer 512 samples for Silero window requirements
-- Simple speech/silence state tracking with debounce timers
+- Energy gate reduces Silero inference calls by ~60-80% in typical scenarios
+
+## Energy VAD Levels (Progressive Enhancement)
+
+### Level 1: Basic Energy Gate (Phase 3 MVP)
+- Simple RMS energy calculation
+- Fixed threshold: -40 dBFS
+- Binary decision: process/skip frame
+- No state tracking
+
+```rust
+fn energy_gate(frame: &[i16]) -> bool {
+    let rms = calculate_rms_dbfs(frame);
+    rms > -40.0
+}
+```
+
+### Level 2: Adaptive Threshold (Future)
+- RMS energy with dBFS calculation
+- EMA noise floor tracking
+- Relative threshold: floor + 9dB
+- Simple hysteresis: on/off thresholds
+
+### Level 3: Debounced State Machine (Future)
+- All of Level 2
+- State tracking (SILENCE/SPEECH)
+- Minimum duration requirements
+- Debounce timers (200ms speech, 400ms silence)
+- Can operate standalone without ML VAD
+
+### Level 4: Full Energy VAD (Future)
+- All of Level 3
+- Pre-emphasis filter (0.97)
+- High-pass filter (100Hz)
+- ZCR gating (optional)
+- Pre/post-roll buffering
+- Clipping detection
+- Full implementation from `docs/Reference/EnergyBasedVAD.md`
+
+## Module Interface
+
+```rust
+// Trait that all energy VAD levels implement
+pub trait EnergyVAD: Send {
+    fn process_frame(&mut self, frame: &[i16]) -> VadDecision;
+    fn reset(&mut self);
+    fn metrics(&self) -> EnergyMetrics;
+}
+
+pub enum VadDecision {
+    Silent,
+    Active,
+    Unknown,  // Used during warmup
+}
+
+// Main VAD processor
+pub struct VadProcessor {
+    silero: Option<SileroVAD>,
+    energy: Box<dyn EnergyVAD>,  // Start with Level1
+    state: VadState,
+    accumulator: Vec<i16>,  // For 512-sample windows
+}
+```
 
 ## Contracts
 
@@ -38,70 +107,111 @@ Outputs:
 - `VadEvent::SpeechEnd { frame_index: u64 }`
 
 Error handling:
-- VAD init failure → log error, continue without VAD
+- VAD init failure → log error, continue with energy VAD only (if Level 3+)
 - Runtime errors → log and skip frame
 
 Success criteria:
 - Detects speech start/end on test audio
 - No capture thread blocking
 - Processes frames in real-time
+- Energy gating reduces CPU usage measurably
 
-## Silero VAD integration
-- Sample rate: 16 kHz mono
-- Window: 512 samples (32ms) per prediction
-- Thresholds: speech_on=0.5, speech_off=0.35
-- Debounce: min_speech=250ms, min_silence=300ms
-- Energy gate: Skip Silero inference if frame energy < -40 dBFS (silence optimization)
-- Simple state: SILENCE → SPEECH (on threshold) → SILENCE (off threshold + duration)
+## VAD Processing Pipeline
+
+1. **Energy VAD** (Level 1 for Phase 3)
+   - Calculate RMS energy in dBFS
+   - Gate at -40 dBFS (configurable)
+   - Skip Silero for silent frames
+   - Track gating metrics
+
+2. **Silero VAD** (for active frames)
+   - Window: 512 samples (32ms) per prediction
+   - Thresholds: speech_on=0.5, speech_off=0.35
+   - Returns probability [0.0, 1.0]
+
+3. **State Machine**
+   - States: SILENCE → SPEECH → SILENCE
+   - Debounce: min_speech=250ms, min_silence=300ms
+   - Generate events on state transitions
 
 ## Configuration
-Hardcoded defaults (can make configurable later if needed):
-- Speech threshold: 0.5
-- Silence threshold: 0.35
-- Min speech duration: 250ms
-- Min silence duration: 300ms
-- Energy gate threshold: -40 dBFS
+
+Starting configuration (Phase 3 with Level 1):
+```rust
+VadConfig {
+    energy_level: EnergyVadLevel::Basic,
+    energy_threshold_dbfs: -40.0,
+    silero_speech_threshold: 0.5,
+    silero_silence_threshold: 0.35,
+    min_speech_duration_ms: 250,
+    min_silence_duration_ms: 300,
+}
+```
+
+## File Structure
+
+```
+crates/app/src/audio/vad/
+├── mod.rs           # VadProcessor, traits, common types
+├── energy/
+│   ├── mod.rs       # EnergyVAD trait and factory
+│   ├── level1.rs    # Basic energy gate
+│   ├── level2.rs    # Adaptive threshold (future)
+│   ├── level3.rs    # Debounced state machine (future)
+│   └── level4.rs    # Full implementation (future)
+└── silero.rs        # Silero wrapper
+```
 
 ## Metrics
-Basic counters only:
 - `speech_segments_total`
 - `vad_frames_processed`
-- `vad_frames_gated` (skipped due to low energy)
+- `vad_frames_gated` (skipped due to energy gate)
+- `energy_gate_efficiency` (% frames gated)
 - `vad_errors` (if any)
 
-## Implementation plan
-1) VAD module structure
-   - `crates/app/src/audio/vad/mod.rs` with `VadProcessor` and event types
-   - Simple Silero wrapper using vendored crate
+## Implementation Plan
 
-2) Processing task
+1) Energy VAD module
+   - Create `crates/app/src/audio/vad/energy/` structure
+   - Implement Level 1 basic gate
+   - Define `EnergyVAD` trait for future levels
+
+2) VAD processor integration
+   - `crates/app/src/audio/vad/mod.rs` with `VadProcessor`
+   - Integrate energy gate before Silero
+   - Simple state machine for events
+
+3) Processing task
    - Spawn task reading from ring buffer
    - Accumulate 512-sample windows
-   - Calculate frame energy (RMS in dBFS)
-   - Skip Silero if below energy gate threshold
-   - Run Silero inference on active frames
+   - Apply energy gate → Silero pipeline
    - Track state with debounce timers
    - Send events via mpsc channel
 
-3) Integration
-   - Wire into main.rs after ring buffer setup
-   - Log events to verify operation
-
-4) Testing
+4) Testing & metrics
    - Test with captured_audio.wav
-   - Verify real-time processing
-   - Check speech/silence detection accuracy
+   - Measure gating effectiveness
+   - Verify real-time performance
+   - Profile CPU usage reduction
 
-## Test cases
+5) Progressive enhancement path
+   - Ship Phase 3 with Level 1
+   - Upgrade to Level 2 when noise floor adaptation needed
+   - Add Level 3 for standalone fallback capability
+   - Consider Level 4 based on production requirements
+
+## Test Cases
 - Normal speech: detect start/end correctly
-- Background noise: avoid false positives
-- Missing ONNX model: handle gracefully (skip VAD)
-- Real-time performance: keep up with audio stream
+- Silence: high gating rate (>80%)
+- Background noise: adaptive threshold (Level 2+)
+- Missing ONNX model: fallback to energy VAD (Level 3+)
+- Real-time performance: maintain <20ms latency
 
-## Known issues
+## Known Issues
 - 512-sample windows don't align with 320-sample frames → need accumulation buffer
 - ONNX runtime adds ~50MB to binary size
 - First inference may be slow (model loading)
+- Energy gate threshold may need tuning per environment
 
 ## Summary
-Phase 3 adds basic voice activity detection using Silero V5. It reads audio from the ring buffer, detects speech/silence transitions with debouncing, and emits events for downstream processing.
+Phase 3 implements a pragmatic VAD system with progressive energy gating and Silero ML detection. Starting with Level 1 energy gate saves significant CPU while maintaining accuracy. The modular design allows upgrading through Levels 2-4 without architectural changes, eventually reaching the full sophisticated implementation from the reference spec.
