@@ -295,6 +295,48 @@ impl AudioCapture {
                     None
                 )?
             }
+            SampleFormat::I8 => {
+                let running = Arc::clone(&self.running);
+                let watchdog = self.watchdog.clone();
+                let detector = Arc::new(RwLock::new(self.silence_detector.clone()));
+                let sample_tx = self.sample_tx.clone();
+                let stats = self.stats.clone();
+                let err_fn = move |err| { tracing::error!("Audio stream error: {}", err); };
+                device.build_input_stream(
+                    &config,
+                    move |data: &[i8], _: &_| {
+                        if !running.load(Ordering::SeqCst) { return; }
+                        watchdog.feed();
+                        let to_i16 = |x: i8| -> i16 { (x as i16) << 8 };
+                        let samples_mono: Vec<i16> = if channels == 1 {
+                            data.iter().map(|&s| to_i16(s)).collect()
+                        } else {
+                            data.chunks_exact(channels)
+                                .map(|chunk| {
+                                    let sum: i32 = chunk.iter().map(|&s| to_i16(s) as i32).sum();
+                                    (sum / channels as i32) as i16
+                                })
+                                .collect()
+                        };
+                        {
+                            let mut det = detector.write();
+                            let is_sil = det.is_silence(&samples_mono);
+                            let dur = det.silence_duration();
+                            if is_sil && dur > Duration::from_secs(3) {
+                                tracing::warn!("Extended silence detected, possible device issue");
+                            }
+                        }
+                        let frame = AudioFrame { samples: samples_mono, timestamp: Instant::now(), sample_rate, channels: config.channels };
+                        match sample_tx.try_send(frame) {
+                            Ok(_) => { stats.frames_captured.fetch_add(1, Ordering::Relaxed); }
+                            Err(_) => { stats.frames_dropped.fetch_add(1, Ordering::Relaxed); tracing::warn!("Audio buffer full, dropping frame"); }
+                        }
+                        *stats.last_frame_time.write() = Some(Instant::now());
+                    },
+                    err_fn,
+                    None
+                )?
+            }
             other => return Err(AudioError::FormatNotSupported { format: format!("{:?}", other) }),
         };
         

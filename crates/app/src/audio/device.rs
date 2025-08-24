@@ -49,17 +49,24 @@ impl DeviceManager {
     }
     
     pub fn open_device(&mut self, name: Option<&str>) -> Result<Device, AudioError> {
-        // Try preferred device first
+        // If a specific name is provided, try it first
         if let Some(preferred) = name {
             if let Some(device) = self.find_device_by_name(preferred) {
                 self.current_device = Some(device.clone());
                 return Ok(device);
             }
-            tracing::warn!("Preferred device '{}' not found, falling back to default", preferred);
+            tracing::warn!("Preferred device '{}' not found, attempting auto-selection", preferred);
         }
-        
-        // Fall back to default
-        self.host.default_input_device()
+
+        // Auto-prefer likely microphone hardware on Linux (e.g., HyperX/QuadCast) before default bridge
+        if let Some(device) = self.find_preferred_hardware(&["HyperX", "QuadCast", "Microphone"]) {
+            self.current_device = Some(device.clone());
+            return Ok(device);
+        }
+
+        // Fall back to OS default
+        self.host
+            .default_input_device()
             .ok_or(AudioError::DeviceNotFound { name: None })
             .map(|device| {
                 self.current_device = Some(device.clone());
@@ -72,6 +79,23 @@ impl DeviceManager {
             for device in devices {
                 if let Ok(device_name) = device.name() {
                     if device_name == name {
+                        return Some(device);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn find_preferred_hardware(&self, patterns: &[&str]) -> Option<Device> {
+        if let Ok(devices) = self.host.input_devices() {
+            // Prefer concrete device names over virtual bridges like "default"/"pipewire"/"sysdefault"
+            let blacklist = ["default", "sysdefault", "pipewire"]; 
+            for device in devices {
+                if let Ok(name) = device.name() {
+                    let is_blacklisted = blacklist.iter().any(|b| name.eq_ignore_ascii_case(b));
+                    if is_blacklisted { continue; }
+                    if patterns.iter().any(|p| name.to_lowercase().contains(&p.to_lowercase())) {
                         return Some(device);
                     }
                 }
