@@ -48,6 +48,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     let mut capture = AudioCapture::new(config)?;
     capture.start(args.device.as_deref()).await?;
+
+    // Install Ctrl+C shutdown guard for clean exit
+    let shutdown = ShutdownHandler::new().install().await;
     
     // Get receiver to consume frames
     let frame_rx = capture.get_receiver();
@@ -64,42 +67,52 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
     
-    while start.elapsed() < Duration::from_secs(args.duration) {
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        
-        // Print stats every 5 seconds
-        if last_stats.elapsed() > Duration::from_secs(5) {
-            let stats = capture.get_stats();
-            println!("Stats: {} frames, {} dropped, {} disconnects, {} reconnects",
-                stats.frames_captured,
-                stats.frames_dropped,
-                stats.disconnections,
-                stats.reconnections
-            );
-            
-            if let Some(age) = stats.last_frame_age {
-                if age > Duration::from_secs(2) {
-                    println!("WARNING: No frames for {:?}", age);
+    // Main probe loop: duration or Ctrl+C, whichever first
+    let deadline = tokio::time::sleep(Duration::from_secs(args.duration));
+    tokio::pin!(deadline);
+    loop {
+        tokio::select! {
+            _ = &mut deadline => { break; }
+            _ = shutdown.wait() => { println!("Shutdown requested"); break; }
+            _ = tokio::time::sleep(Duration::from_secs(1)) => {
+                // Print stats every 5 seconds
+                if last_stats.elapsed() > Duration::from_secs(5) {
+                    let stats = capture.get_stats();
+                    println!(
+                        "Stats: {} frames, {} active, {} silent, {} dropped, {} disconnects, {} reconnects",
+                        stats.frames_captured,
+                        stats.active_frames,
+                        stats.silent_frames,
+                        stats.frames_dropped,
+                        stats.disconnections,
+                        stats.reconnections
+                    );
+                    if let Some(age) = stats.last_frame_age {
+                        if age > Duration::from_secs(2) {
+                            println!("WARNING: No frames for {:?}", age);
+                        }
+                    }
+                    last_stats = Instant::now();
                 }
-            }
-            
-            last_stats = Instant::now();
-        }
-        
-        // Test disconnect recovery
-        if args.expect_disconnect {
-            println!("Unplug and replug your microphone to test recovery...");
-            // Wait for watchdog to trigger
-            if capture.get_watchdog().is_triggered() {
-                println!("Device disconnected, attempting recovery...");
-                match capture.recover().await {
-                    Ok(_) => println!("Recovery successful!"),
-                    Err(e) => println!("Recovery failed: {}", e),
+
+                // Test disconnect recovery
+                if args.expect_disconnect {
+                    println!("Unplug and replug your microphone to test recovery...");
+                    // Wait for watchdog to trigger
+                    if capture.get_watchdog().is_triggered() {
+                        println!("Device disconnected, attempting recovery...");
+                        match capture.recover().await {
+                            Ok(_) => println!("Recovery successful!"),
+                            Err(e) => println!("Recovery failed: {}", e),
+                        }
+                    }
                 }
             }
         }
     }
-    
+
+    // Clean shutdown of capture and watchdog
+    capture.stop();
     println!("Test completed successfully");
     Ok(())
 }
