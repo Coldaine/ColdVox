@@ -1,138 +1,107 @@
-## Phase 3 — Voice Activity Detection (VAD) with fallback and gating
+## Phase 3 — Voice Activity Detection (VAD)
 
 Status: Planned (Phase 2 complete with rtrb ring buffer)
 
 ### Scope
-- Integrate ML VAD (Silero V5 via vendored ONNX crate) on 16 kHz mono audio.
-- Emit robust SpeechStart/SpeechEnd events with debounce and pre/post‑roll.
-- Provide an energy‑based fallback VAD that auto‑activates on ML VAD failure.
-- Add metrics and health checks for observability and recovery.
+- Integrate Silero V5 VAD (vendored ONNX crate) on 16 kHz mono audio
+- Emit simple SpeechStart/SpeechEnd events with basic debouncing
+- Process audio from ring buffer without blocking capture
 
 Non‑Goals (Phase 3):
-- Full “chunker” and STT handoff semantics (Phase 4). A minimal feed to STT may be prototyped but isn’t required.
-- Multi‑stream fan‑out or advanced diarization.
+- Fallback VAD mechanisms
+- Pre/post-roll buffering
+- Health monitoring or auto-recovery
+- STT integration (Phase 4)
 
 ---
 
 ## Dependencies
-- Phase 2 ring buffer: `crates/app/src/audio/ring_buffer.rs` (rtrb‑based, SPSC, zero‑alloc on callback path).
-- Audio format: 16 kHz, mono, S16LE; 20 ms nominal capture frames.
-- Vendored VAD crate: `Forks/ColdVox-voice_activity_detector` (Silero V5 ONNX runtime, 512‑sample windows @16 kHz).
-- Optional fallback: Energy VAD spec in `docs/Reference/EnergyBasedVAD.md`.
+- Phase 2 ring buffer: `crates/app/src/audio/ring_buffer.rs` (rtrb‑based)
+- Audio format: 16 kHz, mono, i16; 320-sample frames (20ms)
+- Vendored VAD crate: `Forks/ColdVox-voice_activity_detector` (Silero V5, 512-sample windows)
 
 ## Architecture
-Callback (CPAL) → Ring buffer (rtrb) → VAD Processor (consumer task)
-→ State machine (debounce, hysteresis, pre/post‑roll)
-→ Events: SpeechStart / SpeechEnd (+ active boolean per frame)
-→ (optional) Minimal utterance feed to STT (prototype only)
+Callback (CPAL) → Ring buffer (rtrb) → VAD Task → Events (SpeechStart/SpeechEnd)
 
 Notes:
-- Use the VAD crate’s iterator/stream helpers to generate the required 512‑sample windows for Silero V5. Avoid hand‑rolled hop logic.
-- Keep a small internal frame queue to implement pre/post‑roll around boundaries; source frames from the ring buffer (do not block the callback).
+- VAD task reads from ring buffer in batches (non-blocking)
+- Buffer 512 samples for Silero window requirements
+- Simple speech/silence state tracking with debounce timers
 
 ## Contracts
 
 Inputs:
-- PCM i16, 16 kHz, mono frames drained from the ring buffer at the consumer.
+- PCM i16, 16 kHz, mono frames from ring buffer
 
-Outputs (events):
-- `VadEvent::SpeechStart { ts_samples: u64 }`
-- `VadEvent::SpeechEnd   { ts_samples: u64 }`
-- Optional per‑frame boolean `active` for monitoring.
+Outputs:
+- `VadEvent::SpeechStart { frame_index: u64 }`
+- `VadEvent::SpeechEnd { frame_index: u64 }`
 
-Timing:
-- `ts_samples` counts from capture start at 16 kHz (or provide Instant timestamps carried through the pipeline). Map samples to wall‑clock as needed.
-
-Error modes:
-- ML VAD init/load error (missing runtime/model) → fallback to Energy VAD.
-- ML VAD runtime error or stall (no predictions > N seconds) → fallback.
-- Input format mismatch → log error; Phase 1/2 ensure format already.
+Error handling:
+- VAD init failure → log error, continue without VAD
+- Runtime errors → log and skip frame
 
 Success criteria:
-- Stable start/stop boundaries on `captured_audio.wav` and mic.
-- No callback blocking; consumer keeps up without drops at normal load.
-- Clear metrics for activity, predictions, and fallback state.
+- Detects speech start/end on test audio
+- No capture thread blocking
+- Processes frames in real-time
 
 ## Silero VAD integration
-- Sample rate: 16 kHz mono.
-- Windowing: 512 samples per prediction; use crate’s provided stream/iterator to match hop/overlap.
-- Post‑process: probability series → state machine with thresholds and minimal durations to reduce flapping.
+- Sample rate: 16 kHz mono
+- Window: 512 samples (32ms) per prediction
+- Thresholds: speech_on=0.5, speech_off=0.35
+- Debounce: min_speech=250ms, min_silence=300ms
+- Energy gate: Skip Silero inference if frame energy < -40 dBFS (silence optimization)
+- Simple state: SILENCE → SPEECH (on threshold) → SILENCE (off threshold + duration)
 
-### Smoothing & hysteresis
-- Thresholds (starting point): on=0.5, off=0.3 with debounce durations below.
-- Min durations: `min_speech_ms=200`, `min_silence_ms=400`.
-- Pre/post‑roll: `pre_roll_ms=150`, `post_roll_ms=200` (sourced from recent frames in the consumer).
+## Configuration
+Hardcoded defaults (can make configurable later if needed):
+- Speech threshold: 0.5
+- Silence threshold: 0.35
+- Min speech duration: 250ms
+- Min silence duration: 300ms
+- Energy gate threshold: -40 dBFS
 
-## Energy VAD fallback (reference defaults)
-Use `docs/Reference/EnergyBasedVAD.md` defaults:
-- frame_ms=20, hop_ms=10
-- hpf_fc_hz=100, pre_emphasis=0.97
-- ema_alpha=0.02, on_db_above_floor=9 dB, off_db_below_on=3 dB
-- min_speech_ms=200, min_silence_ms=400
-- pre_roll_ms=150, post_roll_ms=200
-- zcr_gate≈0.10 optional
-
-Implementation notes:
-- Compute RMS dBFS per frame; maintain EMA noise floor on inactive frames; apply hysteresis and durations similar to SoX “silence”.
-- Accumulate durations by hop length when using overlap.
-
-## Configuration (add VadConfig)
-- `enabled: bool` (default true)
-- `engine: enum { Silero, Energy }` (default Silero, auto‑fallback to Energy)
-- `silero: { p_on: f32=0.5, p_off: f32=0.3, min_speech_ms=200, min_silence_ms=400, pre_roll_ms=150, post_roll_ms=200 }`
-- `energy: { frame_ms=20, hop_ms=10, hpf_fc_hz=100, pre_emphasis=0.97, ema_alpha=0.02, on_db=9.0, hyst_db=3.0, min_speech_ms=200, min_silence_ms=400, pre_roll_ms=150, post_roll_ms=200, zcr_gate=Option<f32> }`
-- `health: { no_prediction_timeout_ms=3000, recovery_backoff_ms=1000, max_retries=3 }`
-
-## Metrics & health
-Metrics (extend `BasicMetrics`):
-- `vad_predictions_total`, `vad_active_seconds_total`
-- `vad_speech_segments_total`, `vad_current_active` (gauge)
-- `vad_engine{silero|energy}` (gauge), `vad_fallback_switches_total`
-- `last_vad_prediction_age_ms`, `vad_pre_roll_ms`, `vad_post_roll_ms`
-
-Health checks:
-- “No predictions” age > `no_prediction_timeout_ms` while frames flow → log warn, attempt Silero reinit; on failure, switch to Energy and mark degraded.
-- Surface clear reasons in logs and a health snapshot.
+## Metrics
+Basic counters only:
+- `speech_segments_total`
+- `vad_frames_processed`
+- `vad_frames_gated` (skipped due to low energy)
+- `vad_errors` (if any)
 
 ## Implementation plan
-1) Module scaffolding
-   - `crates/app/src/audio/vad/mod.rs` with trait `VadEngine` and event types.
-   - `silero.rs` implementation using vendored crate stream/iterator.
-   - `energy.rs` implementation per Reference defaults.
+1) VAD module structure
+   - `crates/app/src/audio/vad/mod.rs` with `VadProcessor` and event types
+   - Simple Silero wrapper using vendored crate
 
-2) Consumer wiring
-   - Spawn `VadProcessor` task that drains the ring buffer, performs windowing, and emits `VadEvent`s over an internal channel.
-   - Keep a small circular frame buffer to implement pre/post‑roll.
+2) Processing task
+   - Spawn task reading from ring buffer
+   - Accumulate 512-sample windows
+   - Calculate frame energy (RMS in dBFS)
+   - Skip Silero if below energy gate threshold
+   - Run Silero inference on active frames
+   - Track state with debounce timers
+   - Send events via mpsc channel
 
-3) Config + telemetry
-   - Add `VadConfig`; plumb through app config.
-   - Expose metrics via `BasicMetrics`; add health monitor check.
+3) Integration
+   - Wire into main.rs after ring buffer setup
+   - Log events to verify operation
 
-4) Validation
-   - Unit tests: energy VAD thresholds/hysteresis; silero stream window count matches expectations; pre/post‑roll logic.
-   - Integration: run on `captured_audio.wav` and microphone; assert segment counts and reasonable boundaries.
+4) Testing
+   - Test with captured_audio.wav
+   - Verify real-time processing
+   - Check speech/silence detection accuracy
 
-5) Optional prototype: STT feed
-   - Minimal: on `SpeechStart`, start a buffer; while active, append frames; on `SpeechEnd`, finalize and pass to a feature‑gated Vosk transcriber for a demo.
+## Test cases
+- Normal speech: detect start/end correctly
+- Background noise: avoid false positives
+- Missing ONNX model: handle gracefully (skip VAD)
+- Real-time performance: keep up with audio stream
 
-## Test matrix
-- Happy path: conversational speech; boundaries stable.
-- Noise: HVAC/fan; ensure inactivity maintained (no chattering).
-- Music/background TV: verify reduced false positives; adjust ZCR gate if enabled.
-- Missing ONNX runtime/model: fallback to Energy; continue emitting events.
-- CPU stress: predictions continue at required cadence; health doesn’t flap.
+## Known issues
+- 512-sample windows don't align with 320-sample frames → need accumulation buffer
+- ONNX runtime adds ~50MB to binary size
+- First inference may be slow (model loading)
 
-## Risks & mitigations
-- ONNX runtime issues: early init check; clear error; fallback.
-- Latency growth: keep pre/post‑roll small; ensure consumer keeps up; monitor `last_vad_prediction_age_ms`.
-- Sample‑rate mismatch: prefer device 16 kHz; otherwise downmix/resample in capture (out of scope here, but documented).
-
-## Rollout
-- Guarded by `vad.enabled` (default true) and `vad.engine`.
-- Start with Silero; auto‑fallback to Energy on failure; log with reasons.
-- Keep verbose debug logs initially; tighten after validation.
-
----
-
-### Summary
-Phase 3 introduces robust, observable voice activity detection with a safety‑net fallback. It consumes the Phase 2 ring buffer, emits clean start/stop events with pre/post‑roll, and prepares the ground for Phase 4 chunking and STT handoff.
+## Summary
+Phase 3 adds basic voice activity detection using Silero V5. It reads audio from the ring buffer, detects speech/silence transitions with debouncing, and emits events for downstream processing.

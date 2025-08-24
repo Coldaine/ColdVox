@@ -38,8 +38,16 @@ impl AudioProducer {
                 return Err(());
             }
         };
-        
-        chunk.as_mut_slices().0.copy_from_slice(samples);
+
+        // Write may wrap; fill both slices
+        let (first, second) = chunk.as_mut_slices();
+        let split = first.len();
+        if split > 0 {
+            first.copy_from_slice(&samples[..split]);
+        }
+        if second.len() > 0 {
+            second.copy_from_slice(&samples[split..]);
+        }
         chunk.commit_all();
         Ok(samples.len())
     }
@@ -67,9 +75,16 @@ impl AudioConsumer {
                 self.consumer.read_chunk(available).unwrap()
             }
         };
-        
+
         let len = chunk.len();
-        buffer[..len].copy_from_slice(chunk.as_slices().0);
+        let (first, second) = chunk.as_slices();
+        let split = first.len();
+        if split > 0 {
+            buffer[..split].copy_from_slice(first);
+        }
+        if second.len() > 0 {
+            buffer[split..split + second.len()].copy_from_slice(second);
+        }
         chunk.commit_all();
         len
     }
