@@ -7,23 +7,23 @@ use tracing_subscriber::fmt::writer::MakeWriterExt;
 fn init_logging() -> Result<(), Box<dyn std::error::Error>> {
     // Create logs directory if it doesn't exist
     std::fs::create_dir_all("logs")?;
-    
+
     // Set up file appender with daily rotation
-    let file_appender = RollingFileAppender::new(Rotation::daily(), "logs", "coldvox.log");
+    let file_appender = RollingFileAppender::new(Rotation::DAILY, "logs", "coldvox.log");
     let (non_blocking_file, _guard) = tracing_appender::non_blocking(file_appender);
-    
+
     // Configure log level from environment or default to info
     let log_level = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
-    
+
     // Set up logging to both console and file
     tracing_subscriber::fmt()
         .with_writer(std::io::stdout.and(non_blocking_file))
         .with_env_filter(log_level)
         .init();
-    
+
     // Keep guard alive for the entire program
     std::mem::forget(_guard);
-    
+
     Ok(())
 }
 
