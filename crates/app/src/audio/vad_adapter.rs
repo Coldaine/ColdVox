@@ -1,81 +1,156 @@
-#[cfg(feature = "vad")]
-use voice_activity_detector::VoiceActivityDetector;
+use crate::vad::{
+    config::{UnifiedVadConfig, VadMode},
+    engine::{VadEngine, VadEngineBox},
+    level3::Level3Vad,
+    silero_wrapper::SileroEngine,
+    types::{VadConfig, VadEvent, VadState},
+};
 
-#[derive(Debug, Clone, Copy)]
-pub struct ColdVoxVadConfig {
-    pub energy_threshold: f32,
-    pub vad_threshold: f32,
+pub struct VadAdapter {
+    engine: VadEngineBox,
+    config: UnifiedVadConfig,
+    resampler: Option<AudioResampler>,
 }
 
-impl Default for ColdVoxVadConfig {
-    fn default() -> Self {
-        Self {
-            energy_threshold: 0.0,
-            vad_threshold: 0.5,
-        }
-    }
-}
-
-pub struct ColdVoxVAD {
-    #[cfg(feature = "vad")]
-    detector: VoiceActivityDetector,
-    cfg: ColdVoxVadConfig,
-    frame_buffer: Vec<i16>,
-}
-
-impl ColdVoxVAD {
-    pub fn new(cfg: ColdVoxVadConfig) -> Result<Self, String> {
-        #[cfg(feature = "vad")]
-        let detector = VoiceActivityDetector::builder()
-            .sample_rate(16000)
-            .build()
-            .map_err(|e| format!("build VAD: {e}"))?;
+impl VadAdapter {
+    pub fn new(config: UnifiedVadConfig) -> Result<Self, String> {
+        let engine: Box<dyn VadEngine> = match config.mode {
+            VadMode::Level3 => {
+                let level3_config = VadConfig {
+                    onset_threshold_db: config.level3.onset_threshold_db,
+                    offset_threshold_db: config.level3.offset_threshold_db,
+                    ema_alpha: config.level3.ema_alpha,
+                    speech_debounce_ms: config.level3.speech_debounce_ms,
+                    silence_debounce_ms: config.level3.silence_debounce_ms,
+                    initial_floor_db: config.level3.initial_floor_db,
+                    frame_size_samples: config.frame_size_samples,
+                    sample_rate_hz: config.sample_rate_hz,
+                };
+                Box::new(Level3Vad::new(level3_config))
+            }
+            VadMode::Silero => {
+                Box::new(SileroEngine::new(config.silero.clone())?)
+            }
+        };
+        
+        let resampler = if engine.required_sample_rate() != config.sample_rate_hz
+            || engine.required_frame_size_samples() != config.frame_size_samples
+        {
+            Some(AudioResampler::new(
+                config.sample_rate_hz,
+                engine.required_sample_rate(),
+                config.frame_size_samples,
+                engine.required_frame_size_samples(),
+            )?)
+        } else {
+            None
+        };
+        
         Ok(Self {
-            #[cfg(feature = "vad")]
-            detector,
-            cfg,
-            frame_buffer: Vec::new(),
+            engine: VadEngineBox::new(engine),
+            config,
+            resampler,
         })
     }
-
-    pub fn process_coldvox_frame(&mut self, frame: &[i16]) -> Result<bool, String> {
-        // Basic buffering hook for future use
-        self.frame_buffer.clear();
-        self.frame_buffer.extend_from_slice(frame);
-
-        #[cfg(feature = "vad")]
-        {
-            // The upstream expects 16 kHz PCM i16; caller should ensure rate
-            let probability = self
-                .detector
-                .predict(frame.iter().copied())
-                .map_err(|e| format!("vad error: {e}"))?;
-            let is_voice = probability >= self.cfg.vad_threshold;
-            if is_voice || self.check_energy_fallback(frame) {
-                return Ok(true);
-            }
-        }
-
-        #[cfg(not(feature = "vad"))]
-        if self.check_energy_fallback(frame) {
-            return Ok(true);
-        }
-
-        Ok(false)
+    
+    pub fn process(&mut self, frame: &[i16]) -> Result<Option<VadEvent>, String> {
+        let processed_frame = if let Some(resampler) = &mut self.resampler {
+            resampler.process(frame)?
+        } else {
+            frame.to_vec()
+        };
+        
+        self.engine.process(&processed_frame)
     }
-
-    fn check_energy_fallback(&self, frame: &[i16]) -> bool {
-        if self.cfg.energy_threshold <= 0.0 {
-            return false;
+    
+    pub fn reset(&mut self) {
+        self.engine.reset();
+        if let Some(resampler) = &mut self.resampler {
+            resampler.reset();
         }
-        let sum: f32 = frame
-            .iter()
-            .map(|&s| {
-                let v = s as f32 / 32768.0;
-                v * v
-            })
-            .sum();
-        let rms = (sum / (frame.len().max(1) as f32)).sqrt();
-        rms >= self.cfg.energy_threshold
+    }
+    
+    pub fn current_state(&self) -> VadState {
+        self.engine.current_state()
+    }
+    
+    pub fn config(&self) -> &UnifiedVadConfig {
+        &self.config
+    }
+}
+
+struct AudioResampler {
+    input_rate: u32,
+    output_rate: u32,
+    input_frame_size: usize,
+    output_frame_size: usize,
+    buffer: Vec<i16>,
+    accumulator: Vec<i16>,
+    phase: f32,
+}
+
+impl AudioResampler {
+    fn new(
+        input_rate: u32,
+        output_rate: u32,
+        input_frame_size: usize,
+        output_frame_size: usize,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            input_rate,
+            output_rate,
+            input_frame_size,
+            output_frame_size,
+            buffer: Vec::with_capacity(output_frame_size * 2),
+            accumulator: Vec::new(),
+            phase: 0.0,
+        })
+    }
+    
+    fn process(&mut self, input: &[i16]) -> Result<Vec<i16>, String> {
+        if input.len() != self.input_frame_size {
+            return Err(format!(
+                "Expected {} samples, got {}",
+                self.input_frame_size,
+                input.len()
+            ));
+        }
+        
+        self.accumulator.extend_from_slice(input);
+        
+        let ratio = self.input_rate as f32 / self.output_rate as f32;
+        let mut output = Vec::with_capacity(self.output_frame_size);
+        
+        while output.len() < self.output_frame_size && (self.phase as usize) < self.accumulator.len() - 1 {
+            let index = self.phase as usize;
+            let fraction = self.phase - index as f32;
+            
+            let sample = if index + 1 < self.accumulator.len() {
+                let s0 = self.accumulator[index] as f32;
+                let s1 = self.accumulator[index + 1] as f32;
+                (s0 * (1.0 - fraction) + s1 * fraction) as i16
+            } else {
+                self.accumulator[index]
+            };
+            
+            output.push(sample);
+            self.phase += ratio;
+        }
+        
+        let consumed = (self.phase as usize).min(self.accumulator.len());
+        self.accumulator.drain(..consumed);
+        self.phase -= consumed as f32;
+        
+        while output.len() < self.output_frame_size {
+            output.push(0);
+        }
+        
+        Ok(output)
+    }
+    
+    fn reset(&mut self) {
+        self.buffer.clear();
+        self.accumulator.clear();
+        self.phase = 0.0;
     }
 }
