@@ -13,12 +13,16 @@ impl AudioRingBuffer {
         let (producer, consumer) = RingBuffer::new(capacity);
         Self { producer, consumer }
     }
-    
+
     /// Split into producer and consumer for separate threads
     pub fn split(self) -> (AudioProducer, AudioConsumer) {
         (
-            AudioProducer { producer: self.producer },
-            AudioConsumer { consumer: self.consumer },
+            AudioProducer {
+                producer: self.producer,
+            },
+            AudioConsumer {
+                consumer: self.consumer,
+            },
         )
     }
 }
@@ -28,30 +32,38 @@ pub struct AudioProducer {
     producer: Producer<i16>,
 }
 
+#[derive(Debug, PartialEq)]
+pub enum WriteError {
+    BufferFull,
+}
+
 impl AudioProducer {
     /// Write samples from audio callback (non-blocking)
-    pub fn write(&mut self, samples: &[i16]) -> Result<usize, ()> {
+    pub fn write(&mut self, samples: &[i16]) -> Result<usize, WriteError> {
         let mut chunk = match self.producer.write_chunk(samples.len()) {
             Ok(chunk) => chunk,
             Err(_) => {
-                warn!("Ring buffer overflow: tried to write {} samples, buffer full", samples.len());
-                return Err(());
+                warn!(
+                    "Ring buffer overflow: tried to write {} samples, buffer full",
+                    samples.len()
+                );
+                return Err(WriteError::BufferFull);
             }
         };
 
         // Write may wrap; fill both slices
         let (first, second) = chunk.as_mut_slices();
         let split = first.len();
-        if split > 0 {
+        if !first.is_empty() {
             first.copy_from_slice(&samples[..split]);
         }
-        if second.len() > 0 {
+        if !second.is_empty() {
             second.copy_from_slice(&samples[split..]);
         }
         chunk.commit_all();
         Ok(samples.len())
     }
-    
+
     /// Check available space
     pub fn slots(&self) -> usize {
         self.producer.slots()
@@ -79,16 +91,16 @@ impl AudioConsumer {
         let len = chunk.len();
         let (first, second) = chunk.as_slices();
         let split = first.len();
-        if split > 0 {
+        if !first.is_empty() {
             buffer[..split].copy_from_slice(first);
         }
-        if second.len() > 0 {
+        if !second.is_empty() {
             buffer[split..split + second.len()].copy_from_slice(second);
         }
         chunk.commit_all();
         len
     }
-    
+
     /// Check available samples to read
     pub fn slots(&self) -> usize {
         self.consumer.slots()
@@ -98,33 +110,33 @@ impl AudioConsumer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_basic_write_read() {
         let rb = AudioRingBuffer::new(1024);
         let (mut producer, mut consumer) = rb.split();
-        
+
         let samples = vec![1, 2, 3, 4, 5];
         assert_eq!(producer.write(&samples).unwrap(), 5);
-        
+
         let mut buffer = vec![0i16; 10];
         let read = consumer.read(&mut buffer);
-        
+
         assert_eq!(read, 5);
         assert_eq!(&buffer[..5], &[1, 2, 3, 4, 5]);
     }
-    
+
     #[test]
     fn test_overflow() {
         let rb = AudioRingBuffer::new(16);
         let (mut producer, mut _consumer) = rb.split();
-        
+
         let samples = vec![1i16; 20];
         assert!(producer.write(&samples).is_err());
-        
+
         let samples = vec![1i16; 16];
         assert!(producer.write(&samples).is_ok());
-        
+
         let samples = vec![2i16; 1];
         assert!(producer.write(&samples).is_err());
     }
