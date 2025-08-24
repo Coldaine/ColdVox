@@ -1,11 +1,13 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
+use parking_lot::RwLock;
 use tokio::task::JoinHandle;
 
 #[derive(Clone)]
 pub struct WatchdogTimer {
     timeout: Duration,
+    start_epoch: Arc<RwLock<Option<Instant>>>,
     last_feed: Arc<AtomicU64>,
     triggered: Arc<AtomicBool>,
     handle: Option<Arc<JoinHandle<()>>>,
@@ -15,6 +17,7 @@ impl WatchdogTimer {
     pub fn new(timeout: Duration) -> Self {
         Self {
             timeout,
+            start_epoch: Arc::new(RwLock::new(None)),
             last_feed: Arc::new(AtomicU64::new(0)),
             triggered: Arc::new(AtomicBool::new(false)),
             handle: None,
@@ -25,45 +28,60 @@ impl WatchdogTimer {
         let timeout = self.timeout;
         let last_feed = Arc::clone(&self.last_feed);
         let triggered = Arc::clone(&self.triggered);
-        
-        // Set initial feed time using Instant
-        let now = Instant::now();
-        self.last_feed.store(now.elapsed().as_millis() as u64, Ordering::Relaxed);
-        
+        let start_epoch = Arc::clone(&self.start_epoch);
+
+        // Establish a common epoch and initialize feed time
+        let epoch = Instant::now();
+        *start_epoch.write() = Some(epoch);
+        last_feed.store(0, Ordering::Relaxed);
+
         let handle = tokio::spawn(async move {
             let mut interval = tokio::time::interval(Duration::from_secs(1));
-            let start_time = Instant::now();
-            
             while running.load(Ordering::SeqCst) {
                 interval.tick().await;
-                
-                // Calculate elapsed time since last feed
+
+                let now_ms = {
+                    let guard = start_epoch.read();
+                    if let Some(epoch) = *guard { epoch.elapsed().as_millis() as u64 } else { 0 }
+                };
+
                 let last_ms = last_feed.load(Ordering::Relaxed);
-                let now_ms = start_time.elapsed().as_millis() as u64;
-                
-                // Check if we have a valid last feed time and calculate elapsed
                 if last_ms > 0 && now_ms >= last_ms {
                     let elapsed = Duration::from_millis(now_ms - last_ms);
-                    
                     if elapsed > timeout && !triggered.load(Ordering::SeqCst) {
                         tracing::error!("Watchdog timeout! No audio data for {:?}", elapsed);
                         triggered.store(true, Ordering::SeqCst);
-                        // Trigger recovery mechanism
                     }
                 }
             }
         });
-        
+
         self.handle = Some(Arc::new(handle));
     }
     
     pub fn feed(&self) {
-        let now = Instant::now().elapsed().as_millis() as u64;
-        self.last_feed.store(now, Ordering::Relaxed);
+        // Use the same epoch as the watchdog loop
+        let now_ms = {
+            let guard = self.start_epoch.read();
+            if let Some(epoch) = *guard { epoch.elapsed().as_millis() as u64 } else { 0 }
+        };
+        if now_ms > 0 {
+            self.last_feed.store(now_ms, Ordering::Relaxed);
+        }
         self.triggered.store(false, Ordering::SeqCst);
     }
     
     pub fn is_triggered(&self) -> bool {
         self.triggered.load(Ordering::SeqCst)
+    }
+
+    pub fn stop(&mut self) {
+        // Allow external loop condition (running flag) to stop naturally; also abort task if present
+        if let Some(handle) = self.handle.take() {
+            handle.abort();
+        }
+        self.triggered.store(false, Ordering::SeqCst);
+        self.last_feed.store(0, Ordering::Relaxed);
+        *self.start_epoch.write() = None;
     }
 }

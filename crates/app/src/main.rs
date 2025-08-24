@@ -13,7 +13,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create foundation components
     let state_manager = StateManager::new();
-    let health_monitor = HealthMonitor::new(Duration::from_secs(10));
+    let health_monitor = HealthMonitor::new(Duration::from_secs(10)).start();
     let shutdown = ShutdownHandler::new().install().await;
 
     // Transition to running state
@@ -78,6 +78,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Graceful shutdown
     tracing::info!("Beginning graceful shutdown");
     state_manager.transition(AppState::Stopping)?;
+    // Stop audio capture
+    audio_capture.stop();
     
     // Give components time to clean up
     tokio::time::sleep(Duration::from_millis(500)).await;
