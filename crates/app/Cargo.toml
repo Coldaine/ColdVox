@@ -23,6 +23,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 cpal = "0.15"
 hound = "3.5"
 dasp = "0.11"
+rtrb = "0.3"
 
 # Utilities
 crossbeam-channel = "0.5"
