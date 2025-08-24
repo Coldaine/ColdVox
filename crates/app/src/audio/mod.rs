@@ -3,6 +3,7 @@ pub mod detector;
 pub mod device;
 pub mod ring_buffer;
 pub mod vad_adapter;
+pub mod vad_processor;
 pub mod watchdog;
 
 pub use capture::*;
