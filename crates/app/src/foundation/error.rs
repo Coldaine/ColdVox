@@ -1,23 +1,23 @@
-use thiserror::Error;
 use std::time::Duration;
+use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum AppError {
     #[error("Audio subsystem error: {0}")]
     Audio(#[from] AudioError),
-    
+
     #[error("Configuration error: {0}")]
     Config(String),
-    
+
     #[error("Component failed health check: {component}")]
     HealthCheckFailed { component: String },
-    
+
     #[error("Shutdown requested")]
     ShutdownRequested,
-    
+
     #[error("Fatal error, cannot recover: {0}")]
     Fatal(String),
-    
+
     #[error("Transient error, will retry: {0}")]
     Transient(String),
 }
@@ -26,19 +26,19 @@ pub enum AppError {
 pub enum AudioError {
     #[error("Device not found: {name:?}")]
     DeviceNotFound { name: Option<String> },
-    
+
     #[error("Device disconnected")]
     DeviceDisconnected,
-    
+
     #[error("Format not supported: {format}")]
     FormatNotSupported { format: String },
-    
+
     #[error("Buffer overflow, dropped {count} samples")]
     BufferOverflow { count: usize },
-    
+
     #[error("No audio data for {duration:?}")]
     NoDataTimeout { duration: Duration },
-    
+
     #[error("Silence detected for {duration:?}")]
     SilenceDetected { duration: Duration },
 
@@ -70,17 +70,15 @@ pub enum RecoveryStrategy {
 impl AppError {
     pub fn recovery_strategy(&self) -> RecoveryStrategy {
         match self {
-            AppError::Audio(AudioError::DeviceDisconnected) => 
-                RecoveryStrategy::Retry { 
-                    max_attempts: 5, 
-                    delay: Duration::from_secs(2) 
-                },
-            AppError::Audio(AudioError::DeviceNotFound { .. }) =>
-                RecoveryStrategy::Fallback { to: "default".into() },
-            AppError::Audio(AudioError::BufferOverflow { .. }) =>
-                RecoveryStrategy::Ignore,
-            AppError::Fatal(_) | AppError::ShutdownRequested =>
-                RecoveryStrategy::Fatal,
+            AppError::Audio(AudioError::DeviceDisconnected) => RecoveryStrategy::Retry {
+                max_attempts: 5,
+                delay: Duration::from_secs(2),
+            },
+            AppError::Audio(AudioError::DeviceNotFound { .. }) => RecoveryStrategy::Fallback {
+                to: "default".into(),
+            },
+            AppError::Audio(AudioError::BufferOverflow { .. }) => RecoveryStrategy::Ignore,
+            AppError::Fatal(_) | AppError::ShutdownRequested => RecoveryStrategy::Fatal,
             _ => RecoveryStrategy::Restart,
         }
     }

@@ -1,7 +1,7 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::time::{Duration, Instant};
 use parking_lot::RwLock;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::task::JoinHandle;
 
 #[derive(Clone)]
@@ -23,7 +23,7 @@ impl WatchdogTimer {
             handle: None,
         }
     }
-    
+
     pub fn start(&mut self, running: Arc<AtomicBool>) {
         let timeout = self.timeout;
         let last_feed = Arc::clone(&self.last_feed);
@@ -42,7 +42,11 @@ impl WatchdogTimer {
 
                 let now_ms = {
                     let guard = start_epoch.read();
-                    if let Some(epoch) = *guard { epoch.elapsed().as_millis() as u64 } else { 0 }
+                    if let Some(epoch) = *guard {
+                        epoch.elapsed().as_millis() as u64
+                    } else {
+                        0
+                    }
                 };
 
                 let last_ms = last_feed.load(Ordering::Relaxed);
@@ -58,19 +62,23 @@ impl WatchdogTimer {
 
         self.handle = Some(Arc::new(handle));
     }
-    
+
     pub fn feed(&self) {
         // Use the same epoch as the watchdog loop
         let now_ms = {
             let guard = self.start_epoch.read();
-            if let Some(epoch) = *guard { epoch.elapsed().as_millis() as u64 } else { 0 }
+            if let Some(epoch) = *guard {
+                epoch.elapsed().as_millis() as u64
+            } else {
+                0
+            }
         };
         if now_ms > 0 {
             self.last_feed.store(now_ms, Ordering::Relaxed);
         }
         self.triggered.store(false, Ordering::SeqCst);
     }
-    
+
     pub fn is_triggered(&self) -> bool {
         self.triggered.load(Ordering::SeqCst)
     }

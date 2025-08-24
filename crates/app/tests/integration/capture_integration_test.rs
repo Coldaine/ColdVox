@@ -8,7 +8,7 @@ mod tests {
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
     #[test]
-    #[ignore] // Requires actual audio device
+    #[cfg(feature = "live-hardware-tests")]
     fn test_end_to_end_capture_pipewire() {
         let config = AudioConfig {
             sample_rate: 16000,
@@ -35,7 +35,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires actual audio device
+    #[cfg(feature = "live-hardware-tests")]
     fn test_stats_reporting() {
         let config = AudioConfig::default();
         let mut capture = AudioCapture::new(config).expect("Failed to create capture");
@@ -56,7 +56,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires actual audio device
+    #[cfg(feature = "live-hardware-tests")]
     fn test_frame_flow() {
         let config = AudioConfig::default();
         let mut capture = AudioCapture::new(config).expect("Failed to create capture");
@@ -80,7 +80,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires actual audio device
+    #[cfg(feature = "live-hardware-tests")]
     fn test_clean_shutdown() {
         let config = AudioConfig::default();
         let capture = Arc::new(std::sync::Mutex::new(
@@ -210,7 +210,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires actual audio device
+    #[cfg(feature = "live-hardware-tests")]
     fn test_device_specific_capture() {
         let config = AudioConfig::default();
         let mut capture = AudioCapture::new(config).expect("Failed to create capture");

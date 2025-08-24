@@ -1,15 +1,15 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, AtomicBool, Ordering};
-use std::time::{Duration, Instant};
-use crossbeam_channel::{Sender, Receiver, bounded};
-use cpal::{Stream, StreamConfig, SampleFormat};
 use cpal::traits::{DeviceTrait, StreamTrait};
+use cpal::{SampleFormat, Stream, StreamConfig};
+use crossbeam_channel::{bounded, Receiver, Sender};
 use parking_lot::RwLock;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
-use crate::foundation::error::{AudioError, AudioConfig};
+use super::detector::SilenceDetector;
 use super::device::DeviceManager;
 use super::watchdog::WatchdogTimer;
-use super::detector::SilenceDetector;
+use crate::foundation::error::{AudioConfig, AudioError};
 
 pub struct AudioCapture {
     device_manager: DeviceManager,
@@ -83,7 +83,7 @@ pub struct CaptureStatsSnapshot {
 impl AudioCapture {
     pub fn new(config: AudioConfig) -> Result<Self, AudioError> {
         let (sample_tx, sample_rx) = bounded(100); // Buffer ~2 seconds at 20ms frames
-        
+
         Ok(Self {
             device_manager: DeviceManager::new()?,
             stream: None,
@@ -95,43 +95,48 @@ impl AudioCapture {
             running: Arc::new(AtomicBool::new(false)),
         })
     }
-    
+
     pub async fn start(&mut self, device_name: Option<&str>) -> Result<(), AudioError> {
         self.running.store(true, Ordering::SeqCst);
-        
+
         // Open device with fallback
         let device = self.device_manager.open_device(device_name)?;
         let device_name = device.name().unwrap_or("Unknown".to_string());
         tracing::info!("Opening audio device: {}", device_name);
-        
-    // Get best config (prefer 16kHz, keep device channel count) and sample format
-    let (config, sample_format) = self.negotiate_config(&device)?;
-    tracing::info!("Audio config: {:?}, format: {:?}", config, sample_format);
-        
+
+        // Get best config (prefer 16kHz, keep device channel count) and sample format
+        let (config, sample_format) = self.negotiate_config(&device)?;
+        tracing::info!("Audio config: {:?}, format: {:?}", config, sample_format);
+
         // Build stream with error recovery
-    let stream = self.build_stream(device, config, sample_format)?;
+        let stream = self.build_stream(device, config, sample_format)?;
         stream.play()?;
-        
+
         self.stream = Some(stream);
-        
+
         // Start watchdog
         self.watchdog.start(Arc::clone(&self.running));
-        
+
         Ok(())
     }
-    
-    fn build_stream(&self, device: cpal::Device, config: StreamConfig, sample_format: SampleFormat) -> Result<Stream, AudioError> {
-    let sample_tx = self.sample_tx.clone();
-    let stats = Arc::clone(&self.stats);
-    let watchdog = self.watchdog.clone();
-        let detector = Arc::new(RwLock::new(self.silence_detector.clone()));
-        let running = Arc::clone(&self.running);
-        
-    let err_fn = move |err: cpal::StreamError| {
+
+    fn build_stream(
+        &self,
+        device: cpal::Device,
+        config: StreamConfig,
+        sample_format: SampleFormat,
+    ) -> Result<Stream, AudioError> {
+        let _sample_tx = self.sample_tx.clone();
+        let _stats = Arc::clone(&self.stats);
+        let _watchdog = self.watchdog.clone();
+        let _detector = Arc::new(RwLock::new(self.silence_detector.clone()));
+        let _running = Arc::clone(&self.running);
+
+        let _err_fn = move |err: cpal::StreamError| {
             tracing::error!("Audio stream error: {}", err);
             // Don't panic, let watchdog handle recovery
         };
-        
+
         let channels = config.channels as usize;
         let sample_rate = config.sample_rate.0;
 
@@ -142,11 +147,15 @@ impl AudioCapture {
                 let detector = Arc::new(RwLock::new(self.silence_detector.clone()));
                 let sample_tx = self.sample_tx.clone();
                 let stats = Arc::clone(&self.stats);
-                let err_fn = move |err| { tracing::error!("Audio stream error: {}", err); };
+                let err_fn = move |err| {
+                    tracing::error!("Audio stream error: {}", err);
+                };
                 device.build_input_stream(
                     &config,
                     move |data: &[i16], _: &_| {
-                        if !running.load(Ordering::SeqCst) { return; }
+                        if !running.load(Ordering::SeqCst) {
+                            return;
+                        }
                         watchdog.feed();
                         let samples_mono: Vec<i16> = if channels == 1 {
                             data.to_vec()
@@ -161,21 +170,35 @@ impl AudioCapture {
                         {
                             let mut det = detector.write();
                             let is_sil = det.is_silence(&samples_mono);
-                            if is_sil { stats.silent_frames.fetch_add(1, Ordering::Relaxed); } else { stats.active_frames.fetch_add(1, Ordering::Relaxed); }
+                            if is_sil {
+                                stats.silent_frames.fetch_add(1, Ordering::Relaxed);
+                            } else {
+                                stats.active_frames.fetch_add(1, Ordering::Relaxed);
+                            }
                             let dur = det.silence_duration();
                             if is_sil && dur > Duration::from_secs(3) {
                                 tracing::warn!("Extended silence detected, possible device issue");
                             }
                         }
-                        let frame = AudioFrame { samples: samples_mono, timestamp: Instant::now(), sample_rate, channels: config.channels };
+                        let frame = AudioFrame {
+                            samples: samples_mono,
+                            timestamp: Instant::now(),
+                            sample_rate,
+                            channels: config.channels,
+                        };
                         match sample_tx.try_send(frame) {
-                            Ok(_) => { stats.frames_captured.fetch_add(1, Ordering::Relaxed); }
-                            Err(_) => { stats.frames_dropped.fetch_add(1, Ordering::Relaxed); tracing::warn!("Audio buffer full, dropping frame"); }
+                            Ok(_) => {
+                                stats.frames_captured.fetch_add(1, Ordering::Relaxed);
+                            }
+                            Err(_) => {
+                                stats.frames_dropped.fetch_add(1, Ordering::Relaxed);
+                                tracing::warn!("Audio buffer full, dropping frame");
+                            }
                         }
                         *stats.last_frame_time.write() = Some(Instant::now());
                     },
                     err_fn,
-                    None
+                    None,
                 )?
             }
             SampleFormat::F32 => {
@@ -184,11 +207,15 @@ impl AudioCapture {
                 let detector = Arc::new(RwLock::new(self.silence_detector.clone()));
                 let sample_tx = self.sample_tx.clone();
                 let stats = Arc::clone(&self.stats);
-                let err_fn = move |err| { tracing::error!("Audio stream error: {}", err); };
+                let err_fn = move |err| {
+                    tracing::error!("Audio stream error: {}", err);
+                };
                 device.build_input_stream(
                     &config,
                     move |data: &[f32], _: &_| {
-                        if !running.load(Ordering::SeqCst) { return; }
+                        if !running.load(Ordering::SeqCst) {
+                            return;
+                        }
                         watchdog.feed();
                         let to_i16 = |x: f32| -> i16 { (x.clamp(-1.0, 1.0) * 32767.0) as i16 };
                         let samples_mono: Vec<i16> = if channels == 1 {
@@ -204,21 +231,35 @@ impl AudioCapture {
                         {
                             let mut det = detector.write();
                             let is_sil = det.is_silence(&samples_mono);
-                            if is_sil { stats.silent_frames.fetch_add(1, Ordering::Relaxed); } else { stats.active_frames.fetch_add(1, Ordering::Relaxed); }
+                            if is_sil {
+                                stats.silent_frames.fetch_add(1, Ordering::Relaxed);
+                            } else {
+                                stats.active_frames.fetch_add(1, Ordering::Relaxed);
+                            }
                             let dur = det.silence_duration();
                             if is_sil && dur > Duration::from_secs(3) {
                                 tracing::warn!("Extended silence detected, possible device issue");
                             }
                         }
-                        let frame = AudioFrame { samples: samples_mono, timestamp: Instant::now(), sample_rate, channels: config.channels };
+                        let frame = AudioFrame {
+                            samples: samples_mono,
+                            timestamp: Instant::now(),
+                            sample_rate,
+                            channels: config.channels,
+                        };
                         match sample_tx.try_send(frame) {
-                            Ok(_) => { stats.frames_captured.fetch_add(1, Ordering::Relaxed); }
-                            Err(_) => { stats.frames_dropped.fetch_add(1, Ordering::Relaxed); tracing::warn!("Audio buffer full, dropping frame"); }
+                            Ok(_) => {
+                                stats.frames_captured.fetch_add(1, Ordering::Relaxed);
+                            }
+                            Err(_) => {
+                                stats.frames_dropped.fetch_add(1, Ordering::Relaxed);
+                                tracing::warn!("Audio buffer full, dropping frame");
+                            }
                         }
                         *stats.last_frame_time.write() = Some(Instant::now());
                     },
                     err_fn,
-                    None
+                    None,
                 )?
             }
             SampleFormat::U16 => {
@@ -227,11 +268,15 @@ impl AudioCapture {
                 let detector = Arc::new(RwLock::new(self.silence_detector.clone()));
                 let sample_tx = self.sample_tx.clone();
                 let stats = Arc::clone(&self.stats);
-                let err_fn = move |err| { tracing::error!("Audio stream error: {}", err); };
+                let err_fn = move |err| {
+                    tracing::error!("Audio stream error: {}", err);
+                };
                 device.build_input_stream(
                     &config,
                     move |data: &[u16], _: &_| {
-                        if !running.load(Ordering::SeqCst) { return; }
+                        if !running.load(Ordering::SeqCst) {
+                            return;
+                        }
                         watchdog.feed();
                         let to_i16 = |x: u16| -> i16 { (x as i32 - 32768) as i16 };
                         let samples_mono: Vec<i16> = if channels == 1 {
@@ -247,21 +292,35 @@ impl AudioCapture {
                         {
                             let mut det = detector.write();
                             let is_sil = det.is_silence(&samples_mono);
-                            if is_sil { stats.silent_frames.fetch_add(1, Ordering::Relaxed); } else { stats.active_frames.fetch_add(1, Ordering::Relaxed); }
+                            if is_sil {
+                                stats.silent_frames.fetch_add(1, Ordering::Relaxed);
+                            } else {
+                                stats.active_frames.fetch_add(1, Ordering::Relaxed);
+                            }
                             let dur = det.silence_duration();
                             if is_sil && dur > Duration::from_secs(3) {
                                 tracing::warn!("Extended silence detected, possible device issue");
                             }
                         }
-                        let frame = AudioFrame { samples: samples_mono, timestamp: Instant::now(), sample_rate, channels: config.channels };
+                        let frame = AudioFrame {
+                            samples: samples_mono,
+                            timestamp: Instant::now(),
+                            sample_rate,
+                            channels: config.channels,
+                        };
                         match sample_tx.try_send(frame) {
-                            Ok(_) => { stats.frames_captured.fetch_add(1, Ordering::Relaxed); }
-                            Err(_) => { stats.frames_dropped.fetch_add(1, Ordering::Relaxed); tracing::warn!("Audio buffer full, dropping frame"); }
+                            Ok(_) => {
+                                stats.frames_captured.fetch_add(1, Ordering::Relaxed);
+                            }
+                            Err(_) => {
+                                stats.frames_dropped.fetch_add(1, Ordering::Relaxed);
+                                tracing::warn!("Audio buffer full, dropping frame");
+                            }
                         }
                         *stats.last_frame_time.write() = Some(Instant::now());
                     },
                     err_fn,
-                    None
+                    None,
                 )?
             }
             SampleFormat::U8 => {
@@ -270,11 +329,15 @@ impl AudioCapture {
                 let detector = Arc::new(RwLock::new(self.silence_detector.clone()));
                 let sample_tx = self.sample_tx.clone();
                 let stats = Arc::clone(&self.stats);
-                let err_fn = move |err| { tracing::error!("Audio stream error: {}", err); };
+                let err_fn = move |err| {
+                    tracing::error!("Audio stream error: {}", err);
+                };
                 device.build_input_stream(
                     &config,
                     move |data: &[u8], _: &_| {
-                        if !running.load(Ordering::SeqCst) { return; }
+                        if !running.load(Ordering::SeqCst) {
+                            return;
+                        }
                         watchdog.feed();
                         let to_i16 = |x: u8| -> i16 { ((x as i16) - 128) << 8 };
                         let samples_mono: Vec<i16> = if channels == 1 {
@@ -290,21 +353,35 @@ impl AudioCapture {
                         {
                             let mut det = detector.write();
                             let is_sil = det.is_silence(&samples_mono);
-                            if is_sil { stats.silent_frames.fetch_add(1, Ordering::Relaxed); } else { stats.active_frames.fetch_add(1, Ordering::Relaxed); }
+                            if is_sil {
+                                stats.silent_frames.fetch_add(1, Ordering::Relaxed);
+                            } else {
+                                stats.active_frames.fetch_add(1, Ordering::Relaxed);
+                            }
                             let dur = det.silence_duration();
                             if is_sil && dur > Duration::from_secs(3) {
                                 tracing::warn!("Extended silence detected, possible device issue");
                             }
                         }
-                        let frame = AudioFrame { samples: samples_mono, timestamp: Instant::now(), sample_rate, channels: config.channels };
+                        let frame = AudioFrame {
+                            samples: samples_mono,
+                            timestamp: Instant::now(),
+                            sample_rate,
+                            channels: config.channels,
+                        };
                         match sample_tx.try_send(frame) {
-                            Ok(_) => { stats.frames_captured.fetch_add(1, Ordering::Relaxed); }
-                            Err(_) => { stats.frames_dropped.fetch_add(1, Ordering::Relaxed); tracing::warn!("Audio buffer full, dropping frame"); }
+                            Ok(_) => {
+                                stats.frames_captured.fetch_add(1, Ordering::Relaxed);
+                            }
+                            Err(_) => {
+                                stats.frames_dropped.fetch_add(1, Ordering::Relaxed);
+                                tracing::warn!("Audio buffer full, dropping frame");
+                            }
                         }
                         *stats.last_frame_time.write() = Some(Instant::now());
                     },
                     err_fn,
-                    None
+                    None,
                 )?
             }
             SampleFormat::I8 => {
@@ -313,11 +390,15 @@ impl AudioCapture {
                 let detector = Arc::new(RwLock::new(self.silence_detector.clone()));
                 let sample_tx = self.sample_tx.clone();
                 let stats = self.stats.clone();
-                let err_fn = move |err| { tracing::error!("Audio stream error: {}", err); };
+                let err_fn = move |err| {
+                    tracing::error!("Audio stream error: {}", err);
+                };
                 device.build_input_stream(
                     &config,
                     move |data: &[i8], _: &_| {
-                        if !running.load(Ordering::SeqCst) { return; }
+                        if !running.load(Ordering::SeqCst) {
+                            return;
+                        }
                         watchdog.feed();
                         let to_i16 = |x: i8| -> i16 { (x as i16) << 8 };
                         let samples_mono: Vec<i16> = if channels == 1 {
@@ -333,30 +414,51 @@ impl AudioCapture {
                         {
                             let mut det = detector.write();
                             let is_sil = det.is_silence(&samples_mono);
-                            if is_sil { stats.silent_frames.fetch_add(1, Ordering::Relaxed); } else { stats.active_frames.fetch_add(1, Ordering::Relaxed); }
+                            if is_sil {
+                                stats.silent_frames.fetch_add(1, Ordering::Relaxed);
+                            } else {
+                                stats.active_frames.fetch_add(1, Ordering::Relaxed);
+                            }
                             let dur = det.silence_duration();
                             if is_sil && dur > Duration::from_secs(3) {
                                 tracing::warn!("Extended silence detected, possible device issue");
                             }
                         }
-                        let frame = AudioFrame { samples: samples_mono, timestamp: Instant::now(), sample_rate, channels: config.channels };
+                        let frame = AudioFrame {
+                            samples: samples_mono,
+                            timestamp: Instant::now(),
+                            sample_rate,
+                            channels: config.channels,
+                        };
                         match sample_tx.try_send(frame) {
-                            Ok(_) => { stats.frames_captured.fetch_add(1, Ordering::Relaxed); }
-                            Err(_) => { stats.frames_dropped.fetch_add(1, Ordering::Relaxed); tracing::warn!("Audio buffer full, dropping frame"); }
+                            Ok(_) => {
+                                stats.frames_captured.fetch_add(1, Ordering::Relaxed);
+                            }
+                            Err(_) => {
+                                stats.frames_dropped.fetch_add(1, Ordering::Relaxed);
+                                tracing::warn!("Audio buffer full, dropping frame");
+                            }
                         }
                         *stats.last_frame_time.write() = Some(Instant::now());
                     },
                     err_fn,
-                    None
+                    None,
                 )?
             }
-            other => return Err(AudioError::FormatNotSupported { format: format!("{:?}", other) }),
+            other => {
+                return Err(AudioError::FormatNotSupported {
+                    format: format!("{:?}", other),
+                })
+            }
         };
-        
+
         Ok(stream)
     }
-    
-    fn negotiate_config(&self, device: &cpal::Device) -> Result<(StreamConfig, SampleFormat), AudioError> {
+
+    fn negotiate_config(
+        &self,
+        device: &cpal::Device,
+    ) -> Result<(StreamConfig, SampleFormat), AudioError> {
         // Prefer 16kHz if available; keep device channel count; return actual sample format
         let mut first_any: Option<(StreamConfig, SampleFormat)> = None;
         if let Ok(configs) = device.supported_input_configs() {
@@ -366,12 +468,13 @@ impl AudioCapture {
 
                 // Capture a fallback first option
                 if first_any.is_none() {
-                    let cfg: StreamConfig = supported.clone().with_max_sample_rate().into();
+                    let cfg: StreamConfig = supported.with_max_sample_rate().into();
                     first_any = Some((cfg, fmt));
                 }
 
                 // Check if 16kHz supported
-                if supported.min_sample_rate().0 <= 16000 && supported.max_sample_rate().0 >= 16000 {
+                if supported.min_sample_rate().0 <= 16000 && supported.max_sample_rate().0 >= 16000
+                {
                     let cfg = StreamConfig {
                         channels,
                         sample_rate: cpal::SampleRate(16000),
@@ -381,26 +484,30 @@ impl AudioCapture {
                 }
             }
         }
-        if let Some(pair) = first_any { return Ok(pair); }
-        Err(AudioError::FormatNotSupported { format: "No supported audio formats".to_string() })
+        if let Some(pair) = first_any {
+            return Ok(pair);
+        }
+        Err(AudioError::FormatNotSupported {
+            format: "No supported audio formats".to_string(),
+        })
     }
-    
+
     pub async fn recover(&mut self) -> Result<(), AudioError> {
         tracing::info!("Attempting audio recovery");
         self.stats.disconnections.fetch_add(1, Ordering::Relaxed);
-        
+
         // Stop current stream
         if let Some(stream) = self.stream.take() {
             drop(stream);
         }
-        
+
         // Wait a bit
         tokio::time::sleep(Duration::from_secs(2)).await;
-        
+
         // Try to restart
         for attempt in 1..=3 {
             tracing::info!("Recovery attempt {}/3", attempt);
-            
+
             match self.start(None).await {
                 Ok(_) => {
                     self.stats.reconnections.fetch_add(1, Ordering::Relaxed);
@@ -413,10 +520,12 @@ impl AudioCapture {
                 }
             }
         }
-        
-        Err(AudioError::Fatal("Failed to recover audio after 3 attempts".to_string()))
+
+        Err(AudioError::Fatal(
+            "Failed to recover audio after 3 attempts".to_string(),
+        ))
     }
-    
+
     pub fn get_stats(&self) -> CaptureStatsSnapshot {
         CaptureStatsSnapshot {
             frames_captured: self.stats.frames_captured.load(Ordering::Relaxed),
@@ -425,7 +534,8 @@ impl AudioCapture {
             reconnections: self.stats.reconnections.load(Ordering::Relaxed),
             active_frames: self.stats.active_frames.load(Ordering::Relaxed),
             silent_frames: self.stats.silent_frames.load(Ordering::Relaxed),
-            last_frame_age: self.stats.last_frame_time.read().clone().map(|t| Instant::now().duration_since(t)),
+            last_frame_age: (*self.stats.last_frame_time.read())
+                .map(|t| Instant::now().duration_since(t)),
         }
     }
 
@@ -439,7 +549,9 @@ impl AudioCapture {
 
     pub fn stop(&mut self) {
         self.running.store(false, Ordering::SeqCst);
-        if let Some(stream) = self.stream.take() { drop(stream); }
+        if let Some(stream) = self.stream.take() {
+            drop(stream);
+        }
         self.watchdog.stop();
     }
 }

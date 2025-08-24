@@ -1,11 +1,11 @@
 pub mod capture;
-pub mod device;
 pub mod detector;
-pub mod watchdog;
+pub mod device;
 pub mod vad_adapter;
+pub mod watchdog;
 
 pub use capture::*;
-pub use device::*;
 pub use detector::*;
-pub use watchdog::*;
+pub use device::*;
 pub use vad_adapter::*;
+pub use watchdog::*;

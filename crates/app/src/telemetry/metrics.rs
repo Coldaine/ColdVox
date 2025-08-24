@@ -1,7 +1,7 @@
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use parking_lot::RwLock;
 
 #[derive(Debug, Clone)]
 pub struct BasicMetrics {
@@ -24,7 +24,8 @@ impl BasicMetrics {
         } else {
             drop(counters);
             let mut counters = self.counters.write();
-            counters.entry(name.to_string())
+            counters
+                .entry(name.to_string())
                 .or_insert_with(|| AtomicU64::new(0))
                 .fetch_add(value, Ordering::Relaxed);
         }
@@ -37,27 +38,30 @@ impl BasicMetrics {
         } else {
             drop(gauges);
             let mut gauges = self.gauges.write();
-            gauges.entry(name.to_string())
+            gauges
+                .entry(name.to_string())
                 .or_insert_with(|| AtomicU64::new(0))
                 .store(value, Ordering::Relaxed);
         }
     }
 
     pub fn get_counter(&self, name: &str) -> Option<u64> {
-        self.counters.read()
+        self.counters
+            .read()
             .get(name)
             .map(|c| c.load(Ordering::Relaxed))
     }
 
     pub fn get_gauge(&self, name: &str) -> Option<u64> {
-        self.gauges.read()
+        self.gauges
+            .read()
             .get(name)
             .map(|g| g.load(Ordering::Relaxed))
     }
 
     pub fn get_all_metrics(&self) -> HashMap<String, u64> {
         let mut metrics = HashMap::new();
-        
+
         for (name, counter) in self.counters.read().iter() {
             metrics.insert(format!("counter.{}", name), counter.load(Ordering::Relaxed));
         }

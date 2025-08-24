@@ -43,7 +43,6 @@ impl ColdVoxVAD {
         self.frame_buffer.clear();
         self.frame_buffer.extend_from_slice(frame);
 
-        let mut is_voice = false;
         #[cfg(feature = "vad")]
         {
             // The upstream expects 16 kHz PCM i16; caller should ensure rate
@@ -51,11 +50,17 @@ impl ColdVoxVAD {
                 .detector
                 .predict(frame.iter().copied())
                 .map_err(|e| format!("vad error: {e}"))?;
-            is_voice = probability >= self.cfg.vad_threshold;
+            let is_voice = probability >= self.cfg.vad_threshold;
+            if is_voice || self.check_energy_fallback(frame) {
+                return Ok(true);
+            }
         }
-        if is_voice || self.check_energy_fallback(frame) {
+
+        #[cfg(not(feature = "vad"))]
+        if self.check_energy_fallback(frame) {
             return Ok(true);
         }
+
         Ok(false)
     }
 
@@ -63,11 +68,13 @@ impl ColdVoxVAD {
         if self.cfg.energy_threshold <= 0.0 {
             return false;
         }
-        let sum: f32 = frame.iter().map(|&s| {
-            let v = s as f32 / 32768.0;
-            v * v
-        })
-        .sum();
+        let sum: f32 = frame
+            .iter()
+            .map(|&s| {
+                let v = s as f32 / 32768.0;
+                v * v
+            })
+            .sum();
         let rms = (sum / (frame.len().max(1) as f32)).sqrt();
         rms >= self.cfg.energy_threshold
     }

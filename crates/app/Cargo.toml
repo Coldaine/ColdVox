@@ -38,6 +38,7 @@ voice_activity_detector = { path = "../../Forks/ColdVox-voice_activity_detector"
 [features]
 default = []
 vad = ["voice_activity_detector"]
+live-hardware-tests = []
 
 [dev-dependencies]
 tempfile = "3.8"

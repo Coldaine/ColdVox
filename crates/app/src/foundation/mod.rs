@@ -1,9 +1,9 @@
 pub mod error;
 pub mod health;
-pub mod state;
 pub mod shutdown;
+pub mod state;
 
 pub use error::*;
 pub use health::*;
-pub use state::*;
 pub use shutdown::*;
+pub use state::*;

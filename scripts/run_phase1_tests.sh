@@ -54,17 +54,22 @@ case $TEST_MODE in
         run_test_suite "Integration Tests" "cargo test --test '*'"
         ;;
     
+    live)
+        echo "Running LIVE HARDWARE tests..."
+        run_test_suite "Live Hardware Tests" "cargo test --features live-hardware-tests"
+        ;;
+
     manual)
         echo "Running MANUAL tests (requires audio device)..."
         echo ""
-        echo "Test 1: Default Capture (10 seconds)"
+        echo "Test 1: Audio Capture with WAV Output (10 seconds)"
+        cargo run --bin mic_probe -- --test-capture
+        echo ""
+        echo "Test 2: Default Capture (10 seconds)"
         cargo run --bin mic_probe -- --duration 10
         echo ""
-        echo "Test 2: Silence Detection (30 seconds)"
+        echo "Test 3: Silence Detection (30 seconds)"
         cargo run --bin mic_probe -- --duration 30 --silence-threshold 100
-        echo ""
-        echo "Test 3: Device Enumeration"
-        cargo run --bin mic_probe -- --list-devices
         ;;
     
     coverage)
@@ -84,7 +89,7 @@ case $TEST_MODE in
         ;;
     
     all)
-        echo "Running ALL tests..."
+        echo "Running ALL automated tests..."
         
         # Run cargo check first
         run_test_suite "Cargo Check" "cargo check --all-targets"
@@ -101,22 +106,22 @@ case $TEST_MODE in
         # Run doc tests
         run_test_suite "Doc Tests" "cargo test --doc"
         
-        # Run integration tests (may fail without audio device)
-        echo -e "${YELLOW}Note: Integration tests may fail without audio device${NC}"
-        cargo test --test '*' || true
+        # Run integration tests (without hardware)
+        run_test_suite "Integration Tests" "cargo test --test '*'"
         
         echo ""
         echo -e "${GREEN}=========================================${NC}"
-        echo -e "${GREEN}    Phase 1 Test Suite Complete!${NC}"
+        echo -e "${GREEN}    Phase 1 Automated Test Suite Complete!${NC}"
         echo -e "${GREEN}=========================================${NC}"
         ;;
     
     *)
-        echo "Usage: $0 [unit|integration|manual|coverage|quick|all]"
+        echo "Usage: $0 [unit|integration|live|manual|coverage|quick|all]"
         echo ""
         echo "Options:"
         echo "  unit        - Run unit tests only"
-        echo "  integration - Run integration tests only"
+        echo "  integration - Run integration tests that do not require hardware"
+        echo "  live        - Run live hardware tests (requires audio device)"
         echo "  manual      - Run manual tests with audio device"
         echo "  coverage    - Generate test coverage report"
         echo "  quick       - Run quick unit tests only"

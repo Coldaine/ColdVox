@@ -1,7 +1,7 @@
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use parking_lot::RwLock;
 use tokio::task::JoinHandle;
 
 #[derive(Debug, Clone)]
@@ -35,26 +35,29 @@ impl HealthMonitor {
             handle: None,
         }
     }
-    
+
     pub fn register(&self, component: Box<dyn HealthCheck>) {
         let name = component.name().to_string();
         let mut components = self.components.write();
-        components.insert(name.clone(), ComponentHealth {
-            name,
-            healthy: true,
-            last_check: Instant::now(),
-            last_error: None,
-            check_count: 0,
-            failure_count: 0,
-        });
+        components.insert(
+            name.clone(),
+            ComponentHealth {
+                name,
+                healthy: true,
+                last_check: Instant::now(),
+                last_error: None,
+                check_count: 0,
+                failure_count: 0,
+            },
+        );
         self.checks.write().push(component);
     }
-    
+
     pub fn start(mut self) -> Self {
         let components = Arc::clone(&self.components);
         let checks = Arc::clone(&self.checks);
         let interval = self.check_interval;
-        
+
         let handle = tokio::spawn(async move {
             let mut interval = tokio::time::interval(interval);
             loop {
@@ -93,15 +96,15 @@ impl HealthMonitor {
                 }
             }
         });
-        
+
         self.handle = Some(handle);
         self
     }
-    
+
     pub fn get_status(&self) -> HashMap<String, ComponentHealth> {
         self.components.read().clone()
     }
-    
+
     pub fn all_healthy(&self) -> bool {
         self.components.read().values().all(|c| c.healthy)
     }
