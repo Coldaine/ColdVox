@@ -1,0 +1,7 @@
+
+[workspace]
+members = [
+    "crates/app",
+    "Forks/ColdVox-voice_activity_detector",
+]
+resolver = "2"
