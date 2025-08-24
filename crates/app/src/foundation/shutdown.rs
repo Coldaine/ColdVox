@@ -41,7 +41,6 @@ impl ShutdownHandler {
         let original_panic = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |panic_info| {
             tracing::error!("PANIC: {}", panic_info);
-            eprintln!("Application panicked: {}", panic_info);
             original_panic(panic_info);
         }));
 
