@@ -1,0 +1,11 @@
+/home/coldaine/Projects/ColdVox/crates/app/target/debug/deps/fragile-d3c297312a746527.d: /home/coldaine/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fragile-2.0.1/src/lib.rs /home/coldaine/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fragile-2.0.1/src/errors.rs /home/coldaine/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fragile-2.0.1/src/fragile.rs /home/coldaine/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fragile-2.0.1/src/registry.rs /home/coldaine/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fragile-2.0.1/src/semisticky.rs /home/coldaine/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fragile-2.0.1/src/sticky.rs /home/coldaine/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fragile-2.0.1/src/thread_id.rs
+
+/home/coldaine/Projects/ColdVox/crates/app/target/debug/deps/libfragile-d3c297312a746527.rmeta: /home/coldaine/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fragile-2.0.1/src/lib.rs /home/coldaine/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fragile-2.0.1/src/errors.rs /home/coldaine/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fragile-2.0.1/src/fragile.rs /home/coldaine/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fragile-2.0.1/src/registry.rs /home/coldaine/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fragile-2.0.1/src/semisticky.rs /home/coldaine/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fragile-2.0.1/src/sticky.rs /home/coldaine/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fragile-2.0.1/src/thread_id.rs
+
+/home/coldaine/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fragile-2.0.1/src/lib.rs:
+/home/coldaine/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fragile-2.0.1/src/errors.rs:
+/home/coldaine/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fragile-2.0.1/src/fragile.rs:
+/home/coldaine/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fragile-2.0.1/src/registry.rs:
+/home/coldaine/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fragile-2.0.1/src/semisticky.rs:
+/home/coldaine/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fragile-2.0.1/src/sticky.rs:
+/home/coldaine/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/fragile-2.0.1/src/thread_id.rs:
