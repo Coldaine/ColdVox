@@ -49,17 +49,30 @@ impl DeviceManager {
     }
     
     pub fn open_device(&mut self, name: Option<&str>) -> Result<Device, AudioError> {
-        // If a specific name is provided, try it first
+        // If a specific name is provided, try it first (exact, then case-insensitive contains)
         if let Some(preferred) = name {
             if let Some(device) = self.find_device_by_name(preferred) {
                 self.current_device = Some(device.clone());
                 return Ok(device);
             }
-            tracing::warn!("Preferred device '{}' not found, attempting auto-selection", preferred);
+            // Fallback to a case-insensitive substring match across names
+            if let Some(device) = self.find_device_by_predicate(|n| n.to_lowercase().contains(&preferred.to_lowercase())) {
+                tracing::warn!("Preferred device '{}' not found exactly; using closest match '{}" , preferred, device.name().unwrap_or_default());
+                self.current_device = Some(device.clone());
+                return Ok(device);
+            }
+            // Do not silently fall back when a specific name was given; surface error
+            return Err(AudioError::DeviceNotFound { name: Some(preferred.to_string()) });
         }
 
-        // Auto-prefer likely microphone hardware on Linux (e.g., HyperX/QuadCast) before default bridge
-        if let Some(device) = self.find_preferred_hardware(&["HyperX", "QuadCast", "Microphone"]) {
+        // Prefer the PipeWire bridge if present; it follows the system-selected default source
+        if let Some(device) = self.find_device_by_name("pipewire") {
+            self.current_device = Some(device.clone());
+            return Ok(device);
+        }
+
+        // Otherwise, auto-prefer likely microphone hardware on Linux (e.g., HyperX/QuadCast)
+        if let Some(device) = self.find_preferred_hardware(&["front:", "HyperX", "QuadCast", "Microphone"]) {
             self.current_device = Some(device.clone());
             return Ok(device);
         }
@@ -87,19 +100,37 @@ impl DeviceManager {
         None
     }
 
+    fn find_device_by_predicate<F>(&self, pred: F) -> Option<Device>
+    where F: Fn(&str) -> bool {
+        if let Ok(devices) = self.host.input_devices() {
+            for device in devices {
+                if let Ok(name) = device.name() {
+                    if pred(&name) { return Some(device); }
+                }
+            }
+        }
+        None
+    }
+
     fn find_preferred_hardware(&self, patterns: &[&str]) -> Option<Device> {
         if let Ok(devices) = self.host.input_devices() {
             // Prefer concrete device names over virtual bridges like "default"/"pipewire"/"sysdefault"
             let blacklist = ["default", "sysdefault", "pipewire"]; 
+            // Score devices: higher score = more preferred
+            let mut best: Option<(i32, Device, String)> = None;
             for device in devices {
                 if let Ok(name) = device.name() {
-                    let is_blacklisted = blacklist.iter().any(|b| name.eq_ignore_ascii_case(b));
-                    if is_blacklisted { continue; }
-                    if patterns.iter().any(|p| name.to_lowercase().contains(&p.to_lowercase())) {
-                        return Some(device);
+                    let lname = name.to_lowercase();
+                    if blacklist.iter().any(|b| lname == *b) { continue; }
+                    let mut score = 0;
+                    if lname.starts_with("front:") { score += 3; }
+                    if patterns.iter().any(|p| lname.contains(&p.to_lowercase())) { score += 2; }
+                    if best.as_ref().map(|(s,_,_)| score > *s).unwrap_or(score > 0) {
+                        best = Some((score, device, name));
                     }
                 }
             }
+            if let Some((_s, dev, _name)) = best { return Some(dev); }
         }
         None
     }

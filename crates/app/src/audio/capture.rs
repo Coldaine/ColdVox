@@ -18,7 +18,7 @@ pub struct AudioCapture {
     sample_rx: Receiver<AudioFrame>,
     watchdog: WatchdogTimer,
     silence_detector: SilenceDetector,
-    stats: CaptureStats,
+    stats: Arc<CaptureStats>,
     running: Arc<AtomicBool>,
 }
 
@@ -36,6 +36,8 @@ pub struct CaptureStats {
     pub frames_dropped: AtomicU64,
     pub disconnections: AtomicU64,
     pub reconnections: AtomicU64,
+    pub active_frames: AtomicU64,
+    pub silent_frames: AtomicU64,
     pub last_frame_time: Arc<RwLock<Option<Instant>>>,
 }
 
@@ -46,6 +48,8 @@ impl Clone for CaptureStats {
             frames_dropped: AtomicU64::new(self.frames_dropped.load(Ordering::Relaxed)),
             disconnections: AtomicU64::new(self.disconnections.load(Ordering::Relaxed)),
             reconnections: AtomicU64::new(self.reconnections.load(Ordering::Relaxed)),
+            active_frames: AtomicU64::new(self.active_frames.load(Ordering::Relaxed)),
+            silent_frames: AtomicU64::new(self.silent_frames.load(Ordering::Relaxed)),
             last_frame_time: Arc::new(RwLock::new(*self.last_frame_time.read())),
         }
     }
@@ -58,6 +62,8 @@ impl Default for CaptureStats {
             frames_dropped: AtomicU64::new(0),
             disconnections: AtomicU64::new(0),
             reconnections: AtomicU64::new(0),
+            active_frames: AtomicU64::new(0),
+            silent_frames: AtomicU64::new(0),
             last_frame_time: Arc::new(RwLock::new(None)),
         }
     }
@@ -69,6 +75,8 @@ pub struct CaptureStatsSnapshot {
     pub frames_dropped: u64,
     pub disconnections: u64,
     pub reconnections: u64,
+    pub active_frames: u64,
+    pub silent_frames: u64,
     pub last_frame_age: Option<Duration>,
 }
 
@@ -83,7 +91,7 @@ impl AudioCapture {
             sample_rx,
             watchdog: WatchdogTimer::new(Duration::from_secs(5)),
             silence_detector: SilenceDetector::new(config.silence_threshold),
-            stats: CaptureStats::default(),
+            stats: Arc::new(CaptureStats::default()),
             running: Arc::new(AtomicBool::new(false)),
         })
     }
@@ -113,9 +121,9 @@ impl AudioCapture {
     }
     
     fn build_stream(&self, device: cpal::Device, config: StreamConfig, sample_format: SampleFormat) -> Result<Stream, AudioError> {
-        let sample_tx = self.sample_tx.clone();
-        let stats = self.stats.clone();
-        let watchdog = self.watchdog.clone();
+    let sample_tx = self.sample_tx.clone();
+    let stats = Arc::clone(&self.stats);
+    let watchdog = self.watchdog.clone();
         let detector = Arc::new(RwLock::new(self.silence_detector.clone()));
         let running = Arc::clone(&self.running);
         
@@ -133,7 +141,7 @@ impl AudioCapture {
                 let watchdog = self.watchdog.clone();
                 let detector = Arc::new(RwLock::new(self.silence_detector.clone()));
                 let sample_tx = self.sample_tx.clone();
-                let stats = self.stats.clone();
+                let stats = Arc::clone(&self.stats);
                 let err_fn = move |err| { tracing::error!("Audio stream error: {}", err); };
                 device.build_input_stream(
                     &config,
@@ -153,6 +161,7 @@ impl AudioCapture {
                         {
                             let mut det = detector.write();
                             let is_sil = det.is_silence(&samples_mono);
+                            if is_sil { stats.silent_frames.fetch_add(1, Ordering::Relaxed); } else { stats.active_frames.fetch_add(1, Ordering::Relaxed); }
                             let dur = det.silence_duration();
                             if is_sil && dur > Duration::from_secs(3) {
                                 tracing::warn!("Extended silence detected, possible device issue");
@@ -174,7 +183,7 @@ impl AudioCapture {
                 let watchdog = self.watchdog.clone();
                 let detector = Arc::new(RwLock::new(self.silence_detector.clone()));
                 let sample_tx = self.sample_tx.clone();
-                let stats = self.stats.clone();
+                let stats = Arc::clone(&self.stats);
                 let err_fn = move |err| { tracing::error!("Audio stream error: {}", err); };
                 device.build_input_stream(
                     &config,
@@ -195,6 +204,7 @@ impl AudioCapture {
                         {
                             let mut det = detector.write();
                             let is_sil = det.is_silence(&samples_mono);
+                            if is_sil { stats.silent_frames.fetch_add(1, Ordering::Relaxed); } else { stats.active_frames.fetch_add(1, Ordering::Relaxed); }
                             let dur = det.silence_duration();
                             if is_sil && dur > Duration::from_secs(3) {
                                 tracing::warn!("Extended silence detected, possible device issue");
@@ -216,7 +226,7 @@ impl AudioCapture {
                 let watchdog = self.watchdog.clone();
                 let detector = Arc::new(RwLock::new(self.silence_detector.clone()));
                 let sample_tx = self.sample_tx.clone();
-                let stats = self.stats.clone();
+                let stats = Arc::clone(&self.stats);
                 let err_fn = move |err| { tracing::error!("Audio stream error: {}", err); };
                 device.build_input_stream(
                     &config,
@@ -237,6 +247,7 @@ impl AudioCapture {
                         {
                             let mut det = detector.write();
                             let is_sil = det.is_silence(&samples_mono);
+                            if is_sil { stats.silent_frames.fetch_add(1, Ordering::Relaxed); } else { stats.active_frames.fetch_add(1, Ordering::Relaxed); }
                             let dur = det.silence_duration();
                             if is_sil && dur > Duration::from_secs(3) {
                                 tracing::warn!("Extended silence detected, possible device issue");
@@ -258,7 +269,7 @@ impl AudioCapture {
                 let watchdog = self.watchdog.clone();
                 let detector = Arc::new(RwLock::new(self.silence_detector.clone()));
                 let sample_tx = self.sample_tx.clone();
-                let stats = self.stats.clone();
+                let stats = Arc::clone(&self.stats);
                 let err_fn = move |err| { tracing::error!("Audio stream error: {}", err); };
                 device.build_input_stream(
                     &config,
@@ -279,6 +290,7 @@ impl AudioCapture {
                         {
                             let mut det = detector.write();
                             let is_sil = det.is_silence(&samples_mono);
+                            if is_sil { stats.silent_frames.fetch_add(1, Ordering::Relaxed); } else { stats.active_frames.fetch_add(1, Ordering::Relaxed); }
                             let dur = det.silence_duration();
                             if is_sil && dur > Duration::from_secs(3) {
                                 tracing::warn!("Extended silence detected, possible device issue");
@@ -321,6 +333,7 @@ impl AudioCapture {
                         {
                             let mut det = detector.write();
                             let is_sil = det.is_silence(&samples_mono);
+                            if is_sil { stats.silent_frames.fetch_add(1, Ordering::Relaxed); } else { stats.active_frames.fetch_add(1, Ordering::Relaxed); }
                             let dur = det.silence_duration();
                             if is_sil && dur > Duration::from_secs(3) {
                                 tracing::warn!("Extended silence detected, possible device issue");
@@ -410,6 +423,8 @@ impl AudioCapture {
             frames_dropped: self.stats.frames_dropped.load(Ordering::Relaxed),
             disconnections: self.stats.disconnections.load(Ordering::Relaxed),
             reconnections: self.stats.reconnections.load(Ordering::Relaxed),
+            active_frames: self.stats.active_frames.load(Ordering::Relaxed),
+            silent_frames: self.stats.silent_frames.load(Ordering::Relaxed),
             last_frame_age: self.stats.last_frame_time.read().clone().map(|t| Instant::now().duration_since(t)),
         }
     }
