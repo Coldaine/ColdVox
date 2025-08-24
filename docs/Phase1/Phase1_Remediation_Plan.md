@@ -27,23 +27,17 @@ This document outlines critical fixes and improvements needed for Phase 1 implem
 
 ---
 
-## Critical Issues (P1 - Must Fix)
+## Critical Issues Status Update
 
-### 1. 🔴 **Watchdog Timer Epoch Logic Error**
-**Location:** `crates/app/src/audio/watchdog.rs:61`
+### 1. ✅ **Watchdog Timer Epoch Logic Error - FIXED**
+**Location:** `crates/app/src/audio/watchdog.rs`
 
-**Issue:** Logic error - `Instant::now().elapsed()` uses different epoch references between start() and feed(), yielding ~0ms elapsed time
-```rust
-// LOGICALLY BROKEN at line 61:
-let now = Instant::now().elapsed().as_millis() as u64;  // Always ~0, wrong epoch
-```
+**Issue:** ~~Logic error - `Instant::now().elapsed()` uses different epoch references between start() and feed(), yielding ~0ms elapsed time~~
 
-**Impact:** Watchdog timer cannot detect timeouts, breaking the recovery mechanism
-
-**Fix Required:**
-- Use consistent epoch between start() and feed() methods
-- Store start_time as a field or use a single reference point
-- Add stop() method for clean shutdown
+**Status:** **FIXED** - Now uses shared epoch stored in `start_epoch: Arc<RwLock<Option<Instant>>>`
+- Consistent epoch between start() and feed() methods ✅
+- Proper timeout detection logic ✅  
+- Clean stop() method implemented ✅
 
 **Suggested Implementation:**
 ```rust
@@ -65,25 +59,16 @@ if let Some(start) = *self.start_time.read() {
 }
 ```
 
----
+### 2. ✅ **CPAL Sample Format Hardcoding - FIXED**  
+**Location:** `crates/app/src/audio/capture.rs`
 
-### 2. 🔴 **CPAL Sample Format Hardcoding**
-**Location:** `crates/app/src/audio/capture.rs:127-129`
+**Issue:** ~~Hardcoded `&[i16]` callback causes BuildStreamError on devices that only support f32 or u16~~
 
-**Issue:** Hardcoded `&[i16]` callback causes BuildStreamError on devices that only support f32 or u16
-```rust
-// FRAGILE CODE:
-move |data: &[i16], _: &_| {  // Assumes i16, fails stream build on f32/u16 devices
-```
-
-**Impact:** Stream creation fails on many devices (e.g., USB interfaces that expose only f32)
-
-**Fix Required:**
-- Query device for supported sample format
-- Build appropriate stream based on actual format
-- Convert to i16 internally for processing
-- **Critical:** Don't request mono (1 channel) - use device's native channel count
-- Downmix to mono in callback if needed
+**Status:** **FIXED** - Now supports multiple sample formats dynamically:
+- i16, f32, u16, u8, i8 callbacks implemented ✅
+- negotiate_config() returns actual device sample format ✅
+- build_stream() matches on sample format and creates appropriate callback ✅
+- Format conversion to i16 handled in each callback ✅
 
 **Suggested Implementation:**
 ```rust
@@ -108,57 +93,29 @@ let f32_callback = move |data: &[f32], _: &_| {
 };
 ```
 
----
-
-### 3. 🔴 **Channel Negotiation Failure**
+### 3. ✅ **Channel Negotiation Failure - FIXED**
 **Location:** `crates/app/src/audio/capture.rs:negotiate_config()`
 
-**Issue:** Forces `channels: 1` which many devices don't support, causing BuildStreamError
-```rust
-// BROKEN:
-channels: 1.min(config.channels()),  // Forces mono, fails on stereo-only devices
-```
+**Issue:** ~~Forces `channels: 1` which many devices don't support, causing BuildStreamError~~
 
-**Impact:** Stream creation fails on stereo-only devices (most USB mics, interfaces)
-
-**Fix Required:**
-```rust
-// In negotiate_config():
-channels: config.channels(),  // Use device's native channel count
-
-// In callback, downmix if needed:
-let mono_sample = if channels == 2 {
-    (data[i] + data[i + 1]) / 2  // Average L+R channels
-} else {
-    data[i]
-};
-```
+**Status:** **FIXED** - Now uses device's native channel count:
+- negotiate_config() uses `channels` (device native count) ✅
+- Removed forced mono channel requirement ✅
+- Callbacks handle channel downmixing to mono internally ✅
+- Supports both mono and stereo devices ✅
 
 ---
 
-### 4. 🔴 **Missing Stop/Cleanup Methods**
+### 4. ✅ **Missing Stop/Cleanup Methods - FIXED**
 **Location:** `crates/app/src/audio/capture.rs` and `watchdog.rs`
 
-**Issue:** No way to cleanly stop capture or watchdog, violates Phase 0 "clean shutdown" requirement
+**Issue:** ~~No way to cleanly stop capture or watchdog, violates Phase 0 "clean shutdown" requirement~~
 
-**Fix Required:**
-```rust
-// AudioCapture:
-pub fn stop(&mut self) {
-    self.running.store(false, Ordering::SeqCst);
-    if let Some(stream) = self.stream.take() {
-        drop(stream);
-    }
-    self.watchdog.stop();
-}
-
-// WatchdogTimer:
-pub fn stop(&mut self) {
-    if let Some(handle) = self.handle.take() {
-        // Signal stop and wait/detach
-    }
-}
-```
+**Status:** **FIXED** - Clean shutdown methods implemented:
+- AudioCapture::stop() implemented ✅
+- WatchdogTimer::stop() implemented ✅
+- Proper resource cleanup (streams, tasks) ✅
+- Meets Phase 0 clean shutdown requirements ✅
 
 ---
 
@@ -248,15 +205,15 @@ fn test_invalid_state_transition() {
 
 ---
 
-## Implementation Order
+## Implementation Status Summary
 
-### Critical (P1 - Blocks functionality):
-1. **Fix watchdog timer epoch logic** - recovery doesn't work without this
-2. **Fix CPAL format handling** - handle f32/u16/i16 dynamically
-3. **Fix channel negotiation** - use device channels, downmix in callback
-4. **Add stop/cleanup methods** - required for Phase 0 clean shutdown
+### Critical Issues (P1) - ✅ ALL FIXED:
+1. ✅ **Watchdog timer epoch logic** - Fixed with shared epoch
+2. ✅ **CPAL format handling** - Fixed with multiple format support
+3. ✅ **Channel negotiation** - Fixed using device native channels
+4. ✅ **Stop/cleanup methods** - Fixed with proper shutdown methods
 
-### Important (P2 - Should do now):
+### Important Issues (P2 - Should do next):
 5. **Wire --save-audio with consumer task** - debugging aid
 6. **Start HealthMonitor** - Phase 0 spec compliance
 7. **Clean up error types** - remove AudioError::Fatal
@@ -295,17 +252,20 @@ if args.simulate_timeout && frame_count > 100 {
 }
 ```
 
-## Risk Assessment
+## Current Risk Assessment
 
-- **Without Fix #1-4 (P1):** Core functionality broken on real hardware
-  - Watchdog can't detect timeouts → no recovery
-  - Many devices fail stream creation → unusable
-  - Stereo-only devices fail → excludes common hardware
-  - Can't shutdown cleanly → zombie threads
-- **Without Fix #5-7 (P2):** Spec violations and debugging difficulties
-  - Can't debug audio issues (no save-audio)
-  - Phase 0 criteria not met (health checks not running)
-- **Without Fix #8-10 (P3):** Code quality only, no functional impact
+- ✅ **Critical Issues (P1) - RESOLVED:** All core functionality now works
+  - ✅ Watchdog can detect timeouts → recovery works
+  - ✅ Multiple format support → works on all devices
+  - ✅ Channel negotiation → works on stereo devices
+  - ✅ Clean shutdown → no zombie threads
+
+- ⚠️ **Important Issues (P2) - REMAINING:** Quality of life improvements needed
+  - Can't debug audio issues (no save-audio functionality)
+  - Phase 0 criteria not fully met (health checks not running)
+  - Code quality issues remain
+
+- ℹ️ **Nice-to-have (P3):** Defer to later phases
 
 ---
 

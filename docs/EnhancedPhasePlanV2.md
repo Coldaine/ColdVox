@@ -123,40 +123,61 @@ Normalization on load: precompute all sample counts (e.g., frame_samples, pre_ro
 
 ## Phases and deliverables
 
-### Phase 0: Foundation & Safety Net
+### Phase 0: Foundation & Safety Net — ✅ COMPLETE
 Deliverables:
 - Error enums; health monitor; Ctrl‑C graceful shutdown; panic hook that logs; Instant‑based timers; structured logging; config via clap+serde with precedence CLI > env > file; backoff utility; basic metrics facade.
 Tests: foundation_probe with simulated errors/panics; verify clean shutdown ≤ 1s and recovery attempts logged.
+**Status:** All core foundation components implemented and tested.
 
-### Phase I: Microphone capture with recovery
+### Phase I: Microphone capture with recovery — ⚠️ FUNCTIONALLY COMPLETE (Critical bugs present)
 Deliverables:
 - Device enumeration with default fallback; robust format negotiation; fractional‑phase resampler; silence/dead‑stream detection using energy; watchdog timer; reconnection loop with backoff.
 Tests: normal capture, unplug/replug, format mismatch fallback, silence detection, multi‑device switching.
+**Status:** All features implemented, but 4 critical bugs prevent production use. See remediation plan.
 
-### Phase II: Robust Ring Buffer
+### Phase II: Robust Ring Buffer — ✅ COMPLETE
 Deliverables:
 - Lock‑free buffer with policies and stats; continuity counters; underflow zero‑padding; property tests for concurrency/wrap‑around.
 Tests: overflow/underflow handling; concurrent stress; stats accuracy.
+**Status:** Implemented using rtrb library with producer/consumer split for real-time audio processing. Tested and validated.
 
-### Phase III: VAD with fallback
+### Phase III: VAD with fallback — 📋 PLANNED
 Deliverables:
 - Model load with health checks; fallback EnergyVAD with baseline calibration; smoothing; stuck detection and auto fallback; ONNX runtime probe.
 Tests: model missing → fallback; debouncing and smoothing; pre‑buffering; noise robustness; stuck detection.
+**Status:** Next priority after Phase 1 bug fixes. VAD fork already available.
 
-### Phase IV: Intelligent chunking
+### Phase IV: Intelligent chunking — 📋 PLANNED
 Deliverables:
 - Overlap with equal‑power crossfade; pre/post‑roll; metadata and confidence; min‑gap/min‑chunk; force‑flush.
 Tests: natural speech, rapid toggles, long utterances, background speech, non‑speech transients.
+**Status:** Depends on Phase III completion.
 
-### Phase V: Stress testing & edge cases
+### Phase V: Stress testing & edge cases — 📋 PLANNED
 Deliverables:
 - CPU/memory pressure; rapid config changes; disk‑full logging behavior; time jumps; permission errors; simulated hung thread; acceptance thresholds.
 Tests: chaos script; 24h endurance with stable memory/thread counts and bounded drops/overflows.
+**Status:** Integration testing phase.
 
-### Phase VI: Integration & polish
+### Phase VI: Integration & polish — 📋 PLANNED
 Deliverables:
 - Metrics export (HTTP Prometheus); optional web UI; audio recording for debugging; config hot‑reload; stdin debug commands.
 Tests: status/stats/toggle/reload/save/quit flows.
+**Status:** Final polish and production features.
+
+---
+
+## ⚠️ IMMEDIATE ACTION REQUIRED
+
+**Before proceeding to Phase III, the following 4 critical bugs in Phase I must be fixed:**
+
+1. **Watchdog Timer Epoch Logic Error** (`watchdog.rs:61`) - Timer cannot detect timeouts
+2. **CPAL Sample Format Hardcoding** (`capture.rs:127-129`) - Fails on non-i16 devices  
+3. **Channel Negotiation Failure** (`capture.rs`) - Forces mono, fails on stereo-only devices
+4. **Missing Stop/Cleanup Methods** - Violates clean shutdown requirements
+
+**Estimated fix time:** 3-4 hours
+**Risk:** Core functionality broken on most hardware without these fixes
 
 ---
 

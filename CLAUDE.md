@@ -86,10 +86,17 @@ cargo clippy  # For linting
 ## Phase Implementation Status
 
 - **Phase 0**: Foundation & Safety Net ✓
-- **Phase 1**: Microphone Capture with Recovery ✓  
-- **Phase 2**: Lock-free Ring Buffer (In Progress)
+- **Phase 1**: Microphone Capture with Recovery ✓ (with known critical bugs)
+- **Phase 2**: Lock-free Ring Buffer ✓ (using rtrb library)
 - **Phase 3**: VAD with Fallback (Planned)
 - **Phase 4**: Smart Chunking (Planned)
+
+### Critical Issues Requiring Immediate Attention
+
+1. **Watchdog Timer Logic Error** - Timer cannot detect timeouts due to epoch mismatch
+2. **CPAL Sample Format Hardcoding** - Fails on devices not supporting i16 format
+3. **Channel Negotiation Failure** - Forces mono, fails on stereo-only devices
+4. **Missing Stop/Cleanup Methods** - Violates clean shutdown requirements
 
 ## Configuration
 

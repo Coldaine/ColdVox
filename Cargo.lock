@@ -375,6 +375,7 @@ dependencies = [
  "once_cell",
  "parking_lot",
  "proptest",
+ "rtrb",
  "serde",
  "tempfile",
  "thiserror 1.0.69",
@@ -1834,6 +1835,12 @@ name = "regex-syntax"
 version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "caf4aa5b0f434c91fe5c7f1ecb6a5ece2130b02ad2a590589dda5146df959001"
+
+[[package]]
+name = "rtrb"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ad8388ea1a9e0ea807e442e8263a699e7edcb320ecbcd21b4fa8ff859acce3ba"
 
 [[package]]
 name = "rustc-demangle"
