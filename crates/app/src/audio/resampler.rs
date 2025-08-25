@@ -1,33 +1,59 @@
-use std::cmp;
+use rubato::{
+    Resampler, SincFixedIn,
+    SincInterpolationParameters, SincInterpolationType, WindowFunction,
+};
 
-/// Simple streaming linear resampler for mono i16 audio.
+/// Streaming resampler for mono i16 audio using Rubato's high-quality sinc interpolation.
 ///
-/// - Maintains internal accumulator of past input samples so callers can push
-///   arbitrary-sized chunks.
-/// - Produces as many output samples as possible based on the input provided
-///   and the input/output rate ratio.
-/// - Uses linear interpolation. Sufficient for VAD and monitoring. Low cost.
+/// - Maintains internal buffers to handle arbitrary-sized input chunks
+/// - Uses Rubato's SincFixedIn for high-quality, configurable resampling
+/// - Automatically handles buffering for Rubato's fixed chunk requirements
 pub struct StreamResampler {
     in_rate: u32,
     out_rate: u32,
-    /// Input sample accumulator (mono)
-    acc: Vec<i16>,
-    /// Current fractional read position in `acc` in input-sample units
-    phase: f32,
-    /// Phase increment per output sample: in_rate / out_rate
-    inc: f32,
+    /// Rubato resampler instance
+    resampler: SincFixedIn<f32>,
+    /// Input buffer for accumulating samples
+    input_buffer: Vec<f32>,
+    /// Output buffer for accumulating resampled samples
+    output_buffer: Vec<f32>,
+    /// Chunk size required by Rubato
+    chunk_size: usize,
 }
 
 impl StreamResampler {
     /// Create a new mono resampler from in_rate -> out_rate.
     pub fn new(in_rate: u32, out_rate: u32) -> Self {
-        let inc = in_rate as f32 / out_rate as f32;
+        // For VAD, we want low latency, so use a relatively small chunk size
+        // 512 samples at 16kHz = 32ms, which aligns well with typical VAD frame sizes
+        let chunk_size = 512;
+        
+        // Configure sinc interpolation for good quality with reasonable CPU usage
+        let sinc_params = SincInterpolationParameters {
+            sinc_len: 64,  // Medium quality, good for speech
+            f_cutoff: 0.95,  // Slightly below Nyquist for better anti-aliasing
+            interpolation: SincInterpolationType::Cubic,
+            oversampling_factor: 128,  // Good balance of quality vs memory
+            window: WindowFunction::Blackman2,  // Good stopband attenuation
+        };
+        
+        // Create the resampler
+        // We only need 1 channel for mono audio
+        let resampler = SincFixedIn::<f32>::new(
+            out_rate as f64 / in_rate as f64,  // Resample ratio
+            2.0,  // Max resample ratio change (not used in fixed mode)
+            sinc_params,
+            chunk_size,
+            1,  // mono
+        ).expect("Failed to create Rubato resampler");
+        
         Self {
             in_rate,
             out_rate,
-            acc: Vec::with_capacity((in_rate.min(out_rate)) as usize),
-            phase: 0.0,
-            inc,
+            resampler,
+            input_buffer: Vec::with_capacity(chunk_size * 2),
+            output_buffer: Vec::new(),
+            chunk_size,
         }
     }
 
@@ -39,49 +65,59 @@ impl StreamResampler {
             return input.to_vec();
         }
 
-        // Append to accumulator
-        self.acc.extend_from_slice(input);
-
-        // Upper bound on number of outputs we might produce this call
-        // Over-allocate a bit to avoid growth
-        let max_out = ((self.acc.len() as f32 - self.phase).max(0.0) / self.inc) as usize;
-        let mut out = Vec::with_capacity(max_out);
-
-        // We need at least two samples to interpolate
-        while (self.phase + 1.0) < (self.acc.len() as f32) {
-            let idx = self.phase as usize;
-            let frac = self.phase - idx as f32;
-
-            // Safe due to while-condition; idx + 1 < acc.len()
-            let s0 = self.acc[idx] as f32;
-            let s1 = self.acc[idx + 1] as f32;
-            let sample = s0 * (1.0 - frac) + s1 * frac;
-
-            // Convert back to i16 with saturation
-            let y = sample.round().clamp(i16::MIN as f32, i16::MAX as f32) as i16;
-            out.push(y);
-
-            self.phase += self.inc;
+        // Convert i16 to f32 and append to input buffer
+        for &sample in input {
+            self.input_buffer.push(sample as f32 / 32768.0);
         }
 
-        // Drop fully consumed input samples to keep memory bounded
-        let consumed = cmp::min(self.phase as usize, self.acc.len());
-        if consumed > 0 {
-            self.acc.drain(..consumed);
-            self.phase -= consumed as f32;
+        // Process complete chunks
+        while self.input_buffer.len() >= self.chunk_size {
+            // Prepare input for Rubato (it expects Vec<Vec<f32>> for channels)
+            let chunk: Vec<f32> = self.input_buffer.drain(..self.chunk_size).collect();
+            let input_frames = vec![chunk];
+            
+            // Process the chunk
+            let output_frames = match self.resampler.process(&input_frames, None) {
+                Ok(frames) => frames,
+                Err(e) => {
+                    eprintln!("Resampler error: {}", e);
+                    // Return empty on error to maintain stream continuity
+                    return Vec::new();
+                }
+            };
+            
+            // Append resampled output (first channel only, since we're mono)
+            if !output_frames.is_empty() && !output_frames[0].is_empty() {
+                self.output_buffer.extend_from_slice(&output_frames[0]);
+            }
         }
 
-        out
+        // Convert accumulated f32 samples back to i16
+        let mut result = Vec::with_capacity(self.output_buffer.len());
+        for &sample in &self.output_buffer {
+            // Clamp to [-1.0, 1.0] and convert to i16
+            let clamped = sample.clamp(-1.0, 1.0);
+            let i16_sample = (clamped * 32767.0).round() as i16;
+            result.push(i16_sample);
+        }
+        
+        // Clear the output buffer for next time
+        self.output_buffer.clear();
+        
+        result
     }
 
-    /// Reset internal state, clearing buffers and phase.
+    /// Reset internal state, clearing buffers and resetting the resampler.
     pub fn reset(&mut self) {
-        self.acc.clear();
-        self.phase = 0.0;
+        self.input_buffer.clear();
+        self.output_buffer.clear();
+        // Reset the resampler's internal state
+        self.resampler.reset();
     }
 
     /// Current input rate.
     pub fn input_rate(&self) -> u32 { self.in_rate }
+    
     /// Current output rate.
     pub fn output_rate(&self) -> u32 { self.out_rate }
 }
@@ -95,25 +131,51 @@ mod tests {
         let mut rs = StreamResampler::new(48_000, 16_000);
         // 4.8k samples (~0.1s). Expect ~1.6k out.
         let n_in = 4_800;
-        let input: Vec<i16> = (0..n_in).map(|i| (i as i16)).collect();
-        let out = rs.process(&input);
-        assert!(out.len() >= 1500 && out.len() <= 1700, "len {}", out.len());
-        // Monotonic non-decreasing for a ramp
-        for w in out.windows(2) {
-            assert!(w[1] >= w[0]);
+        let input: Vec<i16> = (0..n_in).map(|i| (i % 32768) as i16).collect();
+        
+        // Process in chunks to test buffering
+        let mut all_output = Vec::new();
+        for chunk in input.chunks(1000) {
+            let out = rs.process(chunk);
+            all_output.extend(out);
         }
+        
+        // We should get approximately 1/3 of the input samples
+        // Allow some variance due to buffering
+        assert!(all_output.len() >= 1400 && all_output.len() <= 1700, 
+                "Expected ~1600 samples, got {}", all_output.len());
     }
 
     #[test]
     fn upsample_16k_to_48k_constant() {
         let mut rs = StreamResampler::new(16_000, 48_000);
         // Constant tone: output should be approximately constant too
-        let input = vec![1000i16; 320];
+        let input = vec![1000i16; 1600];  // 100ms at 16kHz
+        
+        // Process in one go
         let out = rs.process(&input);
-        assert!(out.len() >= 900 && out.len() <= 1000, "len {}", out.len());
-        // Values within a small band around 1000 due to interpolation edges
-        for &s in &out[10..out.len().saturating_sub(10)] {
-            assert!(s >= 980 && s <= 1020, "{}", s);
+        
+        // We should get approximately 3x the input samples
+        // Allow wider variance due to Rubato's buffering strategy
+        // The exact output depends on how the chunk size aligns with the resample ratio
+        assert!(out.len() >= 4400 && out.len() <= 5000, 
+                "Expected ~4800 samples, got {}", out.len());
+        
+        // Check middle samples are close to the input value
+        // (skip edges which may have interpolation artifacts)
+        if out.len() > 100 {
+            for &s in &out[50..out.len().saturating_sub(50)] {
+                assert!(s >= 900 && s <= 1100, 
+                        "Sample {} too far from expected 1000", s);
+            }
         }
+    }
+    
+    #[test]
+    fn passthrough_same_rate() {
+        let mut rs = StreamResampler::new(16_000, 16_000);
+        let input = vec![100i16, 200, 300, 400, 500];
+        let output = rs.process(&input);
+        assert_eq!(input, output, "Passthrough should return identical data");
     }
 }

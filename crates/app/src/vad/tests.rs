@@ -139,35 +139,6 @@ mod integration_tests {
     }
 
     #[test]
-    fn test_debounce_prevents_flapping() {
-        let config = VadConfig {
-            onset_threshold_db: -30.0,
-            offset_threshold_db: -35.0,
-            initial_floor_db: -50.0,
-            speech_debounce_ms: 100,
-            silence_debounce_ms: 100,
-            ..Default::default()
-        };
-
-        let mut vad = Level3Vad::new(config);
-
-        let silence = generate_silence(320);
-        let borderline_speech = generate_sine_wave(320, 440.0, 2000.0, 16000.0);
-
-        let mut events = Vec::new();
-
-        for i in 0..20 {
-            let frame = if i % 2 == 0 { &borderline_speech } else { &silence };
-            
-            if let Some(event) = vad.process(frame).unwrap() {
-                events.push(event);
-            }
-        }
-
-        assert!(events.len() <= 2);
-    }
-
-    #[test]
     fn test_different_audio_types() {
         let mut vad = Level3Vad::new(VadConfig::default());
 

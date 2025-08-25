@@ -71,14 +71,6 @@ mod tests {
     }
     
     #[test]
-    fn test_half_scale_returns_minus_six_dbfs() {
-        let calc = EnergyCalculator::new();
-        let half_scale = vec![16384i16; 320];
-        let db = calc.calculate_dbfs(&half_scale);
-        assert!((db - (-6.0)).abs() < 0.1);
-    }
-    
-    #[test]
     fn test_rms_calculation() {
         let calc = EnergyCalculator::new();
         

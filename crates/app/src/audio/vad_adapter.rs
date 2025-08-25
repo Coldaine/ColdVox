@@ -87,6 +87,11 @@ impl VadAdapter {
     }
 }
 
+use rubato::{
+    Resampler, SincFixedIn,
+    SincInterpolationParameters, SincInterpolationType, WindowFunction,
+};
+
 struct AudioResampler {
     input_rate: u32,
     output_rate: u32,
@@ -94,7 +99,10 @@ struct AudioResampler {
     output_frame_size: usize,
     accumulator: Vec<i16>,
     output_buffer: Vec<i16>,
-    phase: f32,
+    resampler: Option<SincFixedIn<f32>>,
+    f32_input_buffer: Vec<f32>,
+    f32_output_buffer: Vec<f32>,
+    chunk_size: usize,
 }
 
 impl AudioResampler {
@@ -104,6 +112,33 @@ impl AudioResampler {
         input_frame_size: usize,
         output_frame_size: usize,
     ) -> Result<Self, String> {
+        // Only create Rubato resampler if rates differ
+        let (resampler, chunk_size) = if input_rate != output_rate {
+            // Use a chunk size that works well with typical frame sizes
+            let chunk_size = 512;
+            
+            // Configure for low-latency VAD processing
+            let sinc_params = SincInterpolationParameters {
+                sinc_len: 64,
+                f_cutoff: 0.95,
+                interpolation: SincInterpolationType::Cubic,
+                oversampling_factor: 128,
+                window: WindowFunction::Blackman2,
+            };
+            
+            let resampler = SincFixedIn::<f32>::new(
+                output_rate as f64 / input_rate as f64,  // Resample ratio
+                2.0,  // Max resample ratio change (not used in fixed mode)
+                sinc_params,
+                chunk_size,
+                1,  // mono
+            ).map_err(|e| format!("Failed to create Rubato resampler: {}", e))?;
+            
+            (Some(resampler), chunk_size)
+        } else {
+            (None, 512)  // Default chunk size even when not resampling
+        };
+        
         Ok(Self {
             input_rate,
             output_rate,
@@ -111,7 +146,10 @@ impl AudioResampler {
             output_frame_size,
             accumulator: Vec::new(),
             output_buffer: Vec::with_capacity(output_frame_size * 2),
-            phase: 0.0,
+            resampler,
+            f32_input_buffer: Vec::with_capacity(chunk_size * 2),
+            f32_output_buffer: Vec::new(),
+            chunk_size,
         })
     }
     
@@ -134,33 +172,40 @@ impl AudioResampler {
                 let frame: Vec<i16> = self.accumulator.drain(..self.output_frame_size).collect();
                 self.output_buffer.extend_from_slice(&frame);
             }
-        } else {
-            // Resample with linear interpolation
-            let ratio = self.input_rate as f32 / self.output_rate as f32;
+        } else if let Some(resampler) = &mut self.resampler {
+            // Use Rubato for high-quality resampling
             
-            while (self.phase as usize) + 1 < self.accumulator.len() {
-                let index = self.phase as usize;
-                let fraction = self.phase - index as f32;
+            // Convert accumulated i16 samples to f32
+            for &sample in &self.accumulator {
+                self.f32_input_buffer.push(sample as f32 / 32768.0);
+            }
+            self.accumulator.clear();
+            
+            // Process complete chunks through Rubato
+            while self.f32_input_buffer.len() >= self.chunk_size {
+                let chunk: Vec<f32> = self.f32_input_buffer.drain(..self.chunk_size).collect();
+                let input_frames = vec![chunk];
                 
-                let s0 = self.accumulator[index] as f32;
-                let s1 = self.accumulator[index + 1] as f32;
-                let sample = (s0 * (1.0 - fraction) + s1 * fraction) as i16;
-                
-                self.output_buffer.push(sample);
-                self.phase += ratio;
-                
-                // If we have enough samples for a frame, stop
-                if self.output_buffer.len() >= self.output_frame_size {
-                    break;
+                // Process with Rubato
+                match resampler.process(&input_frames, None) {
+                    Ok(output_frames) => {
+                        if !output_frames.is_empty() && !output_frames[0].is_empty() {
+                            self.f32_output_buffer.extend_from_slice(&output_frames[0]);
+                        }
+                    }
+                    Err(e) => {
+                        return Err(format!("Resampler error: {}", e));
+                    }
                 }
             }
             
-            // Remove consumed samples
-            let consumed = (self.phase as usize).min(self.accumulator.len());
-            if consumed > 0 {
-                self.accumulator.drain(..consumed);
-                self.phase -= consumed as f32;
+            // Convert f32 output back to i16 and add to output buffer
+            for &sample in &self.f32_output_buffer {
+                let clamped = sample.clamp(-1.0, 1.0);
+                let i16_sample = (clamped * 32767.0).round() as i16;
+                self.output_buffer.push(i16_sample);
             }
+            self.f32_output_buffer.clear();
         }
         
         // Return a complete frame if available, otherwise return empty vector
@@ -175,6 +220,10 @@ impl AudioResampler {
     fn reset(&mut self) {
         self.output_buffer.clear();
         self.accumulator.clear();
-        self.phase = 0.0;
+        self.f32_input_buffer.clear();
+        self.f32_output_buffer.clear();
+        if let Some(resampler) = &mut self.resampler {
+            resampler.reset();
+        }
     }
 }
