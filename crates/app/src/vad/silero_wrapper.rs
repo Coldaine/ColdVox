@@ -105,6 +105,7 @@ impl VadEngine for SileroEngine {
             return Err(format!("Silero VAD requires 512 samples, got {}", frame.len()));
         }
         
+        
         let probability = self.detector.predict(frame.iter().map(|&s| I16Sample(s)))
             .map_err(|e| format!("Silero VAD prediction failed: {}", e))?;
         

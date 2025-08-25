@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 use super::detector::SilenceDetector;
 use super::device::DeviceManager;
 use super::watchdog::WatchdogTimer;
+use super::resampler::StreamResampler;
 use crate::foundation::error::{AudioConfig, AudioError};
 
 pub struct AudioCapture {
@@ -138,7 +139,18 @@ impl AudioCapture {
         };
 
         let channels = config.channels as usize;
-        let sample_rate = config.sample_rate.0;
+        let input_sample_rate = config.sample_rate.0;
+        let target_sample_rate: u32 = 16_000;
+        let need_resample = input_sample_rate != target_sample_rate;
+        // Resampler shared with the callback closure; only used inside that thread.
+        let resampler = if need_resample {
+            Some(Arc::new(parking_lot::Mutex::new(StreamResampler::new(
+                input_sample_rate,
+                target_sample_rate,
+            ))))
+        } else {
+            None
+        };
 
         let stream = match sample_format {
             SampleFormat::I16 => {
@@ -167,9 +179,15 @@ impl AudioCapture {
                                 })
                                 .collect()
                         };
+                        let out_samples: Vec<i16> = if let Some(rs) = &resampler {
+                            let mut guard = rs.lock();
+                            guard.process(&samples_mono)
+                        } else {
+                            samples_mono
+                        };
                         {
                             let mut det = detector.write();
-                            let is_sil = det.is_silence(&samples_mono);
+                            let is_sil = det.is_silence(&out_samples);
                             if is_sil {
                                 stats.silent_frames.fetch_add(1, Ordering::Relaxed);
                             } else {
@@ -181,9 +199,9 @@ impl AudioCapture {
                             }
                         }
                         let frame = AudioFrame {
-                            samples: samples_mono,
+                            samples: out_samples,
                             timestamp: Instant::now(),
-                            sample_rate,
+                            sample_rate: target_sample_rate,
                             channels: config.channels,
                         };
                         match sample_tx.try_send(frame) {
@@ -228,9 +246,15 @@ impl AudioCapture {
                                 })
                                 .collect()
                         };
+                        let out_samples: Vec<i16> = if let Some(rs) = &resampler {
+                            let mut guard = rs.lock();
+                            guard.process(&samples_mono)
+                        } else {
+                            samples_mono
+                        };
                         {
                             let mut det = detector.write();
-                            let is_sil = det.is_silence(&samples_mono);
+                            let is_sil = det.is_silence(&out_samples);
                             if is_sil {
                                 stats.silent_frames.fetch_add(1, Ordering::Relaxed);
                             } else {
@@ -242,9 +266,9 @@ impl AudioCapture {
                             }
                         }
                         let frame = AudioFrame {
-                            samples: samples_mono,
+                            samples: out_samples,
                             timestamp: Instant::now(),
-                            sample_rate,
+                            sample_rate: target_sample_rate,
                             channels: config.channels,
                         };
                         match sample_tx.try_send(frame) {
@@ -289,9 +313,15 @@ impl AudioCapture {
                                 })
                                 .collect()
                         };
+                        let out_samples: Vec<i16> = if let Some(rs) = &resampler {
+                            let mut guard = rs.lock();
+                            guard.process(&samples_mono)
+                        } else {
+                            samples_mono
+                        };
                         {
                             let mut det = detector.write();
-                            let is_sil = det.is_silence(&samples_mono);
+                            let is_sil = det.is_silence(&out_samples);
                             if is_sil {
                                 stats.silent_frames.fetch_add(1, Ordering::Relaxed);
                             } else {
@@ -303,9 +333,9 @@ impl AudioCapture {
                             }
                         }
                         let frame = AudioFrame {
-                            samples: samples_mono,
+                            samples: out_samples,
                             timestamp: Instant::now(),
-                            sample_rate,
+                            sample_rate: target_sample_rate,
                             channels: config.channels,
                         };
                         match sample_tx.try_send(frame) {
@@ -350,9 +380,15 @@ impl AudioCapture {
                                 })
                                 .collect()
                         };
+                        let out_samples: Vec<i16> = if let Some(rs) = &resampler {
+                            let mut guard = rs.lock();
+                            guard.process(&samples_mono)
+                        } else {
+                            samples_mono
+                        };
                         {
                             let mut det = detector.write();
-                            let is_sil = det.is_silence(&samples_mono);
+                            let is_sil = det.is_silence(&out_samples);
                             if is_sil {
                                 stats.silent_frames.fetch_add(1, Ordering::Relaxed);
                             } else {
@@ -364,9 +400,9 @@ impl AudioCapture {
                             }
                         }
                         let frame = AudioFrame {
-                            samples: samples_mono,
+                            samples: out_samples,
                             timestamp: Instant::now(),
-                            sample_rate,
+                            sample_rate: target_sample_rate,
                             channels: config.channels,
                         };
                         match sample_tx.try_send(frame) {
@@ -411,9 +447,15 @@ impl AudioCapture {
                                 })
                                 .collect()
                         };
+                        let out_samples: Vec<i16> = if let Some(rs) = &resampler {
+                            let mut guard = rs.lock();
+                            guard.process(&samples_mono)
+                        } else {
+                            samples_mono
+                        };
                         {
                             let mut det = detector.write();
-                            let is_sil = det.is_silence(&samples_mono);
+                            let is_sil = det.is_silence(&out_samples);
                             if is_sil {
                                 stats.silent_frames.fetch_add(1, Ordering::Relaxed);
                             } else {
@@ -425,9 +467,9 @@ impl AudioCapture {
                             }
                         }
                         let frame = AudioFrame {
-                            samples: samples_mono,
+                            samples: out_samples,
                             timestamp: Instant::now(),
-                            sample_rate,
+                            sample_rate: target_sample_rate,
                             channels: config.channels,
                         };
                         match sample_tx.try_send(frame) {

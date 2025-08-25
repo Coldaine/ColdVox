@@ -15,6 +15,10 @@ path = "src/bin/mic_probe.rs"
 name = "vad_demo"
 path = "src/bin/vad_demo.rs"
 
+[[bin]]
+name = "record_10s"
+path = "src/bin/record_10s.rs"
+
 
 
 [dependencies]
@@ -29,7 +33,7 @@ tracing-appender = "0.2"
 # Audio
 cpal = "0.15"
 hound = "3.5"
-dasp = { version = "0.11", features = ["signal", "interpolate"] }
+dasp = { version = "0.11", features = ["all"] }
 rtrb = "0.3"
 
 # Utilities

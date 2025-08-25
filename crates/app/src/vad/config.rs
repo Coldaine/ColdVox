@@ -8,12 +8,13 @@ pub enum VadMode {
 
 impl Default for VadMode {
     fn default() -> Self {
-        Self::Level3
+        Self::Silero  // Default to Silero since Level3 is disabled
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Level3Config {
+    pub enabled: bool,
     pub onset_threshold_db: f32,
     pub offset_threshold_db: f32,
     pub ema_alpha: f32,
@@ -25,6 +26,7 @@ pub struct Level3Config {
 impl Default for Level3Config {
     fn default() -> Self {
         Self {
+            enabled: false,  // Disabled by default
             onset_threshold_db: 9.0,
             offset_threshold_db: 6.0,
             ema_alpha: 0.02,
@@ -46,7 +48,7 @@ pub struct SileroConfig {
 impl Default for SileroConfig {
     fn default() -> Self {
         Self {
-            threshold: 0.5,
+            threshold: 0.3,
             min_speech_duration_ms: 250,
             min_silence_duration_ms: 100,
             window_size_samples: 512,
@@ -66,7 +68,7 @@ pub struct UnifiedVadConfig {
 impl Default for UnifiedVadConfig {
     fn default() -> Self {
         Self {
-            mode: VadMode::Level3,
+            mode: VadMode::default(),  // Uses Silero by default now
             level3: Level3Config::default(),
             silero: SileroConfig::default(),
             frame_size_samples: 320,

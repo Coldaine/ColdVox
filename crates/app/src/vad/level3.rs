@@ -204,7 +204,7 @@ mod tests {
         let mut vad = Level3Vad::new(VadConfig::default());
         let wrong_size_frame = vec![0i16; 160];
 
-        let result = vad.process(&wrong_size_frame);
+        let result = VadProcessor::process(&mut vad, &wrong_size_frame);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Expected 320 samples"));
     }
@@ -215,9 +215,9 @@ mod tests {
         let silence_frame = vec![0i16; 320];
 
         for _ in 0..100 {
-            let event = vad.process(&silence_frame).unwrap();
+            let event = VadProcessor::process(&mut vad, &silence_frame).unwrap();
             assert!(event.is_none());
-            assert_eq!(vad.current_state(), VadState::Silence);
+            assert_eq!(VadProcessor::current_state(&vad), VadState::Silence);
         }
 
         let metrics = vad.metrics();
@@ -249,7 +249,7 @@ mod tests {
         let mut speech_started = false;
 
         for frame_num in 0..10 {
-            let event = vad.process(&speech_frame).unwrap();
+            let event = VadProcessor::process(&mut vad, &speech_frame).unwrap();
 
             if let Some(VadEvent::SpeechStart { .. }) = event {
                 speech_started = true;
@@ -258,13 +258,13 @@ mod tests {
         }
 
         assert!(speech_started);
-        assert_eq!(vad.current_state(), VadState::Speech);
+        assert_eq!(VadProcessor::current_state(&vad), VadState::Speech);
 
         let silence_frame = vec![0i16; 320];
         let mut speech_ended = false;
 
         for _ in 0..10 {
-            let event = vad.process(&silence_frame).unwrap();
+            let event = VadProcessor::process(&mut vad, &silence_frame).unwrap();
 
             if let Some(VadEvent::SpeechEnd { duration_ms, .. }) = event {
                 speech_ended = true;
@@ -273,7 +273,7 @@ mod tests {
         }
 
         assert!(speech_ended);
-        assert_eq!(vad.current_state(), VadState::Silence);
+        assert_eq!(VadProcessor::current_state(&vad), VadState::Silence);
     }
 
     #[test]
@@ -295,7 +295,7 @@ mod tests {
         let initial_floor = vad.threshold.current_floor();
 
         for _ in 0..50 {
-            vad.process(&noisy_background).unwrap();
+            VadProcessor::process(&mut vad, &noisy_background).unwrap();
         }
 
         let adapted_floor = vad.threshold.current_floor();
@@ -308,14 +308,14 @@ mod tests {
 
         let speech_frame = vec![16000i16; 320];
         for _ in 0..20 {
-            vad.process(&speech_frame).unwrap();
+            VadProcessor::process(&mut vad, &speech_frame).unwrap();
         }
 
         assert!(vad.metrics().frames_processed > 0);
 
-        vad.reset();
+        VadProcessor::reset(&mut vad);
 
         assert_eq!(vad.metrics().frames_processed, 0);
-        assert_eq!(vad.current_state(), VadState::Silence);
+        assert_eq!(VadProcessor::current_state(&vad), VadState::Silence);
     }
 }
