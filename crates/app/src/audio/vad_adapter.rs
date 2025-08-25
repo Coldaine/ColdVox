@@ -57,12 +57,18 @@ impl VadAdapter {
     }
     
     pub fn process(&mut self, frame: &[i16]) -> Result<Option<VadEvent>, String> {
-        let processed_frame = if let Some(resampler) = &mut self.resampler {
-            resampler.process(frame)?
+        if let Some(resampler) = &mut self.resampler {
+            let processed_frame = resampler.process(frame)?;
+            // Only process if we got a complete frame
+            if !processed_frame.is_empty() {
+                self.engine.process(&processed_frame)
+            } else {
+                // Not enough samples yet, waiting for more
+                Ok(None)
+            }
         } else {
-            frame.to_vec()
-        };
-        self.engine.process(&processed_frame)
+            self.engine.process(frame)
+        }
     }
     
     pub fn reset(&mut self) {
@@ -86,8 +92,8 @@ struct AudioResampler {
     output_rate: u32,
     input_frame_size: usize,
     output_frame_size: usize,
-    buffer: Vec<i16>,
     accumulator: Vec<i16>,
+    output_buffer: Vec<i16>,
     phase: f32,
 }
 
@@ -103,8 +109,8 @@ impl AudioResampler {
             output_rate,
             input_frame_size,
             output_frame_size,
-            buffer: Vec::with_capacity(output_frame_size * 2),
             accumulator: Vec::new(),
+            output_buffer: Vec::with_capacity(output_frame_size * 2),
             phase: 0.0,
         })
     }
@@ -118,40 +124,56 @@ impl AudioResampler {
             ));
         }
         
+        // Add input to accumulator
         self.accumulator.extend_from_slice(input);
         
-        let ratio = self.input_rate as f32 / self.output_rate as f32;
-        let mut output = Vec::with_capacity(self.output_frame_size);
-        
-        while output.len() < self.output_frame_size && (self.phase as usize) < self.accumulator.len() - 1 {
-            let index = self.phase as usize;
-            let fraction = self.phase - index as f32;
+        // If sample rates are the same, just handle frame size conversion
+        if self.input_rate == self.output_rate {
+            // Simple frame size conversion without resampling
+            while self.accumulator.len() >= self.output_frame_size {
+                let frame: Vec<i16> = self.accumulator.drain(..self.output_frame_size).collect();
+                self.output_buffer.extend_from_slice(&frame);
+            }
+        } else {
+            // Resample with linear interpolation
+            let ratio = self.input_rate as f32 / self.output_rate as f32;
             
-            let sample = if index + 1 < self.accumulator.len() {
+            while (self.phase as usize) + 1 < self.accumulator.len() {
+                let index = self.phase as usize;
+                let fraction = self.phase - index as f32;
+                
                 let s0 = self.accumulator[index] as f32;
                 let s1 = self.accumulator[index + 1] as f32;
-                (s0 * (1.0 - fraction) + s1 * fraction) as i16
-            } else {
-                self.accumulator[index]
-            };
+                let sample = (s0 * (1.0 - fraction) + s1 * fraction) as i16;
+                
+                self.output_buffer.push(sample);
+                self.phase += ratio;
+                
+                // If we have enough samples for a frame, stop
+                if self.output_buffer.len() >= self.output_frame_size {
+                    break;
+                }
+            }
             
-            output.push(sample);
-            self.phase += ratio;
+            // Remove consumed samples
+            let consumed = (self.phase as usize).min(self.accumulator.len());
+            if consumed > 0 {
+                self.accumulator.drain(..consumed);
+                self.phase -= consumed as f32;
+            }
         }
         
-        let consumed = (self.phase as usize).min(self.accumulator.len());
-        self.accumulator.drain(..consumed);
-        self.phase -= consumed as f32;
-        
-        while output.len() < self.output_frame_size {
-            output.push(0);
+        // Return a complete frame if available, otherwise return empty vector
+        if self.output_buffer.len() >= self.output_frame_size {
+            Ok(self.output_buffer.drain(..self.output_frame_size).collect())
+        } else {
+            // Not enough samples yet - return empty vector
+            Ok(Vec::new())
         }
-        
-        Ok(output)
     }
     
     fn reset(&mut self) {
-        self.buffer.clear();
+        self.output_buffer.clear();
         self.accumulator.clear();
         self.phase = 0.0;
     }

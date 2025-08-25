@@ -57,7 +57,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     
     let generator_shutdown = shutdown.clone();
-    let audio_file_path = "crates/app/test_audio_16k.wav".to_string();
+    let audio_file_path = std::env::var("VAD_TEST_FILE")
+        .unwrap_or_else(|_| "test_audio_16k.wav".to_string());
     let generator_handle = thread::spawn(move || {
         if let Err(e) = generate_audio_from_wav(audio_tx, generator_shutdown, vad_config.frame_size_samples, &audio_file_path) {
             error!("Audio generator failed: {}", e);

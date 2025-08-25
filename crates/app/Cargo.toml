@@ -4,39 +4,36 @@ version = "0.1.0"
 edition = "2021"
 
 [[bin]]
+name = "tui_dashboard"
+path = "src/bin/tui_dashboard.rs"
+
+[[example]]
 name = "foundation_probe"
-path = "src/bin/foundation_probe.rs"
+path = "examples/foundation_probe.rs"
 
-[[bin]]
+[[example]]
 name = "mic_probe"
-path = "src/bin/mic_probe.rs"
+path = "examples/mic_probe.rs"
 
-[[bin]]
+[[example]]
 name = "vad_demo"
-path = "src/bin/vad_demo.rs"
+path = "examples/vad_demo.rs"
 
-[[bin]]
+[[example]]
 name = "record_10s"
-path = "src/bin/record_10s.rs"
-
-
+path = "examples/record_10s.rs"
 
 [dependencies]
-# Core
 tokio = { version = "1.35", features = ["full"] }
 anyhow = "1.0"
 thiserror = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
-
-# Audio
 cpal = "0.15"
 hound = "3.5"
 dasp = { version = "0.11", features = ["all"] }
 rtrb = "0.3"
-
-# Utilities
 crossbeam-channel = "0.5"
 parking_lot = "0.12"
 once_cell = "1.19"
@@ -44,8 +41,6 @@ serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
 clap = { version = "4.0", features = ["derive"] }
 env_logger = "0.11"
-
-# VAD integration
 voice_activity_detector = { path = "../../Forks/ColdVox-voice_activity_detector" }
 
 [features]

@@ -1,6 +1,7 @@
 pub mod capture;
 pub mod detector;
 pub mod device;
+pub mod chunker;
 pub mod ring_buffer;
 pub mod resampler;
 pub mod vad_adapter;
@@ -10,6 +11,7 @@ pub mod watchdog;
 pub use capture::*;
 pub use detector::*;
 pub use device::*;
+pub use chunker::*;
 pub use ring_buffer::*;
 pub use resampler::*;
 pub use vad_adapter::*;

@@ -1,5 +1,10 @@
 use coldvox_app::audio::*;
 use coldvox_app::foundation::*;
+use coldvox_app::vad::config::{UnifiedVadConfig, VadMode};
+use coldvox_app::vad::types::VadEvent;
+use crossbeam_channel::bounded;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::fmt::writer::MakeWriterExt;
@@ -55,6 +60,61 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tracing::info!("Audio capture started successfully");
 
+    // --- Wire VAD pipeline (Capture -> Chunker -> VAD Processor) ---
+    // Receive frames from capture
+    let capture_rx = audio_capture.get_receiver();
+    // Channel from chunker to VAD
+    let (vad_in_tx, vad_in_rx) = bounded::<coldvox_app::audio::vad_processor::AudioFrame>(100);
+
+    // Start chunker (16k, 512)
+    let chunker_cfg = ChunkerConfig { frame_size_samples: 512, sample_rate_hz: 16_000 };
+    let chunker = AudioChunker::new(capture_rx, vad_in_tx, chunker_cfg);
+    let chunker_handle = chunker.spawn();
+
+    // Start VAD processor (Silero by default)
+    let mut vad_cfg = UnifiedVadConfig::default();
+    vad_cfg.mode = VadMode::Silero;
+    vad_cfg.frame_size_samples = 512;
+    vad_cfg.sample_rate_hz = 16_000;
+
+    let (event_tx, event_rx) = bounded::<VadEvent>(200);
+    let vad_shutdown = Arc::new(AtomicBool::new(false));
+    let vad_thread = match coldvox_app::audio::vad_processor::VadProcessor::spawn(
+        vad_cfg,
+        vad_in_rx,
+        event_tx,
+        vad_shutdown.clone(),
+    ) {
+        Ok(h) => h,
+        Err(e) => {
+            tracing::error!("Failed to spawn VAD processor: {}", e);
+            // Stop chunker and continue running capture only
+            chunker_handle.stop();
+            chunker_handle.join();
+            return Err(anyhow::anyhow!(e).into());
+        }
+    };
+
+    // Spawn a small event logger task
+    let event_logger = tokio::spawn(async move {
+        loop {
+            match event_rx.recv_timeout(std::time::Duration::from_millis(200)) {
+                Ok(VadEvent::SpeechStart { timestamp_ms, energy_db }) => {
+                    tracing::info!(target: "vad", "Speech START at {} ms, energy {:.2} dB", timestamp_ms, energy_db);
+                }
+                Ok(VadEvent::SpeechEnd { timestamp_ms, duration_ms, energy_db }) => {
+                    tracing::info!(target: "vad", "Speech END at {} ms ({} ms), energy {:.2} dB", timestamp_ms, duration_ms, energy_db);
+                }
+                Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+                    // just loop
+                }
+                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
+            }
+            // yield to runtime
+            tokio::task::yield_now().await;
+        }
+    });
+
     // Main application loop
     let mut stats_interval = tokio::time::interval(Duration::from_secs(30));
 
@@ -103,6 +163,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     state_manager.transition(AppState::Stopping)?;
     // Stop audio capture
     audio_capture.stop();
+
+    // Stop VAD + chunker
+    vad_shutdown.store(true, Ordering::Relaxed);
+    chunker_handle.stop();
+    chunker_handle.join();
+    let _ = event_logger.abort();
+    let _ = vad_thread.join();
 
     // Give components time to clean up
     tokio::time::sleep(Duration::from_millis(500)).await;

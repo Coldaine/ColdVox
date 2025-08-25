@@ -25,7 +25,8 @@ ColdVox is a Rust-based voice AI project focused on real-time audio processing w
 ### Audio Specifications
 
 - Internal format: 16kHz, 16-bit signed (i16), mono
-- Frame size: 320 samples (20ms)
+- Capture frames: Variable-sized (CPAL BufferSize::Default)
+- Chunker output: 512 samples (32ms) for VAD processing
 - Conversion: Stereo→mono averaging, rate conversion via fractional-phase resampling
 - Overflow handling: Configurable policy (DropOldest/DropNewest/Panic)
 
@@ -85,18 +86,12 @@ cargo clippy  # For linting
 
 ## Phase Implementation Status
 
-- **Phase 0**: Foundation & Safety Net ✓
-- **Phase 1**: Microphone Capture with Recovery ✓ (with known critical bugs)
-- **Phase 2**: Lock-free Ring Buffer ✓ (using rtrb library)
-- **Phase 3**: VAD with Fallback (Planned)
-- **Phase 4**: Smart Chunking (Planned)
-
-### Critical Issues Requiring Immediate Attention
-
-1. **Watchdog Timer Logic Error** - Timer cannot detect timeouts due to epoch mismatch
-2. **CPAL Sample Format Hardcoding** - Fails on devices not supporting i16 format
-3. **Channel Negotiation Failure** - Forces mono, fails on stereo-only devices
-4. **Missing Stop/Cleanup Methods** - Violates clean shutdown requirements
+- **Phase 0**: Foundation & Safety Net ✅ **COMPLETE**
+- **Phase 1**: Microphone Capture with Recovery ✅ **COMPLETE** (all critical bugs fixed)
+- **Phase 2**: Lock-free Ring Buffer ✅ **COMPLETE** (using rtrb library)
+- **Phase 3**: VAD with Fallback 📋 **NEXT PRIORITY** (VAD fork ready, needs integration)
+- **Phase 4**: Smart Chunking 📋 **PLANNED**
+- **Phase 5+**: Stress Testing & Polish 📋 **PLANNED**
 
 ## Configuration
 
