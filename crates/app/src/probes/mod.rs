@@ -2,23 +2,21 @@ pub mod mic_capture;
 pub mod vad_mic;
 pub mod record_to_wav;
 pub mod foundation;
-pub mod common;
 
-use mic_capture::MicCaptureCheck;
-use vad_mic::VadFromMicCheck;
-use record_to_wav::RecordToWav;
-use foundation::FoundationHealth;
+use super::LiveTest;
+use super::LiveTestResult;
+use super::TestContext;
+use super::TestError;
 
-pub trait LiveTest {
-    fn name(&self) -> &'static str;
-    fn run(&mut self, ctx: &mut TestContext) -> Result<LiveTestResult, TestError>;
+#[derive(Debug, PartialEq)]
+pub struct LiveTestResult {
+    pub metrics: std::collections::HashMap<String, String>,
+    pub pass: bool,
+    pub notes: String,
+    pub artifacts: Vec<String>,
 }
 
-pub fn all_tests() -> Vec<Box<dyn LiveTest>> {
-    vec![
-        Box::new(MicCaptureCheck::default()),
-        Box::new(VadFromMicCheck::default()),
-        Box::new(RecordToWav::default()),
-        Box::new(Foundation::FoundationHealth::default()),
-    ]
+pub trait LiveTest {
+    fn name() -> &'static str;
+    fn run(ctx: &mut TestContext) -> Result<LiveTestResult, TestError>;
 }
