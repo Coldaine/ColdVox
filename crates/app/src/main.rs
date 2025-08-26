@@ -3,7 +3,7 @@ use coldvox_app::audio::chunker::{AudioChunker, ChunkerConfig};
 use coldvox_app::audio::ring_buffer::AudioRingBuffer;
 use coldvox_app::audio::*;
 use coldvox_app::foundation::*;
-use coldvox_app::stt::processor::SttProcessor;
+use coldvox_app::stt::{processor::SttProcessor, TranscriptionConfig, TranscriptionEvent};
 use coldvox_app::vad::config::{UnifiedVadConfig, VadMode};
 use coldvox_app::vad::types::VadEvent;
 use std::time::Duration;
@@ -82,11 +82,64 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("VAD processor task started.");
 
     // --- 4. STT Processor ---
-    let stt_audio_rx = audio_tx.subscribe();
-    let stt_processor = SttProcessor::new(stt_audio_rx, event_rx)
-        .map_err(|e| anyhow!("Failed to create STT processor: {}", e))?;
-    let stt_handle = tokio::spawn(stt_processor.run());
-    tracing::info!("STT processor task started.");
+    // Check for Vosk model path from environment or use default
+    let model_path = std::env::var("VOSK_MODEL_PATH")
+        .unwrap_or_else(|_| "models/vosk-model-small-en-us-0.15".to_string());
+    
+    // Check if model exists to determine if STT should be enabled
+    let stt_enabled = std::path::Path::new(&model_path).exists();
+    
+    if !stt_enabled && !model_path.is_empty() {
+        tracing::warn!(
+            "STT disabled: Vosk model not found at '{}'. \
+            Download a model from https://alphacephei.com/vosk/models \
+            or set VOSK_MODEL_PATH environment variable.",
+            model_path
+        );
+    }
+    
+    // Create STT configuration
+    let stt_config = TranscriptionConfig {
+        enabled: stt_enabled,
+        model_path,
+        partial_results: true,
+        max_alternatives: 1,
+        include_words: false,
+        buffer_size_ms: 512,
+    };
+    
+    // Only spawn STT processor if enabled
+    let stt_handle = if stt_config.enabled {
+        // Create transcription event channel
+        let (transcription_tx, mut transcription_rx) = mpsc::channel::<TranscriptionEvent>(100);
+        
+        let stt_audio_rx = audio_tx.subscribe();
+        let stt_processor = SttProcessor::new(stt_audio_rx, event_rx, transcription_tx, stt_config.clone())
+            .map_err(|e| anyhow!("Failed to create STT processor: {}", e))?;
+        
+        // Spawn transcription event handler
+        tokio::spawn(async move {
+            while let Some(event) = transcription_rx.recv().await {
+                match event {
+                    TranscriptionEvent::Partial { text, .. } => {
+                        tracing::info!(target: "main", "Partial transcription: {}", text);
+                    }
+                    TranscriptionEvent::Final { text, .. } => {
+                        tracing::info!(target: "main", "Final transcription: {}", text);
+                    }
+                    TranscriptionEvent::Error { code, message } => {
+                        tracing::error!(target: "main", "Transcription error [{}]: {}", code, message);
+                    }
+                }
+            }
+        });
+        
+        tracing::info!("STT processor task started with model: {}", stt_config.model_path);
+        Some(tokio::spawn(stt_processor.run()))
+    } else {
+        tracing::info!("STT processor disabled - no model available");
+        None
+    };
 
     // --- Main Application Loop ---
     let mut stats_interval = tokio::time::interval(Duration::from_secs(30));
@@ -115,14 +168,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     //    tasks with `recv()` loops to terminate gracefully.
     chunker_handle.abort();
     vad_handle.abort();
-    stt_handle.abort();
+    if let Some(handle) = stt_handle {
+        handle.abort();
+    }
     tracing::info!("Async tasks aborted.");
 
     // 3. Await all handles to ensure they have fully cleaned up.
     // We ignore the results since we are aborting them and expect JoinError.
-        let _ = chunker_handle.await;
+    let _ = chunker_handle.await;
     let _ = vad_handle.await;
-    let _ = stt_handle.await;
 
     state_manager.transition(AppState::Stopped)?;
     tracing::info!("Shutdown complete");

@@ -1,4 +1,4 @@
-use coldvox_app::stt::{Transcriber, VoskTranscriber};
+use coldvox_app::stt::{Transcriber, VoskTranscriber, TranscriptionConfig, TranscriptionEvent};
 use std::path::Path;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -9,11 +9,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("Vosk model not found at: {}", model_path);
         eprintln!("Download a model from https://alphacephei.com/vosk/models");
         eprintln!("Extract to: {}", model_path);
+        eprintln!("\nFor example:");
+        eprintln!("  wget https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip");
+        eprintln!("  unzip vosk-model-small-en-us-0.15.zip");
+        eprintln!("  mv vosk-model-small-en-us-0.15 models/");
         return Ok(());
     }
     
     println!("Loading Vosk model from: {}", model_path);
-    let mut transcriber = VoskTranscriber::new(model_path, 16000.0)?;
+    
+    // Create configuration
+    let config = TranscriptionConfig {
+        enabled: true,
+        model_path: model_path.to_string(),
+        partial_results: true,
+        max_alternatives: 3,
+        include_words: true,
+        buffer_size_ms: 512,
+    };
+    
+    // Create transcriber with configuration
+    let mut transcriber = VoskTranscriber::new(config.clone(), 16000.0)?;
+    
+    println!("Vosk configuration:");
+    println!("  Partial results: {}", config.partial_results);
+    println!("  Max alternatives: {}", config.max_alternatives);
+    println!("  Include words: {}", config.include_words);
     
     // Generate test audio: sine wave representing speech-like patterns
     let sample_rate = 16000;
@@ -33,22 +54,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         test_audio.push(sample as i16);
     }
     
-    println!("Processing {} samples of synthetic audio...", test_audio.len());
+    println!("\nProcessing {} samples of synthetic audio...", test_audio.len());
     
     // Process audio in chunks (512 samples = 32ms at 16kHz)
     let chunk_size = 512;
     let mut partial_count = 0;
     let mut result_count = 0;
+    let mut error_count = 0;
     
-    for chunk in test_audio.chunks(chunk_size) {
-        match transcriber.accept_pcm16(chunk)? {
-            Some(text) if text.starts_with("[partial]") => {
+    for (chunk_idx, chunk) in test_audio.chunks(chunk_size).enumerate() {
+        match transcriber.accept_frame(chunk)? {
+            Some(TranscriptionEvent::Partial { utterance_id, text, t0, t1 }) => {
                 partial_count += 1;
-                println!("Partial result {}: {}", partial_count, text);
+                println!("Chunk {}: Partial result (utterance {}): \"{}\"", chunk_idx, utterance_id, text);
+                if t0.is_some() || t1.is_some() {
+                    println!("  Timing: {:?} - {:?}", t0, t1);
+                }
             }
-            Some(text) => {
+            Some(TranscriptionEvent::Final { utterance_id, text, words }) => {
                 result_count += 1;
-                println!("Final result {}: {}", result_count, text);
+                println!("Chunk {}: Final result (utterance {}): \"{}\"", chunk_idx, utterance_id, text);
+                if let Some(words) = words {
+                    println!("  Words ({}): ", words.len());
+                    for word in words.iter().take(5) {
+                        println!("    \"{}\" @ {:.2}s-{:.2}s (conf: {:.2})", 
+                            word.text, word.start, word.end, word.conf);
+                    }
+                    if words.len() > 5 {
+                        println!("    ... and {} more", words.len() - 5);
+                    }
+                }
+            }
+            Some(TranscriptionEvent::Error { code, message }) => {
+                error_count += 1;
+                eprintln!("Chunk {}: Error [{}]: {}", chunk_idx, code, message);
             }
             None => {
                 // No transcription for this chunk
@@ -57,14 +96,47 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     
     // Get final result
-    if let Some(final_text) = transcriber.finalize()? {
-        println!("Final transcription: {}", final_text);
-    } else {
-        println!("No final transcription (synthetic audio not recognized as speech)");
+    println!("\nFinalizing utterance...");
+    match transcriber.finalize_utterance()? {
+        Some(TranscriptionEvent::Final { utterance_id, text, words }) => {
+            println!("Final transcription (utterance {}): \"{}\"", utterance_id, text);
+            if let Some(words) = words {
+                println!("Total words: {}", words.len());
+            }
+        }
+        Some(TranscriptionEvent::Partial { text, .. }) => {
+            println!("Unexpected partial result: \"{}\"", text);
+        }
+        Some(TranscriptionEvent::Error { code, message }) => {
+            eprintln!("Finalization error [{}]: {}", code, message);
+        }
+        None => {
+            println!("No final transcription (synthetic audio not recognized as speech)");
+        }
     }
     
-    println!("Test completed. Partial results: {}, Final results: {}", partial_count, result_count);
-    println!("Note: Synthetic audio may not produce meaningful transcriptions");
+    println!("\nTest completed:");
+    println!("  Partial results: {}", partial_count);
+    println!("  Final results: {}", result_count);
+    println!("  Errors: {}", error_count);
+    println!("\nNote: Synthetic audio may not produce meaningful transcriptions.");
+    println!("For real testing, use actual speech audio or WAV files.");
+    
+    // Test backward compatibility with Transcriber trait
+    println!("\n--- Testing backward compatibility ---");
+    let mut simple_transcriber = VoskTranscriber::new_with_default(model_path, 16000.0)?;
+    
+    // Test with smaller chunk
+    let test_chunk = &test_audio[0..512];
+    match simple_transcriber.accept_pcm16(test_chunk)? {
+        Some(text) => println!("Transcriber trait result: \"{}\"", text),
+        None => println!("Transcriber trait: No result"),
+    }
+    
+    match simple_transcriber.finalize()? {
+        Some(text) => println!("Transcriber trait final: \"{}\"", text),
+        None => println!("Transcriber trait: No final result"),
+    }
     
     Ok(())
 }
