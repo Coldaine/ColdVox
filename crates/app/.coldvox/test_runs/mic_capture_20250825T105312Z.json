@@ -1,0 +1,14 @@
+{
+  "test": "mic_capture",
+  "pass": true,
+  "metrics": {
+    "duration_secs": 2.005520495,
+    "last_frame_age_secs": 0.023198421,
+    "frames_captured": 46,
+    "frames_per_sec": 22.936689061360106,
+    "drop_rate": 0.0,
+    "watchdog_triggered": false
+  },
+  "notes": "All checks passed. Captured 46 frames in 2.0s at 22.9 FPS",
+  "artifacts": []
+}

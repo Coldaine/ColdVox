@@ -16,6 +16,8 @@ impl VadAdapter {
     pub fn new(config: UnifiedVadConfig) -> Result<Self, String> {
         let engine: Box<dyn VadEngine> = match config.mode {
             VadMode::Level3 => {
+                // INTENTIONAL: Level3 VAD is disabled by default
+                // This check ensures it's not accidentally enabled without explicit configuration
                 if !config.level3.enabled {
                     return Err("Level3 VAD is disabled in configuration. Use Silero mode instead.".to_string());
                 }

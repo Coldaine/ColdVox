@@ -2,18 +2,22 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum VadMode {
-    Level3,
-    Silero,
+    Level3,  // Energy-based VAD - INTENTIONALLY DISABLED (see Level3Config.enabled)
+    Silero,  // ML-based VAD using ONNX - DEFAULT ACTIVE VAD
 }
 
 impl Default for VadMode {
     fn default() -> Self {
-        Self::Silero  // Default to Silero since Level3 is disabled
+        // INTENTIONAL: Silero is the default VAD mode
+        // Level3 (energy-based) VAD is disabled by default - see Level3Config.enabled
+        Self::Silero
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Level3Config {
+    // INTENTIONAL: Level3 VAD is disabled by default
+    // This energy-based VAD is kept for fallback/testing but not used in production
     pub enabled: bool,
     pub onset_threshold_db: f32,
     pub offset_threshold_db: f32,
@@ -26,7 +30,8 @@ pub struct Level3Config {
 impl Default for Level3Config {
     fn default() -> Self {
         Self {
-            enabled: false,  // Disabled by default
+            // INTENTIONAL: Level3 VAD is disabled - using Silero VAD instead
+            enabled: false,
             onset_threshold_db: 9.0,
             offset_threshold_db: 6.0,
             ema_alpha: 0.02,

@@ -15,8 +15,22 @@ ColdVox is a Rust-based voice AI project focused on real-time audio processing w
   - `AudioCapture`: Multi-format device capture with automatic conversion
   - `AudioChunker`: Converts variable-sized frames to fixed 512-sample chunks
   - `VadAdapter`: Trait for pluggable VAD implementations
-- **VAD System** (`crates/app/src/vad/`): Progressive energy-based VAD with multiple levels (Level1-4)
+  - `VadProcessor`: VAD processing pipeline integration
+  - Additional modules: `detector`, `device`, `resampler`, `ring_buffer`, `watchdog`
+- **VAD System** (`crates/app/src/vad/`): Dual VAD implementation with energy-based and ML models
+  - `Level3Vad`: Progressive energy-based VAD implementation **[DISABLED BY DEFAULT - see config.rs:29]**
+  - `SileroEngine`: Silero model wrapper for ML-based VAD **[DEFAULT ACTIVE VAD]**
+  - `VadStateMachine`: State management for VAD transitions
+  - `UnifiedVadConfig`: Configuration supporting both VAD modes (defaults to Silero)
+- **STT System** (`crates/app/src/stt/`): Speech-to-text transcription
+  - `VoskTranscriber`: Vosk-based STT implementation (placeholder)
+  - `Transcriber` trait for pluggable STT backends
 - **Telemetry** (`crates/app/src/telemetry/`): Metrics collection and monitoring
+  - `PipelineMetrics`: Real-time pipeline performance metrics
+  - Cross-thread monitoring of audio levels, latency, and throughput
+- **Probes** (`crates/app/src/probes/`): Test utilities and live hardware checks
+  - `foundation`, `mic_capture`, `vad_mic`, `record_to_wav`: Test modules
+  - `TestContext`, `LiveTestResult`: Testing infrastructure
 - **VAD Fork** (`Forks/ColdVox-voice_activity_detector/`): Voice activity detection using Silero model with ONNX runtime
 
 ### Threading Model
@@ -43,10 +57,14 @@ cd crates/app
 cargo build
 cargo build --release
 
-# Specific binary
-cargo build --bin foundation_probe
-cargo build --bin mic_probe
-cargo build --bin vad_demo
+# TUI Dashboard binary
+cargo build --bin tui_dashboard
+
+# Note: Examples are currently misconfigured in Cargo.toml
+# They point to crates/app/examples/ but files are in root/examples/
+# To build examples, first fix Cargo.toml paths or use:
+cd /home/coldaine/Projects/ColdVox
+cargo build --example foundation_probe
 ```
 
 ### Testing
@@ -70,13 +88,17 @@ cargo test vad::
 # Main application
 cargo run
 
-# Development/debugging probes
-cargo run --bin foundation_probe -- --duration 60
-cargo run --bin mic_probe -- --duration 120 --expect-disconnect
-cargo run --bin vad_demo  # Test VAD with microphone
-cargo run --bin record_10s  # Record 10 seconds to WAV
-cargo run --bin test_silero_minimal  # Test Silero VAD minimal implementation
-cargo run --bin test_silero_wav  # Test Silero VAD with WAV files
+# TUI Dashboard for real-time monitoring
+cargo run --bin tui_dashboard
+
+# Examples (from project root due to path issues):
+cd /home/coldaine/Projects/ColdVox
+cargo run --example foundation_probe -- --duration 60
+cargo run --example mic_probe -- --duration 120 --expect-disconnect
+cargo run --example vad_demo  # Test VAD with microphone
+cargo run --example record_10s  # Record 10 seconds to WAV
+cargo run --example test_silero_minimal  # Test Silero VAD minimal implementation
+cargo run --example test_silero_wav  # Test Silero VAD with WAV files
 ```
 
 ### Type Checking & Linting
@@ -99,7 +121,7 @@ cargo clippy
 - **Phase 0**: Foundation & Safety Net ✅ **COMPLETE**
 - **Phase 1**: Microphone Capture with Recovery ✅ **COMPLETE** (all critical bugs fixed)
 - **Phase 2**: Lock-free Ring Buffer ✅ **COMPLETE** (using rtrb library)
-- **Phase 3**: VAD with Fallback 📋 **IN PROGRESS** (Progressive energy VAD implemented, Silero integration pending)
+- **Phase 3**: VAD with Fallback 📋 **IN PROGRESS** (Both energy VAD and Silero wrapper implemented, integration testing needed)
 - **Phase 4**: Smart Chunking 📋 **PLANNED**
 - **Phase 5+**: Stress Testing & Polish 📋 **PLANNED**
 
@@ -118,9 +140,12 @@ Config structure is defined in `docs/1_foundation/EnhancedPhasePlanV2.md`. Key p
 - `docs/1_foundation/EnhancedPhasePlanV2.md`: Complete technical specification
 - `docs/4_vad/EnergyBasedVAD.md`: Energy VAD implementation details
 - `crates/app/src/main.rs`: Main application entry point
+- `crates/app/src/bin/tui_dashboard.rs`: Real-time monitoring dashboard
 - `crates/app/src/audio/capture.rs`: Core audio capture with format negotiation
 - `crates/app/src/audio/chunker.rs`: Audio chunking for VAD processing
 - `crates/app/src/vad/level3.rs`: Level3 energy-based VAD implementation
+- `crates/app/src/vad/silero_wrapper.rs`: Silero ML-based VAD wrapper
+- `crates/app/src/telemetry/pipeline_metrics.rs`: Real-time metrics tracking
 - `crates/app/src/foundation/state.rs`: Application state machine
 
 ## Error Handling
@@ -136,6 +161,14 @@ Hierarchical error types with recovery strategies:
 
 - Unit tests for individual components
 - Integration tests for subsystems  
-- Test binaries for manual testing (`foundation_probe`, `mic_probe`, `vad_demo`)
+- Examples for manual testing (in `/examples/` directory)
+- Probe modules in `src/probes/` for live hardware testing
+- TUI dashboard (`tui_dashboard`) for real-time monitoring
 - Mock traits using `mockall` for isolation
 - WAV file testing for VAD validation
+
+## Known Issues
+
+- **Example paths**: Cargo.toml references `crates/app/examples/` but files are in root `/examples/`
+- **Vosk STT**: Module exists but implementation is placeholder only
+- **Some imports**: Unused imports in various modules need cleanup
