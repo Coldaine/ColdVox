@@ -12,25 +12,25 @@ required-features = ["vosk"]
 name = "tui_dashboard"
 path = "src/bin/tui_dashboard.rs"
 
-[[example]]
-name = "foundation_probe"
-path = "examples/foundation_probe.rs"
+[[bin]]
+name = "mic_probe"
+path = "src/bin/mic_probe.rs"
 
 [[example]]
-name = "mic_probe"
-path = "examples/mic_probe.rs"
+name = "foundation_probe"
+path = "../../examples/foundation_probe.rs"
 
 [[example]]
 name = "vad_demo"
-path = "examples/vad_demo.rs"
+path = "../../examples/vad_demo.rs"
 
 [[example]]
 name = "record_10s"
-path = "examples/record_10s.rs"
+path = "../../examples/record_10s.rs"
 
 [[example]]
 name = "vosk_test"
-path = "examples/vosk_test.rs"
+path = "../../examples/vosk_test.rs"
 
 [dependencies]
 tokio = { version = "1.35", features = ["full"] }

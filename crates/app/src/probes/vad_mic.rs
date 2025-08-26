@@ -1,41 +1,190 @@
 
 
-#[derive(Debug, PartialEq)]
-pub struct VadFromMicCheck {
-    duration: u64,
-}
+use super::common::{LiveTestResult, TestContext, TestError, TestErrorKind};
+use crate::audio::capture::AudioCaptureThread;
+use crate::audio::chunker::{AudioChunker, ChunkerConfig};
+use crate::audio::frame_reader::FrameReader;
+use crate::audio::ring_buffer::AudioRingBuffer;
+use crate::audio::vad_processor::{AudioFrame as VadFrame, VadProcessor};
+use crate::foundation::error::AudioConfig;
+use crate::vad::config::{UnifiedVadConfig, VadMode};
+use crate::vad::types::VadEvent;
+use serde_json::json;
+use std::collections::HashMap;
 
-impl VadFromMicCheck {
-    pub fn new(duration: u64) -> Self {
-        VadFromMicCheck { duration }
+use std::time::{Duration, Instant};
+use tokio::sync::{broadcast, mpsc};
+
+#[derive(Debug)]
+pub struct VadMicCheck;
+
+impl VadMicCheck {
+    pub async fn run(ctx: &TestContext) -> Result<LiveTestResult, TestError> {
+        let device_name = ctx.device.clone();
+        let duration = ctx.duration;
+
+        let config = AudioConfig::default();
+
+        // Prepare ring buffer and spawn capture thread
+        let rb = AudioRingBuffer::new(16_384);
+        let (audio_producer, audio_consumer) = rb.split();
+        let (capture_thread, sample_rate) = AudioCaptureThread::spawn(config, audio_producer, device_name).map_err(|e| TestError {
+            kind: TestErrorKind::Setup,
+            message: format!("Failed to create audio capture thread: {}", e),
+        })?;
+
+        tokio::time::sleep(Duration::from_millis(200)).await; // Give the thread time to start
+
+        // Set up VAD processing pipeline
+        let (audio_tx, _) = broadcast::channel::<VadFrame>(200);
+        let (event_tx, mut event_rx) = mpsc::channel::<VadEvent>(100);
+
+        let chunker_cfg = ChunkerConfig {
+            frame_size_samples: 512,
+            sample_rate_hz: sample_rate,
+        };
+
+        let frame_reader = FrameReader::new(audio_consumer, sample_rate);
+        let chunker = AudioChunker::new(frame_reader, audio_tx.clone(), chunker_cfg);
+        let chunker_handle = chunker.spawn();
+
+        let vad_cfg = UnifiedVadConfig {
+            mode: VadMode::Silero,
+            frame_size_samples: 512,
+            sample_rate_hz: sample_rate,
+            ..Default::default()
+        };
+
+        let vad_audio_rx = audio_tx.subscribe();
+        let vad_handle = match VadProcessor::spawn(vad_cfg, vad_audio_rx, event_tx) {
+            Ok(h) => h,
+            Err(e) => {
+                capture_thread.stop();
+                chunker_handle.abort();
+                return Err(TestError {
+                    kind: TestErrorKind::Internal,
+                    message: format!("Failed to spawn VAD processor: {}", e),
+                });
+            }
+        };
+
+        // Collect VAD events during the test
+        let start_time = Instant::now();
+        let mut vad_events = Vec::new();
+        let mut speech_segments = 0;
+        let mut total_speech_duration_ms = 0;
+        let mut last_speech_start: Option<u64> = None;
+
+        let timeout = tokio::time::sleep(duration);
+        tokio::pin!(timeout);
+
+        loop {
+            tokio::select! {
+                Some(event) = event_rx.recv() => {
+                    let timestamp_ms = start_time.elapsed().as_millis() as u64;
+                    vad_events.push((timestamp_ms, event));
+
+                    match event {
+                        VadEvent::SpeechStart { .. } => {
+                            speech_segments += 1;
+                            last_speech_start = Some(timestamp_ms);
+                        }
+                        VadEvent::SpeechEnd { duration_ms, .. } => {
+                            if let Some(_start_time) = last_speech_start.take() {
+                                total_speech_duration_ms += duration_ms;
+                            }
+                        }
+                    }
+                }
+                _ = &mut timeout => break,
+            }
+        }
+
+        // Clean up
+        capture_thread.stop();
+        chunker_handle.abort();
+        vad_handle.abort();
+
+        let elapsed = start_time.elapsed();
+
+        // Calculate metrics
+        let mut metrics = HashMap::new();
+        metrics.insert("vad_events_count".to_string(), json!(vad_events.len()));
+        metrics.insert("speech_segments".to_string(), json!(speech_segments));
+        metrics.insert("total_speech_duration_ms".to_string(), json!(total_speech_duration_ms));
+        metrics.insert("test_duration_secs".to_string(), json!(elapsed.as_secs_f64()));
+        metrics.insert("sample_rate".to_string(), json!(sample_rate));
+
+        // Calculate speech ratio
+        let speech_ratio = if elapsed.as_millis() > 0 {
+            total_speech_duration_ms as f64 / elapsed.as_millis() as f64
+        } else {
+            0.0
+        };
+        metrics.insert("speech_ratio".to_string(), json!(speech_ratio));
+
+        // Evaluate results
+        let (pass, notes) = evaluate_vad_performance(&metrics, &vad_events);
+
+        Ok(LiveTestResult {
+            test: "vad_mic".to_string(),
+            pass,
+            metrics,
+            notes: Some(notes),
+            artifacts: vec![],
+        })
     }
 }
 
-// TODO: Implement when AudioChunker and VadAdapter are available
-// impl LiveTest for VadFromMicCheck {
-//     fn name() -> &'static str {
-//         "vad_mic"
-//     }
-//
-//     fn run(ctx: &mut TestContext) -> Result<LiveTestResult, TestError> {
-//         // Initialize chunker with device selection from context
-//         let mut chunker = match AudioChunker::new(&ctx.device_selection, 512, 16000) {
-//             Ok(c) => c,
-//             Err(e) => return Err(TestError::Device),
-//         };
-//
-//         // Initialize VAD adapter
-//         let mut vad_processor = match VadAdapter::new("silero") {
-//             Ok(v) => v,
-//             Err(e) => return Err(TestError::Internal),
-//         };
-//
-//         // ... rest of implementation
-//         Ok(LiveTestResult {
-//             metrics: std::collections::HashMap::new(),
-//             pass: true,
-//             notes: "Not implemented".to_string(),
-//             artifacts: vec![],
-//         })
-//     }
-// }
+fn evaluate_vad_performance(metrics: &HashMap<String, serde_json::Value>, events: &[(u64, VadEvent)]) -> (bool, String) {
+    let mut pass = true;
+    let mut issues = Vec::new();
+
+    let events_count = metrics.get("vad_events_count")
+        .and_then(|v| v.as_u64()).unwrap_or(0);
+    let speech_segments = metrics.get("speech_segments")
+        .and_then(|v| v.as_u64()).unwrap_or(0);
+    let speech_ratio = metrics.get("speech_ratio")
+        .and_then(|v| v.as_f64()).unwrap_or(0.0);
+
+    // Check for basic VAD functionality
+    if events_count == 0 {
+        pass = false;
+        issues.push("No VAD events detected - VAD processor may not be working".to_string());
+    }
+
+    // Check for reasonable speech ratio (not too high or too low)
+    if speech_ratio > 0.9 {
+        pass = false;
+        issues.push(format!("Speech ratio too high ({:.1}%) - may indicate over-sensitive VAD", speech_ratio * 100.0));
+    } else if speech_ratio < 0.01 && events_count > 0 {
+        issues.push(format!("Very low speech ratio ({:.3}%) - VAD may be too conservative", speech_ratio * 100.0));
+    }
+
+    // Check for balanced speech/silence events
+    let speech_starts = events.iter().filter(|(_, e)| matches!(e, VadEvent::SpeechStart { .. })).count();
+    let speech_ends = events.iter().filter(|(_, e)| matches!(e, VadEvent::SpeechEnd { .. })).count();
+
+    if speech_starts != speech_ends {
+        pass = false;
+        issues.push(format!("Unbalanced VAD events: {} starts, {} ends", speech_starts, speech_ends));
+    }
+
+    // Check for minimum speech segments if any speech detected
+    if speech_segments == 0 && events_count > 0 {
+        issues.push("VAD events detected but no complete speech segments".to_string());
+    }
+
+    let notes = if issues.is_empty() {
+        format!(
+            "VAD test completed successfully. Detected {} events, {} speech segments, {:.1}% speech ratio",
+            events_count,
+            speech_segments,
+            speech_ratio * 100.0
+        )
+    } else {
+        format!("Issues found: {}", issues.join("; "))
+    };
+
+    (pass, notes)
+}

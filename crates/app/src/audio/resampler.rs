@@ -165,7 +165,7 @@ mod tests {
         // (skip edges which may have interpolation artifacts)
         if out.len() > 100 {
             for &s in &out[50..out.len().saturating_sub(50)] {
-                assert!(s >= 900 && s <= 1100, 
+                assert!((900..=1100).contains(&s), 
                         "Sample {} too far from expected 1000", s);
             }
         }
