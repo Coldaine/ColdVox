@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|MultiEdit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/coldaine/Projects/ColdVox/.claude/hooks/clippy-check.sh",
+            "timeout": 30,
+            "outputMode": "json"
+          }
+        ]
+      }
+    ]
+  }
+}
