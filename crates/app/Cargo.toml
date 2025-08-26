@@ -56,7 +56,7 @@ chrono = "0.4"
 ratatui = "0.26"
 crossterm = "0.27"
 futures = "0.3"
-voice_activity_detector = { path = "../../Forks/ColdVox-voice_activity_detector" }
+voice_activity_detector = { git = "https://github.com/nkeenan38/voice_activity_detector", rev = "234b7484860125014f06ad85da842da81b02e51a" }
 vosk = "0.3"
 
 [features]

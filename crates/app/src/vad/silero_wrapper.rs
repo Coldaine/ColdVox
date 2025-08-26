@@ -30,6 +30,7 @@ impl SileroEngine {
     pub fn new(config: SileroConfig) -> Result<Self, String> {
         let detector = VoiceActivityDetector::builder()
             .sample_rate(16000)
+            .chunk_size(512_usize)
             .build()
             .map_err(|e| format!("Failed to create Silero VAD: {}", e))?;
         
@@ -105,9 +106,9 @@ impl VadEngine for SileroEngine {
             return Err(format!("Silero VAD requires 512 samples, got {}", frame.len()));
         }
         
-        
-        let probability = self.detector.predict(frame.iter().map(|&s| I16Sample(s)))
-            .map_err(|e| format!("Silero VAD prediction failed: {}", e))?;
+        let probability = self
+            .detector
+            .predict(frame.iter().map(|&s| I16Sample(s)));
         
         self.last_probability = probability;
         self.frames_processed += 1;
