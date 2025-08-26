@@ -1,4 +1,4 @@
-# ColdVox Architecture Diagram - Updated 2025-08-26
+/# ColdVox Architecture Diagram - Updated 2025-08-26
 
 ```mermaid
 graph TD
