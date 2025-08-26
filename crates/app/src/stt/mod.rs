@@ -17,3 +17,6 @@ pub mod vosk;
 
 #[cfg(feature = "vosk")]
 pub use vosk::VoskTranscriber;
+
+#[cfg(feature = "vosk")]
+pub mod processor;
