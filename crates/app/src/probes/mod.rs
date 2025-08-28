@@ -8,3 +8,4 @@ pub mod foundation;
 pub use common::{LiveTestResult, TestContext, TestError, TestErrorKind};
 pub use mic_capture::MicCaptureCheck;
 pub use thresholds::{Thresholds, MicCaptureThresholds};
+pub use vad_mic::VadMicCheck;
