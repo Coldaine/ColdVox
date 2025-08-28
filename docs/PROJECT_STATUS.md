@@ -1,7 +1,7 @@
 # ColdVox Project Status Report
 
-**Last Updated:** 2025-08-24  
-**Status:** Phase 1 & 2 Complete, Ready for Phase 3
+**Last Updated:** 2025-08-26  
+**Status:** Phase 4 complete; proceeding to Phase 5 (stress + polish)
 
 ---
 
@@ -16,9 +16,9 @@ ColdVox has successfully completed **Phase 0** (Foundation), **Phase 1** (Audio 
 | **Phase 0** | Foundation & Safety Net | ✅ **COMPLETE** | Error handling, state management, graceful shutdown |
 | **Phase 1** | Microphone Capture with Recovery | ✅ **COMPLETE** | Critical bugs fixed, production ready |
 | **Phase 2** | Lock-free Ring Buffer | ✅ **COMPLETE** | Implemented using rtrb library |
-| **Phase 3** | VAD with Fallback | 📋 **NEXT PRIORITY** | VAD fork ready, needs integration |
-| **Phase 4** | Smart Chunking | 📋 **PLANNED** | Awaiting Phase 3 completion |
-| **Phase 5+** | Stress Testing & Polish | 📋 **PLANNED** | Future work |
+| **Phase 3** | VAD with Fallback | ✅ **COMPLETE** | Silero V5 via ONNX; energy fallback ready |
+| **Phase 4** | Smart Chunking | ✅ **COMPLETE** | Overlap + pre/post-roll; min-gap/min-chunk |
+| **Phase 5+** | Stress Testing & Polish | 📋 **NEXT** | Endurance, metrics export, UX polish |
 
 ---
 
@@ -72,29 +72,16 @@ All 4 critical bugs identified in the remediation plan have been **FIXED**:
 
 ---
 
-## Immediate Next Steps (Phase 3)
+## Current metrics (as of 2025-08-26)
 
-### Primary Objective: VAD Integration
-1. **Integrate VAD Fork** (`Forks/ColdVox-voice_activity_detector/`)
-2. **Implement Energy-based Fallback**
-3. **Add VAD Smoothing and Debouncing**
-4. **Test Voice Activity Detection**
-
-### Prerequisites: P2 Quality Improvements
-While not blocking Phase 3 development, these improve developer experience:
-
-1. **Wire --save-audio Flag** - Enable audio debugging
-2. **Start HealthMonitor** - Meet Phase 0 spec fully  
-3. **Clean Up Error Types** - Remove duplicate error variants
-
-### Estimated Timeline
-- **P2 Improvements**: 1-2 hours
-- **Phase 3 Core Development**: 1-2 weeks
-- **Phase 3 Testing & Validation**: 3-5 days
+- Rust LOC (excl. target/Forks): 27,978
+- Rust files: 58
+- Markdown docs: 28
+- Probes/demos: foundation_probe, mic_probe, vad_demo, vosk_test
 
 ---
 
-## Technical Achievements
+## Technical Achievements (latest)
 
 ### Real-time Audio Processing ✅
 - Zero allocations in audio callback
@@ -159,9 +146,9 @@ cargo test
 - ❌ ~~Resource cleanup problems~~ → **FIXED**
 
 ### Remaining Risks 🟡
-- **Quality of Life**: Some debugging tools not yet implemented
-- **Completeness**: Health monitoring not started (but non-blocking)
-- **Testing**: VAD integration needs comprehensive testing
+- Observability: Metrics/export not finalized; health monitor not yet active
+- Coverage: Unit tests minimal; rely on probes
+- Packaging: Runtime dependencies (ONNX) require validation in CI
 
 ### Phase 3 Risks 🟡
 - **VAD Model Loading**: ONNX runtime dependency management
@@ -187,8 +174,10 @@ cargo test
 
 ---
 
-## Conclusion
+## Next priorities (beyond Phase 5)
 
-**ColdVox is in excellent shape for Phase 3 development.** The critical infrastructure is complete, tested, and production-ready. The recent bug fixes have resolved all blocking issues, and the project is well-positioned to integrate VAD capabilities and move toward a complete speech processing pipeline.
-
-**Recommendation**: Proceed immediately to Phase 3 (VAD integration) while optionally addressing P2 quality improvements in parallel.
+1. CI coverage reporting and basic unit tests
+2. HealthMonitor activation with simple liveness checks
+3. Metrics exposure (optional Prometheus exporter)
+4. Packaging and cross-platform runtime validation
+5. Optional TUI dashboard refresh

@@ -1,66 +1,51 @@
-# ColdVox - Voice AI Audio Processing
+# ColdVox – Voice AI audio pipeline
 
-A Rust-based voice AI project focused on real-time audio processing with emphasis on reliability and automatic recovery.
+[![Status: Phase 4 Complete](https://img.shields.io/badge/Status-Phase%204%20Complete-brightgreen)](docs/PROJECT_STATUS.md)
+
+Rust-based real-time audio capture and processing with robust recovery, VAD, and STT integration.
 
 ## Quick Start
 
 ```bash
-# Build and run
+# Build and run the app
 cargo run
 
-# Run with debug logging
+# Probe binaries
+cargo run --bin mic_probe -- --duration 30 --silence_threshold 120
+cargo run --bin foundation_probe -- --duration 30
+
+# Debug logging
 RUST_LOG=debug cargo run
-
-# Run with specific module debugging
-RUST_LOG=coldvox_app::audio=debug cargo run
 ```
 
-## Logging
+## Features
 
-ColdVox uses structured logging with automatic file rotation:
+- Reliable microphone capture with auto-recovery (watchdog)
+- Format/channel negotiation with downmixing to 16 kHz mono
+- Ring buffer and backpressure handling with stats
+- Voice Activity Detection (Silero V5 via vendored fork)
+- STT ready (Vosk plan), probes and demos in `examples/`
 
-- **Console Output**: Real-time logs during development
-- **File Storage**: Persistent logs saved to `logs/` directory
-- **Daily Rotation**: Automatic file rotation prevents disk space issues
-- **Environment Control**: Use `RUST_LOG` to control verbosity
+## Configuration
 
-### Log Files Location
-```
-logs/
-├── coldvox.log.2024-08-24    # Previous days
-├── coldvox.log.2024-08-25    # Yesterday  
-└── coldvox.log               # Today's logs
-```
+- CLI flags are the primary interface (see probes for examples).
+- Environment variables are not required; `RUST_LOG` can control verbosity.
 
-### Log Level Examples
-```bash
-cargo run                           # Info level (default)
-RUST_LOG=error cargo run           # Errors only
-RUST_LOG=debug cargo run           # Detailed debugging
-RUST_LOG=warn cargo run             # Warnings and above
-```
+## Troubleshooting
 
-For detailed logging documentation, see [`docs/Logging_Configuration.md`](docs/Logging_Configuration.md).
+- No audio frames: check device permissions, try a different input device using `mic_probe`.
+- Watchdog triggers repeatedly: lower `--silence_threshold` or verify device sample format.
+- Frame drops: ensure a consumer drains the channel; long processing on the main thread can cause backpressure.
 
 ## Architecture
 
-- **Foundation Layer**: Error handling, health monitoring, state management
-- **Audio System**: Microphone capture, device management, watchdog monitoring
-- **VAD Integration**: Voice activity detection using Silero model
-- **Lock-free Communication**: Ring buffers and MPSC channels
-
-## Development
-
-```bash
-# Run tests
-cargo test
-
-# Run specific binary probes
-cargo run --bin foundation_probe -- --duration 60
-cargo run --bin mic_probe -- --duration 120
-
-# Build release
-cargo build --release
+```mermaid
+flowchart LR
+	A[CPAL Input Stream] --> B[Frame Channel (bounded)]
+	B --> C[Processing Task]
+	C --> D[VAD]
+	D --> E[Chunks / STT]
+	C --> F[Stats + Watchdog]
 ```
 
-See [`CLAUDE.md`](CLAUDE.md) for detailed development guidance.
+See `crates/app` and `docs/` for deeper architecture notes.
