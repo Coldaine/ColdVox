@@ -1,0 +1,11 @@
+{
+  "test": "mic_capture",
+  "pass": false,
+  "metrics": {
+    "duration_secs": 3.00086006,
+    "frames_captured": 0,
+    "frames_per_sec": 0.0
+  },
+  "notes": "FPS 0.0 below minimum 1.0",
+  "artifacts": []
+}
