@@ -65,7 +65,15 @@ impl TextInjector {
             return false;
         }
         
-        // Check if service is running (user or system)
+        // Check if the ydotool socket exists (most reliable check)
+        let user_id = std::env::var("UID").unwrap_or_else(|_| "1000".to_string());
+        let socket_path = format!("/run/user/{}/.ydotool_socket", user_id);
+        if std::path::Path::new(&socket_path).exists() {
+            debug!("ydotool socket found at {}", socket_path);
+            return true;
+        }
+        
+        // Socket doesn't exist, check if service claims to be running
         let user_service = Command::new("systemctl")
             .args(&["--user", "is-active", "ydotool"])
             .output()
@@ -79,17 +87,24 @@ impl TextInjector {
             .unwrap_or(false);
         
         if user_service || system_service {
-            debug!("ydotool service is active");
-            return true;
+            warn!("ydotool service claims to be active but socket not found at {}", socket_path);
         }
         
-        // Service not running, check if we can use it directly
-        // This would work if user is in input group
-        Command::new("timeout")
-            .args(&["1", "ydotool", "--help"])
+        // Socket doesn't exist, service may or may not be running
+        // Try to actually use ydotool to verify it works
+        // Use a real command that requires the daemon, not --help
+        let test_result = Command::new("sh")
+            .arg("-c")
+            .arg("timeout 1 ydotool key 0 2>&1 | grep -v 'failed to connect socket'")
             .output()
             .map(|o| o.status.success())
-            .unwrap_or(false)
+            .unwrap_or(false);
+            
+        if !test_result {
+            debug!("ydotool daemon not accessible, marking as unavailable");
+        }
+        
+        test_result
     }
     
     /// Check if we have uinput access
@@ -146,7 +161,16 @@ impl TextInjector {
         
         // Fallback to direct typing if available
         if self.use_ydotool {
-            return self.direct_type(text).await;
+            match self.direct_type(text).await {
+                Ok(_) => {
+                    info!("Successfully injected text via direct typing");
+                    return Ok(());
+                }
+                Err(e) => {
+                    warn!("Direct typing failed: {}. Falling back to clipboard-only.", e);
+                    // Continue to clipboard-only fallback instead of returning error
+                }
+            }
         }
         
         // Last resort: clipboard only
