@@ -146,3 +146,37 @@ fn probability_to_db(probability: f32) -> f32 {
         20.0 * probability.log10()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn silero_engine_creates_and_reports_requirements() {
+        let cfg = SileroConfig::default();
+        let engine = SileroEngine::new(cfg).expect("SileroEngine should create successfully");
+        assert_eq!(engine.required_sample_rate(), 16000);
+        assert_eq!(engine.required_frame_size_samples(), 512);
+    }
+
+    #[test]
+    fn silero_engine_processes_silence_without_event() {
+        let cfg = SileroConfig::default();
+        let mut engine = SileroEngine::new(cfg).expect("SileroEngine should create successfully");
+        let silence = vec![0i16; 512];
+        let evt = engine.process(&silence).expect("Processing should succeed");
+        assert!(evt.is_none(), "Silence should not emit VAD events");
+    }
+
+    #[test]
+    fn silero_engine_rejects_incorrect_frame_sizes() {
+        let cfg = SileroConfig::default();
+        let mut engine = SileroEngine::new(cfg).expect("SileroEngine should create successfully");
+        let too_short = vec![0i16; 511];
+        let too_long = vec![0i16; 513];
+        let err_short = engine.process(&too_short).unwrap_err();
+        let err_long = engine.process(&too_long).unwrap_err();
+        assert!(err_short.contains("512"), "Error should mention required frame size: {err_short}");
+        assert!(err_long.contains("512"), "Error should mention required frame size: {err_long}");
+    }
+}
