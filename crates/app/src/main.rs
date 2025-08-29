@@ -9,6 +9,9 @@ use coldvox_app::audio::ring_buffer::AudioRingBuffer;
 use coldvox_app::audio::*;
 use coldvox_app::foundation::*;
 use coldvox_app::stt::{processor::SttProcessor, TranscriptionConfig, TranscriptionEvent};
+#[cfg(feature = "vosk")]
+use coldvox_app::stt::persistence::{PersistenceConfig, TranscriptFormat, AudioFormat, SessionMetadata};
+use coldvox_app::text_injection::{AsyncInjectionProcessor, InjectionProcessorConfig};
 use coldvox_app::vad::config::{UnifiedVadConfig, VadMode};
 use coldvox_app::vad::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 use coldvox_app::vad::types::VadEvent;
@@ -19,10 +22,10 @@ use tokio::sync::{broadcast, mpsc};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
-fn init_logging() -> Result<(), Box<dyn std::error::Error>> {
+fn init_logging() -> Result<tracing_appender::non_blocking::WorkerGuard, Box<dyn std::error::Error>> {
     std::fs::create_dir_all("logs")?;
     let file_appender = RollingFileAppender::new(Rotation::DAILY, "logs", "coldvox.log");
-    let (non_blocking_file, _guard) = tracing_appender::non_blocking(file_appender);
+    let (non_blocking_file, guard) = tracing_appender::non_blocking(file_appender);
     let log_level = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
     let env_filter = EnvFilter::try_new(log_level).unwrap_or_else(|_| EnvFilter::new("info"));
 
@@ -34,12 +37,11 @@ fn init_logging() -> Result<(), Box<dyn std::error::Error>> {
         .with(stderr_layer)
         .with(file_layer)
         .init();
-    std::mem::forget(_guard);
-    Ok(())
+    Ok(guard)
 }
 
 #[derive(Parser, Debug)]
-#[command(name = "coldvox", author, version, about = "ColdVox voice pipeline")] 
+#[command(name = "coldvox", author, version, about = "ColdVox voice pipeline")]
 struct Cli {
     /// Preferred input device name (exact or substring)
     #[arg(short = 'D', long = "device")]
@@ -52,6 +54,26 @@ struct Cli {
     /// Resampler quality: fast, balanced, quality
     #[arg(long = "resampler-quality", default_value = "balanced")]
     resampler_quality: String,
+
+    /// Enable transcription persistence to disk
+    #[arg(long = "save-transcriptions")]
+    save_transcriptions: bool,
+
+    /// Save audio alongside transcriptions
+    #[arg(long = "save-audio", requires = "save_transcriptions")]
+    save_audio: bool,
+
+    /// Output directory for transcriptions
+    #[arg(long = "output-dir", default_value = "transcriptions")]
+    output_dir: String,
+
+    /// Transcription format: json, csv, text
+    #[arg(long = "transcript-format", default_value = "json")]
+    transcript_format: String,
+
+    /// Keep transcription files for N days (0 = forever)
+    #[arg(long = "retention-days", default_value = "30")]
+    retention_days: u32,
 }
 
 #[tokio::main]
@@ -61,15 +83,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "PIPEWIRE_PROPS",
         "{ application.name=ColdVox media.role=capture }",
     );
-    init_logging()?;
+    let _log_guard = init_logging()?;
     tracing::info!("Starting ColdVox application");
 
     let cli = Cli::parse();
-    
+
     // Apply environment variable overrides
-    let device = cli.device.or_else(|| std::env::var("COLDVOX_DEVICE").ok());
-    let resampler_quality = std::env::var("COLDVOX_RESAMPLER_QUALITY").unwrap_or(cli.resampler_quality);
-    
+    let device = cli.device.clone().or_else(|| std::env::var("COLDVOX_DEVICE").ok());
+    let resampler_quality = std::env::var("COLDVOX_RESAMPLER_QUALITY").unwrap_or(cli.resampler_quality.clone());
+
     if cli.list_devices {
         let dm = coldvox_app::audio::device::DeviceManager::new()?;
         tracing::info!("CPAL host: {:?}", dm.host_id());
@@ -117,7 +139,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             _ => coldvox_app::audio::chunker::ResamplerQuality::Balanced, // default/balanced
         },
     };
-    
+
     // --- 3. VAD Processor ---
     let vad_cfg = UnifiedVadConfig {
         mode: VadMode::Silero,
@@ -125,14 +147,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         sample_rate_hz: SAMPLE_RATE_HZ,    // Standard 16kHz - resampler will handle conversion
         ..Default::default()
     };
-    
+
     // This broadcast channel will distribute audio frames to all interested components.
     let (audio_tx, _) =
         broadcast::channel::<coldvox_app::audio::vad_processor::AudioFrame>(200);
     let chunker = AudioChunker::new(frame_reader, audio_tx.clone(), chunker_cfg).with_metrics(metrics.clone());
     let chunker_handle = chunker.spawn();
     tracing::info!("Audio chunker task started.");
-    
+
     // Set up device config monitoring to update FrameReader
     let _frame_reader_handle = {
         tokio::spawn(async move {
@@ -143,19 +165,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         })
     };
-    
-    // --- 3. VAD Processor ---
-    let vad_cfg = UnifiedVadConfig {
-        mode: VadMode::Silero,
-        frame_size_samples: FRAME_SIZE_SAMPLES,  // Both Silero and Level3 use 512 samples
-        sample_rate_hz: SAMPLE_RATE_HZ,    // Standard 16kHz - resampler will handle conversion
-        ..Default::default()
-    };
-    
-    let (event_tx, event_rx) = mpsc::channel::<VadEvent>(100);
+
+    let (event_tx, mut event_rx) = mpsc::channel::<VadEvent>(100);
     let vad_audio_rx = audio_tx.subscribe();
     let vad_handle = match coldvox_app::audio::vad_processor::VadProcessor::spawn(
-        vad_cfg,
+        vad_cfg.clone(),
         vad_audio_rx,
         event_tx,
         Some(metrics.clone()),
@@ -172,10 +186,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Check for Vosk model path from environment or use default
     let model_path = std::env::var("VOSK_MODEL_PATH")
         .unwrap_or_else(|_| "models/vosk-model-small-en-us-0.15".to_string());
-    
+
     // Check if model exists to determine if STT should be enabled
     let stt_enabled = std::path::Path::new(&model_path).exists();
-    
+
     if !stt_enabled && !model_path.is_empty() {
         tracing::warn!(
             "STT disabled: Vosk model not found at '{}'. \
@@ -184,7 +198,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             model_path
         );
     }
-    
+
     // Create STT configuration
     let stt_config = TranscriptionConfig {
         enabled: stt_enabled,
@@ -194,38 +208,140 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         include_words: false,
         buffer_size_ms: 512,
     };
-    
+
     // Only spawn STT processor if enabled
-    let stt_handle = if stt_config.enabled {
-        // Create transcription event channel
-        let (transcription_tx, mut transcription_rx) = mpsc::channel::<TranscriptionEvent>(100);
+    let (stt_handle, _persistence_handle, injection_handle) = if stt_config.enabled {
+        // Create mpsc channel for STT processor to send transcription events
+        let (stt_transcription_tx, mut stt_transcription_rx) = mpsc::channel::<TranscriptionEvent>(100);
         
-        let stt_audio_rx = audio_tx.subscribe();
-        let stt_processor = SttProcessor::new(stt_audio_rx, event_rx, transcription_tx, stt_config.clone())
-            .map_err(|e| anyhow!("Failed to create STT processor: {}", e))?;
+        // Create broadcast channel for distributing transcription events to multiple consumers
+        let (broadcast_tx, _) = broadcast::channel::<TranscriptionEvent>(100);
         
-        // Spawn transcription event handler
+        // Relay from STT processor to broadcast channel
+        let broadcast_tx_clone = broadcast_tx.clone();
         tokio::spawn(async move {
-            while let Some(event) = transcription_rx.recv().await {
-                match event {
-                    TranscriptionEvent::Partial { text, .. } => {
-                        tracing::info!(target: "main", "Partial transcription: {}", text);
-                    }
-                    TranscriptionEvent::Final { text, .. } => {
-                        tracing::info!(target: "main", "Final transcription: {}", text);
-                    }
-                    TranscriptionEvent::Error { code, message } => {
-                        tracing::error!(target: "main", "Transcription error [{}]: {}", code, message);
-                    }
-                }
+            while let Some(event) = stt_transcription_rx.recv().await {
+                let _ = broadcast_tx_clone.send(event);
             }
         });
         
+        // Create mpsc channel for injection processor
+        let (injection_tx, injection_rx) = mpsc::channel::<TranscriptionEvent>(100);
+        let mut injection_relay_rx = broadcast_tx.subscribe();
+        tokio::spawn(async move {
+            while let Ok(event) = injection_relay_rx.recv().await {
+                let _ = injection_tx.send(event).await;
+            }
+        });
+        
+        // Create mpsc channel for persistence if needed
+        let persistence_rx = if cli.save_transcriptions {
+            let (persist_tx, persist_rx) = mpsc::channel::<TranscriptionEvent>(100);
+            let mut persist_relay_rx = broadcast_tx.subscribe();
+            tokio::spawn(async move {
+                while let Ok(event) = persist_relay_rx.recv().await {
+                    let _ = persist_tx.send(event).await;
+                }
+            });
+            Some(persist_rx)
+        } else {
+            None
+        };
+
+        // Create channels for persistence if enabled
+        let (persist_vad_tx, persist_vad_rx) = mpsc::channel::<VadEvent>(100);
+
+        // Split event_rx for both STT and persistence
+        let (vad_relay_tx, stt_event_rx) = mpsc::channel::<VadEvent>(100);
+
+        // Relay VAD events to both STT and persistence
+        tokio::spawn(async move {
+            while let Some(event) = event_rx.recv().await {
+                let _ = vad_relay_tx.send(event.clone()).await;
+                if cli.save_transcriptions {
+                    let _ = persist_vad_tx.send(event).await;
+                }
+            }
+        });
+
+        let stt_audio_rx = audio_tx.subscribe();
+        let stt_processor = SttProcessor::new(stt_audio_rx, stt_event_rx, stt_transcription_tx, stt_config.clone())
+            .map_err(|e| anyhow!("Failed to create STT processor: {}", e))?;
+
+        // Create session-based injection processor
+        let injection_config = InjectionProcessorConfig::default();
+        let (injection_shutdown_tx, injection_shutdown_rx) = mpsc::channel::<()>(1);
+        let injection_processor = AsyncInjectionProcessor::new(
+            injection_config,
+            injection_rx,
+            injection_shutdown_rx,
+            Some(metrics.clone()),
+        );
+
+        // Spawn injection processor
+        let injection_handle = tokio::spawn(async move {
+            if let Err(e) = injection_processor.run().await {
+                tracing::error!("Injection processor failed: {}", e);
+            }
+        });
+
+        // Note: For now, we've removed the separate transcription persistence handler
+        // since transcription events go directly to the injection processor.
+        // Future enhancement could add persistence by tapping into the injection processor events.
+
+        // Set up persistence if enabled
+        #[cfg(feature = "vosk")]
+        let persistence_handle = if cli.save_transcriptions {
+            let persist_config = PersistenceConfig {
+                enabled: true,
+                output_dir: std::path::PathBuf::from(cli.output_dir.clone()),
+                save_audio: cli.save_audio,
+                audio_format: AudioFormat::Wav,
+                transcript_format: match cli.transcript_format.as_str() {
+                    "csv" => TranscriptFormat::Csv,
+                    "text" => TranscriptFormat::Text,
+                    _ => TranscriptFormat::Json,
+                },
+                retention_days: cli.retention_days,
+                sample_rate: SAMPLE_RATE_HZ,
+            };
+
+            let metadata = SessionMetadata {
+                device_name: device.clone().unwrap_or_else(|| "default".to_string()),
+                sample_rate: SAMPLE_RATE_HZ,
+                vad_mode: format!("{:?}", vad_cfg.mode),
+                stt_model: stt_config.model_path.clone(),
+                app_version: env!("CARGO_PKG_VERSION").to_string(),
+            };
+
+            let persist_audio_rx = audio_tx.subscribe();
+
+            tracing::info!(
+                "Persistence enabled: output_dir={}, save_audio={}, format={:?}",
+                persist_config.output_dir.display(),
+                persist_config.save_audio,
+                persist_config.transcript_format
+            );
+
+            Some(coldvox_app::stt::persistence::spawn_persistence_handler(
+                persist_config,
+                metadata,
+                persist_audio_rx,
+                persist_vad_rx,
+                persistence_rx.unwrap(),
+            ))
+        } else {
+            None
+        };
+
+        #[cfg(not(feature = "vosk"))]
+        let persistence_handle = None;
+
         tracing::info!("STT processor task started with model: {}", stt_config.model_path);
-        Some(tokio::spawn(stt_processor.run()))
+        (Some(tokio::spawn(stt_processor.run())), persistence_handle, Some(injection_handle))
     } else {
         tracing::info!("STT processor disabled - no model available");
-        None
+        (None, None, None)
     };
 
     // --- Main Application Loop ---
@@ -262,19 +378,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     audio_capture.stop();
     tracing::info!("Audio capture thread stopped.");
 
-    // 2. Abort the tasks. This will drop their channel senders, causing downstream
+    // 2. Signal graceful shutdown to injection processor before aborting
+    if injection_handle.is_some() {
+        let _ = injection_shutdown_tx.send(()).await;
+    }
+    
+    // 3. Abort the tasks. This will drop their channel senders, causing downstream
     //    tasks with `recv()` loops to terminate gracefully.
     chunker_handle.abort();
     vad_handle.abort();
     if let Some(handle) = stt_handle {
         handle.abort();
     }
+    if let Some(handle) = injection_handle {
+        handle.abort();
+    }
     tracing::info!("Async tasks aborted.");
 
-    // 3. Await all handles to ensure they have fully cleaned up.
+    // 4. Await all handles to ensure they have fully cleaned up.
     // We ignore the results since we are aborting them and expect JoinError.
     let _ = chunker_handle.await;
     let _ = vad_handle.await;
+    if let Some(handle) = stt_handle {
+        let _ = handle.await;
+    }
+    if let Some(handle) = injection_handle {
+        let _ = handle.await;
+    }
 
     state_manager.transition(AppState::Stopped)?;
     tracing::info!("Shutdown complete");

@@ -1,0 +1,382 @@
+use crate::stt::TranscriptionEvent;
+use crate::telemetry::pipeline_metrics::PipelineMetrics;
+use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc;
+use tokio::time::{self, Duration, Instant};
+use tracing::{debug, error, info, warn};
+
+use super::session::{InjectionSession, SessionConfig, SessionState};
+use super::TextInjector;
+
+/// Configuration for the injection processor
+#[derive(Debug, Clone)]
+pub struct InjectionProcessorConfig {
+    /// Session configuration
+    pub session_config: SessionConfig,
+    /// How often to check for silence timeout (default: 100ms)
+    pub check_interval_ms: u64,
+    /// Whether to inject on unknown focus state (default: true for Phase 1)
+    pub inject_on_unknown_focus: bool,
+}
+
+impl Default for InjectionProcessorConfig {
+    fn default() -> Self {
+        Self {
+            session_config: SessionConfig::default(),
+            check_interval_ms: 100,
+            inject_on_unknown_focus: true,
+        }
+    }
+}
+
+/// Metrics for injection processor
+#[derive(Debug, Clone, Default)]
+pub struct InjectionMetrics {
+    /// Current session state
+    pub session_state: SessionState,
+    /// Number of transcriptions in current buffer
+    pub buffer_size: usize,
+    /// Total characters in buffer
+    pub buffer_chars: usize,
+    /// Time since last transcription (ms)
+    pub time_since_last_transcription_ms: Option<u64>,
+    /// Total successful injections
+    pub successful_injections: u64,
+    /// Total failed injections
+    pub failed_injections: u64,
+    /// Last injection timestamp
+    pub last_injection_time: Option<Instant>,
+}
+
+impl InjectionMetrics {
+    /// Update metrics from current session state
+    pub fn update_from_session(&mut self, session: &InjectionSession) {
+        self.session_state = session.state();
+        self.buffer_size = session.buffer_len();
+        self.buffer_chars = session.total_chars();
+        self.time_since_last_transcription_ms = session
+            .time_since_last_transcription()
+            .map(|d| d.as_millis() as u64);
+    }
+}
+
+/// Processor that manages session-based text injection
+pub struct InjectionProcessor {
+    /// The injection session
+    session: InjectionSession,
+    /// Text injector for performing the actual injection
+    injector: TextInjector,
+    /// Configuration
+    config: InjectionProcessorConfig,
+    /// Metrics for telemetry
+    metrics: Arc<Mutex<InjectionMetrics>>,
+    /// Pipeline metrics for integration
+    pipeline_metrics: Option<Arc<PipelineMetrics>>,
+}
+
+impl InjectionProcessor {
+    /// Create a new injection processor
+    pub fn new(
+        config: InjectionProcessorConfig,
+        pipeline_metrics: Option<Arc<PipelineMetrics>>,
+    ) -> Self {
+        let session = InjectionSession::new(config.session_config.clone());
+        let injector = TextInjector::new();
+
+        let metrics = Arc::new(Mutex::new(InjectionMetrics {
+            session_state: SessionState::Idle,
+            ..Default::default()
+        }));
+
+        Self {
+            session,
+            injector,
+            config,
+            metrics,
+            pipeline_metrics,
+        }
+    }
+
+    /// Get current metrics
+    pub fn metrics(&self) -> InjectionMetrics {
+        self.metrics.lock().unwrap().clone()
+    }
+
+    /// Handle a transcription event from the STT processor
+    pub fn handle_transcription(&mut self, event: TranscriptionEvent) {
+        match event {
+            TranscriptionEvent::Partial { text, utterance_id, .. } => {
+                debug!("Received partial transcription [{}]: {}", utterance_id, text);
+                self.update_metrics();
+            }
+            TranscriptionEvent::Final { text, utterance_id, .. } => {
+                info!("Received final transcription [{}]: {}", utterance_id, text);
+                self.session.add_transcription(text);
+                self.update_metrics();
+            }
+            TranscriptionEvent::Error { code, message } => {
+                warn!("Transcription error [{}]: {}", code, message);
+            }
+        }
+    }
+
+    /// Check if injection should be performed and execute if needed
+    pub async fn check_and_inject(&mut self) -> anyhow::Result<()> {
+        if self.session.should_inject() {
+            self.perform_injection().await?;
+        }
+        Ok(())
+    }
+
+    /// Force injection of current buffer (for manual triggers)
+    pub async fn force_inject(&mut self) -> anyhow::Result<()> {
+        if self.session.has_content() {
+            self.session.force_inject();
+            self.perform_injection().await?;
+        }
+        Ok(())
+    }
+
+    /// Clear current session buffer
+    pub fn clear_session(&mut self) {
+        self.session.clear();
+        self.update_metrics();
+        info!("Session cleared manually");
+    }
+
+    /// Perform the actual text injection
+    async fn perform_injection(&mut self) -> anyhow::Result<()> {
+        let text = self.session.take_buffer();
+        if text.is_empty() {
+            return Ok(());
+        }
+
+        info!("Injecting {} characters from session", text.len());
+
+        match self.injector.inject(&text).await {
+            Ok(()) => {
+                info!("Successfully injected text via clipboard");
+                self.metrics.lock().unwrap().successful_injections += 1;
+                self.metrics.lock().unwrap().last_injection_time = Some(Instant::now());
+            }
+            Err(e) => {
+                error!("Failed to inject text: {}", e);
+                self.metrics.lock().unwrap().failed_injections += 1;
+                return Err(e);
+            }
+        }
+
+        self.update_metrics();
+        Ok(())
+    }
+
+    /// Update internal metrics from session state
+    fn update_metrics(&self) {
+        let mut metrics = self.metrics.lock().unwrap();
+        metrics.update_from_session(&self.session);
+    }
+
+    /// Get current session state
+    pub fn session_state(&self) -> SessionState {
+        self.session.state()
+    }
+
+    /// Get buffer content preview (for debugging/UI)
+    pub fn buffer_preview(&self) -> String {
+        let text = self.session.buffer_preview();
+        let preview = if text.len() > 100 {
+            format!("{}...", &text[..100])
+        } else {
+            text
+        };
+        debug!("Buffer preview: {}", preview);
+        preview
+    }
+
+    /// Get the last partial transcription text (for real-time feedback)
+    pub fn last_partial_text(&self) -> Option<String> {
+        None
+    }
+}
+
+/// Async wrapper for the injection processor that runs in a dedicated task
+pub struct AsyncInjectionProcessor {
+    processor: Arc<Mutex<InjectionProcessor>>,
+    transcription_rx: mpsc::Receiver<TranscriptionEvent>,
+    shutdown_rx: mpsc::Receiver<()>,
+}
+
+impl AsyncInjectionProcessor {
+    /// Create a new async injection processor
+    pub fn new(
+        config: InjectionProcessorConfig,
+        transcription_rx: mpsc::Receiver<TranscriptionEvent>,
+        shutdown_rx: mpsc::Receiver<()>,
+        pipeline_metrics: Option<Arc<PipelineMetrics>>,
+    ) -> Self {
+        let processor = Arc::new(Mutex::new(InjectionProcessor::new(config, pipeline_metrics)));
+        Self {
+            processor,
+            transcription_rx,
+            shutdown_rx,
+        }
+    }
+
+    /// Run the injection processor loop
+    pub async fn run(mut self) -> anyhow::Result<()> {
+        let check_interval = Duration::from_millis(100); // Check every 100ms for silence timeout
+        let mut interval = time::interval(check_interval);
+
+        info!("Injection processor started");
+
+        loop {
+            tokio::select! {
+                // Handle transcription events
+                Some(event) = self.transcription_rx.recv() => {
+                    let mut processor = self.processor.lock().unwrap();
+                    processor.handle_transcription(event);
+                }
+
+                // Periodic check for silence timeout
+                _ = interval.tick() => {
+                    let mut processor = self.processor.lock().unwrap();
+                    if let Err(e) = processor.check_and_inject().await {
+                        error!("Injection failed: {}", e);
+                    }
+                }
+
+                // Shutdown signal
+                _ = self.shutdown_rx.recv() => {
+                    info!("Received shutdown signal, graceful exit initiated");
+                    break;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Get current metrics
+    pub fn metrics(&self) -> InjectionMetrics {
+        self.processor.lock().unwrap().metrics()
+    }
+
+    /// Force injection (for manual triggers)
+    pub async fn force_inject(&self) -> anyhow::Result<()> {
+        self.processor.lock().unwrap().force_inject().await
+    }
+
+    /// Clear session (for cancellation)
+    pub fn clear_session(&self) {
+        self.processor.lock().unwrap().clear_session();
+    }
+
+    /// Get the last partial transcription text (for real-time feedback)
+    pub fn last_partial_text(&self) -> Option<String> {
+        self.processor.lock().unwrap().last_partial_text()
+    }
+}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::thread;
+    use std::time::Duration;
+
+    #[test]
+    fn test_injection_processor_basic_flow() {
+        let config = InjectionProcessorConfig {
+            session_config: SessionConfig {
+                silence_timeout_ms: 200, // Short timeout for testing
+                buffer_pause_timeout_ms: 200, // Also set buffer pause timeout
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let mut processor = InjectionProcessor::new(config, None);
+
+        // Start with idle state
+        assert_eq!(processor.session_state(), SessionState::Idle);
+
+        // Add a transcription
+        processor.handle_transcription(TranscriptionEvent::Final {
+            utterance_id: 1,
+            text: "Hello world".to_string(),
+            words: None,
+        });
+
+        assert_eq!(processor.session_state(), SessionState::Buffering);
+
+        // Wait for silence timeout
+        thread::sleep(Duration::from_millis(300));
+
+        // Check for silence transition (this would normally be called periodically)
+        processor.session.check_for_silence_transition();
+        
+        // Should be in WaitingForSilence state now
+        assert_eq!(processor.session_state(), SessionState::WaitingForSilence);
+
+        // This should trigger injection check
+        let should_inject = processor.session.should_inject();
+        assert!(should_inject, "Session should be ready to inject");
+        
+        // Instead of actually injecting (which requires ydotool), 
+        // we'll manually clear the buffer to simulate successful injection
+        let buffer_content = processor.session.take_buffer();
+        assert_eq!(buffer_content, "Hello world");
+
+        // Should be back to idle after taking the buffer
+        assert_eq!(processor.session_state(), SessionState::Idle);
+    }
+
+    #[test]
+    fn test_metrics_update() {
+        let config = InjectionProcessorConfig::default();
+        let mut processor = InjectionProcessor::new(config, None);
+
+        // Add transcription
+        processor.handle_transcription(TranscriptionEvent::Final {
+            utterance_id: 1,
+            text: "Test transcription".to_string(),
+            words: None,
+        });
+
+        let metrics = processor.metrics();
+        assert_eq!(metrics.session_state, SessionState::Buffering);
+        assert_eq!(metrics.buffer_size, 1);
+        assert!(metrics.buffer_chars > 0);
+    }
+
+    #[test]
+    fn test_partial_transcription_handling() {
+        let config = InjectionProcessorConfig::default();
+        let mut processor = InjectionProcessor::new(config, None);
+
+        // Start with idle state
+        assert_eq!(processor.session_state(), SessionState::Idle);
+
+        // Handle partial transcription
+        processor.handle_transcription(TranscriptionEvent::Partial {
+            utterance_id: 1,
+            text: "Hello".to_string(),
+            t0: None,
+            t1: None,
+        });
+
+        // Should still be idle since partial events don't change session state
+        assert_eq!(processor.session_state(), SessionState::Idle);
+
+        // Handle final transcription
+        processor.handle_transcription(TranscriptionEvent::Final {
+            utterance_id: 1,
+            text: "Hello world".to_string(),
+            words: None,
+        });
+
+        // Now should be buffering
+        assert_eq!(processor.session_state(), SessionState::Buffering);
+        assert_eq!(processor.session.buffer_len(), 1);
+    }
+}
