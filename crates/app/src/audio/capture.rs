@@ -314,7 +314,7 @@ impl AudioCapture {
                             converted.reserve(data.len());
                             // Clamp [-1.0, 1.0] and scale to i16
                             for &s in data {
-                                let clamped = if s < -1.0 { -1.0 } else if s > 1.0 { 1.0 } else { s };
+                                let clamped = s.clamp(-1.0, 1.0);
                                 let v = (clamped * 32767.0).round() as i16;
                                 converted.push(v);
                             }
@@ -375,7 +375,7 @@ impl AudioCapture {
                             converted.clear();
                             converted.reserve(data.len());
                             for &s in data {
-                                let clamped = if s < -1.0 { -1.0 } else if s > 1.0 { 1.0 } else { s };
+                                let clamped = s.clamp(-1.0, 1.0);
                                 let v = (clamped * 32767.0).round() as i16;  // Now uses .round() like F32
                                 converted.push(v);
                             }
