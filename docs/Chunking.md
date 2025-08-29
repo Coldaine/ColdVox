@@ -13,7 +13,7 @@ The chunker converts the arbitrary `AudioCapture` frames into exact 512-sample f
 
 ## Contract
 
-- Input: 16 kHz mono i16 PCM, delivered as `audio::capture::AudioFrame` on a crossbeam channel.
+- Input: 16 kHz mono i16 PCM, read via `FrameReader` from the rtrb ring buffer and represented as `audio::capture::AudioFrame`.
 - Output: Non-overlapping frames of exactly 512 samples, delivered as `audio::vad_processor::AudioFrame` (data + timestamp_ms).
 - Timestamps: Derived from the emitted-sample cursor at the configured sample rate (not from wall-clock), matching Silero’s expectation.
 - Resampling: None. Upstream capture already normalizes to 16 kHz mono. If the input sample rate mismatches, the chunker logs a warning and proceeds without conversion.

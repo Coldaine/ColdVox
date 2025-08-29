@@ -38,6 +38,25 @@ impl VadMicCheck {
         // Create metrics for this test instance
         let metrics = Arc::new(PipelineMetrics::default());
 
+        // Periodic metrics logging every 30s
+        let metrics_clone = metrics.clone();
+        let log_handle = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(30));
+            loop {
+                interval.tick().await;
+                let cap_fps = metrics_clone.capture_fps.load(std::sync::atomic::Ordering::Relaxed);
+                let chk_fps = metrics_clone.chunker_fps.load(std::sync::atomic::Ordering::Relaxed);
+                let vad_fps = metrics_clone.vad_fps.load(std::sync::atomic::Ordering::Relaxed);
+                let cap_fill = metrics_clone.capture_buffer_fill.load(std::sync::atomic::Ordering::Relaxed);
+                let chk_fill = metrics_clone.chunker_buffer_fill.load(std::sync::atomic::Ordering::Relaxed);
+                tracing::info!(
+                    target: "vad_mic",
+                    "FPS c:{} ch:{} vad:{} | Fill c:{}% ch:{}%",
+                    cap_fps, chk_fps, vad_fps, cap_fill, chk_fill
+                );
+            }
+        });
+
         // Set up VAD processing pipeline
         let (audio_tx, _) = broadcast::channel::<VadFrame>(200);
         let (event_tx, mut event_rx) = mpsc::channel::<VadEvent>(100);
@@ -109,6 +128,7 @@ impl VadMicCheck {
         capture_thread.stop();
         chunker_handle.abort();
         vad_handle.abort();
+    log_handle.abort();
 
         let elapsed = start_time.elapsed();
 
