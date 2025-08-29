@@ -44,12 +44,11 @@ fn init_logging() -> Result<(), Box<dyn std::error::Error>> {
     let log_level = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
     let env_filter = EnvFilter::try_new(log_level).unwrap_or_else(|_| EnvFilter::new("info"));
 
-    let stderr_layer = fmt::layer().with_writer(std::io::stderr);
+    // Only use file logging for TUI mode to avoid corrupting the display
     let file_layer = fmt::layer().with_writer(non_blocking_file);
 
     tracing_subscriber::registry()
         .with(env_filter)
-        .with(stderr_layer)
         .with(file_layer)
         .init();
     std::mem::forget(_guard);
