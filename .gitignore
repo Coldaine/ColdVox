@@ -35,3 +35,12 @@ temp/
 
 # OS files
 Thumbs.db
+
+# Vosk models (large binary files)
+models/
+*.model
+*.zip
+
+# ColdVox test data and logs
+.coldvox/
+crates/app/.coldvox/
