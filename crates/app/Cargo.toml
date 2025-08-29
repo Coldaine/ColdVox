@@ -34,6 +34,11 @@ name = "vosk_test"
 path = "../../examples/vosk_test.rs"
 required-features = ["vosk", "examples"]
 
+[[example]]
+name = "inject_demo"
+path = "../../examples/inject_demo.rs"
+required-features = ["text-injection"]
+
 [dependencies]
 tokio = { version = "1.35", features = ["full"] }
 anyhow = "1.0"
@@ -61,12 +66,39 @@ futures = "0.3"
 voice_activity_detector = { git = "https://github.com/nkeenan38/voice_activity_detector", rev = "234b7484860125014f06ad85da842da81b02e51a" }
 vosk = "0.3"
 csv = "1.3"
+atspi = { version = "^0.28", features = ["tokio"], optional = true }
+zbus = { version = "^5", default-features = false, features = ["tokio"], optional = true }
+wl-clipboard-rs = { version = "^0.9", optional = true }
+enigo = { version = "^0.2", default-features = false, optional = true }
+mouse-keyboard-input = { version = "^0.9", optional = true }
+ashpd = { version = "^0.9", features = ["tokio","wayland"], optional = true } # Phase 3
+reis = { version = "^0.4", features = ["tokio"], optional = true } # Phase 3
 
 [features]
 default = []
 live-hardware-tests = []
 vosk = []
 examples = []
+
+# --- Text Injection Features ---
+# Enables the core text injection framework
+text-injection = []
+# Enables AT-SPI based injection (accessibility)
+text-injection-atspi = ["text-injection", "atspi", "zbus"]
+# Enables clipboard-based injection
+text-injection-clipboard = ["text-injection", "wl-clipboard-rs"]
+# Enables ydotool as a fallback (runtime binary)
+text-injection-ydotool = ["text-injection"]
+# Enables kdotool as a fallback (runtime binary)
+text-injection-kdotool = ["text-injection"]
+# Enables enigo as a fallback (virtual input)
+text-injection-enigo = ["text-injection", "enigo"]
+# Enables mouse-keyboard-input as a fallback (virtual input)
+text-injection-mki = ["text-injection", "mouse-keyboard-input"]
+
+# --- Phase 3 Placeholders ---
+text-injection-portal-eis = ["text-injection", "ashpd", "reis"]
+text-injection-ime = ["text-injection"]
 
 [dependencies.rand]
 version = "0.8"

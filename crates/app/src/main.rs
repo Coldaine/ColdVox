@@ -11,13 +11,13 @@ use coldvox_app::foundation::*;
 use coldvox_app::stt::{processor::SttProcessor, TranscriptionConfig, TranscriptionEvent};
 #[cfg(feature = "vosk")]
 use coldvox_app::stt::persistence::{PersistenceConfig, TranscriptFormat, AudioFormat, SessionMetadata};
-use coldvox_app::text_injection::{AsyncInjectionProcessor, InjectionProcessorConfig};
+use coldvox_app::text_injection::{self, AsyncInjectionProcessor, InjectionProcessorConfig};
 use coldvox_app::vad::config::{UnifiedVadConfig, VadMode};
 use coldvox_app::vad::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 use coldvox_app::vad::types::VadEvent;
 use coldvox_app::telemetry::pipeline_metrics::PipelineMetrics;
 use std::time::Duration;
-use clap::Parser;
+use clap::{Args, Parser};
 use tokio::sync::{broadcast, mpsc};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -74,6 +74,55 @@ struct Cli {
     /// Keep transcription files for N days (0 = forever)
     #[arg(long = "retention-days", default_value = "30")]
     retention_days: u32,
+
+    #[cfg(feature = "text-injection")]
+    #[command(flatten)]
+    injection: InjectionArgs,
+}
+
+#[cfg(feature = "text-injection")]
+#[derive(Args, Debug)]
+#[command(next_help_heading = "Text Injection")]
+struct InjectionArgs {
+    /// Enable text injection after transcription
+    #[arg(long = "enable-text-injection", env = "COLDVOX_ENABLE_TEXT_INJECTION")]
+    enable: bool,
+
+    /// Allow ydotool as an injection fallback
+    #[arg(long = "allow-ydotool", env = "COLDVOX_ALLOW_YDOTOOL")]
+    allow_ydotool: bool,
+
+    /// Allow kdotool as an injection fallback
+    #[arg(long = "allow-kdotool", env = "COLDVOX_ALLOW_KDOTOOL")]
+    allow_kdotool: bool,
+
+    /// Allow enigo as an injection fallback
+    #[arg(long = "allow-enigo", env = "COLDVOX_ALLOW_ENIGO")]
+    allow_enigo: bool,
+
+    /// Allow mki (uinput) as an injection fallback
+    #[arg(long = "allow-mki", env = "COLDVOX_ALLOW_MKI")]
+    allow_mki: bool,
+
+    /// Attempt injection even if the focused application is unknown
+    #[arg(long = "inject-on-unknown-focus", env = "COLDVOX_INJECT_ON_UNKNOWN_FOCUS")]
+    inject_on_unknown_focus: bool,
+
+    /// Restore clipboard contents after injection
+    #[arg(long = "restore-clipboard", env = "COLDVOX_RESTORE_CLIPBOARD")]
+    restore_clipboard: bool,
+
+    /// Max total latency for an injection call (ms)
+    #[arg(long, env = "COLDVOX_INJECTION_MAX_LATENCY_MS")]
+    max_total_latency_ms: Option<u64>,
+
+    /// Timeout for each injection method (ms)
+    #[arg(long, env = "COLDVOX_INJECTION_METHOD_TIMEOUT_MS")]
+    per_method_timeout_ms: Option<u64>,
+
+    /// Initial cooldown on failure (ms)
+    #[arg(long, env = "COLDVOX_INJECTION_COOLDOWN_MS")]
+    cooldown_initial_ms: Option<u64>,
 }
 
 #[tokio::main]
@@ -263,23 +312,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let stt_processor = SttProcessor::new(stt_audio_rx, stt_event_rx, stt_transcription_tx, stt_config.clone())
             .map_err(|e| anyhow!("Failed to create STT processor: {}", e))?;
 
-        // Create session-based injection processor
-        let injection_config = InjectionProcessorConfig::default();
-        let (shutdown_tx, injection_shutdown_rx) = mpsc::channel::<()>(1);
-        injection_shutdown_tx = Some(shutdown_tx);
-        let injection_processor = AsyncInjectionProcessor::new(
-            injection_config,
-            injection_rx,
-            injection_shutdown_rx,
-            Some(metrics.clone()),
-        );
+        // --- 5. Text Injection Processor ---
+        let injection_handle = if cfg!(feature = "text-injection") && cli.injection.enable {
+            // Build the full injection config from CLI args and defaults
+            let injection_config = text_injection::InjectionConfig {
+                allow_ydotool: cli.injection.allow_ydotool,
+                allow_kdotool: cli.injection.allow_kdotool,
+                allow_enigo: cli.injection.allow_enigo,
+                allow_mki: cli.injection.allow_mki,
+                restore_clipboard: cli.injection.restore_clipboard,
+                inject_on_unknown_focus: cli.injection.inject_on_unknown_focus,
+                max_total_latency_ms: cli.injection.max_total_latency_ms.unwrap_or(text_injection::types::InjectionConfig::default().max_total_latency_ms),
+                per_method_timeout_ms: cli.injection.per_method_timeout_ms.unwrap_or(text_injection::types::InjectionConfig::default().per_method_timeout_ms),
+                cooldown_initial_ms: cli.injection.cooldown_initial_ms.unwrap_or(text_injection::types::InjectionConfig::default().cooldown_initial_ms),
+                ..Default::default()
+            };
 
-        // Spawn injection processor
-        let injection_handle = tokio::spawn(async move {
-            if let Err(e) = injection_processor.run().await {
-                tracing::error!("Injection processor failed: {}", e);
-            }
-        });
+            let (shutdown_tx, injection_shutdown_rx) = mpsc::channel::<()>(1);
+            injection_shutdown_tx = Some(shutdown_tx);
+            let injection_processor = AsyncInjectionProcessor::new(
+                injection_config,
+                injection_rx,
+                injection_shutdown_rx,
+                Some(metrics.clone()),
+            );
+
+            // Spawn injection processor
+            tracing::info!("Text injection enabled.");
+            Some(tokio::spawn(async move {
+                if let Err(e) = injection_processor.run().await {
+                    tracing::error!("Injection processor failed: {}", e);
+                }
+            }))
+        } else {
+            tracing::info!("Text injection disabled.");
+            None
+        };
 
         // Note: For now, we've removed the separate transcription persistence handler
         // since transcription events go directly to the injection processor.
@@ -334,7 +402,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let persistence_handle = None;
 
         tracing::info!("STT processor task started with model: {}", stt_config.model_path);
-        (Some(tokio::spawn(stt_processor.run())), persistence_handle, Some(injection_handle))
+        (Some(tokio::spawn(stt_processor.run())), persistence_handle, injection_handle)
     } else {
         tracing::info!("STT processor disabled - no model available");
         (None, None, None)

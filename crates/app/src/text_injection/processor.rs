@@ -6,28 +6,8 @@ use tokio::time::{self, Duration, Instant};
 use tracing::{debug, error, info, warn};
 
 use super::session::{InjectionSession, SessionConfig, SessionState};
-use super::TextInjector;
-
-/// Configuration for the injection processor
-#[derive(Debug, Clone)]
-pub struct InjectionProcessorConfig {
-    /// Session configuration
-    pub session_config: SessionConfig,
-    /// How often to check for silence timeout (default: 100ms)
-    pub check_interval_ms: u64,
-    /// Whether to inject on unknown focus state (default: true for Phase 1)
-    pub inject_on_unknown_focus: bool,
-}
-
-impl Default for InjectionProcessorConfig {
-    fn default() -> Self {
-        Self {
-            session_config: SessionConfig::default(),
-            check_interval_ms: 100,
-            inject_on_unknown_focus: true,
-        }
-    }
-}
+use super::{InjectionConfig};
+use super::manager::StrategyManager;
 
 /// Metrics for injection processor
 #[derive(Debug, Clone, Default)]
@@ -65,9 +45,9 @@ pub struct InjectionProcessor {
     /// The injection session
     session: InjectionSession,
     /// Text injector for performing the actual injection
-    injector: TextInjector,
+    injector: StrategyManager,
     /// Configuration
-    config: InjectionProcessorConfig,
+    config: InjectionConfig,
     /// Metrics for telemetry
     metrics: Arc<Mutex<InjectionMetrics>>,
     /// Pipeline metrics for integration
@@ -77,11 +57,12 @@ pub struct InjectionProcessor {
 impl InjectionProcessor {
     /// Create a new injection processor
     pub fn new(
-        config: InjectionProcessorConfig,
+        config: InjectionConfig,
         pipeline_metrics: Option<Arc<PipelineMetrics>>,
     ) -> Self {
-        let session = InjectionSession::new(config.session_config.clone());
-        let injector = TextInjector::new();
+        let session_config = SessionConfig::default(); // TODO: Expose this if needed
+        let session = InjectionSession::new(session_config);
+        let injector = StrategyManager::new(config.clone());
 
         let metrics = Arc::new(Mutex::new(InjectionMetrics {
             session_state: SessionState::Idle,
@@ -179,14 +160,14 @@ impl InjectionProcessor {
 
         match self.injector.inject(&text).await {
             Ok(()) => {
-                info!("Successfully injected text via clipboard");
+                info!("Successfully injected text");
                 self.metrics.lock().unwrap().successful_injections += 1;
                 self.metrics.lock().unwrap().last_injection_time = Some(Instant::now());
             }
             Err(e) => {
                 error!("Failed to inject text: {}", e);
                 self.metrics.lock().unwrap().failed_injections += 1;
-                return Err(e);
+                return Err(e.into());
             }
         }
 
@@ -229,30 +210,30 @@ pub struct AsyncInjectionProcessor {
     transcription_rx: mpsc::Receiver<TranscriptionEvent>,
     shutdown_rx: mpsc::Receiver<()>,
     // dedicated injector to avoid awaiting while holding the processor lock
-    injector: TextInjector,
+    injector: StrategyManager,
 }
 
 impl AsyncInjectionProcessor {
     /// Create a new async injection processor
     pub fn new(
-        config: InjectionProcessorConfig,
+        config: InjectionConfig,
         transcription_rx: mpsc::Receiver<TranscriptionEvent>,
         shutdown_rx: mpsc::Receiver<()>,
         pipeline_metrics: Option<Arc<PipelineMetrics>>,
     ) -> Self {
+        let injector = StrategyManager::new(config.clone());
         let processor = Arc::new(Mutex::new(InjectionProcessor::new(config, pipeline_metrics)));
         Self {
             processor,
             transcription_rx,
             shutdown_rx,
-            injector: TextInjector::new(),
+            injector,
         }
     }
 
     /// Run the injection processor loop
     pub async fn run(mut self) -> anyhow::Result<()> {
-        let check_interval_ms = self.processor.lock().unwrap().config.check_interval_ms;
-        let check_interval = Duration::from_millis(check_interval_ms);
+        let check_interval = Duration::from_millis(100); // TODO: Make configurable
         let mut interval = time::interval(check_interval);
 
         info!("Injection processor started");
@@ -328,14 +309,7 @@ mod tests {
 
     #[test]
     fn test_injection_processor_basic_flow() {
-        let config = InjectionProcessorConfig {
-            session_config: SessionConfig {
-                silence_timeout_ms: 200, // Short timeout for testing
-                buffer_pause_timeout_ms: 200, // Also set buffer pause timeout
-                ..Default::default()
-            },
-            ..Default::default()
-        };
+        let config = InjectionConfig::default();
 
         let mut processor = InjectionProcessor::new(config, None);
 
@@ -375,7 +349,7 @@ mod tests {
 
     #[test]
     fn test_metrics_update() {
-        let config = InjectionProcessorConfig::default();
+        let config = InjectionConfig::default();
         let mut processor = InjectionProcessor::new(config, None);
 
         // Add transcription
@@ -393,7 +367,7 @@ mod tests {
 
     #[test]
     fn test_partial_transcription_handling() {
-        let config = InjectionProcessorConfig::default();
+        let config = InjectionConfig::default();
         let mut processor = InjectionProcessor::new(config, None);
 
         // Start with idle state
