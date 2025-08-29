@@ -6,12 +6,21 @@ use tokio::task::JoinHandle;
 use tokio::time::{self, Duration};
 
 use crate::audio::frame_reader::FrameReader;
+use crate::audio::resampler::StreamResampler;
 use crate::audio::vad_processor::AudioFrame as VadFrame;
 use crate::telemetry::pipeline_metrics::{FpsTracker, PipelineMetrics, PipelineStage};
+
+#[derive(Debug, Clone, Copy)]
+pub enum ResamplerQuality {
+    Fast,      // Lower quality, lower CPU usage
+    Balanced,  // Default quality/performance balance
+    Quality,   // Higher quality, higher CPU usage
+}
 
 pub struct ChunkerConfig {
     pub frame_size_samples: usize,
     pub sample_rate_hz: u32,
+    pub resampler_quality: ResamplerQuality,
 }
 
 impl Default for ChunkerConfig {
@@ -19,6 +28,7 @@ impl Default for ChunkerConfig {
         Self {
             frame_size_samples: 512,
             sample_rate_hz: 16_000,
+            resampler_quality: ResamplerQuality::Balanced,
         }
     }
 }
@@ -72,6 +82,10 @@ struct ChunkerWorker {
     metrics: Option<Arc<PipelineMetrics>>,
     capture_fps_tracker: FpsTracker,
     chunker_fps_tracker: FpsTracker,
+    // Resampling state
+    resampler: Option<Arc<parking_lot::Mutex<StreamResampler>>>,
+    current_input_rate: Option<u32>,
+    current_input_channels: Option<u16>,
 }
 
 impl ChunkerWorker {
@@ -91,6 +105,9 @@ impl ChunkerWorker {
             metrics,
             capture_fps_tracker: FpsTracker::new(),
             chunker_fps_tracker: FpsTracker::new(),
+            resampler: None,
+            current_input_rate: None,
+            current_input_channels: None,
         }
     }
 
@@ -107,7 +124,16 @@ impl ChunkerWorker {
                     m.update_audio_level(&frame.samples);
                     m.mark_stage_active(PipelineStage::Capture);
                 }
-                self.buffer.extend(frame.samples);
+                
+                // Check if device configuration has changed
+                if self.current_input_rate != Some(frame.sample_rate) 
+                    || self.current_input_channels != Some(frame.channels) {
+                    self.reconfigure_for_device(&frame);
+                }
+                
+                // Process the frame (resampling and channel conversion)
+                let processed_samples = self.process_frame(&frame);
+                self.buffer.extend(processed_samples);
                 self.flush_ready_frames().await;
             } else {
                 time::sleep(Duration::from_millis(1)).await;
@@ -149,5 +175,104 @@ impl ChunkerWorker {
                 m.mark_stage_active(PipelineStage::Chunker);
             }
         }
+    }
+    
+    fn reconfigure_for_device(&mut self, frame: &crate::audio::capture::AudioFrame) {
+        let needs_resampling = frame.sample_rate != self.cfg.sample_rate_hz;
+        
+        if needs_resampling {
+            tracing::info!(
+                "Configuring resampler: {}Hz {} ch -> {}Hz mono",
+                frame.sample_rate,
+                frame.channels,
+                self.cfg.sample_rate_hz
+            );
+            
+            let resampler = StreamResampler::new_with_quality(
+                frame.sample_rate,
+                self.cfg.sample_rate_hz,
+                self.cfg.resampler_quality,
+            );
+            
+            self.resampler = Some(Arc::new(parking_lot::Mutex::new(resampler)));
+        } else {
+            tracing::info!(
+                "Device already at target rate {}Hz, no resampling needed",
+                frame.sample_rate
+            );
+            self.resampler = None;
+        }
+        
+        self.current_input_rate = Some(frame.sample_rate);
+        self.current_input_channels = Some(frame.channels);
+    }
+    
+    fn process_frame(&mut self, frame: &crate::audio::capture::AudioFrame) -> Vec<i16> {
+        // First, handle channel conversion if needed
+        let mono_samples = if frame.channels == 1 {
+            frame.samples.clone()
+        } else {
+            // Convert multi-channel to mono by averaging
+            let channels = frame.channels as usize;
+            frame.samples
+                .chunks_exact(channels)
+                .map(|chunk| {
+                    let sum: i32 = chunk.iter().map(|&s| s as i32).sum();
+                    (sum / channels as i32) as i16
+                })
+                .collect()
+        };
+        
+        // Then, apply resampling if needed
+        if let Some(resampler) = &self.resampler {
+            resampler.lock().process(&mono_samples)
+        } else {
+            mono_samples
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::audio::ring_buffer::AudioRingBuffer;
+    use crate::audio::capture::AudioFrame;
+    use std::time::Instant;
+
+    #[test]
+    fn reconfigure_resampler_on_rate_change() {
+        let rb = AudioRingBuffer::new(1024);
+        let (_prod, cons) = rb.split();
+        let reader = FrameReader::new(cons, 48_000, 2, 1024, None);
+        let (tx, _rx) = broadcast::channel::<VadFrame>(8);
+        let cfg = ChunkerConfig { frame_size_samples: 512, sample_rate_hz: 16_000, resampler_quality: ResamplerQuality::Balanced };
+        let mut worker = ChunkerWorker::new(reader, tx, cfg, None);
+
+        // First frame at 48kHz stereo -> resampler should be created
+        let frame1 = AudioFrame { samples: vec![0i16; 480], timestamp: Instant::now(), sample_rate: 48_000, channels: 2 };
+        worker.reconfigure_for_device(&frame1);
+        assert!(worker.resampler.is_some());
+
+        // Frame at 16k mono -> resampler not needed
+        let frame2 = AudioFrame { samples: vec![0i16; 160], timestamp: Instant::now(), sample_rate: 16_000, channels: 1 };
+        worker.reconfigure_for_device(&frame2);
+        assert!(worker.resampler.is_none());
+    }
+
+    #[test]
+    fn stereo_to_mono_averaging() {
+        let rb = AudioRingBuffer::new(1024);
+        let (_prod, cons) = rb.split();
+        let reader = FrameReader::new(cons, 16_000, 2, 1024, None);
+        let (tx, _rx) = broadcast::channel::<VadFrame>(8);
+        let cfg = ChunkerConfig { frame_size_samples: 512, sample_rate_hz: 16_000, resampler_quality: ResamplerQuality::Balanced };
+        let mut worker = ChunkerWorker::new(reader, tx, cfg, None);
+
+        let samples = vec![1000i16, -1000, 900, -900, 800, -800, 700, -700];
+        let frame = AudioFrame { samples, timestamp: Instant::now(), sample_rate: 16_000, channels: 2 };
+        worker.reconfigure_for_device(&frame);
+        let out = worker.process_frame(&frame);
+        // Each pair averaged -> zeros
+        assert_eq!(out, vec![0, 0, 0, 0]);
     }
 }

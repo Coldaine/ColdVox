@@ -1,0 +1,12 @@
+{
+  "test": "mic_capture",
+  "pass": true,
+  "metrics": {
+    "frames_captured": 573,
+    "duration_secs": 15.994026655,
+    "frames_per_sec": 35.82587501946363,
+    "sample_rate": 16000
+  },
+  "notes": "All checks passed. Captured 573 frames in 16.0s at 35.8 FPS",
+  "artifacts": []
+}

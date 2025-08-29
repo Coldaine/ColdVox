@@ -345,7 +345,7 @@ async fn run_audio_pipeline(tx: mpsc::Sender<AppEvent>, device: String) {
     let rb_capacity = 16_384;
     let rb = AudioRingBuffer::new(rb_capacity);
     let (audio_producer, audio_consumer) = rb.split();
-    let (audio_thread, sample_rate) = match AudioCaptureThread::spawn(audio_config, audio_producer, device_option) {
+    let (audio_thread, device_cfg, _config_rx) = match AudioCaptureThread::spawn(audio_config, audio_producer, device_option) {
         Ok(thread_tuple) => thread_tuple,
         Err(e) => {
             let _ = tx.send(AppEvent::Log(LogLevel::Error, format!("Failed to create audio thread: {}", e))).await;
@@ -362,10 +362,17 @@ async fn run_audio_pipeline(tx: mpsc::Sender<AppEvent>, device: String) {
 
     let chunker_cfg = ChunkerConfig {
         frame_size_samples: FRAME_SIZE_SAMPLES,
-        sample_rate_hz: sample_rate,
+        sample_rate_hz: SAMPLE_RATE_HZ,
+        resampler_quality: coldvox_app::audio::chunker::ResamplerQuality::Balanced,
     };
     // Build FrameReader from ring buffer consumer and feed it to the chunker
-    let frame_reader = FrameReader::new(audio_consumer, sample_rate, rb_capacity, Some(metrics.clone()));
+    let frame_reader = FrameReader::new(
+        audio_consumer,
+        device_cfg.sample_rate,
+        device_cfg.channels,
+        rb_capacity,
+        Some(metrics.clone()),
+    );
     let chunker = AudioChunker::new(frame_reader, audio_tx.clone(), chunker_cfg).with_metrics(metrics.clone());
     let _chunker_handle = chunker.spawn();
 

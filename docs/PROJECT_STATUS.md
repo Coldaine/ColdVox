@@ -1,13 +1,13 @@
 # ColdVox Project Status Report
 
-**Last Updated:** 2025-08-26  
-**Status:** Phase 4 complete; proceeding to Phase 5 (stress + polish)
+**Last Updated:** 2025-08-29  
+**Status:** Phase 3 complete, Phase 4 partially implemented; system dependency issues blocking full STT
 
 ---
 
 ## Executive Summary
 
-ColdVox has successfully completed **Phase 0** (Foundation), **Phase 1** (Audio Capture with Recovery), and **Phase 2** (Lock-free Ring Buffer). All critical bugs that were preventing production use have been **RESOLVED**. The system is now ready to proceed to Phase 3 (VAD implementation).
+ColdVox has successfully completed **Phase 0** (Foundation), **Phase 1** (Audio Capture with Recovery), **Phase 2** (Lock-free Ring Buffer), and **Phase 3** (VAD with Fallback). All critical audio pipeline bugs have been **RESOLVED**. **Phase 4** (STT Integration) is partially implemented but **blocked by missing system dependencies** (libvosk library).
 
 ## Phase Implementation Status
 
@@ -16,9 +16,9 @@ ColdVox has successfully completed **Phase 0** (Foundation), **Phase 1** (Audio 
 | **Phase 0** | Foundation & Safety Net | ✅ **COMPLETE** | Error handling, state management, graceful shutdown |
 | **Phase 1** | Microphone Capture with Recovery | ✅ **COMPLETE** | Critical bugs fixed, production ready |
 | **Phase 2** | Lock-free Ring Buffer | ✅ **COMPLETE** | Implemented using rtrb library |
-| **Phase 3** | VAD with Fallback | ✅ **COMPLETE** | Silero V5 via ONNX; energy fallback ready |
-| **Phase 4** | Smart Chunking | ✅ **COMPLETE** | Overlap + pre/post-roll; min-gap/min-chunk |
-| **Phase 5+** | Stress Testing & Polish | 📋 **NEXT** | Endurance, metrics export, UX polish |
+| **Phase 3** | VAD with Fallback | ✅ **COMPLETE** | Silero VAD integrated; energy-based fallback available |
+| **Phase 4** | STT Integration | 🟡 **PARTIAL** | Framework implemented but blocked by missing libvosk |
+| **Phase 5+** | Stress Testing & Polish | 📋 **BLOCKED** | Waiting for Phase 4 system dependencies |
 
 ---
 
@@ -54,30 +54,37 @@ All 4 critical bugs identified in the remediation plan have been **FIXED**:
 - ✅ **Foundation Layer** - Complete and robust
 - ✅ **Audio System** - Production ready with recovery
 - ✅ **Ring Buffer** - Zero-allocation real-time safe (rtrb)
-- 📋 **VAD System** - Fork ready, needs integration
+- ✅ **VAD System** - Silero VAD integrated with energy fallback
+- 🟡 **STT System** - Framework implemented, blocked by system dependencies
 - 📋 **Telemetry** - Partially implemented
 
 ### Threading Model (Working)
 ```
-[Mic Thread] → Ring Buffer → [Processing Thread] → [Output]
-     ↓              ↓
-[Watchdog]    [Error Handling]
+[Mic Thread] → Ring Buffer → [Chunker] → [VAD Processor] → [VAD Events]
+     ↓              ↓            ↓            ↓
+[Watchdog]    [Error Handling]  [STT*]    [Event Handlers]
+                                 
+* STT framework exists but requires libvosk system library
 ```
 
 ### Audio Pipeline (Functional)
-- **Input**: Any format/channels device supports
+- **Input**: Any format/channels device supports  
 - **Processing**: Convert to 16kHz, i16, mono
 - **Buffering**: Lock-free ring buffer (rtrb)
+- **Chunking**: Fixed 512-sample frames for VAD
+- **VAD**: Silero ML model with energy-based fallback
+- **STT**: Vosk framework ready (blocked by missing libvosk)
 - **Recovery**: Automatic device reconnection with backoff
 
 ---
 
-## Current metrics (as of 2025-08-26)
+## Current metrics (as of 2025-08-29)
 
-- Rust LOC (excl. target/Forks): 27,978
-- Rust files: 58
-- Markdown docs: 28
-- Probes/demos: foundation_probe, mic_probe, vad_demo, vosk_test
+- Rust LOC (excl. target/Forks): ~30,000+ (estimated)
+- Rust files: 60+ (including STT modules)
+- Markdown docs: 28+
+- Probes/demos: foundation_probe, mic_probe, vad_demo, plus STT framework
+- **New since 2025-08-26**: Complete VAD system, STT framework implementation
 
 ---
 
@@ -133,7 +140,9 @@ cargo test
 - ✅ Unit tests for ring buffer
 - ✅ Integration test harnesses (foundation_probe, mic_probe)
 - ✅ Audio capture end-to-end testing
-- 📋 VAD tests (Phase 3)
+- ✅ VAD system unit tests
+- ✅ STT framework unit tests (unbuildable due to libvosk dependency)
+- 📋 End-to-end STT integration tests (blocked)
 
 ---
 
@@ -150,10 +159,11 @@ cargo test
 - Coverage: Unit tests minimal; rely on probes
 - Packaging: Runtime dependencies (ONNX) require validation in CI
 
-### Phase 3 Risks 🟡
-- **VAD Model Loading**: ONNX runtime dependency management
-- **Fallback Coordination**: Energy-based VAD as backup to model-based
-- **Performance**: VAD processing within real-time constraints
+### Phase 4 Risks 🔴
+- **System Dependencies**: Missing libvosk library prevents building/testing
+- **Model Loading**: Vosk model files need to be downloaded separately  
+- **Integration Testing**: Cannot validate STT pipeline without dependencies
+- **Performance**: Unknown STT processing impact on real-time constraints
 
 ---
 
@@ -174,10 +184,18 @@ cargo test
 
 ---
 
-## Next priorities (beyond Phase 5)
+## Next priorities 
 
-1. CI coverage reporting and basic unit tests
-2. HealthMonitor activation with simple liveness checks
-3. Metrics exposure (optional Prometheus exporter)
-4. Packaging and cross-platform runtime validation
-5. Optional TUI dashboard refresh
+### Immediate (Phase 4 completion)
+1. **Install libvosk system dependency** - resolve build blocking issue
+2. **Download Vosk model files** - enable STT functionality testing
+3. **Validate STT integration** - end-to-end pipeline testing
+4. **STT performance tuning** - ensure real-time constraints
+
+### Phase 5+ (Polish & production)
+1. Advanced STT features (word timing, alternatives)
+2. Comprehensive integration testing with hardware
+3. HealthMonitor activation with STT status
+4. Metrics exposure (optional Prometheus exporter)  
+5. Cross-platform runtime validation
+6. Optional TUI dashboard refresh

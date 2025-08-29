@@ -3,6 +3,8 @@ use rubato::{
     SincInterpolationParameters, SincInterpolationType, WindowFunction,
 };
 
+use super::chunker::ResamplerQuality;
+
 /// Streaming resampler for mono i16 audio using Rubato's high-quality sinc interpolation.
 ///
 /// - Maintains internal buffers to handle arbitrary-sized input chunks
@@ -24,17 +26,47 @@ pub struct StreamResampler {
 impl StreamResampler {
     /// Create a new mono resampler from in_rate -> out_rate.
     pub fn new(in_rate: u32, out_rate: u32) -> Self {
+        Self::new_with_quality(in_rate, out_rate, ResamplerQuality::Balanced)
+    }
+    
+    /// Create a new mono resampler with specified quality preset.
+    pub fn new_with_quality(in_rate: u32, out_rate: u32, quality: ResamplerQuality) -> Self {
         // For VAD, we want low latency, so use a relatively small chunk size
         // 512 samples at 16kHz = 32ms, which aligns well with typical VAD frame sizes
         let chunk_size = 512;
         
-        // Configure sinc interpolation for good quality with reasonable CPU usage
-        let sinc_params = SincInterpolationParameters {
-            sinc_len: 64,  // Medium quality, good for speech
-            f_cutoff: 0.95,  // Slightly below Nyquist for better anti-aliasing
-            interpolation: SincInterpolationType::Cubic,
-            oversampling_factor: 128,  // Good balance of quality vs memory
-            window: WindowFunction::Blackman2,  // Good stopband attenuation
+        // Configure sinc interpolation based on quality preset
+        let sinc_params = match quality {
+            ResamplerQuality::Fast => {
+                // Lower quality, faster processing
+                SincInterpolationParameters {
+                    sinc_len: 32,  // Shorter filter for lower CPU usage
+                    f_cutoff: 0.92,  // Slightly more aggressive cutoff
+                    interpolation: SincInterpolationType::Linear,  // Simpler interpolation
+                    oversampling_factor: 64,  // Lower oversampling
+                    window: WindowFunction::Blackman,  // Simple window
+                }
+            },
+            ResamplerQuality::Balanced => {
+                // Medium quality, good for speech
+                SincInterpolationParameters {
+                    sinc_len: 64,  // Medium quality
+                    f_cutoff: 0.95,  // Slightly below Nyquist for better anti-aliasing
+                    interpolation: SincInterpolationType::Cubic,
+                    oversampling_factor: 128,  // Good balance of quality vs memory
+                    window: WindowFunction::Blackman2,  // Good stopband attenuation
+                }
+            },
+            ResamplerQuality::Quality => {
+                // Higher quality, more CPU usage
+                SincInterpolationParameters {
+                    sinc_len: 128,  // Longer filter for better quality
+                    f_cutoff: 0.97,  // Closer to Nyquist for sharper cutoff
+                    interpolation: SincInterpolationType::Cubic,
+                    oversampling_factor: 256,  // Higher oversampling for better quality
+                    window: WindowFunction::BlackmanHarris2,  // Best stopband attenuation
+                }
+            },
         };
         
         // Create the resampler
@@ -120,6 +152,25 @@ impl StreamResampler {
     
     /// Current output rate.
     pub fn output_rate(&self) -> u32 { self.out_rate }
+}
+
+#[cfg(test)]
+mod quality_tests {
+    use super::*;
+
+    #[test]
+    fn process_with_all_quality_presets() {
+        // Provide enough samples for internal filter latency to flush
+        let input: Vec<i16> = (0..4096).map(|i| ((i % 100) as i16) - 50).collect(); // some signal
+        for q in [ResamplerQuality::Fast, ResamplerQuality::Balanced, ResamplerQuality::Quality] {
+            let mut rs = StreamResampler::new_with_quality(48_000, 16_000, q);
+            let mut out = rs.process(&input);
+            // Process a second chunk to ensure output becomes available
+            out.extend(rs.process(&input));
+            // Downsampling by ~3x should yield non-empty output
+            assert!(!out.is_empty());
+        }
+    }
 }
 
 #[cfg(test)]

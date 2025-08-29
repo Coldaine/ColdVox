@@ -9,7 +9,8 @@ use super::capture::AudioFrame;
 /// Reads audio frames from ring buffer and reconstructs metadata
 pub struct FrameReader {
     consumer: AudioConsumer,
-    sample_rate: u32,
+    device_sample_rate: u32,
+    device_channels: u16,
     samples_read: u64,
     start_time: Instant,
     metrics: Option<Arc<PipelineMetrics>>,
@@ -18,10 +19,11 @@ pub struct FrameReader {
 
 impl FrameReader {
     /// Create a new FrameReader
-    pub fn new(consumer: AudioConsumer, sample_rate: u32, capacity: usize, metrics: Option<Arc<PipelineMetrics>>) -> Self {
+    pub fn new(consumer: AudioConsumer, device_sample_rate: u32, device_channels: u16, capacity: usize, metrics: Option<Arc<PipelineMetrics>>) -> Self {
         Self {
             consumer,
-            sample_rate,
+            device_sample_rate,
+            device_channels,
             samples_read: 0,
             start_time: Instant::now(),
             metrics,
@@ -52,7 +54,7 @@ impl FrameReader {
         
         // Calculate timestamp based on samples read
         let elapsed_samples = self.samples_read;
-        let elapsed_ms = (elapsed_samples * 1000) / self.sample_rate as u64;
+        let elapsed_ms = (elapsed_samples * 1000) / self.device_sample_rate as u64;
         let timestamp = self.start_time + std::time::Duration::from_millis(elapsed_ms);
         
         self.samples_read += samples_read as u64;
@@ -60,13 +62,26 @@ impl FrameReader {
         Some(AudioFrame {
             samples: buffer,
             timestamp,
-            sample_rate: self.sample_rate,
-            channels: 1, // Mono
+            sample_rate: self.device_sample_rate,
+            channels: self.device_channels,
         })
     }
 
     /// Check how many samples are available to read
     pub fn available_samples(&self) -> usize {
         self.consumer.slots()
+    }
+    
+    /// Update device configuration when it changes
+    pub fn update_device_config(&mut self, sample_rate: u32, channels: u16) {
+        if self.device_sample_rate != sample_rate || self.device_channels != channels {
+            tracing::info!(
+                "FrameReader: Device config changed from {}Hz {}ch to {}Hz {}ch",
+                self.device_sample_rate, self.device_channels,
+                sample_rate, channels
+            );
+            self.device_sample_rate = sample_rate;
+            self.device_channels = channels;
+        }
     }
 }

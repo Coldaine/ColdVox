@@ -3,6 +3,7 @@
 ## Implementation Status
 
 ### ✅ IMPLEMENTED
+
 - Basic VoskTranscriber (`src/stt/vosk.rs`)
 - TranscriptionEvent types (`src/stt/mod.rs`)
 - STT processor framework (`src/stt/processor.rs`)
@@ -10,11 +11,13 @@
 - Basic configuration system
 
 ### 🔄 IN PROGRESS  
+
 - Full STT processor integration with VAD
 - Advanced configuration options
 - Health monitoring integration
 
 ### 📋 PLANNED
+
 - RubatoResampler wrapper
 - Advanced resampling features (Fast/Quality presets)
 - Complete metrics and telemetry integration
@@ -23,26 +26,29 @@
 ---
 
 ## Overview
+
 This plan outlines the integration of Vosk speech-to-text (STT) for real-time streaming transcription in the ColdVox audio pipeline.
 
 ## Current Architecture
-```
+
+```text
 [Mic] → [Capture] → [Chunker] → [VAD Processor] → [VAD Events]
          16kHz                    512 samples
          mono                     @ 16kHz
 ```
 
 ## Target Architecture with Vosk
-```
-[Mic] → [Capture] → [Chunker] → [VAD Processor] → [VAD Events]
-         16kHz                    512 samples        ↓
-         mono                     @ 16kHz      [Transcription Events]
-                                     ↓
-                              [TranscriptionProcessor]
-                                     ↓
-                              [VoskTranscriber]
-                                     ↓
-                              [Text Output/Events]
+
+```text
+[Mic] → [Capture] → [Chunker (downmix+resample→16kHz)] → [VAD Processor] → [VAD Events]
+               16kHz  512 samples       ↓
+               mono    @ 16kHz    [Transcription Events]
+                  ↓
+                [TranscriptionProcessor]
+                  ↓
+                [VoskTranscriber]
+                  ↓
+                [Text Output/Events]
 ```
 
 ## Data Flow Diagram
@@ -67,6 +73,7 @@ graph TD
 ## Component Details
 
 ### 1. VoskTranscriber Enhancement
+
 - Location: `crates/app/src/stt/vosk.rs`
 - Responsibilities:
   - Initialize Vosk model and recognizer
@@ -76,6 +83,7 @@ graph TD
   - Expose methods for feeding audio, finalizing an utterance, and resetting recognizer state
 
 Public API (outline)
+
 ```rust
 // crates/app/src/stt/vosk.rs
 pub struct VoskTranscriber { /* fields: model, recognizer, config */ }
@@ -91,6 +99,7 @@ impl VoskTranscriber {
 ```
 
 ### 2. TranscriptionProcessor ✅ **IMPLEMENTED**
+
 - Location: `crates/app/src/stt/processor.rs`
 - Responsibilities:
   - Receive audio frames from VAD processor
@@ -98,10 +107,11 @@ impl VoskTranscriber {
   - Handle streaming transcription state
   - Emit transcription events (partial/final results)
   - Coordinate with VAD events for context
-  - Convert input audio to mono 16 kHz (downmix + resample) as needed
+  - Consume 16 kHz mono frames emitted by the centralized chunker; no per-engine resampling
   - Define utterance boundaries using VAD start/end; on VAD end: finalize, emit final result, reset recognizer
 
 Files and types
+
 ```rust
 // crates/app/src/stt/processor.rs
 pub struct TranscriptionProcessor {
@@ -126,6 +136,7 @@ impl TranscriptionProcessor {
 ```
 
 Event types
+
 ```rust
 // crates/app/src/stt/mod.rs
 #[derive(Debug, Clone)]
@@ -140,6 +151,7 @@ pub struct WordInfo { pub start: f32, pub end: f32, pub conf: f32, pub text: Str
 ```
 
 ### 3. Integration Points
+
 - **VAD Processor**: Modified to duplicate audio stream to transcription channel
 - **Main Application**: Wire TranscriptionProcessor into the pipeline
 - **Configuration**: Add Vosk model path and transcription settings
@@ -172,18 +184,12 @@ Channels
 
 ### Resampling and Downmix
 
-- Input frames may arrive at various sample rates and channel counts depending on device capabilities.
-- TranscriptionProcessor must accept any device format and internally:
-  - Downmix to mono (average/saturate L+R if stereo)
-  - Resample to 16 kHz with a rubato sinc resampler
-- This ensures Vosk always receives 16 kHz mono PCM i16.
+- Centralized in the AudioChunker: input frames from capture are downmixed and resampled to 16 kHz once, then broadcast to VAD and STT.
+- This ensures both engines receive identical 16 kHz mono PCM i16 frames and keeps the CPAL callback minimal.
 
-#### Resampler (rubato) 📋 **PLANNED**
+#### Resampler (rubato)
 
-- Use `rubato`'s sinc resampler with fixed-size output: `SincFixedOut` configured for `output_frames = 512` to align with VAD/Vosk.
-- Keep the resampler instance/state across calls; do not recreate per frame.
-- Convert i16 → f32 on input, resample in f32, then f32 → i16 with clipping/saturation on output.
-- Set `resample_ratio = 16000.0 / input_sample_rate` per device format.
+- Implemented at the chunker level as a streaming sinc resampler; keep state across calls and reconfigure on device rate changes.
 
 Presets (selection policy)
 
@@ -196,17 +202,7 @@ Framing
 - `SincFixedOut` emits exact 512-sample frames; carry internal residuals in the resampler state.
 - Do not drop/duplicate samples; let rubato manage fractional positions.
 
-Resampler wrapper
-
-```rust
-// crates/app/src/stt/resample.rs
-pub struct RubatoResampler { /* holds SincFixedOut, channels=1 */ }
-impl RubatoResampler {
-  pub fn new(input_sr: u32, preset: RubatoPreset) -> Result<Self, AppError>;
-  pub fn reconfigure(&mut self, input_sr: u32, preset: RubatoPreset) -> Result<(), AppError>;
-  pub fn process_i16_mono(&mut self, input: &[i16]) -> Result<Vec<[i16; 512]>, AppError>; // emits zero or more 512-sample frames
-}
-```
+Per-engine resampler wrappers are no longer required for STT; both VAD and STT subscribe to the normalized stream.
 
 ## Configuration Schema
 
@@ -218,7 +214,7 @@ struct TranscriptionConfig {
     max_alternatives: u32,            // Maximum alternatives in results
   include_words: bool,              // Include word-level timing in results
   buffer_size_ms: u32,              // Internal aggregation window (if used)
-  resampler_preset: RubatoPreset,   // fast | quality
+  // resampler_preset: centralized at chunker; optional global preset may be added later
 }
 
 enum RubatoPreset {
@@ -285,12 +281,11 @@ Acceptance checks for “done”
 Notes:
 
 - Add small hysteresis/debounce around VAD transitions to avoid rapid start/stop flapping.
-- Track resampler CPU cost and end-to-end latency with each method; switch only if measurements justify.
+- Track resampler CPU cost and end-to-end latency at the chunker; adjust preset if necessary.
 
 Recovery and device changes
 
-- If the capture pipeline restarts (watchdog-driven), sample rate may change; detect `frame.sample_rate` changes and reconfigure `RubatoResampler` accordingly.
-- Keep Vosk recognizer at 16 kHz; only resampler needs reconfigure.
+- If the capture pipeline restarts (watchdog-driven), the chunker detects input sample rate changes and reconfigures its resampler accordingly. Vosk recognizer remains at 16 kHz.
 - If STT thread panics, the ShutdownHandler should capture; attempt one restart of TranscriptionProcessor, then degrade by disabling STT.
 
 ## Dependencies

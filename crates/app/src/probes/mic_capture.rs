@@ -25,7 +25,7 @@ impl MicCaptureCheck {
         // Prepare ring buffer and spawn capture thread
         let rb = AudioRingBuffer::new(16_384);
         let (audio_producer, audio_consumer) = rb.split();
-        let (capture_thread, _sample_rate) = AudioCaptureThread::spawn(config, audio_producer, device_name).map_err(|e| TestError {
+    let (capture_thread, dev_cfg, _config_rx) = AudioCaptureThread::spawn(config, audio_producer, device_name).map_err(|e| TestError {
             kind: match e {
                 AudioError::DeviceNotFound { .. } => TestErrorKind::Device,
                 _ => TestErrorKind::Setup,
@@ -61,7 +61,13 @@ impl MicCaptureCheck {
         tokio::pin!(timeout);
 
         // Build a single reader for the duration of the test
-    let mut reader = FrameReader::new(audio_consumer, 16_000, 16_384, Some(metrics.clone()));
+    let mut reader = FrameReader::new(
+            audio_consumer,
+            dev_cfg.sample_rate,
+            dev_cfg.channels,
+            16_384,
+            Some(metrics.clone()),
+        );
 
         loop {
             tokio::select! {
@@ -90,7 +96,8 @@ impl MicCaptureCheck {
         metrics.insert("frames_captured".to_string(), json!(frames_count));
         metrics.insert("frames_per_sec".to_string(), json!(frames_per_sec));
         metrics.insert("duration_secs".to_string(), json!(elapsed.as_secs_f64()));
-        metrics.insert("sample_rate".to_string(), json!(_sample_rate));
+    metrics.insert("device_sample_rate".to_string(), json!(dev_cfg.sample_rate));
+    metrics.insert("device_channels".to_string(), json!(dev_cfg.channels));
 
         let default_thresholds = MicCaptureThresholds {
             max_drop_rate_error: Some(0.20),

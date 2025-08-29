@@ -31,10 +31,11 @@ async fn test_chunker_emits_frames_for_known_audio() {
 
     // Chunker setup (512 @ 16k)
     let sample_rate = 16_000u32;
-    let reader = FrameReader::new(consumer, sample_rate, rb_capacity, Some(metrics.clone()));
+    let reader = FrameReader::new(consumer, sample_rate, 1, rb_capacity, Some(metrics.clone()));
     let cfg = ChunkerConfig {
         frame_size_samples: 512,
         sample_rate_hz: sample_rate,
+        resampler_quality: coldvox_app::audio::chunker::ResamplerQuality::Balanced,
     };
     let (audio_tx, _) = broadcast::channel::<VadFrame>(64);
     let chunker = AudioChunker::new(reader, audio_tx.clone(), cfg).with_metrics(metrics.clone());

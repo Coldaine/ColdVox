@@ -28,7 +28,7 @@ impl VadMicCheck {
         // Prepare ring buffer and spawn capture thread
         let rb = AudioRingBuffer::new(16_384);
         let (audio_producer, audio_consumer) = rb.split();
-        let (capture_thread, sample_rate) = AudioCaptureThread::spawn(config, audio_producer, device_name).map_err(|e| TestError {
+    let (capture_thread, dev_cfg, _config_rx) = AudioCaptureThread::spawn(config, audio_producer, device_name).map_err(|e| TestError {
             kind: TestErrorKind::Setup,
             message: format!("Failed to create audio capture thread: {}", e),
         })?;
@@ -63,10 +63,17 @@ impl VadMicCheck {
 
         let chunker_cfg = ChunkerConfig {
             frame_size_samples: 512,
-            sample_rate_hz: sample_rate,
+            sample_rate_hz: 16_000,
+            resampler_quality: crate::audio::chunker::ResamplerQuality::Balanced,
         };
 
-        let frame_reader = FrameReader::new(audio_consumer, sample_rate, 16_384, Some(metrics.clone()));
+        let frame_reader = FrameReader::new(
+            audio_consumer,
+            dev_cfg.sample_rate,
+            dev_cfg.channels,
+            16_384,
+            Some(metrics.clone()),
+        );
         let chunker = AudioChunker::new(frame_reader, audio_tx.clone(), chunker_cfg)
             .with_metrics(metrics.clone());
         let chunker_handle = chunker.spawn();
@@ -138,7 +145,8 @@ impl VadMicCheck {
         metrics.insert("speech_segments".to_string(), json!(speech_segments));
         metrics.insert("total_speech_duration_ms".to_string(), json!(total_speech_duration_ms));
         metrics.insert("test_duration_secs".to_string(), json!(elapsed.as_secs_f64()));
-        metrics.insert("sample_rate".to_string(), json!(sample_rate));
+    metrics.insert("device_sample_rate".to_string(), json!(dev_cfg.sample_rate));
+    metrics.insert("device_channels".to_string(), json!(dev_cfg.channels));
 
         // Calculate speech ratio
         let speech_ratio = if elapsed.as_millis() > 0 {

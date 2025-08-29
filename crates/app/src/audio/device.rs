@@ -19,6 +19,10 @@ impl DeviceManager {
         })
     }
 
+    pub fn host_id(&self) -> cpal::HostId {
+        self.host.id()
+    }
+
     pub fn enumerate_devices(&self) -> Vec<DeviceInfo> {
         let mut devices = Vec::new();
 
@@ -47,6 +51,40 @@ impl DeviceManager {
         }
 
         devices
+    }
+
+    pub fn default_input_device_name(&self) -> Option<String> {
+        self.host
+            .default_input_device()
+            .and_then(|d| d.name().ok())
+    }
+
+    /// Return candidate device names in a priority order suitable for Linux PipeWire setups.
+    /// Order: "pipewire" (if present) -> default input device -> other devices (excluding duplicates).
+    pub fn candidate_device_names(&self) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        let all = self.enumerate_devices();
+
+        // 1) "pipewire"
+        if all.iter().any(|d| d.name == "pipewire") {
+            out.push("pipewire".to_string());
+        }
+
+        // 2) default input name
+        if let Some(def) = self.default_input_device_name() {
+            if !out.iter().any(|n| n == &def) {
+                out.push(def);
+            }
+        }
+
+        // 3) Remaining device names
+        for d in all {
+            if !out.iter().any(|n| n == &d.name) {
+                out.push(d.name);
+            }
+        }
+
+        out
     }
 
     pub fn open_device(&mut self, name: Option<&str>) -> Result<Device, AudioError> {
