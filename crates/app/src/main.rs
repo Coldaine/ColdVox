@@ -151,20 +151,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // This broadcast channel will distribute audio frames to all interested components.
     let (audio_tx, _) =
         broadcast::channel::<coldvox_app::audio::vad_processor::AudioFrame>(200);
-    let chunker = AudioChunker::new(frame_reader, audio_tx.clone(), chunker_cfg).with_metrics(metrics.clone());
+    let chunker = AudioChunker::new(frame_reader, audio_tx.clone(), chunker_cfg)
+        .with_metrics(metrics.clone())
+        .with_device_config(device_config_rx.resubscribe());
     let chunker_handle = chunker.spawn();
     tracing::info!("Audio chunker task started.");
 
     // Set up device config monitoring to update FrameReader
-    let _frame_reader_handle = {
-        tokio::spawn(async move {
-            while let Ok(new_config) = device_config_rx.recv().await {
-                tracing::info!("Device config changed: {}Hz {}ch", new_config.sample_rate, new_config.channels);
-                // Note: In a real implementation, we'd need to communicate this to the FrameReader
-                // For now, this is a placeholder for the monitoring logic
-            }
-        })
-    };
+    // We no longer need a separate monitor; the chunker reads device config updates directly.
 
     let (event_tx, mut event_rx) = mpsc::channel::<VadEvent>(100);
     let vad_audio_rx = audio_tx.subscribe();
@@ -210,6 +204,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Only spawn STT processor if enabled
+    let mut injection_shutdown_tx: Option<mpsc::Sender<()>> = None;
     let (stt_handle, _persistence_handle, injection_handle) = if stt_config.enabled {
         // Create mpsc channel for STT processor to send transcription events
         let (stt_transcription_tx, mut stt_transcription_rx) = mpsc::channel::<TranscriptionEvent>(100);
@@ -270,7 +265,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Create session-based injection processor
         let injection_config = InjectionProcessorConfig::default();
-        let (injection_shutdown_tx, injection_shutdown_rx) = mpsc::channel::<()>(1);
+        let (shutdown_tx, injection_shutdown_rx) = mpsc::channel::<()>(1);
+        injection_shutdown_tx = Some(shutdown_tx);
         let injection_processor = AsyncInjectionProcessor::new(
             injection_config,
             injection_rx,
@@ -379,8 +375,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Audio capture thread stopped.");
 
     // 2. Signal graceful shutdown to injection processor before aborting
-    if injection_handle.is_some() {
-        let _ = injection_shutdown_tx.send(()).await;
+    if let Some(tx) = injection_shutdown_tx {
+        let _ = tx.send(()).await;
     }
     
     // 3. Abort the tasks. This will drop their channel senders, causing downstream

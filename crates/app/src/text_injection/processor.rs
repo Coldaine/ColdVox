@@ -224,7 +224,8 @@ impl AsyncInjectionProcessor {
 
     /// Run the injection processor loop
     pub async fn run(mut self) -> anyhow::Result<()> {
-        let check_interval = Duration::from_millis(100); // Check every 100ms for silence timeout
+        let check_interval_ms = self.processor.lock().unwrap().config.check_interval_ms;
+        let check_interval = Duration::from_millis(check_interval_ms);
         let mut interval = time::interval(check_interval);
 
         info!("Injection processor started");
@@ -275,7 +276,6 @@ impl AsyncInjectionProcessor {
     pub fn last_partial_text(&self) -> Option<String> {
         self.processor.lock().unwrap().last_partial_text()
     }
-}
 }
 
 #[cfg(test)]

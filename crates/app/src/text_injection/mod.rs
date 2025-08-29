@@ -1,7 +1,9 @@
 use anyhow::Result;
 use std::process::Command;
+use std::process::Stdio;
 use std::time::Duration;
 use tracing::{info, warn, debug, error};
+use tokio::io::AsyncWriteExt;
 // Session-based injection modules
 pub mod session;
 pub mod processor;
@@ -125,10 +127,22 @@ impl TextInjector {
             self.ensure_focus().await?;
         }
         
-        // Try clipboard + paste method first (most reliable)
-        if self.try_clipboard_paste(text).await? {
-            return Ok(());
-        }
+        // Try clipboard + paste method first (most reliable).
+        // We handle errors here to allow fallback to other methods.
+        match self.try_clipboard_paste(text).await {
+            Ok(true) => {
+                // Successfully pasted, we're done.
+                return Ok(());
+            }
+            Ok(false) => {
+                // Paste was not attempted or failed, proceed to fallbacks.
+                debug!("Clipboard paste not successful, proceeding to fallbacks.");
+            }
+            Err(e) => {
+                // Setting clipboard itself failed.
+                warn!("Clipboard paste method failed with an error: {}. Proceeding to fallbacks.", e);
+            }
+        };
         
         // Fallback to direct typing if available
         if self.use_ydotool {
@@ -188,13 +202,24 @@ impl TextInjector {
     /// Set clipboard content
     async fn set_clipboard(&self, text: &str) -> Result<()> {
         let mut cmd = tokio::process::Command::new("wl-copy");
-        cmd.arg(text);
-        
-        let output = tokio::time::timeout(Duration::from_secs(3), cmd.output()).await??;
+        cmd.stdin(Stdio::piped());
+        cmd.stdout(Stdio::null());
+        cmd.stderr(Stdio::piped());
+
+        let mut child = cmd.spawn()?;
+
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin.write_all(text.as_bytes()).await?;
+            drop(stdin); // Close stdin to signal end of input.
+        } else {
+            anyhow::bail!("Failed to get stdin for wl-copy");
+        }
+
+        let output = tokio::time::timeout(Duration::from_secs(3), child.wait_with_output()).await??;
         
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!("Failed to set clipboard: {}", stderr);
+            anyhow::bail!("wl-copy failed to set clipboard: {}", stderr);
         }
         
         debug!("Clipboard set successfully");
@@ -237,14 +262,15 @@ impl TextInjector {
     /// Notify user via desktop notification
     async fn notify_user(&self, message: &str) {
         // Try to notify, but don't fail if notify-send missing  
-        if let Err(e) = tokio::time::timeout(
+        match tokio::time::timeout(
             Duration::from_secs(2),
             tokio::process::Command::new("notify-send")
                 .args(&["ColdVox", message])
-                .output()
-        ).await.and_then(|r| r)
-        {
-            debug!("Could not send notification: {}", e);
+                .output(),
+        ).await {
+            Ok(Ok(_)) => { /* delivered */ }
+            Ok(Err(e)) => debug!("Could not send notification: {}", e),
+            Err(e) => debug!("Notification timed out: {}", e),
         }
     }
     
