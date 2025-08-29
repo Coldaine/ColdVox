@@ -55,8 +55,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // --- 3. VAD Processor ---
     let vad_cfg = UnifiedVadConfig {
         mode: VadMode::Silero,
-        frame_size_samples: chunker_cfg.frame_size_samples,
-        sample_rate_hz: chunker_cfg.sample_rate_hz,
+        frame_size_samples: 512,  // Silero requires 512 samples
+        sample_rate_hz: 16000,    // Silero requires 16kHz - resampler will handle conversion
         ..Default::default()
     };
     

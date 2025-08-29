@@ -337,7 +337,7 @@ async fn run_audio_pipeline(tx: mpsc::Sender<AppEvent>, device: String) {
     let vad_cfg = UnifiedVadConfig {
         mode: VadMode::Silero,
         frame_size_samples: 512,
-        sample_rate_hz: sample_rate,
+        sample_rate_hz: 16000,  // Silero VAD requires 16kHz - resampler will handle conversion
         ..Default::default()
     };
 
