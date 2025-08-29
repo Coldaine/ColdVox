@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod end_to_end_wav;
+pub mod end_to_end_wav;
 
 #[cfg(test)]
 mod vosk_tests {

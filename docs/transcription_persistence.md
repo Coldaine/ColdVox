@@ -14,7 +14,8 @@ The transcription persistence feature saves speech transcriptions and optionally
 
 ### Basic Usage
 
-Enable transcription persistence with the `--save-transcriptions` flag:
+Enable transcription persistence with the `--save-transcriptions` flag (requires
+the `vosk` feature and a valid model on disk):
 
 ```bash
 cargo run --features vosk -- --save-transcriptions
@@ -55,7 +56,7 @@ cargo run --features vosk -- --save-transcriptions --transcript-format text
 
 When persistence is enabled, the following directory structure is created:
 
-```
+```text
 transcriptions/
 ├── 2025-08-29/                    # Date directory
 │   ├── 143025/                    # Session directory (HHMMSS)
@@ -114,7 +115,7 @@ utterance_id,timestamp,duration_ms,text,audio_path
 
 ### Text Format (utterance_NNNNNN.txt)
 
-```
+```text
 [2025-08-29T14:30:30+00:00] Hello, this is a test transcription
 ```
 
@@ -142,24 +143,25 @@ The persistence system can be configured through the `PersistenceConfig` struct:
 - `audio_format`: Format for audio files (currently WAV)
 - `transcript_format`: Format for transcription files (Json/Csv/Text)
 - `max_file_size_mb`: Maximum file size before rotation (future feature)
-- `retention_days`: Keep files for N days (0 = forever)
+-  `retention_days`: Keep files for N days (0 = forever)
 
 ## Performance Considerations
 
-- **Storage**: Each session creates multiple files. With audio enabled, expect ~1MB per minute of speech
+-  Storage: Each session creates multiple files. With audio enabled, expect
+  about 1 MB per minute of speech
 - **I/O Operations**: Files are written asynchronously to avoid blocking the audio pipeline
 - **Memory**: Audio buffers are cleared after each utterance to minimize memory usage
-- **CPU**: Minimal impact - file operations run in separate async tasks
+-  CPU: Minimal impact - file operations run in separate async tasks
 
 ## Privacy and Security
 
 ⚠️ **Important**: Transcriptions and audio files may contain sensitive information. Ensure:
 
-1. Output directory has appropriate permissions
-2. Implement retention policies for compliance
-3. Consider encryption for sensitive deployments
-4. Review transcriptions before sharing
-5. Audio files are only saved when explicitly enabled
+1.  Output directory has appropriate permissions
+2.  Implement retention policies for compliance
+3.  Consider encryption for sensitive deployments
+4.  Review transcriptions before sharing
+5.  Audio files are only saved when explicitly enabled
 
 ## Examples
 
@@ -198,29 +200,29 @@ cargo run --features vosk -- \
 
 ### No Files Created
 
-- Check that STT is enabled (Vosk model must be present)
-- Verify VAD is detecting speech
-- Check write permissions for output directory
-- Look for errors in logs
+-  Check that STT is enabled (Vosk model must be present)
+-  Verify VAD is detecting speech
+-  Check write permissions for output directory
+-  Look for errors in logs
 
 ### Audio Files Missing
 
-- Ensure `--save-audio` flag is set
-- Check disk space availability
-- Verify audio is being captured correctly
+-  Ensure `--save-audio` flag is set
+-  Check disk space availability
+-  Verify audio is being captured correctly
 
 ### Incomplete Sessions
 
-- Sessions are finalized on shutdown
-- Use Ctrl+C for graceful shutdown
-- Check `session.json` for partial data
+-  Sessions are finalized on shutdown
+-  Use Ctrl+C for graceful shutdown
+-  Check `session.json` for partial data
 
 ## Future Enhancements
 
-- [ ] Automatic file rotation based on size
-- [ ] Compression for audio files (MP3/Opus)
-- [ ] Subtitle formats (SRT/VTT)
-- [ ] Real-time streaming to external services
-- [ ] Database backend option
-- [ ] Encryption at rest
-- [ ] Web UI for browsing transcriptions
+-  [ ] Automatic file rotation based on size
+-  [ ] Compression for audio files (MP3/Opus)
+-  [ ] Subtitle formats (SRT/VTT)
+-  [ ] Real-time streaming to external services
+-  [ ] Database backend option
+-  [ ] Encryption at rest
+-  [ ] Web UI for browsing transcriptions

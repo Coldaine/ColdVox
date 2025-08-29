@@ -50,19 +50,43 @@ cd ..
 
 ### 2. Test Audio Files
 
-Create test WAV files with known speech content:
+The test suite includes pre-recorded WAV files with corresponding transcripts in the `test_data/` directory.
 
-#### Option A: Record Test Audio
+#### Automatic Test Data Selection
+
+The test automatically:
+1. **Randomly selects** a WAV file from `test_data/` directory
+2. **Loads the corresponding transcript** from the `.txt` file with the same name
+3. **Extracts keywords** from the transcript (words ≥4 characters)
+4. **Verifies transcription** by checking if at least one keyword appears in the output
+
+#### Test Data Files
+
+The repository includes 13 test WAV files (`test_1.wav` through `test_12.wav` and `pipeline_test.wav`) with transcripts. Each transcript contains the expected text in uppercase, for example:
+- `test_1.txt`: "ON AUGUST TWENTY SEVENTH EIGHTEEN THIRTY SEVEN SHE WRITES"
+- `test_5.txt`: "YOUR PLAY MUST BE NOT MERELY A GOOD PLAY BUT A SUCCESSFUL ONE"
+
+#### Option A: Use Existing Test Data
+
+```bash
+# Run test with random file selection from test_data/
+VOSK_MODEL_PATH=models/vosk-model-small-en-us-0.15 \
+    cargo test --features vosk test_end_to_end_wav_pipeline -- --ignored
+```
+
+#### Option B: Record Custom Test Audio
 
 ```bash
 # Record a 10-second test file (speak clearly)
 cargo run --example record_10s
 
-# This creates a timestamped WAV file like:
-# recording_16khz_10s_1672531200.wav
+# Use your custom recording
+TEST_WAV=recording_16khz_10s_1672531200.wav \
+VOSK_MODEL_PATH=models/vosk-model-small-en-us-0.15 \
+    cargo test --features vosk test_end_to_end_wav_pipeline -- --ignored
 ```
 
-#### Option B: Use Existing Audio
+#### Option C: Use Existing Audio
 
 Convert existing audio files to the required format:
 
@@ -79,7 +103,11 @@ sox input_audio.wav -r 16000 -c 1 -b 16 test_audio_16k.wav
 ### Basic Test Execution
 
 ```bash
-# Run the end-to-end test with a specific WAV file
+# Run with automatic random test file selection
+VOSK_MODEL_PATH=models/vosk-model-small-en-us-0.15 \
+    cargo test --features vosk test_end_to_end_wav_pipeline -- --ignored --nocapture
+
+# Run with a specific WAV file
 TEST_WAV=test_audio_16k.wav VOSK_MODEL_PATH=models/vosk-model-small-en-us-0.15 \
     cargo test --features vosk test_end_to_end_wav_pipeline -- --ignored --nocapture
 ```
@@ -108,16 +136,25 @@ The test performs several validations:
 3. **Speech Detection**: VAD should detect speech segments in the audio
 4. **Transcription**: STT should produce text output from detected speech
 5. **Text Injection**: Mock injector should capture the transcribed text
-6. **Content Verification**: Checks that expected text fragments are present
+6. **Content Verification**: Checks that at least one expected keyword is present
 
-### Customizing Expected Text
+### Validation Strategy
 
-Update the test to match your audio content:
+The test uses a **flexible keyword matching** approach:
+- Extracts keywords (≥4 characters) from the reference transcript
+- Checks if at least one keyword appears in the transcription
+- Accounts for STT accuracy limitations (not expecting 100% accuracy)
+- Handles variations in pronunciation and recognition errors
 
-```rust
-// In the test function, modify expected_fragments:
-let expected_fragments = vec!["hello", "world", "testing"];
+### Example Test Output
+
 ```
+Testing with WAV file: test_data/test_4.wav
+Expected keywords: ["american", "school", "boys"]
+✅ Test passed! Injections: ["can schoolboys read with emotions of horror", ...]
+```
+
+In this example, the keyword "schoolboys" (containing "school") was successfully matched.
 
 ## Creating Good Test Audio
 
@@ -205,5 +242,27 @@ WAV File → AudioRingBuffer → AudioChunker → VadProcessor
                                                 ↓
 Mock Text Injector ← STT Processor ← Audio Frames
 ```
+
+### Key Components
+
+1. **WavFileLoader**: Streams WAV file data with realistic timing
+   - Loads WAV files using the `hound` crate
+   - Simulates real-time audio streaming (32ms chunks)
+   - Handles format conversion to 16kHz mono i16
+
+2. **Mock Text Injector**: Captures transcriptions for verification
+   - Implements the `TextInjector` trait
+   - Stores injected text in a thread-safe collection
+   - Enables validation without actual system text injection
+
+3. **Mock Injection Processor**: Manages transcription sessions
+   - Buffers partial transcriptions
+   - Implements silence timeout logic (1.5 seconds)
+   - Simulates production text injection behavior
+
+4. **Random Test Selection**: Ensures comprehensive coverage
+   - Randomly selects from available test files
+   - Loads corresponding transcripts automatically
+   - Extracts meaningful keywords for validation
 
 This ensures the test validates the actual production code paths and component interactions, providing confidence in the full system integration.

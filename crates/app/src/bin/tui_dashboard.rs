@@ -14,6 +14,8 @@ use coldvox_app::telemetry::pipeline_metrics::{PipelineMetrics, PipelineStage};
 use coldvox_app::vad::config::{UnifiedVadConfig, VadMode};
 use coldvox_app::vad::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 use coldvox_app::vad::types::VadEvent;
+#[cfg(feature = "vosk")]
+use coldvox_app::stt::{processor::SttProcessor, TranscriptionConfig, TranscriptionEvent};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
@@ -37,15 +39,27 @@ use tokio::task::JoinHandle;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
-fn init_logging() -> Result<(), Box<dyn std::error::Error>> {
+fn init_logging(cli_level: &str) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all("logs")?;
     let file_appender = RollingFileAppender::new(Rotation::DAILY, "logs", "coldvox.log");
     let (non_blocking_file, _guard) = tracing_appender::non_blocking(file_appender);
-    let log_level = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
-    let env_filter = EnvFilter::try_new(log_level).unwrap_or_else(|_| EnvFilter::new("info"));
+    // Prefer CLI-provided level; fall back to RUST_LOG; then default to debug for tuning
+    let effective_level = if !cli_level.is_empty() {
+        cli_level.to_string()
+    } else {
+        std::env::var("RUST_LOG").unwrap_or_else(|_| "debug".to_string())
+    };
+    let env_filter = EnvFilter::try_new(effective_level).unwrap_or_else(|_| EnvFilter::new("debug"));
 
     // Only use file logging for TUI mode to avoid corrupting the display
-    let file_layer = fmt::layer().with_writer(non_blocking_file);
+    let file_layer = fmt::layer()
+        .with_writer(non_blocking_file)
+        .with_ansi(false)
+        .with_target(true)
+        .with_file(true)
+        .with_line_number(true)
+        .with_thread_names(false)
+        .with_level(true);
 
     tracing_subscriber::registry()
         .with(env_filter)
@@ -61,6 +75,9 @@ struct Cli {
     /// Audio device name
     #[arg(short = 'D', long)]
     device: Option<String>,
+    /// Log level filter (overrides RUST_LOG)
+    #[arg(long = "log-level", default_value = "debug")]
+    log_level: String,
 }
 
 enum AppEvent {
@@ -69,6 +86,8 @@ enum AppEvent {
     UpdateMetrics(PipelineMetricsSnapshot),
     PipelineStarted,
     PipelineStopped,
+    #[cfg(feature = "vosk")]
+    Transcription(TranscriptionEvent),
 }
 
 struct PipelineMetricsSnapshot {
@@ -103,6 +122,9 @@ struct DashboardState {
     pipeline_handle: Option<JoinHandle<()>>,
     metrics: PipelineMetricsSnapshot,
     has_metrics_snapshot: bool,
+    /// Last final transcript (if STT enabled)
+    #[cfg(feature = "vosk")]
+    last_transcript: Option<String>,
 }
 
 #[derive(Clone)]
@@ -168,6 +190,8 @@ impl Default for DashboardState {
                 chunker_frames: 0,
             },
             has_metrics_snapshot: false,
+            #[cfg(feature = "vosk")]
+            last_transcript: None,
         }
     }
 }
@@ -208,8 +232,8 @@ impl DashboardState {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    init_logging()?;
     let cli = Cli::parse();
+    init_logging(&cli.log_level)?;
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -318,6 +342,25 @@ async fn run_app(
                         state.pipeline_handle = None;
                         state.log(LogLevel::Success, "Pipeline stopped".to_string());
                     }
+                        #[cfg(feature = "vosk")]
+                        AppEvent::Transcription(tevent) => {
+                            match tevent.clone() {
+                                TranscriptionEvent::Partial { utterance_id, text, .. } => {
+                                    if !text.trim().is_empty() {
+                                        state.log(LogLevel::Info, format!("[STT partial:{}] {}", utterance_id, text));
+                                    }
+                                }
+                                TranscriptionEvent::Final { utterance_id, text, .. } => {
+                                    if !text.trim().is_empty() {
+                                        state.log(LogLevel::Success, format!("[STT final:{}] {}", utterance_id, text));
+                                        state.last_transcript = Some(text);
+                                    }
+                                }
+                                TranscriptionEvent::Error { code, message } => {
+                                    state.log(LogLevel::Error, format!("[STT error:{}] {}", code, message));
+                                }
+                            }
+                        }
                 }
             }
 
@@ -357,7 +400,7 @@ async fn run_audio_pipeline(tx: mpsc::Sender<AppEvent>, device: String) {
 
     // Broadcast channel for audio frames
     let (audio_tx, _) = broadcast::channel::<VadFrame>(200);
-    let (event_tx, mut event_rx) = mpsc::channel(200);
+    let (event_tx, raw_vad_rx) = mpsc::channel(200);
 
     let chunker_cfg = ChunkerConfig {
         frame_size_samples: FRAME_SIZE_SAMPLES,
@@ -396,9 +439,67 @@ async fn run_audio_pipeline(tx: mpsc::Sender<AppEvent>, device: String) {
 
     let mut metrics_update_interval = tokio::time::interval(Duration::from_millis(100));
 
+    // --- Optional STT setup (vosk feature) ---
+    #[cfg(feature = "vosk")]
+    let stt_enabled = {
+        // Resolve model path like main.rs
+        let model_path = std::env::var("VOSK_MODEL_PATH")
+            .unwrap_or_else(|_| "models/vosk-model-small-en-us-0.15".to_string());
+        std::path::Path::new(&model_path).exists()
+    };
+
+    #[cfg(feature = "vosk")]
+    let (mut stt_transcription_rx_opt, stt_vad_tx_opt) = if stt_enabled {
+        // Channels for STT events
+        let (stt_transcription_tx, stt_transcription_rx) = mpsc::channel::<TranscriptionEvent>(100);
+        // VAD relay channel for STT
+        let (stt_vad_tx, stt_vad_rx) = mpsc::channel::<VadEvent>(100);
+        // Subscribe to audio broadcast for STT
+        let stt_audio_rx = audio_tx.subscribe();
+        // STT config
+        let stt_config = TranscriptionConfig {
+            enabled: true,
+            model_path: std::env::var("VOSK_MODEL_PATH").unwrap_or_else(|_| "models/vosk-model-small-en-us-0.15".to_string()),
+            partial_results: true,
+            max_alternatives: 1,
+            include_words: false,
+            buffer_size_ms: 512,
+        };
+        // Spawn STT processor
+        match SttProcessor::new(stt_audio_rx, stt_vad_rx, stt_transcription_tx, stt_config) {
+            Ok(proc) => {
+                tokio::spawn(async move {
+                    let _ = proc.run().await;
+                });
+                (Some(stt_transcription_rx), Some(stt_vad_tx))
+            }
+            Err(e) => {
+                let _ = tx.send(AppEvent::Log(LogLevel::Error, format!("Failed to create STT processor: {}", e))).await;
+                (None, None)
+            }
+        }
+    } else { (None, None) };
+
+    // Relay VAD events: to UI and to STT (if enabled)
+    let (ui_vad_tx, mut ui_vad_rx) = mpsc::channel::<VadEvent>(200);
+    let mut raw_vad_rx_task = raw_vad_rx;
+    #[cfg(feature = "vosk")]
+    let stt_vad_tx_clone = stt_vad_tx_opt.clone();
+    tokio::spawn(async move {
+        while let Some(ev) = raw_vad_rx_task.recv().await {
+            // Send to UI
+            let _ = ui_vad_tx.send(ev.clone()).await;
+            // Send to STT if available
+            #[cfg(feature = "vosk")]
+            if let Some(stt_tx) = &stt_vad_tx_clone {
+                let _ = stt_tx.send(ev).await;
+            }
+        }
+    });
+
     loop {
         tokio::select! {
-            Some(event) = event_rx.recv() => {
+            Some(event) = ui_vad_rx.recv() => {
                 metrics.mark_stage_active(PipelineStage::Vad);
                 metrics.mark_stage_active(PipelineStage::Output);
                 if tx.send(AppEvent::Vad(event)).await.is_err() {
@@ -429,6 +530,14 @@ async fn run_audio_pipeline(tx: mpsc::Sender<AppEvent>, device: String) {
                 metrics.decay_stages();
             }
             else => { break; }
+        }
+
+        // Non-blocking drain of STT transcription events (if enabled)
+        #[cfg(feature = "vosk")]
+        if let Some(rx) = &mut stt_transcription_rx_opt {
+            while let Ok(tevent) = rx.try_recv() {
+                let _ = tx.send(AppEvent::Transcription(tevent)).await;
+            }
         }
     }
 
@@ -616,7 +725,7 @@ fn draw_metrics(f: &mut Frame, area: Rect, state: &DashboardState) {
 
 fn draw_status(f: &mut Frame, area: Rect, state: &DashboardState) {
     let block = Block::default()
-        .title("Status & VAD")
+    .title("Status & VAD")
         .borders(Borders::ALL);
 
     let inner = block.inner(area);
@@ -632,31 +741,38 @@ fn draw_status(f: &mut Frame, area: Rect, state: &DashboardState) {
         Color::Gray
     };
 
-    let status_text = vec![
-        Line::from(vec![
-            Span::raw("Pipeline: "),
-            Span::styled(
-                if state.is_running { "RUNNING" } else { "STOPPED" },
-                Style::default().fg(status_color).add_modifier(Modifier::BOLD),
-            ),
-        ]),
-        Line::from(format!("Device: {}", state.selected_device)),
-        Line::from(""),
-        Line::from(vec![
-            Span::raw("Speaking: "),
-            Span::styled(
-                if state.is_speaking { "YES" } else { "NO" },
-                Style::default().fg(if state.is_speaking { Color::Green } else { Color::Gray }),
-            ),
-        ]),
-        Line::from(format!("Speech Segments: {}", state.speech_segments)),
-        Line::from(""),
-        Line::from("Last VAD Event:"),
-        Line::from(state.last_vad_event.as_deref().unwrap_or("None")),
-        Line::from(""),
-        Line::from("Controls:"),
-        Line::from("[S] Start  [R] Reset  [Q] Quit"),
-    ];
+    let mut status_text: Vec<Line> = Vec::new();
+    status_text.push(Line::from(vec![
+        Span::raw("Pipeline: "),
+        Span::styled(
+            if state.is_running { "RUNNING" } else { "STOPPED" },
+            Style::default().fg(status_color).add_modifier(Modifier::BOLD),
+        ),
+    ]));
+    status_text.push(Line::from(format!("Device: {}", state.selected_device)));
+    status_text.push(Line::from(""));
+    status_text.push(Line::from(vec![
+        Span::raw("Speaking: "),
+        Span::styled(
+            if state.is_speaking { "YES" } else { "NO" },
+            Style::default().fg(if state.is_speaking { Color::Green } else { Color::Gray }),
+        ),
+    ]));
+    status_text.push(Line::from(format!("Speech Segments: {}", state.speech_segments)));
+    status_text.push(Line::from(""));
+    status_text.push(Line::from("Last VAD Event:"));
+    status_text.push(Line::from(state.last_vad_event.as_deref().unwrap_or("None")));
+    #[cfg(feature = "vosk")]
+    {
+        status_text.push(Line::from(""));
+        status_text.push(Line::from("Last Transcript (final):"));
+        let txt = state.last_transcript.as_deref().unwrap_or("None");
+        let trunc = if txt.len() > 80 { format!("{}…", &txt[..80]) } else { txt.to_string() };
+        status_text.push(Line::from(trunc));
+    }
+    status_text.push(Line::from(""));
+    status_text.push(Line::from("Controls:"));
+    status_text.push(Line::from("[S] Start  [R] Reset  [Q] Quit"));
 
     let paragraph = Paragraph::new(status_text);
     f.render_widget(paragraph, inner);
