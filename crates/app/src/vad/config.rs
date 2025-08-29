@@ -76,7 +76,9 @@ impl Default for UnifiedVadConfig {
             mode: VadMode::default(),  // Uses Silero by default now
             level3: Level3Config::default(),
             silero: SileroConfig::default(),
-            frame_size_samples: 320,
+            // Align default frame size with default engine (Silero) requirement
+            // Silero requires 512-sample windows at 16 kHz; Level3 callers can override to 320
+            frame_size_samples: 512,
             sample_rate_hz: 16000,
         }
     }
