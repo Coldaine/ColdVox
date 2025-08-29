@@ -14,6 +14,7 @@ use coldvox_app::vad::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 use coldvox_app::vad::types::VadEvent;
 use coldvox_app::telemetry::pipeline_metrics::PipelineMetrics;
 use std::time::Duration;
+use clap::Parser;
 use tokio::sync::{broadcast, mpsc};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -37,10 +38,49 @@ fn init_logging() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[derive(Parser, Debug)]
+#[command(name = "coldvox", author, version, about = "ColdVox voice pipeline")] 
+struct Cli {
+    /// Preferred input device name (exact or substring)
+    #[arg(short = 'D', long = "device")]
+    device: Option<String>,
+
+    /// List available input devices and exit
+    #[arg(long = "list-devices")]
+    list_devices: bool,
+
+    /// Resampler quality: fast, balanced, quality
+    #[arg(long = "resampler-quality", default_value = "balanced")]
+    resampler_quality: String,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Give PipeWire better routing hints if using its ALSA bridge
+    std::env::set_var(
+        "PIPEWIRE_PROPS",
+        "{ application.name=ColdVox media.role=capture }",
+    );
     init_logging()?;
     tracing::info!("Starting ColdVox application");
+
+    let cli = Cli::parse();
+    
+    // Apply environment variable overrides
+    let device = cli.device.or_else(|| std::env::var("COLDVOX_DEVICE").ok());
+    let resampler_quality = std::env::var("COLDVOX_RESAMPLER_QUALITY").unwrap_or(cli.resampler_quality);
+    
+    if cli.list_devices {
+        let dm = coldvox_app::audio::device::DeviceManager::new()?;
+        tracing::info!("CPAL host: {:?}", dm.host_id());
+        let devices = dm.enumerate_devices();
+        println!("Input devices (host: {:?}):", dm.host_id());
+        for d in devices {
+            let def = if d.is_default { " (default)" } else { "" };
+            println!("- {}{}", d.name, def);
+        }
+        return Ok(());
+    }
 
     let state_manager = StateManager::new();
     let _health_monitor = HealthMonitor::new(Duration::from_secs(10)).start();
@@ -55,16 +95,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let metrics = std::sync::Arc::new(PipelineMetrics::default());
     let ring_buffer = AudioRingBuffer::new(16384 * 4);
     let (audio_producer, audio_consumer) = ring_buffer.split();
-    let (audio_capture, sample_rate) =
-        AudioCaptureThread::spawn(audio_config, audio_producer, None)?;
+    let (audio_capture, device_cfg, mut device_config_rx) =
+        AudioCaptureThread::spawn(audio_config, audio_producer, device.clone())?;
     tracing::info!("Audio capture thread started successfully.");
 
     // --- 2. Audio Chunker ---
-    let frame_reader =
-        coldvox_app::audio::frame_reader::FrameReader::new(audio_consumer, sample_rate, 16384 * 4, Some(metrics.clone()));
+    let frame_reader = coldvox_app::audio::frame_reader::FrameReader::new(
+        audio_consumer,
+        device_cfg.sample_rate,
+        device_cfg.channels,
+        16384 * 4,
+        Some(metrics.clone()),
+    );
     let chunker_cfg = ChunkerConfig {
         frame_size_samples: FRAME_SIZE_SAMPLES,
-        sample_rate_hz: sample_rate,
+        // Target 16k for VAD; resampler in chunker will convert from device rate
+        sample_rate_hz: SAMPLE_RATE_HZ,
+        resampler_quality: match resampler_quality.to_lowercase().as_str() {
+            "fast" => coldvox_app::audio::chunker::ResamplerQuality::Fast,
+            "quality" => coldvox_app::audio::chunker::ResamplerQuality::Quality,
+            _ => coldvox_app::audio::chunker::ResamplerQuality::Balanced, // default/balanced
+        },
     };
     
     // --- 3. VAD Processor ---
@@ -81,6 +132,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let chunker = AudioChunker::new(frame_reader, audio_tx.clone(), chunker_cfg).with_metrics(metrics.clone());
     let chunker_handle = chunker.spawn();
     tracing::info!("Audio chunker task started.");
+    
+    // Set up device config monitoring to update FrameReader
+    let _frame_reader_handle = {
+        tokio::spawn(async move {
+            while let Ok(new_config) = device_config_rx.recv().await {
+                tracing::info!("Device config changed: {}Hz {}ch", new_config.sample_rate, new_config.channels);
+                // Note: In a real implementation, we'd need to communicate this to the FrameReader
+                // For now, this is a placeholder for the monitoring logic
+            }
+        })
+    };
+    
+    // --- 3. VAD Processor ---
+    let vad_cfg = UnifiedVadConfig {
+        mode: VadMode::Silero,
+        frame_size_samples: FRAME_SIZE_SAMPLES,  // Both Silero and Level3 use 512 samples
+        sample_rate_hz: SAMPLE_RATE_HZ,    // Standard 16kHz - resampler will handle conversion
+        ..Default::default()
+    };
+    
     let (event_tx, event_rx) = mpsc::channel::<VadEvent>(100);
     let vad_audio_rx = audio_tx.subscribe();
     let vad_handle = match coldvox_app::audio::vad_processor::VadProcessor::spawn(

@@ -10,8 +10,8 @@ ColdVox is a Rust-based voice AI project focused on real-time audio processing w
 
 - **Foundation Layer** (`crates/app/src/foundation/`): Error handling, health monitoring, state management, graceful shutdown
 - **Audio System** (`crates/app/src/audio/`): Microphone capture, device management, watchdog monitoring, automatic recovery
-  - `AudioCapture`: Multi-format device capture with automatic conversion
-  - `AudioChunker`: Converts variable-sized frames to fixed 512-sample chunks
+  - `AudioCapture`: Device-native capture (no resampling, converts device sample format → i16)
+  - `AudioChunker`: Downmixes to mono, resamples to 16 kHz, converts variable-sized frames to fixed 512-sample chunks
   - `VadAdapter`: Trait for pluggable VAD implementations
   - `VADProcessor`: VAD processing pipeline integration
 - **VAD System** (`crates/app/src/vad/`): Dual VAD implementation with power-based VAD and ML models
@@ -19,31 +19,40 @@ ColdVox is a Rust-based voice AI project focused on real-time audio processing w
   - `SileroEngine`: Silero model wrapper for ML-based VAD **[Default ACTIVE VAD]**
   - `VADStateMachine`: State management for VAD transitions
   - `UnifiedVADConfig`: Configuration supporting both VAD modes (defaults to Silero)
-- **STT System** (`crates/app/src/STT/`): Speech-to-text transcription
+- **STT System** (`crates/app/src/stt/`): Speech-to-text transcription
   - `VoskTranscriber`: Vosk-based STT implementation
   - `STTProcessor`: STT processing gated by VAD events
   - `Transcriber` trait for pluggable STT backers
 - **Telemetry** (`crates/app/src/telemetry/`): Metrics collection and monitoring
   - `PipelineMetrics`: Real-time pipeline performance metrics
-  - Cross-thread monitoring of audio levels, latency, and throught
+  - Cross-thread monitoring of audio levels, latency, and throughput
 - **Probes** (`crates/app/src/probes/`): Test utilities and live hardware checks
 - **VAD Fork** (`Forks/ColdVox-voice_activity_detector/`): Voice activity detection using Silero model with ONX runtime
 
 ### Threading Model
 
 - **Mic Thread**: Owns audio device, handles capture
-- **Processing Thread**: Runs VAD and chunkinging
+- **Processing Thread**: Runs VAD and chunking
 - **STT Thread**: Processes speech segments when VAD detects speech
 - **Main Thread**: Orchestrates and monitors components
 - Communication via lock-free ring buffers (rtrb), broadcast channels, and mpsc channels
 
 ### Audio Specifications
 
-- Internal format: 16kHz, 16-bit signed (i16), mono
-- Capture frames: Variable-sized (CPAL BufferSize::Default)
-- Chunker output: 512 samples (32ms) for VAD processing
-- Conversion: Stereo→mono averaging, rate conversion via fractional-phase resampling
-- Overflow handling: Configurable policy (DropOldest/DropNewest/Panic)
+- Internal processing format: 16 kHz, 16-bit signed (i16), mono
+- Capture: Device‑native format and rate; converted to i16 only
+- Chunker output: 512 samples (32 ms) at 16 kHz
+- Conversion: Stereo→mono averaging and resampling happen in the chunker task
+- Overflow handling: Lock‑free ring buffer backpressure with stats
+
+### Resampler Quality
+
+- Presets: `Fast`, `Balanced` (default), `Quality`
+- Trade‑offs:
+  - Fast: lowest CPU, slightly more aliasing
+  - Balanced: good default balance
+  - Quality: higher CPU, best stopband attenuation
+- Where: set via `ChunkerConfig { resampler_quality, .. }`
 
 ## Development Commands
 
@@ -145,9 +154,9 @@ Configuration parameters:
 - `crates/app/src/main.rs`: Main application entry point with Vosk STT
 - `crates/app/src/bin/tui_dashboard.rs`: Real-time monitoring dashboard
 - `crates/app/src/audio/capture.rs`: Core audio capture with format negotiation
-- `crates/app/src/audio/chunker.r`: Audio chunking for VAD processing
+- `crates/app/src/audio/chunker.rs`: Audio chunking for VAD processing
 - `crates/app/src/vad/processor.rs`: VAD processing pipeline integration
-- `crates/app/src/stt/processor.r`: STT processor gated by VAD
+- `crates/app/src/stt/processor.rs`: STT processor gated by VAD
 - `crates/app/src/telemetry/pipeline_metrics.rs`: Real-time metrics tracking
 
 ## Error Handling
@@ -174,3 +183,4 @@ Hierarchical error types with recovery strategies:
 - **Example paths**: Cargo.toml references `crates/app/examples/` but actual files are in root `/examples/` directory
 - **Vosk models**: Requires Vosk model files to be downloaded separately for STT functionality
 - **Device selection**: TUI dashboard device selection (-D flag) requires exact device name match
+- **Dynamic device reconfiguration**: Capture→Chunker config update is driven by frame metadata; ensure `FrameReader` is updated on device changes
