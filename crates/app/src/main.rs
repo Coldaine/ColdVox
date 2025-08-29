@@ -117,7 +117,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let metrics = std::sync::Arc::new(PipelineMetrics::default());
     let ring_buffer = AudioRingBuffer::new(16384 * 4);
     let (audio_producer, audio_consumer) = ring_buffer.split();
-    let (audio_capture, device_cfg, mut device_config_rx) =
+    let (audio_capture, device_cfg, device_config_rx) =
         AudioCaptureThread::spawn(audio_config, audio_producer, device.clone())?;
     tracing::info!("Audio capture thread started successfully.");
 

@@ -21,13 +21,14 @@ ColdVox is a Rust-based voice AI project focused on real-time audio processing w
   - `SileroEngine`: Silero model wrapper for ML-based VAD **[Default ACTIVE VAD]**
   - `VADStateMachine`: State management for VAD transitions
   - `UnifiedVADConfig`: Configuration supporting both VAD modes (defaults to Silero)
-- **STT System** (`crates/app/src/stt/`): Speech-to-text transcription
+- **STT System** (`crates/app/src/stt/`): Speech-to-text transcription with buffered processing
   - `VoskTranscriber`: Vosk-based STT implementation
-  - `STTProcessor`: STT processing gated by VAD events
+  - `STTProcessor`: Buffers audio during speech segments, processes entire buffer at SpeechEnd for better accuracy
   - `Transcriber` trait for pluggable STT backers
-- **Text Injection System** (`crates/app/src/text_injection/`): Session-based text injection
+  - **Buffering Strategy**: Accumulates all audio frames from SpeechStart → SpeechEnd, then processes as single chunk
+- **Text Injection System** (`crates/app/src/text_injection/`): Immediate text injection
   - `TextInjector`: Production text injection using ydotool/clipboard
-  - `InjectionProcessor`: Session management with silence timeout and buffering
+  - `InjectionProcessor`: Immediate injection (0ms timeout) after transcription completes
   - `AsyncInjectionProcessor`: Async wrapper for pipeline integration
 - **Telemetry** (`crates/app/src/telemetry/`): Metrics collection and monitoring
   - `PipelineMetrics`: Real-time pipeline performance metrics

@@ -47,10 +47,10 @@ pub struct SessionConfig {
 impl Default for SessionConfig {
     fn default() -> Self {
         Self {
-            silence_timeout_ms: 1500,
+            silence_timeout_ms: 0,  // Immediate injection after STT completes
             max_buffer_size: 5000,
             join_separator: " ".to_string(),
-            buffer_pause_timeout_ms: 500,
+            buffer_pause_timeout_ms: 0,  // No pause needed since STT buffers audio
         }
     }
 }

@@ -1,3 +1,9 @@
+// Audio Buffering Strategy:
+// The STT processor buffers all audio frames during speech segments (SpeechStart → SpeechEnd)
+// and processes the entire buffer at once when speech ends. This provides better context
+// for the speech recognition model, leading to more accurate transcriptions.
+// Text injection happens immediately (0ms timeout) after transcription completes.
+
 use tokio::sync::{broadcast, mpsc};
 use crate::audio::vad_processor::AudioFrame;
 use crate::stt::{VoskTranscriber, TranscriptionEvent, TranscriptionConfig};
@@ -10,14 +16,14 @@ use std::time::Instant;
 pub enum UtteranceState {
     /// No speech detected
     Idle,
-    /// Speech is active
+    /// Speech is active, buffering audio
     SpeechActive {
         /// Timestamp when speech started
         started_at: Instant,
-        /// Timestamp of last partial result
-        last_partial_at: Option<Instant>,
-        /// Number of frames processed
-        frames_processed: u64,
+        /// Buffered audio frames for this utterance
+        audio_buffer: Vec<i16>,
+        /// Number of frames buffered
+        frames_buffered: u64,
     },
 }
 
@@ -180,14 +186,16 @@ impl SttProcessor {
         
         self.state = UtteranceState::SpeechActive {
             started_at: start_instant,
-            last_partial_at: None,
-            frames_processed: 0,
+            audio_buffer: Vec::with_capacity(16000 * 10), // Pre-allocate for up to 10 seconds
+            frames_buffered: 0,
         };
         
         // Reset transcriber for new utterance
         if let Err(e) = self.transcriber.reset() {
             tracing::warn!(target: "stt", "Failed to reset transcriber: {}", e);
         }
+        
+        tracing::info!(target: "stt", "Started buffering audio for new utterance");
     }
     
     /// Handle speech end event
@@ -199,31 +207,73 @@ impl SttProcessor {
             duration_ms
         );
         
-        // Finalize current utterance
-        match self.transcriber.finalize_utterance() {
-            Ok(Some(event)) => {
-                self.send_event(event).await;
-                
-                // Update metrics
-                let mut metrics = self.metrics.write();
-                metrics.final_count += 1;
-                metrics.last_event_time = Some(Instant::now());
+        // Process the buffered audio all at once
+        if let UtteranceState::SpeechActive { audio_buffer, frames_buffered, .. } = &self.state {
+            let buffer_size = audio_buffer.len();
+            tracing::info!(
+                target: "stt", 
+                "Processing buffered audio: {} samples ({:.2}s), {} frames",
+                buffer_size,
+                buffer_size as f32 / 16000.0,
+                frames_buffered
+            );
+            
+            if !audio_buffer.is_empty() {
+                // Send the entire buffer to the transcriber at once
+                match self.transcriber.accept_frame(&audio_buffer) {
+                    Ok(Some(event)) => {
+                        self.send_event(event).await;
+                        
+                        // Update metrics
+                        let mut metrics = self.metrics.write();
+                        metrics.frames_out += frames_buffered;
+                        metrics.last_event_time = Some(Instant::now());
+                    }
+                    Ok(None) => {
+                        tracing::debug!(target: "stt", "No transcription from buffered audio");
+                    }
+                    Err(e) => {
+                        tracing::error!(target: "stt", "Failed to process buffered audio: {}", e);
+                        
+                        // Send error event
+                        let error_event = TranscriptionEvent::Error {
+                            code: "BUFFER_PROCESS_ERROR".to_string(),
+                            message: e,
+                        };
+                        self.send_event(error_event).await;
+                        
+                        // Update metrics
+                        self.metrics.write().error_count += 1;
+                    }
+                }
             }
-            Ok(None) => {
-                tracing::debug!(target: "stt", "No final transcription available");
-            }
-            Err(e) => {
-                tracing::error!(target: "stt", "Failed to finalize transcription: {}", e);
-                
-                // Send error event
-                let error_event = TranscriptionEvent::Error {
-                    code: "FINALIZE_ERROR".to_string(),
-                    message: e,
-                };
-                self.send_event(error_event).await;
-                
-                // Update metrics
-                self.metrics.write().error_count += 1;
+            
+            // Finalize to get any remaining transcription
+            match self.transcriber.finalize_utterance() {
+                Ok(Some(event)) => {
+                    self.send_event(event).await;
+                    
+                    // Update metrics
+                    let mut metrics = self.metrics.write();
+                    metrics.final_count += 1;
+                    metrics.last_event_time = Some(Instant::now());
+                }
+                Ok(None) => {
+                    tracing::debug!(target: "stt", "No final transcription available");
+                }
+                Err(e) => {
+                    tracing::error!(target: "stt", "Failed to finalize transcription: {}", e);
+                    
+                    // Send error event
+                    let error_event = TranscriptionEvent::Error {
+                        code: "FINALIZE_ERROR".to_string(),
+                        message: e,
+                    };
+                    self.send_event(error_event).await;
+                    
+                    // Update metrics
+                    self.metrics.write().error_count += 1;
+                }
             }
         }
         
@@ -235,76 +285,21 @@ impl SttProcessor {
         // Update metrics
         self.metrics.write().frames_in += 1;
         
-        // Only process if speech is active
-        let should_process = matches!(self.state, UtteranceState::SpeechActive { .. });
-        
-        if !should_process {
-            return;
-        }
-        
-        // Process frame through transcriber
-        match self.transcriber.accept_frame(&frame.data) {
-            Ok(Some(event)) => {
-                self.send_event(event.clone()).await;
-                
-                // Update metrics and state
-                let mut metrics = self.metrics.write();
-                metrics.frames_out += 1;
-                metrics.last_event_time = Some(Instant::now());
-                
-                match event {
-                    TranscriptionEvent::Partial { .. } => {
-                        metrics.partial_count += 1;
-                        
-                        // Update state
-                        if let UtteranceState::SpeechActive {
-                            started_at,
-                            frames_processed,
-                            ..
-                        } = self.state
-                        {
-                            self.state = UtteranceState::SpeechActive {
-                                started_at,
-                                last_partial_at: Some(Instant::now()),
-                                frames_processed: frames_processed + 1,
-                            };
-                        }
-                    }
-                    TranscriptionEvent::Final { .. } => {
-                        metrics.final_count += 1;
-                    }
-                    TranscriptionEvent::Error { .. } => {
-                        metrics.error_count += 1;
-                    }
-                }
-            }
-            Ok(None) => {
-                // No transcription for this frame
-                if let UtteranceState::SpeechActive {
-                    started_at,
-                    last_partial_at,
-                    frames_processed,
-                } = self.state
-                {
-                    self.state = UtteranceState::SpeechActive {
-                        started_at,
-                        last_partial_at,
-                        frames_processed: frames_processed + 1,
-                    };
-                }
-            }
-            Err(e) => {
-                tracing::error!(target: "stt", "Transcription error: {}", e);
-                
-                // Send error event
-                let error_event = TranscriptionEvent::Error {
-                    code: "TRANSCRIPTION_ERROR".to_string(),
-                    message: e,
-                };
-                self.send_event(error_event).await;
-                
-                // Update metrics
-                self.metrics.write().error_count += 1;
+        // Only buffer if speech is active
+        if let UtteranceState::SpeechActive { ref mut audio_buffer, ref mut frames_buffered, .. } = &mut self.state {
+            // Buffer the audio frame
+            audio_buffer.extend_from_slice(&frame.data);
+            *frames_buffered += 1;
+            
+            // Log periodically to show we're buffering
+            if *frames_buffered % 100 == 0 {
+                tracing::debug!(
+                    target: "stt",
+                    "Buffering audio: {} frames, {} samples ({:.2}s)",
+                    frames_buffered,
+                    audio_buffer.len(),
+                    audio_buffer.len() as f32 / 16000.0
+                );
             }
         }
     }
