@@ -136,13 +136,11 @@ impl SttProcessor {
                 // Listen for VAD events
                 Some(event) = self.vad_event_rx.recv() => {
                     match event {
-                        VadEvent::SpeechStart { .. } => {
-                            let timestamp = Instant::now(); // Use current time as approximation
-                            self.handle_speech_start(timestamp).await;
+                        VadEvent::SpeechStart { timestamp_ms, .. } => {
+                            self.handle_speech_start(timestamp_ms).await;
                         }
-                        VadEvent::SpeechEnd { duration_ms, .. } => {
-                            let timestamp = Instant::now(); // Use current time as approximation
-                            self.handle_speech_end(timestamp, Some(duration_ms)).await;
+                        VadEvent::SpeechEnd { timestamp_ms, duration_ms, .. } => {
+                            self.handle_speech_end(timestamp_ms, Some(duration_ms)).await;
                         }
                     }
                 }
@@ -174,11 +172,14 @@ impl SttProcessor {
     }
     
     /// Handle speech start event
-    async fn handle_speech_start(&mut self, timestamp: Instant) {
-        tracing::debug!(target: "stt", "STT processor received SpeechStart");
+    async fn handle_speech_start(&mut self, timestamp_ms: u64) {
+        tracing::debug!(target: "stt", "STT processor received SpeechStart at {}ms", timestamp_ms);
+        
+        // Store the start time as Instant for duration calculations
+        let start_instant = Instant::now();
         
         self.state = UtteranceState::SpeechActive {
-            started_at: timestamp,
+            started_at: start_instant,
             last_partial_at: None,
             frames_processed: 0,
         };
@@ -190,10 +191,11 @@ impl SttProcessor {
     }
     
     /// Handle speech end event
-    async fn handle_speech_end(&mut self, _timestamp: Instant, duration_ms: Option<u64>) {
+    async fn handle_speech_end(&mut self, timestamp_ms: u64, duration_ms: Option<u64>) {
         tracing::debug!(
             target: "stt",
-            "STT processor received SpeechEnd (duration: {:?}ms)",
+            "STT processor received SpeechEnd at {}ms (duration: {:?}ms)",
+            timestamp_ms,
             duration_ms
         );
         
@@ -323,16 +325,23 @@ impl SttProcessor {
             }
         }
         
-        // Send to channel
-        if let Err(e) = self.event_tx.try_send(event) {
-            match e {
-                mpsc::error::TrySendError::Full(_) => {
-                    tracing::warn!(target: "stt", "Event channel full, dropping event");
-                    self.metrics.write().frames_dropped += 1;
-                }
-                mpsc::error::TrySendError::Closed(_) => {
-                    tracing::debug!(target: "stt", "Event channel closed");
-                }
+        // Send to channel with backpressure - wait if channel is full
+        // Use timeout to prevent indefinite blocking
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            self.event_tx.send(event)
+        ).await {
+            Ok(Ok(())) => {
+                // Successfully sent
+            }
+            Ok(Err(_)) => {
+                // Channel closed
+                tracing::debug!(target: "stt", "Event channel closed");
+            }
+            Err(_) => {
+                // Timeout - consumer is too slow
+                tracing::warn!(target: "stt", "Event channel send timed out after 5s - consumer too slow");
+                self.metrics.write().frames_dropped += 1;
             }
         }
     }

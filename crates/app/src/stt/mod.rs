@@ -97,3 +97,9 @@ pub use vosk::VoskTranscriber;
 
 #[cfg(feature = "vosk")]
 pub mod processor;
+
+#[cfg(feature = "vosk")]
+pub mod persistence;
+
+#[cfg(test)]
+mod tests;

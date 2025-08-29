@@ -10,6 +10,15 @@ pub struct VoskTranscriber {
 impl VoskTranscriber {
     /// Create a new VoskTranscriber with the given configuration
     pub fn new(config: TranscriptionConfig, sample_rate: f32) -> Result<Self, String> {
+        // Validate sample rate - Vosk works best with 16kHz
+        if (sample_rate - 16000.0).abs() > 0.1 {
+            tracing::warn!(
+                "VoskTranscriber: Sample rate {}Hz differs from expected 16000Hz. \
+                This may affect transcription quality.", 
+                sample_rate
+            );
+        }
+        
         // Validate model path
         if config.model_path.is_empty() {
             return Err("Model path is required for Vosk transcriber".to_string());
@@ -172,7 +181,7 @@ impl VoskTranscriber {
                                 text: w.word.to_string(),
                                 start: w.start as f32,
                                 end: w.end as f32,
-                                conf: 1.0,  // WordInAlternative doesn't have confidence score
+                                conf: 0.5,  // Default confidence when not available from Vosk API
                             }).collect())
                         } else {
                             None
