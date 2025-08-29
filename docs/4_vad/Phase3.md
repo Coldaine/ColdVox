@@ -20,7 +20,7 @@ Non‑Goals (Phase 3):
 - Phase 2 ring buffer: `crates/app/src/audio/ring_buffer.rs` (rtrb‑based)
 - Audio format: 16 kHz, mono, i16; 320-sample frames (20ms)
 - Vendored VAD crate: `Forks/ColdVox-voice_activity_detector` (Silero V5, 512-sample windows)
-- Reference spec: `docs/Reference/EnergyBasedVAD.md` (full energy VAD algorithm)
+- Reference spec: Energy VAD algorithm (see Level 3-4 implementation in `src/vad/level3.rs`)
 
 ## Architecture
 Callback (CPAL) → Ring buffer (rtrb) → VAD Task → Events (SpeechStart/SpeechEnd)
@@ -70,7 +70,7 @@ fn energy_gate(frame: &[i16]) -> bool {
 - ZCR gating (optional)
 - Pre/post-roll buffering
 - Clipping detection
-- Full implementation from `docs/Reference/EnergyBasedVAD.md`
+- Full implementation in `src/vad/level3.rs`
 
 ## Module Interface
 

@@ -1,10 +1,10 @@
 use std::sync::atomic::{AtomicBool, AtomicI16, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use parking_lot::RwLock;
 
 /// Shared metrics for cross-thread pipeline monitoring
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct PipelineMetrics {
     // Audio level monitoring
     pub current_peak: Arc<AtomicI16>,      // Peak sample value in current window
@@ -27,6 +27,10 @@ pub struct PipelineMetrics {
     pub chunker_fps: Arc<AtomicU64>,        // Chunks per second * 10
     pub vad_fps: Arc<AtomicU64>,            // VAD frames per second * 10
     
+    // Event counters
+    pub capture_frames: Arc<AtomicU64>,
+    pub chunker_frames: Arc<AtomicU64>,
+
     // Latency tracking
     pub capture_to_chunker_ms: Arc<AtomicU64>,  // Latency in ms
     pub chunker_to_vad_ms: Arc<AtomicU64>,      // Latency in ms
@@ -41,41 +45,6 @@ pub struct PipelineMetrics {
     pub capture_errors: Arc<AtomicU64>,
     pub chunker_errors: Arc<AtomicU64>,
     pub vad_errors: Arc<AtomicU64>,
-}
-
-impl Default for PipelineMetrics {
-    fn default() -> Self {
-        Self {
-            current_peak: Arc::new(AtomicI16::new(0)),
-            current_rms: Arc::new(AtomicU64::new(0)),
-            audio_level_db: Arc::new(AtomicI16::new(-900)), // -90.0 dB
-            
-            stage_capture: Arc::new(AtomicBool::new(false)),
-            stage_chunker: Arc::new(AtomicBool::new(false)),
-            stage_vad: Arc::new(AtomicBool::new(false)),
-            stage_output: Arc::new(AtomicBool::new(false)),
-            
-            capture_buffer_fill: Arc::new(AtomicUsize::new(0)),
-            chunker_buffer_fill: Arc::new(AtomicUsize::new(0)),
-            vad_buffer_fill: Arc::new(AtomicUsize::new(0)),
-            
-            capture_fps: Arc::new(AtomicU64::new(0)),
-            chunker_fps: Arc::new(AtomicU64::new(0)),
-            vad_fps: Arc::new(AtomicU64::new(0)),
-            
-            capture_to_chunker_ms: Arc::new(AtomicU64::new(0)),
-            chunker_to_vad_ms: Arc::new(AtomicU64::new(0)),
-            end_to_end_ms: Arc::new(AtomicU64::new(0)),
-            
-            is_speaking: Arc::new(AtomicBool::new(false)),
-            last_speech_time: Arc::new(RwLock::new(None)),
-            speech_segments_count: Arc::new(AtomicU64::new(0)),
-            
-            capture_errors: Arc::new(AtomicU64::new(0)),
-            chunker_errors: Arc::new(AtomicU64::new(0)),
-            vad_errors: Arc::new(AtomicU64::new(0)),
-        }
-    }
 }
 
 impl PipelineMetrics {
@@ -136,6 +105,26 @@ impl PipelineMetrics {
             BufferType::Vad => self.vad_buffer_fill.store(fill, Ordering::Relaxed),
         }
     }
+
+    pub fn update_capture_fps(&self, fps: f64) {
+        self.capture_fps.store((fps * 10.0) as u64, Ordering::Relaxed);
+    }
+    
+    pub fn update_chunker_fps(&self, fps: f64) {
+        self.chunker_fps.store((fps * 10.0) as u64, Ordering::Relaxed);
+    }
+    
+    pub fn update_vad_fps(&self, fps: f64) {
+        self.vad_fps.store((fps * 10.0) as u64, Ordering::Relaxed);
+    }
+    
+    pub fn increment_capture_frames(&self) {
+        self.capture_frames.fetch_add(1, Ordering::Relaxed);
+    }
+    
+    pub fn increment_chunker_frames(&self) {
+        self.chunker_frames.fetch_add(1, Ordering::Relaxed);
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -151,4 +140,35 @@ pub enum BufferType {
     Capture,
     Chunker,
     Vad,
+}
+
+#[derive(Debug)]
+pub struct FpsTracker {
+    last_update: Instant,
+    frame_count: u64,
+}
+
+impl FpsTracker {
+    pub fn new() -> Self {
+        Self {
+            last_update: Instant::now(),
+            frame_count: 0,
+        }
+    }
+
+    // Call this for every frame processed.
+    // It returns the new FPS value once per second.
+    pub fn tick(&mut self) -> Option<f64> {
+        self.frame_count += 1;
+        let elapsed = self.last_update.elapsed();
+
+        if elapsed >= Duration::from_secs(1) {
+            let fps = self.frame_count as f64 / elapsed.as_secs_f64();
+            self.last_update = Instant::now();
+            self.frame_count = 0;
+            Some(fps)
+        } else {
+            None
+        }
+    }
 }

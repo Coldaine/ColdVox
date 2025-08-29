@@ -23,6 +23,7 @@ path = "../../examples/foundation_probe.rs"
 [[example]]
 name = "vad_demo"
 path = "../../examples/vad_demo.rs"
+required-features = ["examples"]
 
 [[example]]
 name = "record_10s"
@@ -31,6 +32,7 @@ path = "../../examples/record_10s.rs"
 [[example]]
 name = "vosk_test"
 path = "../../examples/vosk_test.rs"
+required-features = ["vosk", "examples"]
 
 [dependencies]
 tokio = { version = "1.35", features = ["full"] }
@@ -63,6 +65,7 @@ vosk = "0.3"
 default = []
 live-hardware-tests = []
 vosk = []
+examples = []
 
 [dependencies.rand]
 version = "0.8"

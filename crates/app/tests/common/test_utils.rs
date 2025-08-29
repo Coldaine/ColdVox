@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use cpal::{SampleFormat, StreamConfig};
 use coldvox_app::audio::{AudioFrame, AudioCapture, CaptureStats};
+use hound;
 
 /// Generate test audio samples as a sine wave
 pub fn generate_sine_wave(freq: f32, sample_rate: u32, duration_ms: u32) -> Vec<i16> {
@@ -163,6 +164,24 @@ pub fn create_test_frame(samples: Vec<i16>, sample_rate: u32) -> AudioFrame {
         sample_rate,
         channels: 1,
     }
+}
+
+/// Load a mono 16kHz 16-bit PCM WAV file into a Vec<i16>.
+/// Panics with a clear message if the WAV is not 16kHz mono PCM16.
+pub fn load_wav_16k_mono_i16(path: &str) -> Vec<i16> {
+    let reader = hound::WavReader::open(path)
+        .unwrap_or_else(|e| panic!("Failed to open WAV at '{}': {}", path, e));
+    let spec = reader.spec();
+    assert_eq!(spec.channels, 1, "Expected mono WAV, got {} channels for '{}'", spec.channels, path);
+    assert_eq!(spec.sample_rate, 16_000, "Expected 16kHz WAV, got {} Hz for '{}'", spec.sample_rate, path);
+    assert!(matches!(spec.sample_format, hound::SampleFormat::Int), "Expected PCM integer format for '{}'", path);
+    assert!(spec.bits_per_sample <= 16, "Expected 16-bit or less PCM for '{}' (got {} bits)", path, spec.bits_per_sample);
+
+    // Read as i16 safely: for <16-bit, hound scales to i16 range when using samples::<i16>()
+    reader
+        .into_samples::<i16>()
+        .map(|s| s.expect("Invalid sample"))
+        .collect()
 }
 
 /// Stats snapshot helper for assertions

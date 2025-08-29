@@ -1,7 +1,9 @@
+use crate::telemetry::pipeline_metrics::{FpsTracker, PipelineMetrics};
 use crate::vad::config::UnifiedVadConfig;
 use crate::vad::types::VadEvent;
+use std::sync::Arc;
 use tokio::sync::broadcast;
-use tokio::sync::mpsc::{Sender};
+use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info};
 
@@ -17,6 +19,8 @@ pub struct VadProcessor {
     adapter: VadAdapter,
     audio_rx: broadcast::Receiver<AudioFrame>,
     event_tx: Sender<VadEvent>,
+    metrics: Option<Arc<PipelineMetrics>>,
+    fps_tracker: FpsTracker,
     frames_processed: u64,
     events_generated: u64,
 }
@@ -26,6 +30,7 @@ impl VadProcessor {
         config: UnifiedVadConfig,
         audio_rx: broadcast::Receiver<AudioFrame>,
         event_tx: Sender<VadEvent>,
+        metrics: Option<Arc<PipelineMetrics>>,
     ) -> Result<Self, String> {
         let adapter = VadAdapter::new(config)?;
 
@@ -33,6 +38,8 @@ impl VadProcessor {
             adapter,
             audio_rx,
             event_tx,
+            metrics,
+            fps_tracker: FpsTracker::new(),
             frames_processed: 0,
             events_generated: 0,
         })
@@ -53,6 +60,12 @@ impl VadProcessor {
     }
 
     async fn process_frame(&mut self, frame: AudioFrame) {
+        if let Some(metrics) = &self.metrics {
+            if let Some(fps) = self.fps_tracker.tick() {
+                metrics.update_vad_fps(fps);
+            }
+        }
+
         match self.adapter.process(&frame.data) {
             Ok(Some(event)) => {
                 self.events_generated += 1;
@@ -85,8 +98,9 @@ impl VadProcessor {
         config: UnifiedVadConfig,
         audio_rx: broadcast::Receiver<AudioFrame>,
         event_tx: Sender<VadEvent>,
+        metrics: Option<Arc<PipelineMetrics>>,
     ) -> Result<JoinHandle<()>, String> {
-        let processor = VadProcessor::new(config, audio_rx, event_tx)?;
+        let processor = VadProcessor::new(config, audio_rx, event_tx, metrics)?;
 
         let handle = tokio::spawn(async move {
             processor.run().await;

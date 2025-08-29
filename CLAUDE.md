@@ -134,7 +134,7 @@ cargo clippy -- -D warnings  # Strict linting
 
 ## Configuration
 
-Config structure is defined in `docs/1_foundation/EnhancedPhasePlanV2.md`. Key parameters:
+Configuration parameters:
 - Window/overlap for audio processing (default: 500ms window, 0.5 overlap)
 - VAD thresholds and debouncing (speech_threshold: 0.6, min_speech_ms: 200)
 - Retry policies and timeouts (exponential backoff with jitter)
@@ -144,7 +144,6 @@ Config structure is defined in `docs/1_foundation/EnhancedPhasePlanV2.md`. Key p
 ## Important Files
 
 - `docs/PROJECT_STATUS.md`: Current project status and next steps
-- `docs/1_foundation/EnhancedPhasePlanV2.md`: Complete technical specification
 - `crates/app/src/main.rs`: Main application entry point with Vosk STT
 - `crates/app/src/bin/tui_dashboard.rs`: Real-time monitoring dashboard
 - `crates/app/src/pipeline/mod.rs`: Audio pipeline orchestration

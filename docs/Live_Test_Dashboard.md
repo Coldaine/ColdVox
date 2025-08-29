@@ -207,7 +207,7 @@ expected_engine = "silero|level3"  # adapter-validated
 
 6) Documentation
 - Update `README.md` and `docs/` with dashboard instructions and thresholds format.
-- Add a short section to `ColdVox_Test_Suite_Redesign_Plan.md` referencing the dashboard.
+- Document dashboard usage in main project documentation.
 
 ## Work items (granular)
 

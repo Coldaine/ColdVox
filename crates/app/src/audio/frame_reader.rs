@@ -1,4 +1,7 @@
+use std::sync::Arc;
 use std::time::Instant;
+
+use crate::telemetry::pipeline_metrics::{BufferType, PipelineMetrics};
 
 use super::ring_buffer::AudioConsumer;
 use super::capture::AudioFrame;
@@ -9,21 +12,35 @@ pub struct FrameReader {
     sample_rate: u32,
     samples_read: u64,
     start_time: Instant,
+    metrics: Option<Arc<PipelineMetrics>>,
+    capacity: usize,
 }
 
 impl FrameReader {
     /// Create a new FrameReader
-    pub fn new(consumer: AudioConsumer, sample_rate: u32) -> Self {
+    pub fn new(consumer: AudioConsumer, sample_rate: u32, capacity: usize, metrics: Option<Arc<PipelineMetrics>>) -> Self {
         Self {
             consumer,
             sample_rate,
             samples_read: 0,
             start_time: Instant::now(),
+            metrics,
+            capacity,
         }
     }
 
     /// Read next audio frame, reconstructing timestamp from sample count
     pub fn read_frame(&mut self, max_samples: usize) -> Option<AudioFrame> {
+        if let Some(metrics) = &self.metrics {
+            let available = self.consumer.slots();
+            let fill_percent = if self.capacity > 0 {
+                (available * 100) / self.capacity
+            } else {
+                0
+            };
+            metrics.update_buffer_fill(BufferType::Capture, fill_percent);
+        }
+
         let mut buffer = vec![0i16; max_samples];
         let samples_read = self.consumer.read(&mut buffer);
         

@@ -59,6 +59,8 @@ struct PipelineMetricsSnapshot {
     stage_chunker: bool,
     stage_vad: bool,
     stage_output: bool,
+    capture_frames: u64,
+    chunker_frames: u64,
 }
 
 struct DashboardState {
@@ -74,6 +76,7 @@ struct DashboardState {
     logs: VecDeque<LogEntry>,
     pipeline_handle: Option<JoinHandle<()>>,
     metrics: PipelineMetricsSnapshot,
+    has_metrics_snapshot: bool,
 }
 
 #[derive(Clone)]
@@ -135,7 +138,10 @@ impl Default for DashboardState {
                 stage_chunker: false,
                 stage_vad: false,
                 stage_output: false,
+                capture_frames: 0,
+                chunker_frames: 0,
             },
+            has_metrics_snapshot: false,
         }
     }
 }
@@ -274,6 +280,7 @@ async fn run_app(
                     }
                     AppEvent::UpdateMetrics(snapshot) => {
                         state.metrics = snapshot;
+                        state.has_metrics_snapshot = true;
                     }
                     AppEvent::PipelineStarted => {
                         state.is_running = true;
@@ -307,8 +314,8 @@ async fn run_audio_pipeline(tx: mpsc::Sender<AppEvent>, device: String) {
     };
 
     let audio_config = AudioConfig::default();
-    // Set up ring buffer for capture -> processing
-    let rb = AudioRingBuffer::new(16_384);
+    let rb_capacity = 16_384;
+    let rb = AudioRingBuffer::new(rb_capacity);
     let (audio_producer, audio_consumer) = rb.split();
     let (audio_thread, sample_rate) = match AudioCaptureThread::spawn(audio_config, audio_producer, device_option) {
         Ok(thread_tuple) => thread_tuple,
@@ -330,7 +337,7 @@ async fn run_audio_pipeline(tx: mpsc::Sender<AppEvent>, device: String) {
         sample_rate_hz: sample_rate,
     };
     // Build FrameReader from ring buffer consumer and feed it to the chunker
-    let frame_reader = FrameReader::new(audio_consumer, sample_rate);
+    let frame_reader = FrameReader::new(audio_consumer, sample_rate, rb_capacity, Some(metrics.clone()));
     let chunker = AudioChunker::new(frame_reader, audio_tx.clone(), chunker_cfg).with_metrics(metrics.clone());
     let _chunker_handle = chunker.spawn();
 
@@ -342,7 +349,7 @@ async fn run_audio_pipeline(tx: mpsc::Sender<AppEvent>, device: String) {
     };
 
     let vad_audio_rx = audio_tx.subscribe();
-    let _vad_thread = match VadProcessor::spawn(vad_cfg, vad_audio_rx, event_tx) {
+    let _vad_thread = match VadProcessor::spawn(vad_cfg, vad_audio_rx, event_tx, Some(metrics.clone())) {
         Ok(h) => h,
         Err(e) => {
             let _ = tx.send(AppEvent::Log(LogLevel::Error, format!("Failed to spawn VAD: {}", e))).await;
@@ -379,6 +386,8 @@ async fn run_audio_pipeline(tx: mpsc::Sender<AppEvent>, device: String) {
                     stage_chunker: metrics.stage_chunker.load(Ordering::Relaxed),
                     stage_vad: metrics.stage_vad.load(Ordering::Relaxed),
                     stage_output: metrics.stage_output.load(Ordering::Relaxed),
+                    capture_frames: metrics.capture_frames.load(Ordering::Relaxed),
+                    chunker_frames: metrics.chunker_frames.load(Ordering::Relaxed),
                 };
                 if tx.send(AppEvent::UpdateMetrics(snapshot)).await.is_err() {
                     break;
@@ -510,13 +519,13 @@ fn draw_pipeline_flow(f: &mut Frame, area: Rect, state: &DashboardState) {
         .split(inner);
 
     let stages = [
-        ("1. Capture", state.metrics.stage_capture, 0),
-        ("2. Chunker", state.metrics.stage_chunker, 0),
-        ("3. VAD", state.metrics.stage_vad, state.vad_frames),
-        ("4. Output", state.metrics.stage_output, state.speech_segments),
+        ("1. Capture", state.metrics.stage_capture),
+        ("2. Chunker", state.metrics.stage_chunker),
+        ("3. VAD", state.metrics.stage_vad),
+        ("4. Output", state.metrics.stage_output),
     ];
 
-    for (i, (name, active, count)) in stages.iter().enumerate() {
+    for (i, (name, active)) in stages.iter().enumerate() {
         let color = if *active {
             Color::Green
         } else if state.is_running {
@@ -526,7 +535,18 @@ fn draw_pipeline_flow(f: &mut Frame, area: Rect, state: &DashboardState) {
         };
 
         let indicator = if *active { "●" } else { "○" };
-        let text = format!("{} {} [{} events]", indicator, name, count);
+    let count_text = match i {
+            0 => {
+                if state.has_metrics_snapshot { format!("{} events", state.metrics.capture_frames) } else { "N/A".to_string() }
+            },
+            1 => {
+                if state.has_metrics_snapshot { format!("{} events", state.metrics.chunker_frames) } else { "N/A".to_string() }
+            },
+            2 => format!("{} events", state.vad_frames),
+            3 => format!("{} events", state.speech_segments),
+            _ => "".to_string(),
+        };
+        let text = format!("{} {} [{}]", indicator, name, count_text);
 
         let paragraph = Paragraph::new(text)
             .style(Style::default().fg(color));

@@ -3,7 +3,7 @@
 ## What We've Created
 
 ### 1. Test Architecture
-- **Comprehensive Design Document**: `docs/Phase1_Test_Suite_Design.md`
+- **Test Implementation**: See `crates/app/tests/` directory
   - Complete test strategy covering unit, integration, and manual tests
   - Mock strategies for external dependencies
   - Coverage goals and CI/CD integration plans

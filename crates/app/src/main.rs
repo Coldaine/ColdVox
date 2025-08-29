@@ -46,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // --- 2. Audio Chunker ---
     let frame_reader =
-        coldvox_app::audio::frame_reader::FrameReader::new(audio_consumer, sample_rate);
+        coldvox_app::audio::frame_reader::FrameReader::new(audio_consumer, sample_rate, 16384 * 4, None);
     let chunker_cfg = ChunkerConfig {
         frame_size_samples: 512,
         sample_rate_hz: sample_rate,
@@ -72,6 +72,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         vad_cfg,
         vad_audio_rx,
         event_tx,
+        None,
     ) {
         Ok(h) => h,
         Err(e) => {

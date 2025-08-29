@@ -38,7 +38,7 @@ impl MicCaptureCheck {
         tokio::pin!(timeout);
 
     // Build a single reader for the duration of the test
-    let mut reader = FrameReader::new(audio_consumer, 16_000);
+    let mut reader = FrameReader::new(audio_consumer, 16_000, 16_384, None);
 
         loop {
             tokio::select! {

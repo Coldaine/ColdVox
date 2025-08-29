@@ -7,7 +7,7 @@ use tokio::time::{self, Duration};
 
 use crate::audio::frame_reader::FrameReader;
 use crate::audio::vad_processor::AudioFrame as VadFrame;
-use crate::telemetry::pipeline_metrics::{PipelineMetrics, PipelineStage};
+use crate::telemetry::pipeline_metrics::{FpsTracker, PipelineMetrics, PipelineStage};
 
 pub struct ChunkerConfig {
     pub frame_size_samples: usize,
@@ -70,6 +70,8 @@ struct ChunkerWorker {
     buffer: VecDeque<i16>,
     samples_emitted: u64,
     metrics: Option<Arc<PipelineMetrics>>,
+    capture_fps_tracker: FpsTracker,
+    chunker_fps_tracker: FpsTracker,
 }
 
 impl ChunkerWorker {
@@ -87,6 +89,8 @@ impl ChunkerWorker {
             buffer: VecDeque::with_capacity(cap),
             samples_emitted: 0,
             metrics,
+            capture_fps_tracker: FpsTracker::new(),
+            chunker_fps_tracker: FpsTracker::new(),
         }
     }
 
@@ -96,6 +100,10 @@ impl ChunkerWorker {
         while running.load(Ordering::SeqCst) {
             if let Some(frame) = self.frame_reader.read_frame(4096) {
                 if let Some(m) = &self.metrics {
+                    m.increment_capture_frames();
+                    if let Some(fps) = self.capture_fps_tracker.tick() {
+                        m.update_capture_fps(fps);
+                    }
                     m.update_audio_level(&frame.samples);
                     m.mark_stage_active(PipelineStage::Capture);
                 }
@@ -134,6 +142,10 @@ impl ChunkerWorker {
             self.samples_emitted += fs as u64;
 
             if let Some(m) = &self.metrics {
+                m.increment_chunker_frames();
+                if let Some(fps) = self.chunker_fps_tracker.tick() {
+                    m.update_chunker_fps(fps);
+                }
                 m.mark_stage_active(PipelineStage::Chunker);
             }
         }

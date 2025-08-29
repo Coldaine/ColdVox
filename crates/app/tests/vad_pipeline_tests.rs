@@ -15,7 +15,7 @@ async fn vad_processor_silence_no_events_level3() {
     let (event_tx, mut event_rx) = mpsc::channel(8);
     let rx = tx.subscribe();
 
-    let handle = VadProcessor::spawn(cfg, rx, event_tx).expect("spawn vad");
+    let handle = VadProcessor::spawn(cfg, rx, event_tx, None).expect("spawn vad");
 
     // Send a few frames of silence at 16k/320-sample frames
     for i in 0..10u64 {

@@ -1,5 +1,27 @@
 # Vosk Real-time Transcription Integration Plan
 
+## Implementation Status
+
+### ✅ IMPLEMENTED
+- Basic VoskTranscriber (`src/stt/vosk.rs`)
+- TranscriptionEvent types (`src/stt/mod.rs`)
+- STT processor framework (`src/stt/processor.rs`)
+- Integration with main pipeline (`src/main.rs`)
+- Basic configuration system
+
+### 🔄 IN PROGRESS  
+- Full STT processor integration with VAD
+- Advanced configuration options
+- Health monitoring integration
+
+### 📋 PLANNED
+- RubatoResampler wrapper
+- Advanced resampling features (Fast/Quality presets)
+- Complete metrics and telemetry integration
+- Performance optimization and tuning
+
+---
+
 ## Overview
 This plan outlines the integration of Vosk speech-to-text (STT) for real-time streaming transcription in the ColdVox audio pipeline.
 
@@ -68,7 +90,7 @@ impl VoskTranscriber {
 }
 ```
 
-### 2. TranscriptionProcessor (New Component)
+### 2. TranscriptionProcessor ✅ **IMPLEMENTED**
 - Location: `crates/app/src/stt/processor.rs`
 - Responsibilities:
   - Receive audio frames from VAD processor
@@ -152,7 +174,7 @@ Channels
   - Resample to 16 kHz with a rubato sinc resampler
 - This ensures Vosk always receives 16 kHz mono PCM i16.
 
-#### Resampler (rubato)
+#### Resampler (rubato) 📋 **PLANNED**
 - Use `rubato`'s sinc resampler with fixed-size output: `SincFixedOut` configured for `output_frames = 512` to align with VAD/Vosk.
 - Keep the resampler instance/state across calls; do not recreate per frame.
 - Convert i16 → f32 on input, resample in f32, then f32 → i16 with clipping/saturation on output.

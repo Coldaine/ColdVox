@@ -44,7 +44,7 @@ impl VadMicCheck {
             sample_rate_hz: sample_rate,
         };
 
-        let frame_reader = FrameReader::new(audio_consumer, sample_rate);
+        let frame_reader = FrameReader::new(audio_consumer, sample_rate, 16_384, None);
         let chunker = AudioChunker::new(frame_reader, audio_tx.clone(), chunker_cfg);
         let chunker_handle = chunker.spawn();
 
@@ -55,8 +55,8 @@ impl VadMicCheck {
             ..Default::default()
         };
 
-        let vad_audio_rx = audio_tx.subscribe();
-        let vad_handle = match VadProcessor::spawn(vad_cfg, vad_audio_rx, event_tx) {
+    let vad_audio_rx = audio_tx.subscribe();
+    let vad_handle = match VadProcessor::spawn(vad_cfg, vad_audio_rx, event_tx, None) {
             Ok(h) => h,
             Err(e) => {
                 capture_thread.stop();
