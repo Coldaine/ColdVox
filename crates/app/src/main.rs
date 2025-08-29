@@ -12,6 +12,7 @@ use coldvox_app::stt::{processor::SttProcessor, TranscriptionConfig, Transcripti
 use coldvox_app::vad::config::{UnifiedVadConfig, VadMode};
 use coldvox_app::vad::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 use coldvox_app::vad::types::VadEvent;
+use coldvox_app::telemetry::pipeline_metrics::PipelineMetrics;
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
@@ -50,6 +51,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // --- 1. Audio Capture ---
     let audio_config = AudioConfig::default();
+    // Shared pipeline metrics for telemetry and dashboard
+    let metrics = std::sync::Arc::new(PipelineMetrics::default());
     let ring_buffer = AudioRingBuffer::new(16384 * 4);
     let (audio_producer, audio_consumer) = ring_buffer.split();
     let (audio_capture, sample_rate) =
@@ -58,7 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // --- 2. Audio Chunker ---
     let frame_reader =
-        coldvox_app::audio::frame_reader::FrameReader::new(audio_consumer, sample_rate, 16384 * 4, None);
+        coldvox_app::audio::frame_reader::FrameReader::new(audio_consumer, sample_rate, 16384 * 4, Some(metrics.clone()));
     let chunker_cfg = ChunkerConfig {
         frame_size_samples: FRAME_SIZE_SAMPLES,
         sample_rate_hz: sample_rate,
@@ -75,7 +78,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // This broadcast channel will distribute audio frames to all interested components.
     let (audio_tx, _) =
         broadcast::channel::<coldvox_app::audio::vad_processor::AudioFrame>(200);
-    let chunker = AudioChunker::new(frame_reader, audio_tx.clone(), chunker_cfg);
+    let chunker = AudioChunker::new(frame_reader, audio_tx.clone(), chunker_cfg).with_metrics(metrics.clone());
     let chunker_handle = chunker.spawn();
     tracing::info!("Audio chunker task started.");
     let (event_tx, event_rx) = mpsc::channel::<VadEvent>(100);
@@ -84,7 +87,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         vad_cfg,
         vad_audio_rx,
         event_tx,
-        None,
+        Some(metrics.clone()),
     ) {
         Ok(h) => h,
         Err(e) => {
@@ -163,8 +166,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 break;
             }
             _ = stats_interval.tick() => {
-                tracing::info!("Pipeline running...");
-                // TODO: Add proper stats collection from metrics
+                let cap_fps = metrics.capture_fps.load(std::sync::atomic::Ordering::Relaxed);
+                let chk_fps = metrics.chunker_fps.load(std::sync::atomic::Ordering::Relaxed);
+                let vad_fps = metrics.vad_fps.load(std::sync::atomic::Ordering::Relaxed);
+                let cap_fill = metrics.capture_buffer_fill.load(std::sync::atomic::Ordering::Relaxed);
+                let chk_fill = metrics.chunker_buffer_fill.load(std::sync::atomic::Ordering::Relaxed);
+                tracing::info!(
+                    capture_fps = cap_fps,
+                    chunker_fps = chk_fps,
+                    vad_fps = vad_fps,
+                    capture_buffer_fill_pct = cap_fill,
+                    chunker_buffer_fill_pct = chk_fill,
+                    "Pipeline running..."
+                );
             }
         }
     }

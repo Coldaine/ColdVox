@@ -1,3 +1,4 @@
+use coldvox_app::telemetry::pipeline_metrics::PipelineMetrics;
 use coldvox_app::vad::config::{UnifiedVadConfig, VadMode};
 use coldvox_app::vad::constants::FRAME_SIZE_SAMPLES;
 use coldvox_app::audio::vad_processor::{AudioFrame as VadFrame, VadProcessor};
@@ -16,7 +17,11 @@ async fn vad_processor_silence_no_events_level3() {
     let (event_tx, mut event_rx) = mpsc::channel(8);
     let rx = tx.subscribe();
 
-    let handle = VadProcessor::spawn(cfg, rx, event_tx, None).expect("spawn vad");
+    // Create metrics for test
+    let metrics = std::sync::Arc::new(PipelineMetrics::default());
+
+    let handle = VadProcessor::spawn(cfg, rx, event_tx, Some(metrics.clone()))
+        .expect("spawn vad");
 
     // Send a few frames of silence at 16k/512-sample frames
     for i in 0..10u64 {
@@ -34,4 +39,3 @@ async fn vad_processor_silence_no_events_level3() {
     // Ensure no events were produced
     assert!(event_rx.try_recv().is_err());
 }
-

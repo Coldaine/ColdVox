@@ -1,5 +1,8 @@
+use std::sync::Arc;
+use crate::telemetry::pipeline_metrics::PipelineMetrics;
+use crate::probes::MicCaptureThresholds;
+
 use super::common::{LiveTestResult, TestContext, TestError, TestErrorKind};
-use super::thresholds::MicCaptureThresholds;
 use crate::audio::capture::AudioCaptureThread;
 use crate::audio::frame_reader::FrameReader;
 use crate::audio::ring_buffer::AudioRingBuffer;
@@ -7,8 +10,8 @@ use crate::foundation::error::{AudioConfig, AudioError};
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::time::interval;
 
 pub struct MicCaptureCheck;
 
@@ -19,10 +22,10 @@ impl MicCaptureCheck {
 
         let config = AudioConfig::default();
 
-    // Prepare ring buffer and spawn capture thread
-    let rb = AudioRingBuffer::new(16_384);
-    let (audio_producer, audio_consumer) = rb.split();
-    let (capture_thread, _sample_rate) = AudioCaptureThread::spawn(config, audio_producer, device_name).map_err(|e| TestError {
+        // Prepare ring buffer and spawn capture thread
+        let rb = AudioRingBuffer::new(16_384);
+        let (audio_producer, audio_consumer) = rb.split();
+        let (capture_thread, _sample_rate) = AudioCaptureThread::spawn(config, audio_producer, device_name).map_err(|e| TestError {
             kind: match e {
                 AudioError::DeviceNotFound { .. } => TestErrorKind::Device,
                 _ => TestErrorKind::Setup,
@@ -32,13 +35,33 @@ impl MicCaptureCheck {
 
         tokio::time::sleep(Duration::from_millis(200)).await; // Give the thread time to start
 
+        // Create metrics for this test instance
+        let metrics = Arc::new(PipelineMetrics::default());
+
+        // Add optional logging of metrics every 30s
+        let metrics_clone = metrics.clone();
+    let log_handle = tokio::spawn(async move {
+            let mut interval = interval(Duration::from_secs(30));
+            loop {
+                interval.tick().await;
+        let capture_fps = metrics_clone.capture_fps.load(Ordering::Relaxed);
+                let capture_fill = metrics_clone.capture_buffer_fill.load(Ordering::Relaxed);
+                tracing::info!(
+                    target: "mic_capture",
+            "Capture FPS: {}, Capture Buffer Fill: {}%",
+            capture_fps,
+                    capture_fill
+                );
+            }
+        });
+
         let frames_captured = Arc::new(AtomicU64::new(0));
         let start_time = Instant::now();
         let timeout = tokio::time::sleep(duration);
         tokio::pin!(timeout);
 
-    // Build a single reader for the duration of the test
-    let mut reader = FrameReader::new(audio_consumer, 16_000, 16_384, None);
+        // Build a single reader for the duration of the test
+    let mut reader = FrameReader::new(audio_consumer, 16_000, 16_384, Some(metrics.clone()));
 
         loop {
             tokio::select! {
@@ -52,6 +75,7 @@ impl MicCaptureCheck {
         }
 
         capture_thread.stop();
+        log_handle.abort();
 
         let elapsed = start_time.elapsed();
         let frames_count = frames_captured.load(Ordering::Relaxed);
@@ -66,6 +90,7 @@ impl MicCaptureCheck {
         metrics.insert("frames_captured".to_string(), json!(frames_count));
         metrics.insert("frames_per_sec".to_string(), json!(frames_per_sec));
         metrics.insert("duration_secs".to_string(), json!(elapsed.as_secs_f64()));
+        metrics.insert("sample_rate".to_string(), json!(_sample_rate));
 
         let default_thresholds = MicCaptureThresholds {
             max_drop_rate_error: Some(0.20),
@@ -109,7 +134,7 @@ pub fn evaluate_mic_capture(metrics: &HashMap<String, serde_json::Value>, thresh
     if let Some(max_fps) = thresholds.frames_per_sec_max {
         if frames_per_sec > max_fps {
             pass = false;
-            failures.push(format!("FPS {:.1} exceeds maximum {:.1}", frames_per_sec, max_fps));
+            failures.push(format!("fps {:.1} exceeds maximum {:.1}", frames_per_sec, max_fps));
         }
     }
 

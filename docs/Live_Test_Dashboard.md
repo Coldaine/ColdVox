@@ -9,7 +9,7 @@
 ## Scope
 
 - Consolidate existing bins (`foundation_probe`, `mic_probe`, `record_10s`, `vad_demo`) into a shared `probes` module.
-- Provide two frontends:
+- Provide two frontends interfaces:
   - TUI dashboard (default): interactive manual testing.
   - Headless CLI modes: single-test runners for CI and scripts.
 - Optional GUI dashboard behind a feature flag (deferred).
@@ -17,45 +17,44 @@
 ## Architecture
 
 ```
-               ┌───────────────────────────────────────────────────┐
-               │                    coldvox-app                    │
-               ├──────────────────────────┬────────────────────────┤
-               │        Library           │     Dashboards         │
-               │  (audio, vad, stt, …)   │                        │
-               ├──────────────────────────┼────────────────────────┤
-               │        probes/           │  tui_dashboard (bin)   │
-               │  - LiveTest trait        │  - ratatui+crossterm   │
-               │  - MicCaptureCheck       │  - Panels + actions    │
-               │  - VadFromMicCheck       │  - Results view        │
-               │  - RecordToWav           │  - Log pane            │
-               │  - FoundationHealth      │                        │
-               ├──────────────────────────┼────────────────────────┤
-               │        headless cli      │  gui_dashboard (bin?)  │
-               │  - Subcommands per test  │  - egui/eframe (opt)   │
-               │  - JSON results          │  - Feature-gated       │
-               └──────────────────────────┴────────────────────────┘
+                ┌───────────────────────────────────────────────────┐
+                │                    coldvox-app                    │
+                ├──────────────────────────┬────────────────────────┤
+                │        Library           │     Dashboards         │
+                │  (audio, vad, stt, …)   │                        │
+                ├──────────────────────────┼────────────────────────┤
+                │        probes/           │  tui_dashboard (bin)   │
+                │  - LiveTest trait        │  - ratatui+crossterm   │
+                │  - MicCaptureCheck       │  - Panels + actions    │
+                │  - VadFromMicCheck       │  - Results view        │
+                │  - RecordToWav           │  - Log pane            │
+                │  - FoundationHealth      │                        │
+                ├──────────────────────────┼────────────────────────┤
+                │        headless cli      │  gui_dashboard (bin?)  │
+                │  - Subcommands per test  │  - egui/eframe (opt)     │
+                │  - JSON results          │  - Feature-gated       │
+                └──────────────────────────┴────────────────────────┘
 ```
 
 ### Core contracts
 
-- LiveTest trait
-  - name() -> &'static str
-  - run(ctx: &mut TestContext) -> Result<LiveTestResult, TestError>
+- `LiveTest` trait
+  - `name()` -> `&'static str`
+  - `run(ctx: &mut TestContext) -> Result<LiveTestResult, TestError>`
     - Distinguishes "could not run" (infra/config error) vs. "ran and failed" (assertion thresholds not met).
-- LiveTestResult
+
+- `LiveTestResult`
   - metrics: map of string -> number/string/bool
   - pass/fail: bool
   - notes: string (optional)
   - artifacts: file paths (e.g., WAV) (optional)
-- TestError
-  - Kind: Setup | Device | Permission | Timeout | Internal
-  - message: string
-- TestContext (expanded)
+
+- `TestContext` (expanded)
   - device selection (name/index)
   - timeouts (per test)
   - thresholds (loaded, per-test)
   - output dir + retention policy
-  - feature flags (e.g., use_vosk)
+  - feature flags (e.g., `use_vosk`)
   - audio config: sample_rate_hz, channels, chunker_frame_size (default 512), ring buffer sizes, VAD thresholds (e.g., Silero threshold)
 
 ### Reuse from library
@@ -68,34 +67,33 @@ Note on frame sizes:
 - Capture callbacks are variable-sized, but chunker outputs standardized 512-sample frames.
 - Both Silero and Level3 VAD now use 512-sample frames at 16 kHz (~32 ms) consistently.
 
-## Tests implemented (initial set)
+## Tests Implemented (Initial set)
 
-- MicCaptureCheck
+- `MicCaptureCheck`
   - Starts capture for N seconds.
   - Metrics: frames_captured/sec, drop_rate, silent_frames, last_frame_age, watchdog_triggered.
   - Thresholds: drop_rate <= X%, frames/sec in [expected±delta], watchdog_triggered == false.
-- VadFromMicCheck
+
+- `VadFromMicCheck`
   - Starts capture + chunker (512@16k) + VAD (Silero).
   - Metrics: event_counts (start/end), avg_probability (if exposed), latency estimates.
   - Thresholds: event_counts > 0 when speaking into mic, acceptable idle false-positives.
-- RecordToWav
+
+- `RecordToWav`
   - Writes 10s of mic to WAV; returns file path.
   - Metrics: file size, sample count.
   - Thresholds: sample_count == 10s*16k ± tolerance.
-- FoundationHealth
+
+- `FoundationHealth`
   - Exercises state transitions, shutdown guard, health monitor stubs.
   - Metrics: transitions_ok, panic_hook_ok.
 
 ### Critical regression tests (Phase 1 priority)
 
 - Watchdog timeout detection
-  - Simulate no frames for >5s and assert watchdog triggers; ensure recovery path observable.
 - Ring buffer overflow scenarios
-  - Force consumer stall; verify overflow counters, no crash, and bounded drops.
 - Sample format negotiation failures (CPAL)
-  - Simulate/force unsupported configs; ensure graceful error + clear `TestError::Device`.
 - Device disconnection/recovery cycles
-  - Unplug/replug flow; assert recover() attempts, metrics for disconnections/reconnections.
 
 ## Frontends
 
@@ -130,10 +128,10 @@ Note on frame sizes:
 
 ## Thresholds, Results, and Artifacts
 
-- thresholds.toml (example with severities and ranges)
+### Thresholds.toml (example with severities and ranges)
 
 ```
-[mic_capture]
+[mic_CAPTURE]
 max_drop_rate.error = 0.10
 max_drop_rate.warn = 0.05
 frames_per_sec.min = 45
@@ -146,7 +144,7 @@ max_false_positives.warn = 0
 expected_engine = "silero|level3"  # adapter-validated
 ```
 
-- JSON result (example)
+### JSON result (example)
 
 ```
 {
@@ -165,8 +163,7 @@ expected_engine = "silero|level3"  # adapter-validated
 
 ### Artifacts policy
 
-- Default retention: keep last 20 runs under `.coldvox/test_runs/`; prune older.
-- Max total size: 200 MB; oldest run directories removed first.
+- Default retention: keep last 20 runs under `.coldox/test_runs/`; prune older.
 - Artifacts per test (e.g., WAVs) capped (e.g., 2 per run) and compressed if large.
 
 ### Performance metrics
@@ -186,55 +183,38 @@ expected_engine = "silero|level3"  # adapter-validated
 ## Migration plan
 
 1) Create `src/probes/` module
-- `mod.rs`, `mic_capture.rs`, `vad_mic.rs`, `record_to_wav.rs`, `foundation.rs`.
-- Implement LiveTest trait + conversions from existing bin logic.
-
 2) Add TUI dashboard bin
-- `src/bin/tui_dashboard.rs` with TUI shell and CI headless mode.
-- Minimal log viewer and device selection.
-
 3) Wire thresholds + results
-- Add a small `thresholds` module to load TOML.
-- Add JSON result writer to `.coldvox/test_runs/<timestamp>.json`.
-
 4) Deprecate old bins in build
-- Preferred: move old probes to `examples/` with the same names; delete `[[bin]]` entries from `Cargo.toml`.
-- Alternative: keep behind feature `probes` using `required-features = ["probes"]` (off by default).
-- Update README with new usage.
-
 5) CI integration (optional first cut)
-- Add a CI job invoking headless modes with thresholds for a basic smoke test.
-
 6) Documentation
-- Update `README.md` and `docs/` with dashboard instructions and thresholds format.
-- Document dashboard usage in main project documentation.
 
-## Work items (granular)
+### Work items (granular)
 
 - Probes extraction
-  - [ ] Create `src/probes/mod.rs` and files; move logic from bins.
-  - [ ] Design `LiveTest` trait and `LiveTestResult`.
-  - [ ] Implement `MicCaptureCheck` using `AudioCapture` metrics.
-  - [ ] Implement `VadFromMicCheck` using `AudioChunker` + `VadProcessor` (512@16k).
-  - [ ] Implement `RecordToWav` writing via `hound`.
-  - [ ] Implement `FoundationHealth` using `foundation`.
+  - [x] Create `src/probes/mod.rs` and files; move logic from bins.
+  - [x] Design `LiveTest` trait and `LiveTestResult`.
+  - [x] Implement `MicCaptureCheck` using `AudioCapture` metrics.
+  - [x] Implement `VadFromMicCheck` using `AudioChunker` + `VadProcessor` (512@16k).
+  - [x] Implement `RecordToWav` writing via `hound`.
+  - [x] Implement `FoundationHealth` using `foundation`.
 
 - TUI dashboard
-  - [ ] Add new bin `tui_dashboard` with ratatui UI skeleton.
-  - [ ] Device list and selection UI.
-  - [ ] Action bindings for each test.
-  - [ ] Results display (table + pass/fail color).
-  - [ ] Headless `--ci` subcommands with JSON output and exit codes.
+  - [x] Add new bin `tui_dashboard` with ratatui UI skeleton.
+  - [x] Device list and selection UI.
+  - [x] Action bindings for each test.
+  - [x] Results display (table + pass/fail color).
+  - [x] Headless `--ci` subcommands with JSON output and exit codes.
 
 - Thresholds & persistence
-  - [ ] Define `thresholds.toml` schema.
-  - [ ] Implement evaluation and per-test criteria.
-  - [ ] Persist last N results; compare for regressions.
+  - [x] Define `thresholds.toml` schema.
+  - [x] Implement evaluation and per-test criteria.
+  - [x] Persist last N results; compare for regressions.
 
 - Migration & cleanup
-  - [ ] Move `src/bin/{mic_probe,record_10s,vad_demo,foundation_probe}.rs` to `examples/` (or gate with feature).
-  - [ ] Remove `[[bin]]` entries from `Cargo.toml` for these.
-  - [ ] README/docs update.
+  - [x] Move `src/bin/{mice_prob,record_10s,vad_demo,foundation_prob}.rs` to `examples/` (or gate with feature).
+  - [x] Remove `[[bin]]` entries from `Cargo.toml` for these.
+  - [x] README/docs update.
 
 - GUI (optional)
   - [ ] Feature `dashboard-gui` with egui/eframe.
@@ -249,16 +229,15 @@ expected_engine = "silero|level3"  # adapter-validated
 ## Timeline (suggested)
 
 - Week 1: probes extraction + TUI skeleton + mic capture test + migrate bins to examples.
-- Week 2: VAD from mic test, thresholds/JSON, headless CLI, docs.
-- Week 3: Record-to-WAV + foundation health + CI hook + polish.
-- Week 4: Optional GUI; refine thresholds and add more tests as needed.
+- Week2: VAD from mic test, thresholds/JSON, headless CLI, docs.
+- Week3: Record-to-WAV + foundation health + CI hook + polish.
+- Week4: Optional GUI; refine thresholds and add more tests as needed.
 
 ## Commands (examples)
 
 - Manual dashboard: `cargo run -p coldvox-app --bin tui_dashboard`
-- Headless mic capture: `cargo run -p coldvox-app --bin tui_dashboard -- --ci mic-capture --duration 10 --thresholds thresholds.toml --json out.json`
+- Headless mic capture: `cargo run -p coldvox-app --bin tui_dashboard -- --ci mic-capture --duration 10 --thresholdhs thresholds.toml --json out.json`
 - Examples (if moved): `cargo run -p coldvox-app --example mic_probe -- --duration 10`
 
 ---
-
 Decision point: examples vs. feature-gated bins. Recommendation: move to `examples/` to keep usage easy and remove default build cost. Feature-gate the optional GUI.

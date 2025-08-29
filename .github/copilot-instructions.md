@@ -10,10 +10,11 @@ Use these notes to help AI agents work productively in this Rust repo. Main crat
   - `error.rs`: `AppError`/`AudioError`, `AudioConfig { silence_threshold }`, `recovery_strategy()` hints.
 - `audio/` (capture pipeline)
   - `device.rs`: CPAL host/device discovery; prefers 16 kHz mono when available.
-  - `capture.rs`: builds CPAL input stream; pushes `AudioFrame` to bounded channel (100 frames) with overflow tracking.
+  - `ring_buffer.rs`: rtrb SPSC ring buffer for i16 samples (producer/consumer split).
+  - `capture.rs`: builds CPAL input stream; writes samples into the rtrb ring buffer (non-blocking, drop-on-full).
   - `watchdog.rs`: 5s no-data watchdog; `is_triggered()` used to drive recovery.
   - `detector.rs`: RMS-based silence detection using `AudioConfig.silence_threshold`.
-- `telemetry/`: in-process counters/gauges (`BasicMetrics`).
+- `telemetry/`: in-process counters/gauges (`PipelineMetrics`).
 - Binaries: `src/main.rs` (app), `bin/mic_probe.rs`, `bin/foundation_probe.rs`.
 
 ## Build, run, debug
@@ -27,17 +28,16 @@ Use these notes to help AI agents work productively in this Rust repo. Main crat
 - Tests: none in `crates/app/tests`. The VAD crate has tests; run from its folder with optional `--features async`.
 
 ## Audio data flow and contracts
-- Callback thread (CPAL) → `AudioFrame { samples: Vec<i16>, timestamp, sample_rate, channels }` → crossbeam bounded channel (size 100).
-- Backpressure: if the consumer is slow, frames are dropped and `frames_dropped` increments; keep a reader draining `AudioCapture::get_receiver()`.
+- Callback thread (CPAL) → i16 samples → rtrb ring buffer (SPSC) → FrameReader reconstructs `AudioFrame` with timestamps.
+- Backpressure: if the consumer is slow, ring writes drop when full (warn logged); keep a reader draining via `FrameReader`.
 - Preferred format: 16 kHz mono if supported; otherwise first supported config (see `DeviceManager::get_supported_configs`).
 - Watchdog: feed on each callback; after ~5s inactivity, `is_triggered()` becomes true; `AudioCapture::recover()` attempts up to 3 restarts.
 - Silence: RMS-based; >3s continuous silence logs a warning (hinting device issues).
 
 ## Usage patterns
-- Start capture (optionally choosing device): `AudioCapture::start(Some("Device Name")).await?`.
-- Consume frames off-thread to avoid drops:
-  - `let rx = capture.get_receiver(); tokio::spawn(async move { while let Ok(f) = rx.recv() { /* process f.samples */ } });`
-- Stats: call `get_stats()`; check `last_frame_age` to detect stalls; use watchdog + `recover()`.
+- Start capture: `AudioCaptureThread::spawn(config, ring_producer, device)`.
+- Consume: create `FrameReader` from ring consumer and feed into `AudioChunker`.
+- Metrics: pass `Arc<PipelineMetrics>` to FrameReader/AudioChunker/VadProcessor for FPS, buffer fill, and counters.
 - Enumerate devices: `DeviceManager::new()?.enumerate_devices()`; marks default device.
 
 ## VAD crate (vendored)

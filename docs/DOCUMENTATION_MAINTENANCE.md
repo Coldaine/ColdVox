@@ -1,7 +1,5 @@
 # Documentation Maintenance Checklist
 
-This checklist ensures ColdVox documentation stays accurate and synchronized with the codebase.
-
 ## Regular Maintenance (Monthly)
 
 ### ✅ File Reference Verification
@@ -33,7 +31,7 @@ find docs/ -name "*.md" -exec grep -l "docs/" {} \; | xargs grep -h "docs/[^)]*\
 - [ ] Verify build/run instructions work on fresh checkout
 - [ ] Check for outdated version numbers or paths
 
-### ✅ Status Markers Update
+### ✅ Status Marker Update
 - [ ] Mark completed features as ✅ IMPLEMENTED
 - [ ] Move finished items from 📋 PLANNED to ✅ IMPLEMENTED  
 - [ ] Update 🔄 IN PROGRESS items based on current development
@@ -135,3 +133,6 @@ cargo run --bin tui_dashboard --help
 ```
 
 Keep this checklist updated and follow it regularly to maintain high documentation quality.
+
+### New Maintenance Tasks
+- [ ] Add task to keep metrics fields and dashboard displays synchronized in Live_Test_Dashboard.md

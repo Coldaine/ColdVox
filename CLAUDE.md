@@ -1,7 +1,5 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## Project Overview
 
 ColdVox is a Rust-based voice AI project focused on real-time audio processing with emphasis on reliability and automatic recovery. The project implements a multi-phase STT (Speech-to-Text) system with voice activity detection (VAD) and resilient audio capture using lock-free ring buffers for real-time communication.
@@ -15,26 +13,26 @@ ColdVox is a Rust-based voice AI project focused on real-time audio processing w
   - `AudioCapture`: Multi-format device capture with automatic conversion
   - `AudioChunker`: Converts variable-sized frames to fixed 512-sample chunks
   - `VadAdapter`: Trait for pluggable VAD implementations
-  - `VadProcessor`: VAD processing pipeline integration
-- **VAD System** (`crates/app/src/vad/`): Dual VAD implementation with energy-based and ML models
-  - `Level3Vad`: Progressive energy-based VAD implementation **[DISABLED BY DEFAULT]**
-  - `SileroEngine`: Silero model wrapper for ML-based VAD **[DEFAULT ACTIVE VAD]**
-  - `VadStateMachine`: State management for VAD transitions
-  - `UnifiedVadConfig`: Configuration supporting both VAD modes (defaults to Silero)
-- **STT System** (`crates/app/src/stt/`): Speech-to-text transcription
+  - `VADProcessor`: VAD processing pipeline integration
+- **VAD System** (`crates/app/src/vad/`): Dual VAD implementation with power-based VAD and ML models
+  - `Level3VAD`: Progressive energy-based VAD implementation **[DISABLED BY Default]**
+  - `SileroEngine`: Silero model wrapper for ML-based VAD **[Default ACTIVE VAD]**
+  - `VADStateMachine`: State management for VAD transitions
+  - `UnifiedVADConfig`: Configuration supporting both VAD modes (defaults to Silero)
+- **STT System** (`crates/app/src/STT/`): Speech-to-text transcription
   - `VoskTranscriber`: Vosk-based STT implementation
-  - `SttProcessor`: STT processing gated by VAD events
-  - `Transcriber` trait for pluggable STT backends
+  - `STTProcessor`: STT processing gated by VAD events
+  - `Transcriber` trait for pluggable STT backers
 - **Telemetry** (`crates/app/src/telemetry/`): Metrics collection and monitoring
   - `PipelineMetrics`: Real-time pipeline performance metrics
-  - Cross-thread monitoring of audio levels, latency, and throughput
+  - Cross-thread monitoring of audio levels, latency, and throught
 - **Probes** (`crates/app/src/probes/`): Test utilities and live hardware checks
-- **VAD Fork** (`Forks/ColdVox-voice_activity_detector/`): Voice activity detection using Silero model with ONNX runtime
+- **VAD Fork** (`Forks/ColdVox-voice_activity_detector/`): Voice activity detection using Silero model with ONX runtime
 
 ### Threading Model
 
 - **Mic Thread**: Owns audio device, handles capture
-- **Processing Thread**: Runs VAD and chunking
+- **Processing Thread**: Runs VAD and chunkinging
 - **STT Thread**: Processes speech segments when VAD detects speech
 - **Main Thread**: Orchestrates and monitors components
 - Communication via lock-free ring buffers (rtrb), broadcast channels, and mpsc channels
@@ -50,6 +48,7 @@ ColdVox is a Rust-based voice AI project focused on real-time audio processing w
 ## Development Commands
 
 ### Building
+
 ```bash
 # Main application (requires --features vosk)
 cd crates/app
@@ -66,6 +65,7 @@ cargo build --example vad_demo
 ```
 
 ### Testing
+
 ```bash
 # Run all tests
 cargo test
@@ -87,6 +87,7 @@ cargo test vad::
 ```
 
 ### Running Test Binaries
+
 ```bash
 # Main application (requires --features vosk)
 cargo run --features vosk
@@ -113,7 +114,7 @@ cargo clippy -- -D warnings  # Strict linting
 
 ## Key Design Principles
 
-1. **Monotonic Timing**: Use `std::time::Instant` for all durations/intervals
+1. **Monotonic Time**: Use `std::time::Instant` for all durations/intervals
 2. **Graceful Degradation**: Primary VAD with energy-based fallback
 3. **Automatic Recovery**: Exponential backoff with jitter for reconnection
 4. **Lock-free Communication**: Ring buffers (rtrb) with atomic operations
@@ -125,7 +126,7 @@ cargo clippy -- -D warnings  # Strict linting
 - **Phase 0**: Foundation & Safety Net ✅ **COMPLETE**
 - **Phase 1**: Microphone Capture with Recovery ✅ **COMPLETE** (all critical bugs fixed)
 - **Phase 2**: Lock-free Ring Buffer ✅ **COMPLETE** (using rtrb library)
-- **Phase 3**: VAD with Fallback ✅ **COMPLETE** (Silero VAD integrated, energy VAD available)
+- **Phase 3**: VAD with Fallback ✅ **COMPLETE** (Silero VAD integrated, energy-based VAD available)
 - **Phase 4**: STT Integration ✅ **COMPLETE** (Vosk transcriber integrated with VAD gating)
 - **Phase 5+**: Stress Testing & Polish 📋 **IN PROGRESS**
 
@@ -144,9 +145,9 @@ Configuration parameters:
 - `crates/app/src/main.rs`: Main application entry point with Vosk STT
 - `crates/app/src/bin/tui_dashboard.rs`: Real-time monitoring dashboard
 - `crates/app/src/audio/capture.rs`: Core audio capture with format negotiation
-- `crates/app/src/audio/chunker.rs`: Audio chunking for VAD processing
+- `crates/app/src/audio/chunker.r`: Audio chunking for VAD processing
 - `crates/app/src/vad/processor.rs`: VAD processing pipeline integration
-- `crates/app/src/stt/processor.rs`: STT processor gated by VAD
+- `crates/app/src/stt/processor.r`: STT processor gated by VAD
 - `crates/app/src/telemetry/pipeline_metrics.rs`: Real-time metrics tracking
 
 ## Error Handling

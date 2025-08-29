@@ -1,4 +1,5 @@
-
+use std::sync::Arc;
+use crate::telemetry::pipeline_metrics::PipelineMetrics;
 
 use super::common::{LiveTestResult, TestContext, TestError, TestErrorKind};
 use crate::audio::capture::AudioCaptureThread;
@@ -6,12 +7,11 @@ use crate::audio::chunker::{AudioChunker, ChunkerConfig};
 use crate::audio::frame_reader::FrameReader;
 use crate::audio::ring_buffer::AudioRingBuffer;
 use crate::audio::vad_processor::{AudioFrame as VadFrame, VadProcessor};
-use crate::foundation::error::AudioConfig;
-use crate::vad::config::{UnifiedVadConfig, VadMode};
 use crate::vad::types::VadEvent;
+use crate::vad::config::{UnifiedVadConfig, VadMode};
+use crate::foundation::error::AudioConfig;
 use serde_json::json;
 use std::collections::HashMap;
-
 use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, mpsc};
 
@@ -35,6 +35,9 @@ impl VadMicCheck {
 
         tokio::time::sleep(Duration::from_millis(200)).await; // Give the thread time to start
 
+        // Create metrics for this test instance
+        let metrics = Arc::new(PipelineMetrics::default());
+
         // Set up VAD processing pipeline
         let (audio_tx, _) = broadcast::channel::<VadFrame>(200);
         let (event_tx, mut event_rx) = mpsc::channel::<VadEvent>(100);
@@ -44,8 +47,9 @@ impl VadMicCheck {
             sample_rate_hz: sample_rate,
         };
 
-        let frame_reader = FrameReader::new(audio_consumer, sample_rate, 16_384, None);
-        let chunker = AudioChunker::new(frame_reader, audio_tx.clone(), chunker_cfg);
+        let frame_reader = FrameReader::new(audio_consumer, sample_rate, 16_384, Some(metrics.clone()));
+        let chunker = AudioChunker::new(frame_reader, audio_tx.clone(), chunker_cfg)
+            .with_metrics(metrics.clone());
         let chunker_handle = chunker.spawn();
 
         let vad_cfg = UnifiedVadConfig {
@@ -55,8 +59,8 @@ impl VadMicCheck {
             ..Default::default()
         };
 
-    let vad_audio_rx = audio_tx.subscribe();
-    let vad_handle = match VadProcessor::spawn(vad_cfg, vad_audio_rx, event_tx, None) {
+        let vad_audio_rx = audio_tx.subscribe();
+        let vad_handle = match VadProcessor::spawn(vad_cfg, vad_audio_rx, event_tx, Some(metrics.clone())) {
             Ok(h) => h,
             Err(e) => {
                 capture_thread.stop();
@@ -71,7 +75,8 @@ impl VadMicCheck {
         // Collect VAD events during the test
         let start_time = Instant::now();
         let mut vad_events = Vec::new();
-        let mut speech_segments = 0;
+    let mut speech_segments = 0;
+    // TODO: Add periodic logging of metrics here (e.g., FPS and buffer fill)
         let mut total_speech_duration_ms = 0;
         let mut last_speech_start: Option<u64> = None;
 
