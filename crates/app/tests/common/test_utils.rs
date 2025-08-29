@@ -1,11 +1,11 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 use cpal::{SampleFormat, StreamConfig};
-use coldvox_app::audio::{AudioFrame, AudioCapture, CaptureStats, AudioProducer};
+use coldvox_app::audio::{AudioFrame, CaptureStats, AudioProducer};
 use hound;
 
 /// Generate test audio samples as a sine wave
+#[allow(dead_code)]
 pub fn generate_sine_wave(freq: f32, sample_rate: u32, duration_ms: u32) -> Vec<i16> {
     let num_samples = (sample_rate * duration_ms / 1000) as usize;
     let mut samples = Vec::with_capacity(num_samples);
@@ -20,11 +20,13 @@ pub fn generate_sine_wave(freq: f32, sample_rate: u32, duration_ms: u32) -> Vec<
 }
 
 /// Generate silent samples
+#[allow(dead_code)]
 pub fn generate_silence(sample_count: usize) -> Vec<i16> {
     vec![0; sample_count]
 }
 
 /// Generate noise samples for testing
+#[allow(dead_code)]
 pub fn generate_noise(sample_count: usize, amplitude: i16) -> Vec<i16> {
     use std::collections::hash_map::RandomState;
     use std::hash::{BuildHasher, Hash, Hasher};
@@ -43,6 +45,7 @@ pub fn generate_noise(sample_count: usize, amplitude: i16) -> Vec<i16> {
 }
 
 /// Convert f32 samples to i16
+#[allow(dead_code)]
 pub fn f32_to_i16(samples: &[f32]) -> Vec<i16> {
     samples.iter()
         .map(|&s| (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
@@ -50,6 +53,7 @@ pub fn f32_to_i16(samples: &[f32]) -> Vec<i16> {
 }
 
 /// Convert u16 samples to i16
+#[allow(dead_code)]
 pub fn u16_to_i16(samples: &[u16]) -> Vec<i16> {
     samples.iter()
         .map(|&s| (s as i32 - 32768) as i16)
@@ -57,6 +61,7 @@ pub fn u16_to_i16(samples: &[u16]) -> Vec<i16> {
 }
 
 /// Convert u8 samples to i16
+#[allow(dead_code)]
 pub fn u8_to_i16(samples: &[u8]) -> Vec<i16> {
     samples.iter()
         .map(|&s| ((s as i32 - 128) * 256) as i16)
@@ -64,6 +69,7 @@ pub fn u8_to_i16(samples: &[u8]) -> Vec<i16> {
 }
 
 /// Convert i8 samples to i16
+#[allow(dead_code)]
 pub fn i8_to_i16(samples: &[i8]) -> Vec<i16> {
     samples.iter()
         .map(|&s| (s as i16) * 256)
@@ -71,6 +77,7 @@ pub fn i8_to_i16(samples: &[i8]) -> Vec<i16> {
 }
 
 /// Downmix stereo to mono by averaging channels
+#[allow(dead_code)]
 pub fn stereo_to_mono(stereo_samples: &[i16]) -> Vec<i16> {
     stereo_samples
         .chunks_exact(2)
@@ -80,6 +87,7 @@ pub fn stereo_to_mono(stereo_samples: &[i16]) -> Vec<i16> {
 
 /// Mock audio device configuration for testing
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct MockAudioConfig {
     pub name: String,
     pub format: SampleFormat,
@@ -99,6 +107,7 @@ impl Default for MockAudioConfig {
 }
 
 impl MockAudioConfig {
+    #[allow(dead_code)]
     pub fn to_stream_config(&self) -> StreamConfig {
         StreamConfig {
             channels: self.channels,
@@ -109,12 +118,14 @@ impl MockAudioConfig {
 }
 
 /// Test harness for timing verification
+#[allow(dead_code)]
 pub struct TimingHarness {
     start: Instant,
     checkpoints: Vec<(String, Instant)>,
 }
 
 impl TimingHarness {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             start: Instant::now(),
@@ -122,10 +133,12 @@ impl TimingHarness {
         }
     }
     
+    #[allow(dead_code)]
     pub fn checkpoint(&mut self, name: &str) {
         self.checkpoints.push((name.to_string(), Instant::now()));
     }
     
+    #[allow(dead_code)]
     pub fn assert_duration_between(&self, from: &str, to: &str, expected: Duration, tolerance: Duration) {
         let from_time = self.checkpoints.iter()
             .find(|(n, _)| n == from)
@@ -143,6 +156,7 @@ impl TimingHarness {
 }
 
 /// Verify timing constraints
+#[allow(dead_code)]
 pub fn assert_duration_within(actual: Duration, expected: Duration, tolerance: Duration) {
     let diff = if actual > expected {
         actual - expected
@@ -157,6 +171,7 @@ pub fn assert_duration_within(actual: Duration, expected: Duration, tolerance: D
 }
 
 /// Create test AudioFrame
+#[allow(dead_code)]
 pub fn create_test_frame(samples: Vec<i16>, sample_rate: u32) -> AudioFrame {
     AudioFrame {
         samples,

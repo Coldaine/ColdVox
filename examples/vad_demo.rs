@@ -1,32 +1,28 @@
 use coldvox_app::audio::vad_processor::{AudioFrame, VadProcessor};
 use coldvox_app::vad::config::{UnifiedVadConfig, VadMode};
 use coldvox_app::vad::types::VadEvent;
-use crossbeam_channel::{bounded, Sender};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread;
-use std::time::{Duration, Instant};
-use tracing::{info, error};
-use hound::WavReader;
-use dasp::{signal, ring_buffer, Frame, Signal};
 use dasp::interpolate::sinc::Sinc;
+use dasp::{ring_buffer, signal, Signal};
+use hound::WavReader;
+use tokio::sync::{broadcast, mpsc};
+use tokio::time::{sleep, Duration, Instant};
+use tracing::{error, info};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt()
-        .with_env_filter("info")
-        .init();
-    
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    tracing_subscriber::fmt().with_env_filter("info").init();
+
     info!("Starting VAD demo from WAV file");
-    
-    let (audio_tx, audio_rx) = bounded::<AudioFrame>(100);
-    let (event_tx, event_rx) = bounded::<VadEvent>(100);
-    let shutdown = Arc::new(AtomicBool::new(false));
-    
+
+    let (audio_tx, _) = broadcast::channel::<AudioFrame>(100);
+    let audio_rx = audio_tx.subscribe();
+    let (event_tx, mut event_rx) = mpsc::channel::<VadEvent>(100);
+
     let mut vad_config = UnifiedVadConfig::default();
-    
+
     let args: Vec<String> = std::env::args().collect();
     let mode = args.get(1).map(|s| s.as_str()).unwrap_or("silero");
-    
+
     vad_config.mode = match mode {
         "silero" => {
             info!("Using Silero VAD engine");
@@ -40,53 +36,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         "level3" => {
             info!("Using Level3 VAD engine (enabling it for this demo)");
-            vad_config.level3.enabled = true;  // Enable Level3 for testing
+            vad_config.level3.enabled = true; // Enable Level3 for testing
             VadMode::Level3
         }
         _ => {
-            info!("Unknown mode '{}', defaulting to Silero", mode);
+            info!("Unknown mode '{}'", mode);
             VadMode::Silero
         }
     };
-    
-    let vad_handle = VadProcessor::spawn(
-        vad_config.clone(),
-        audio_rx,
-        event_tx,
-        shutdown.clone(),
-    )?;
-    
-    let generator_shutdown = shutdown.clone();
+
+    let vad_handle = VadProcessor::spawn(vad_config.clone(), audio_rx, event_tx, None)
+        .expect("failed to spawn VAD");
+
+    // generator task: feed WAV into broadcast
+    let gen_tx = audio_tx.clone();
     let audio_file_path = std::env::var("VAD_TEST_FILE")
-        .unwrap_or_else(|_| "test_audio_16k.wav".to_string());
-    let generator_handle = thread::spawn(move || {
-        if let Err(e) = generate_audio_from_wav(audio_tx, generator_shutdown, vad_config.frame_size_samples, &audio_file_path) {
+        .unwrap_or_else(|_| "crates/app/test_audio_16k.wav".to_string());
+    let frame_size = vad_config.frame_size_samples;
+    let generator = tokio::spawn(async move {
+        if let Err(e) = generate_audio_from_wav(gen_tx, frame_size, &audio_file_path).await {
             error!("Audio generator failed: {}", e);
         }
     });
-    
-    let event_shutdown = shutdown.clone();
-    let event_handle = thread::spawn(move || {
-        handle_vad_events(event_rx, event_shutdown);
+
+    // event printer
+    let event_printer = tokio::spawn(async move {
+        handle_vad_events(&mut event_rx).await;
     });
-    
-    // Wait for the generator to finish, then wait a little longer for events to process
-    generator_handle.join().expect("Generator thread panicked");
-    thread::sleep(Duration::from_secs(2));
-    
-    info!("Shutting down...");
-    shutdown.store(true, Ordering::Relaxed);
-    
-    vad_handle.join().expect("VAD thread panicked");
-    event_handle.join().expect("Event handler thread panicked");
-    
+
+    generator.await.ok();
+    sleep(Duration::from_secs(2)).await;
+    vad_handle.abort();
+    event_printer.abort();
     info!("Demo completed");
     Ok(())
 }
 
-fn generate_audio_from_wav(
-    tx: Sender<AudioFrame>,
-    shutdown: Arc<AtomicBool>,
+async fn generate_audio_from_wav(
+    tx: broadcast::Sender<AudioFrame>,
     frame_size: usize,
     file_path: &str,
 ) -> Result<(), String> {
@@ -114,9 +101,6 @@ fn generate_audio_from_wav(
     let frame_duration_ms = (frame_size as f32 * 1000.0 / 16000.0) as u64;
 
     while !converter.is_exhausted() {
-        if shutdown.load(Ordering::Relaxed) {
-            break;
-        }
 
         let mut frame_f32 = Vec::with_capacity(frame_size);
         for _ in 0..frame_size {
@@ -136,54 +120,42 @@ fn generate_audio_from_wav(
             timestamp_ms,
         };
 
-        if let Err(e) = tx.send(audio_frame) {
-            if !shutdown.load(Ordering::Relaxed) {
-                error!("Failed to send audio frame: {}", e);
-            }
-            break;
-        }
+    let _ = tx.send(audio_frame);
 
         timestamp_ms += frame_duration_ms;
-        thread::sleep(Duration::from_millis(frame_duration_ms));
+    sleep(Duration::from_millis(frame_duration_ms)).await;
     }
 
     info!("Audio generator stopped");
     Ok(())
 }
-
-fn handle_vad_events(rx: crossbeam_channel::Receiver<VadEvent>, shutdown: Arc<AtomicBool>) {
+async fn handle_vad_events(rx: &mut mpsc::Receiver<VadEvent>) {
     let start = Instant::now();
     let mut speech_segments = 0u64;
     let mut total_speech_ms = 0u64;
-    
-    while !shutdown.load(Ordering::Relaxed) {
-        match rx.recv_timeout(Duration::from_millis(100)) {
-            Ok(event) => {
-                match event {
-                    VadEvent::SpeechStart { timestamp_ms, energy_db } => {
-                        speech_segments += 1;
-                        info!(
-                            "[{:6.2}s] Speech START - Energy: {:.2} dB",
-                            timestamp_ms as f32 / 1000.0,
-                            energy_db
-                        );
-                    }
-                    VadEvent::SpeechEnd { timestamp_ms, duration_ms, energy_db } => {
-                        total_speech_ms += duration_ms;
-                        info!(
-                            "[{:6.2}s] Speech END   - Duration: {} ms, Energy: {:.2} dB",
-                            timestamp_ms as f32 / 1000.0,
-                            duration_ms,
-                            energy_db
-                        );
-                    }
-                }
+
+    while let Some(event) = rx.recv().await {
+        match event {
+            VadEvent::SpeechStart { timestamp_ms, energy_db } => {
+                speech_segments += 1;
+                info!(
+                    "[{:6.2}s] Speech START - Energy: {:.2} dB",
+                    timestamp_ms as f32 / 1000.0,
+                    energy_db
+                );
             }
-            Err(crossbeam_channel::RecvTimeoutError::Timeout) => continue,
-            Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
+            VadEvent::SpeechEnd { timestamp_ms, duration_ms, energy_db } => {
+                total_speech_ms += duration_ms;
+                info!(
+                    "[{:6.2}s] Speech END   - Duration: {} ms, Energy: {:.2} dB",
+                    timestamp_ms as f32 / 1000.0,
+                    duration_ms,
+                    energy_db
+                );
+            }
         }
     }
-    
+
     let elapsed = start.elapsed();
     info!(
         "Event handler stopped. Total: {} speech segments, {:.2}s of speech in {:.2}s",

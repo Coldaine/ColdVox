@@ -71,7 +71,7 @@ pub struct InjectionProcessor {
     /// Metrics for telemetry
     metrics: Arc<Mutex<InjectionMetrics>>,
     /// Pipeline metrics for integration
-    pipeline_metrics: Option<Arc<PipelineMetrics>>,
+    _pipeline_metrics: Option<Arc<PipelineMetrics>>,
 }
 
 impl InjectionProcessor {
@@ -93,8 +93,32 @@ impl InjectionProcessor {
             injector,
             config,
             metrics,
-            pipeline_metrics,
+            _pipeline_metrics: pipeline_metrics,
         }
+    }
+
+    /// Prepare an injection by checking session state and extracting buffered text if ready.
+    /// Returns Some(text) when there is content to inject, otherwise None.
+    pub fn prepare_injection(&mut self) -> Option<String> {
+        if self.session.should_inject() {
+            let text = self.session.take_buffer();
+            if !text.is_empty() {
+                info!("Injecting {} characters from session", text.len());
+                return Some(text);
+            }
+        }
+        None
+    }
+
+    /// Record the result of an injection attempt and refresh metrics.
+    pub fn record_injection_result(&mut self, success: bool) {
+        if success {
+            self.metrics.lock().unwrap().successful_injections += 1;
+            self.metrics.lock().unwrap().last_injection_time = Some(Instant::now());
+        } else {
+            self.metrics.lock().unwrap().failed_injections += 1;
+        }
+        self.update_metrics();
     }
 
     /// Get current metrics
@@ -204,6 +228,8 @@ pub struct AsyncInjectionProcessor {
     processor: Arc<Mutex<InjectionProcessor>>,
     transcription_rx: mpsc::Receiver<TranscriptionEvent>,
     shutdown_rx: mpsc::Receiver<()>,
+    // dedicated injector to avoid awaiting while holding the processor lock
+    injector: TextInjector,
 }
 
 impl AsyncInjectionProcessor {
@@ -219,6 +245,7 @@ impl AsyncInjectionProcessor {
             processor,
             transcription_rx,
             shutdown_rx,
+            injector: TextInjector::new(),
         }
     }
 
@@ -240,9 +267,24 @@ impl AsyncInjectionProcessor {
 
                 // Periodic check for silence timeout
                 _ = interval.tick() => {
-                    let mut processor = self.processor.lock().unwrap();
-                    if let Err(e) = processor.check_and_inject().await {
-                        error!("Injection failed: {}", e);
+                    // Prepare any pending injection without holding the lock across await
+                    let maybe_text = {
+                        let mut processor = self.processor.lock().unwrap();
+                        // Extract text to inject if session criteria are met
+                        processor.prepare_injection()
+                    };
+
+                    if let Some(text) = maybe_text {
+                        // Perform the async injection outside the lock
+                        let result = self.injector.inject(&text).await;
+                        let success = result.is_ok();
+
+                        // Record result back into the processor state/metrics
+                        let mut processor = self.processor.lock().unwrap();
+                        processor.record_injection_result(success);
+                        if let Err(e) = result {
+                            error!("Injection failed: {}", e);
+                        }
                     }
                 }
 

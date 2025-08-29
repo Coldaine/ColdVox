@@ -383,10 +383,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     //    tasks with `recv()` loops to terminate gracefully.
     chunker_handle.abort();
     vad_handle.abort();
-    if let Some(handle) = stt_handle {
+    if let Some(handle) = &stt_handle {
         handle.abort();
     }
-    if let Some(handle) = injection_handle {
+    if let Some(handle) = &injection_handle {
         handle.abort();
     }
     tracing::info!("Async tasks aborted.");

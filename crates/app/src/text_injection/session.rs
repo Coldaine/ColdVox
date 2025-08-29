@@ -140,7 +140,7 @@ impl InjectionSession {
     /// This should be called periodically to detect when transcription has paused
     pub fn check_for_silence_transition(&mut self) {
         if self.state == SessionState::Buffering {
-            if let Some(buffering_start) = self.buffering_start {
+            if let Some(_buffering_start) = self.buffering_start {
                 let time_since_last_transcription = self.last_transcription.map(|t| t.elapsed());
                 
                 // If we haven't received a transcription for buffer_pause_timeout,
