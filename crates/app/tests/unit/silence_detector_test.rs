@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use coldvox_app::audio::detector::SilenceDetector;
+    use coldvox_app::vad::constants::FRAME_SIZE_SAMPLES;
     use crate::common::test_utils::*;
     use std::time::Duration;
 
@@ -58,13 +59,13 @@ mod tests {
     #[test]
     fn test_continuous_silence_tracking() {
         let mut detector = SilenceDetector::new(100);
-        let silent_samples = generate_silence(320); // 20ms at 16kHz
+        let silent_samples = generate_silence(FRAME_SIZE_SAMPLES); // ~32ms at 16kHz
         
-        // Track 3 seconds of silence (150 frames of 20ms each)
+        // Track 3 seconds of silence (~94 frames of 32ms each)
         let mut continuous_silent = Duration::ZERO;
-        let frame_duration = Duration::from_millis(20);
+        let frame_duration = Duration::from_millis(32);
         
-        for _ in 0..150 {
+        for _ in 0..94 {
             if detector.is_silent(&silent_samples) {
                 continuous_silent += frame_duration;
             } else {
@@ -90,8 +91,8 @@ mod tests {
         
         let samples = generator.generate_activity_pattern(&pattern);
         
-        // Process in 20ms frames
-        let frame_size = 320; // 20ms at 16kHz
+        // Process in ~32ms frames
+        let frame_size = FRAME_SIZE_SAMPLES; // ~32ms at 16kHz
         let mut max_continuous_silence = 0;
         let mut current_silence_count = 0;
         

@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use super::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum VadMode {
@@ -56,7 +57,7 @@ impl Default for SileroConfig {
             threshold: 0.3,
             min_speech_duration_ms: 250,
             min_silence_duration_ms: 100,
-            window_size_samples: 512,
+            window_size_samples: FRAME_SIZE_SAMPLES,
         }
     }
 }
@@ -77,9 +78,9 @@ impl Default for UnifiedVadConfig {
             level3: Level3Config::default(),
             silero: SileroConfig::default(),
             // Align default frame size with default engine (Silero) requirement
-            // Silero requires 512-sample windows at 16 kHz; Level3 callers can override to 320
-            frame_size_samples: 512,
-            sample_rate_hz: 16000,
+            // Both Silero and Level3 now use 512-sample windows at 16 kHz
+            frame_size_samples: FRAME_SIZE_SAMPLES,
+            sample_rate_hz: SAMPLE_RATE_HZ,
         }
     }
 }

@@ -1,3 +1,8 @@
+// Logging behavior:
+// - Writes logs to both stdout and a daily-rotated file at logs/coldvox.log.
+// - Log level is controlled via the RUST_LOG environment variable (e.g., "info", "debug").
+// - The logs/ directory is created on startup if missing; file output uses a non-blocking writer.
+// - This ensures persistent logs for post-run analysis while keeping console output for live use.
 use anyhow::anyhow;
 use coldvox_app::audio::chunker::{AudioChunker, ChunkerConfig};
 use coldvox_app::audio::ring_buffer::AudioRingBuffer;
@@ -5,20 +10,27 @@ use coldvox_app::audio::*;
 use coldvox_app::foundation::*;
 use coldvox_app::stt::{processor::SttProcessor, TranscriptionConfig, TranscriptionEvent};
 use coldvox_app::vad::config::{UnifiedVadConfig, VadMode};
+use coldvox_app::vad::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 use coldvox_app::vad::types::VadEvent;
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
-use tracing_subscriber::fmt::writer::MakeWriterExt;
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 fn init_logging() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all("logs")?;
     let file_appender = RollingFileAppender::new(Rotation::DAILY, "logs", "coldvox.log");
     let (non_blocking_file, _guard) = tracing_appender::non_blocking(file_appender);
     let log_level = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
-    tracing_subscriber::fmt()
-        .with_writer(std::io::stdout.and(non_blocking_file))
-        .with_env_filter(log_level)
+    let env_filter = EnvFilter::try_new(log_level).unwrap_or_else(|_| EnvFilter::new("info"));
+
+    let stderr_layer = fmt::layer().with_writer(std::io::stderr);
+    let file_layer = fmt::layer().with_writer(non_blocking_file);
+
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(stderr_layer)
+        .with(file_layer)
         .init();
     std::mem::forget(_guard);
     Ok(())
@@ -48,15 +60,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let frame_reader =
         coldvox_app::audio::frame_reader::FrameReader::new(audio_consumer, sample_rate, 16384 * 4, None);
     let chunker_cfg = ChunkerConfig {
-        frame_size_samples: 512,
+        frame_size_samples: FRAME_SIZE_SAMPLES,
         sample_rate_hz: sample_rate,
     };
     
     // --- 3. VAD Processor ---
     let vad_cfg = UnifiedVadConfig {
         mode: VadMode::Silero,
-        frame_size_samples: 512,  // Silero requires 512 samples
-        sample_rate_hz: 16000,    // Silero requires 16kHz - resampler will handle conversion
+        frame_size_samples: FRAME_SIZE_SAMPLES,  // Both Silero and Level3 use 512 samples
+        sample_rate_hz: SAMPLE_RATE_HZ,    // Standard 16kHz - resampler will handle conversion
         ..Default::default()
     };
     

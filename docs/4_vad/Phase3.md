@@ -18,7 +18,7 @@ Non‑Goals (Phase 3):
 
 ## Dependencies
 - Phase 2 ring buffer: `crates/app/src/audio/ring_buffer.rs` (rtrb‑based)
-- Audio format: 16 kHz, mono, i16; 320-sample frames (20ms)
+- Audio format: 16 kHz, mono, i16; 512-sample frames (~32ms)
 - Vendored VAD crate: `Forks/ColdVox-voice_activity_detector` (Silero V5, 512-sample windows)
 - Reference spec: Energy VAD algorithm (see Level 3-4 implementation in `src/vad/level3.rs`)
 
@@ -205,10 +205,10 @@ crates/app/src/audio/vad/
 - Silence: high gating rate (>80%)
 - Background noise: adaptive threshold (Level 2+)
 - Missing ONNX model: fallback to energy VAD (Level 3+)
-- Real-time performance: maintain <20ms latency
+- Real-time performance: maintain <35ms latency (~32ms frames)
 
 ## Known Issues
-- 512-sample windows don't align with 320-sample frames → need accumulation buffer
+- Both Silero and Level3 now use aligned 512-sample frames (no buffering needed)
 - ONNX runtime adds ~50MB to binary size
 - First inference may be slow (model loading)
 - Energy gate threshold may need tuning per environment

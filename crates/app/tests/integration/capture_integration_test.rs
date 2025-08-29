@@ -2,6 +2,7 @@
 mod tests {
     use coldvox_app::audio::{AudioCapture, AudioConfig, AudioFrame};
     use coldvox_app::foundation::error::AudioError;
+    use coldvox_app::vad::constants::FRAME_SIZE_SAMPLES;
     use std::time::Duration;
     use std::thread;
     use std::sync::Arc;
@@ -13,7 +14,7 @@ mod tests {
         let config = AudioConfig {
             sample_rate: 16000,
             channels: 1,
-            buffer_size: 320,
+            buffer_size: FRAME_SIZE_SAMPLES,
             silence_threshold: 100,
         };
         
@@ -132,7 +133,7 @@ mod tests {
         let producer = thread::spawn(move || {
             for i in 0..1000 {
                 let frame = AudioFrame {
-                    samples: vec![i as i16; 320],
+                    samples: vec![i as i16; FRAME_SIZE_SAMPLES],
                     timestamp: std::time::Instant::now(),
                     sample_rate: 16000,
                     channels: 1,
@@ -155,7 +156,7 @@ mod tests {
                 thread::spawn(move || {
                     while let Ok(frame) = rx_clone.recv_timeout(Duration::from_secs(1)) {
                         // Process frame
-                        assert_eq!(frame.samples.len(), 320);
+                        assert_eq!(frame.samples.len(), FRAME_SIZE_SAMPLES);
                         counter.fetch_add(1, Ordering::Relaxed);
                         thread::sleep(Duration::from_micros(50 * (id + 1) as u64));
                     }
@@ -185,7 +186,7 @@ mod tests {
         // Try to send more frames than buffer can hold
         for i in 0..100 {
             let frame = AudioFrame {
-                samples: vec![i as i16; 320],
+                samples: vec![i as i16; FRAME_SIZE_SAMPLES],
                 timestamp: std::time::Instant::now(),
                 sample_rate: 16000,
                 channels: 1,

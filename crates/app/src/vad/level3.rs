@@ -187,6 +187,7 @@ impl Default for Level3VadBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vad::constants::FRAME_SIZE_SAMPLES;
 
     #[test]
     fn test_builder_pattern() {
@@ -212,13 +213,13 @@ mod tests {
 
         let result = VadProcessor::process(&mut vad, &wrong_size_frame);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Expected 320 samples"));
+        assert!(result.unwrap_err().contains("Expected 512 samples"));
     }
 
     #[test]
     fn test_silence_processing() {
         let mut vad = Level3Vad::new(VadConfig::default());
-        let silence_frame = vec![0i16; 320];
+        let silence_frame = vec![0i16; FRAME_SIZE_SAMPLES];
 
         for _ in 0..100 {
             let event = VadProcessor::process(&mut vad, &silence_frame).unwrap();
@@ -245,7 +246,7 @@ mod tests {
         };
         let mut vad = Level3Vad::new(config);
 
-        let speech_frame: Vec<i16> = (0..320)
+        let speech_frame: Vec<i16> = (0..FRAME_SIZE_SAMPLES)
             .map(|i| {
                 let phase = 2.0 * std::f32::consts::PI * 440.0 * i as f32 / 16000.0;
                 (phase.sin() * 8000.0) as i16
@@ -259,14 +260,15 @@ mod tests {
 
             if let Some(VadEvent::SpeechStart { .. }) = event {
                 speech_started = true;
-                assert!(frame_num >= 2);
+                // With 60ms speech debounce and ~32ms frames, should trigger by frame 2 (60/32 = 2 frames)
+                assert!(frame_num >= 1);
             }
         }
 
         assert!(speech_started);
         assert_eq!(VadProcessor::current_state(&vad), VadState::Speech);
 
-        let silence_frame = vec![0i16; 320];
+        let silence_frame = vec![0i16; FRAME_SIZE_SAMPLES];
         let mut speech_ended = false;
 
         for _ in 0..10 {
@@ -293,7 +295,7 @@ mod tests {
 
         use rand::Rng;
         let mut rng = rand::thread_rng();
-        let noisy_background: Vec<i16> = (0..320)
+        let noisy_background: Vec<i16> = (0..FRAME_SIZE_SAMPLES)
             .map(|_| (rng.gen::<f32>() - 0.5) * 1000.0)
             .map(|x| x as i16)
             .collect();
@@ -312,7 +314,7 @@ mod tests {
     fn test_reset_functionality() {
         let mut vad = Level3Vad::new(VadConfig::default());
 
-        let speech_frame = vec![16000i16; 320];
+        let speech_frame = vec![16000i16; FRAME_SIZE_SAMPLES];
         for _ in 0..20 {
             VadProcessor::process(&mut vad, &speech_frame).unwrap();
         }

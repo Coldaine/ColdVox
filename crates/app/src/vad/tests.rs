@@ -1,4 +1,4 @@
-use crate::vad::{Level3Vad, VadConfig, VadEvent, VadProcessor};
+use crate::vad::{Level3Vad, VadConfig, VadEvent, VadProcessor, constants::FRAME_SIZE_SAMPLES};
 
 mod test_utils {
     pub fn generate_silence(samples: usize) -> Vec<i16> {
@@ -54,9 +54,9 @@ mod integration_tests {
 
         let mut vad = Level3Vad::new(config);
 
-        let silence = generate_silence(320);
-        let speech = generate_sine_wave(320, 440.0, 8000.0, 16000.0);
-        let noise = generate_noise(320, 500.0);
+        let silence = generate_silence(FRAME_SIZE_SAMPLES);
+        let speech = generate_sine_wave(FRAME_SIZE_SAMPLES, 440.0, 8000.0, 16000.0);
+        let noise = generate_noise(FRAME_SIZE_SAMPLES, 500.0);
 
         let mut events = Vec::new();
 
@@ -111,9 +111,9 @@ mod integration_tests {
 
         let mut vad = Level3Vad::new(config);
 
-        let quiet_noise = generate_noise(320, 100.0);
-        let loud_noise = generate_noise(320, 2000.0);
-        let very_loud_speech = generate_sine_wave(320, 440.0, 16000.0, 16000.0);
+        let quiet_noise = generate_noise(FRAME_SIZE_SAMPLES, 100.0);
+        let loud_noise = generate_noise(FRAME_SIZE_SAMPLES, 2000.0);
+        let very_loud_speech = generate_sine_wave(FRAME_SIZE_SAMPLES, 440.0, 16000.0, 16000.0);
 
         for _ in 0..20 {
             vad.process(&quiet_noise).unwrap();
@@ -143,10 +143,10 @@ mod integration_tests {
         let mut vad = Level3Vad::new(VadConfig::default());
 
         let test_cases = vec![
-            ("Sine wave", generate_sine_wave(320, 440.0, 8000.0, 16000.0)),
-            ("Chirp", generate_chirp(320, 200.0, 2000.0, 6000.0, 16000.0)),
-            ("White noise", generate_noise(320, 4000.0)),
-            ("Silence", generate_silence(320)),
+            ("Sine wave", generate_sine_wave(FRAME_SIZE_SAMPLES, 440.0, 8000.0, 16000.0)),
+            ("Chirp", generate_chirp(FRAME_SIZE_SAMPLES, 200.0, 2000.0, 6000.0, 16000.0)),
+            ("White noise", generate_noise(FRAME_SIZE_SAMPLES, 4000.0)),
+            ("Silence", generate_silence(FRAME_SIZE_SAMPLES)),
         ];
 
         for (name, frame) in test_cases {
@@ -164,8 +164,8 @@ mod integration_tests {
         };
         let mut vad = Level3Vad::new(config);
 
-        let silence = generate_silence(320);
-        let speech = generate_sine_wave(320, 440.0, 8000.0, 16000.0);
+        let silence = generate_silence(FRAME_SIZE_SAMPLES);
+        let speech = generate_sine_wave(FRAME_SIZE_SAMPLES, 440.0, 8000.0, 16000.0);
 
         for _ in 0..10 {
             vad.process(&silence).unwrap();
@@ -190,8 +190,8 @@ mod integration_tests {
     fn test_long_duration_stability() {
         let mut vad = Level3Vad::new(VadConfig::default());
 
-        let silence = generate_silence(320);
-        let speech = generate_sine_wave(320, 440.0, 8000.0, 16000.0);
+        let silence = generate_silence(FRAME_SIZE_SAMPLES);
+        let speech = generate_sine_wave(FRAME_SIZE_SAMPLES, 440.0, 8000.0, 16000.0);
 
         for cycle in 0..100 {
             for _ in 0..50 {

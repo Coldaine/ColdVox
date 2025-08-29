@@ -40,7 +40,7 @@ Those gaps matter as we integrate VAD (fixed 512‑sample windows), target stabl
   - On overflow, apply configured policy (default DropNewest) and increment counters
 
 - Consumer (non‑RT thread) via a `FrameReader` adapter:
-  - Pull exactly N samples per call (e.g., 320 for 20 ms @ 16 kHz, or 512 for VAD)
+  - Pull exactly N samples per call (e.g., 512 for ~32 ms @ 16 kHz standard VAD frames)
   - Underflow modes:
     - PadWithSilence (default): return N samples, padding with zeros
     - NonBlockingPartial: return what’s available (len ≤ N)
@@ -109,7 +109,7 @@ Those gaps matter as we integrate VAD (fixed 512‑sample windows), target stabl
   - Optionally add helpers to query capacity/used
 
 - `crates/app/src/bin/mic_probe.rs`:
-  - Use `create_reader(320)` (20 ms @ 16 kHz) and a loop calling `next_frame`
+  - Use `create_reader(512)` (~32 ms @ 16 kHz) and a loop calling `next_frame`
   - Remove channel `recv()` usage once migrated
 
 - `crates/app/src/foundation/error.rs`:

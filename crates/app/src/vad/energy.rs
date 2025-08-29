@@ -1,3 +1,5 @@
+// Note: FRAME_SIZE_SAMPLES is used only in tests here; import within test module to avoid warnings.
+
 pub struct EnergyCalculator {
     epsilon: f32,
 }
@@ -53,11 +55,12 @@ impl Default for EnergyCalculator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vad::constants::FRAME_SIZE_SAMPLES;
     
     #[test]
     fn test_silence_returns_low_dbfs() {
         let calc = EnergyCalculator::new();
-        let silence = vec![0i16; 320];
+    let silence = vec![0i16; FRAME_SIZE_SAMPLES];
         let db = calc.calculate_dbfs(&silence);
         assert!(db <= -100.0);
     }
@@ -65,7 +68,7 @@ mod tests {
     #[test]
     fn test_full_scale_returns_zero_dbfs() {
         let calc = EnergyCalculator::new();
-        let full_scale = vec![32767i16; 320];
+        let full_scale = vec![32767i16; FRAME_SIZE_SAMPLES];
         let db = calc.calculate_dbfs(&full_scale);
         assert!((db - 0.0).abs() < 0.1);
     }
@@ -74,9 +77,9 @@ mod tests {
     fn test_rms_calculation() {
         let calc = EnergyCalculator::new();
         
-        let sine_wave: Vec<i16> = (0..320)
+        let sine_wave: Vec<i16> = (0..FRAME_SIZE_SAMPLES)
             .map(|i| {
-                let phase = 2.0 * std::f32::consts::PI * i as f32 / 320.0;
+                let phase = 2.0 * std::f32::consts::PI * i as f32 / FRAME_SIZE_SAMPLES as f32;
                 (phase.sin() * 16384.0) as i16
             })
             .collect();

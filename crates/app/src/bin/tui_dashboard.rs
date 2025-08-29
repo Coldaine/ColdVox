@@ -1,3 +1,8 @@
+// Logging behavior:
+// - Writes logs to both stdout and a daily-rotated file at logs/coldvox.log.
+// - Controlled via RUST_LOG (e.g., "info", "debug").
+// - File output uses a non-blocking writer; logs/ is created if missing.
+// - Useful for post-session analysis even when the TUI is active.
 use clap::Parser;
 use coldvox_app::audio::capture::AudioCaptureThread;
 use coldvox_app::audio::chunker::{AudioChunker, ChunkerConfig};
@@ -7,6 +12,7 @@ use coldvox_app::audio::vad_processor::{AudioFrame as VadFrame, VadProcessor};
 use coldvox_app::foundation::error::AudioConfig;
 use coldvox_app::telemetry::pipeline_metrics::{PipelineMetrics, PipelineStage};
 use coldvox_app::vad::config::{UnifiedVadConfig, VadMode};
+use coldvox_app::vad::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 use coldvox_app::vad::types::VadEvent;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
@@ -28,6 +34,27 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+
+fn init_logging() -> Result<(), Box<dyn std::error::Error>> {
+    std::fs::create_dir_all("logs")?;
+    let file_appender = RollingFileAppender::new(Rotation::DAILY, "logs", "coldvox.log");
+    let (non_blocking_file, _guard) = tracing_appender::non_blocking(file_appender);
+    let log_level = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
+    let env_filter = EnvFilter::try_new(log_level).unwrap_or_else(|_| EnvFilter::new("info"));
+
+    let stderr_layer = fmt::layer().with_writer(std::io::stderr);
+    let file_layer = fmt::layer().with_writer(non_blocking_file);
+
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(stderr_layer)
+        .with(file_layer)
+        .init();
+    std::mem::forget(_guard);
+    Ok(())
+}
 
 #[derive(Parser)]
 #[command(author, version, about = "TUI Dashboard with real-time audio monitoring")]
@@ -182,6 +209,7 @@ impl DashboardState {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    init_logging()?;
     let cli = Cli::parse();
 
     enable_raw_mode()?;
@@ -333,7 +361,7 @@ async fn run_audio_pipeline(tx: mpsc::Sender<AppEvent>, device: String) {
     let (event_tx, mut event_rx) = mpsc::channel(200);
 
     let chunker_cfg = ChunkerConfig {
-        frame_size_samples: 512,
+        frame_size_samples: FRAME_SIZE_SAMPLES,
         sample_rate_hz: sample_rate,
     };
     // Build FrameReader from ring buffer consumer and feed it to the chunker
@@ -343,8 +371,8 @@ async fn run_audio_pipeline(tx: mpsc::Sender<AppEvent>, device: String) {
 
     let vad_cfg = UnifiedVadConfig {
         mode: VadMode::Silero,
-        frame_size_samples: 512,
-        sample_rate_hz: 16000,  // Silero VAD requires 16kHz - resampler will handle conversion
+        frame_size_samples: FRAME_SIZE_SAMPLES,
+        sample_rate_hz: SAMPLE_RATE_HZ,  // Standard 16kHz - resampler will handle conversion
         ..Default::default()
     };
 

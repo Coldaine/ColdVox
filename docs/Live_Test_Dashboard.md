@@ -65,8 +65,8 @@
 - Health/foundation: `foundation::{StateManager, ShutdownHandler, HealthMonitor}`
 
 Note on frame sizes:
-- Capture callbacks are variable-sized, but the design typically uses ~320-sample (20 ms at 16 kHz) windows in some paths.
-- VAD chunker emits exactly 512-sample frames at 16 kHz (32 ms) per Silero requirements.
+- Capture callbacks are variable-sized, but chunker outputs standardized 512-sample frames.
+- Both Silero and Level3 VAD now use 512-sample frames at 16 kHz (~32 ms) consistently.
 
 ## Tests implemented (initial set)
 

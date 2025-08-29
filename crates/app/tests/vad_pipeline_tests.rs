@@ -1,4 +1,5 @@
 use coldvox_app::vad::config::{UnifiedVadConfig, VadMode};
+use coldvox_app::vad::constants::FRAME_SIZE_SAMPLES;
 use coldvox_app::audio::vad_processor::{AudioFrame as VadFrame, VadProcessor};
 use tokio::sync::{broadcast, mpsc};
 
@@ -8,7 +9,7 @@ async fn vad_processor_silence_no_events_level3() {
     let mut cfg = UnifiedVadConfig::default();
     cfg.mode = VadMode::Level3;
     cfg.level3.enabled = true;
-    cfg.frame_size_samples = 320; // Level3 default
+    cfg.frame_size_samples = FRAME_SIZE_SAMPLES; // Level3 now uses 512
     cfg.sample_rate_hz = 16_000;
 
     let (tx, _rx) = broadcast::channel::<VadFrame>(8);
@@ -17,9 +18,9 @@ async fn vad_processor_silence_no_events_level3() {
 
     let handle = VadProcessor::spawn(cfg, rx, event_tx, None).expect("spawn vad");
 
-    // Send a few frames of silence at 16k/320-sample frames
+    // Send a few frames of silence at 16k/512-sample frames
     for i in 0..10u64 {
-        let frame = VadFrame { data: vec![0i16; 320], timestamp_ms: i * 20 };
+        let frame = VadFrame { data: vec![0i16; FRAME_SIZE_SAMPLES], timestamp_ms: i * 32 };
         let _ = tx.send(frame);
     }
 

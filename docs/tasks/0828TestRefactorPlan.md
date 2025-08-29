@@ -86,7 +86,7 @@ This plan consolidates the STT pipeline testing strategy validated against the c
   - `stt::vosk` and `stt::processor` are compiled only with `--features vosk`.
   - Tests touching these must be `#[cfg(feature = "vosk")]` and should skip if `VOSK_MODEL_PATH` is missing.
 - `SttProcessor::new` constructs `VoskTranscriber` unconditionally; only call when model is present.
-- Prefer Level3 VAD for deterministic tests (set `UnifiedVadConfig { mode: VadMode::Level3, level3.enabled = true, frame_size_samples = 320, sample_rate_hz = 16_000 }`). Silero requires ONNX/runtime assets.
+- Prefer Level3 VAD for deterministic tests (set `UnifiedVadConfig { mode: VadMode::Level3, level3.enabled = true, frame_size_samples = 512, sample_rate_hz = 16_000 }`). Silero requires ONNX/runtime assets.
 
 ## Metrics & Observability
 

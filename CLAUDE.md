@@ -25,9 +25,6 @@ ColdVox is a Rust-based voice AI project focused on real-time audio processing w
   - `VoskTranscriber`: Vosk-based STT implementation
   - `SttProcessor`: STT processing gated by VAD events
   - `Transcriber` trait for pluggable STT backends
-- **Pipeline** (`crates/app/src/pipeline/`): Audio processing pipeline orchestration
-  - `AudioPipeline`: Main pipeline coordinator with broadcast channels
-  - `AudioStream`: Fan-out broadcast for multiple consumers
 - **Telemetry** (`crates/app/src/telemetry/`): Metrics collection and monitoring
   - `PipelineMetrics`: Real-time pipeline performance metrics
   - Cross-thread monitoring of audio levels, latency, and throughput
@@ -83,10 +80,10 @@ cargo test -- --nocapture
 cargo test audio::
 cargo test vad::
 
-# Run test suite script
-../scripts/run_phase1_tests.sh all  # All automated tests
-../scripts/run_phase1_tests.sh unit  # Unit tests only
-../scripts/run_phase1_tests.sh live  # Live hardware tests
+# Run test suite script (from project root)
+./scripts/run_phase1_tests.sh all  # All automated tests
+./scripts/run_phase1_tests.sh unit  # Unit tests only
+./scripts/run_phase1_tests.sh live  # Live hardware tests
 ```
 
 ### Running Test Binaries
@@ -129,8 +126,8 @@ cargo clippy -- -D warnings  # Strict linting
 - **Phase 1**: Microphone Capture with Recovery ✅ **COMPLETE** (all critical bugs fixed)
 - **Phase 2**: Lock-free Ring Buffer ✅ **COMPLETE** (using rtrb library)
 - **Phase 3**: VAD with Fallback ✅ **COMPLETE** (Silero VAD integrated, energy VAD available)
-- **Phase 4**: STT Integration 📋 **IN PROGRESS** (Vosk transcriber integrated with VAD gating)
-- **Phase 5+**: Stress Testing & Polish 📋 **PLANNED**
+- **Phase 4**: STT Integration ✅ **COMPLETE** (Vosk transcriber integrated with VAD gating)
+- **Phase 5+**: Stress Testing & Polish 📋 **IN PROGRESS**
 
 ## Configuration
 
@@ -146,7 +143,6 @@ Configuration parameters:
 - `docs/PROJECT_STATUS.md`: Current project status and next steps
 - `crates/app/src/main.rs`: Main application entry point with Vosk STT
 - `crates/app/src/bin/tui_dashboard.rs`: Real-time monitoring dashboard
-- `crates/app/src/pipeline/mod.rs`: Audio pipeline orchestration
 - `crates/app/src/audio/capture.rs`: Core audio capture with format negotiation
 - `crates/app/src/audio/chunker.rs`: Audio chunking for VAD processing
 - `crates/app/src/vad/processor.rs`: VAD processing pipeline integration

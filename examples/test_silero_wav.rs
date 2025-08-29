@@ -1,5 +1,6 @@
 use coldvox_app::vad::{
     config::{UnifiedVadConfig, VadMode},
+    constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ},
 };
 use coldvox_app::audio::vad_adapter::VadAdapter;
 use hound::WavReader;
@@ -61,8 +62,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut config = UnifiedVadConfig::default();
     config.mode = VadMode::Silero;
     config.silero.threshold = 0.2; // Lower threshold for testing
-    config.frame_size_samples = 320;
-    config.sample_rate_hz = 16000;
+    config.frame_size_samples = FRAME_SIZE_SAMPLES;
+    config.sample_rate_hz = SAMPLE_RATE_HZ;
     
     println!("\nVAD Config:");
     println!("  Mode: Silero");
@@ -78,11 +79,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nProcessing audio...");
     
     // Process frames
-    for (i, chunk) in samples_16k.chunks(320).enumerate() {
-        if chunk.len() == 320 {
+    for (i, chunk) in samples_16k.chunks(FRAME_SIZE_SAMPLES).enumerate() {
+        if chunk.len() == FRAME_SIZE_SAMPLES {
             match adapter.process(chunk) {
                 Ok(Some(event)) => {
-                    let time_ms = i * 320 * 1000 / 16000;
+                    let time_ms = i * FRAME_SIZE_SAMPLES * 1000 / SAMPLE_RATE_HZ as usize;
                     println!("  [{}ms] Event: {:?}", time_ms, event);
                     events.push(event);
                 }

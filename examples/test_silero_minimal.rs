@@ -1,5 +1,6 @@
 use coldvox_app::vad::{
     config::{UnifiedVadConfig, VadMode},
+    constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ},
     engine::VadEngine,
     silero_wrapper::SileroEngine,
 };
@@ -34,8 +35,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut config = UnifiedVadConfig::default();
     config.mode = VadMode::Silero;
     config.silero.threshold = 0.3;
-    config.frame_size_samples = 320;  // System default
-    config.sample_rate_hz = 16000;
+    config.frame_size_samples = FRAME_SIZE_SAMPLES;  // Now 512 samples
+    config.sample_rate_hz = SAMPLE_RATE_HZ;
     
     // Create adapter
     let mut adapter = VadAdapter::new(config)?;
@@ -43,9 +44,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut events = Vec::new();
     let mut frames_processed = 0;
     
-    // Process in 320-sample frames
-    for (i, chunk) in samples.chunks(320).enumerate() {
-        if chunk.len() == 320 {
+    // Process in 512-sample frames (~32ms)
+    for (i, chunk) in samples.chunks(FRAME_SIZE_SAMPLES).enumerate() {
+        if chunk.len() == FRAME_SIZE_SAMPLES {
             match adapter.process(chunk) {
                 Ok(Some(event)) => {
                     println!("Frame {}: Event: {:?}", i, event);

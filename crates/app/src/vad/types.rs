@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use super::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum VadEvent {
@@ -53,8 +54,8 @@ impl Default for VadConfig {
             speech_debounce_ms: 200,
             silence_debounce_ms: 400,
             initial_floor_db: -50.0,
-            frame_size_samples: 320,
-            sample_rate_hz: 16000,
+            frame_size_samples: FRAME_SIZE_SAMPLES,
+            sample_rate_hz: SAMPLE_RATE_HZ,
         }
     }
 }

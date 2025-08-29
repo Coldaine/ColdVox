@@ -138,6 +138,7 @@ impl VadStateMachine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vad::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
     
     #[test]
     fn test_initial_state() {
@@ -151,8 +152,8 @@ mod tests {
     fn test_speech_onset_debouncing() {
         let config = VadConfig {
             speech_debounce_ms: 100,
-            frame_size_samples: 320,
-            sample_rate_hz: 16000,
+            frame_size_samples: FRAME_SIZE_SAMPLES,
+            sample_rate_hz: SAMPLE_RATE_HZ,
             ..Default::default()
         };
         let mut state_machine = VadStateMachine::new(&config);
@@ -166,9 +167,7 @@ mod tests {
         assert_eq!(state_machine.process(true, -30.0), None);
         assert_eq!(state_machine.current_state(), VadState::Silence);
         
-        assert_eq!(state_machine.process(true, -30.0), None);
-        assert_eq!(state_machine.current_state(), VadState::Silence);
-        
+        // Speech should trigger on the 4th frame (100ms debounce with ~32ms frames)
         if let Some(VadEvent::SpeechStart { .. }) = state_machine.process(true, -30.0) {
             assert_eq!(state_machine.current_state(), VadState::Speech);
         } else {
@@ -181,8 +180,8 @@ mod tests {
         let config = VadConfig {
             speech_debounce_ms: 60,
             silence_debounce_ms: 100,
-            frame_size_samples: 320,
-            sample_rate_hz: 16000,
+            frame_size_samples: FRAME_SIZE_SAMPLES,
+            sample_rate_hz: SAMPLE_RATE_HZ,
             ..Default::default()
         };
         let mut state_machine = VadStateMachine::new(&config);
@@ -192,11 +191,12 @@ mod tests {
         }
         assert_eq!(state_machine.current_state(), VadState::Speech);
         
-        for _ in 0..4 {
+        for _ in 0..3 {
             assert_eq!(state_machine.process(false, -50.0), None);
             assert_eq!(state_machine.current_state(), VadState::Speech);
         }
         
+        // SpeechEnd should trigger on the 4th silence frame (100ms debounce with ~32ms frames)
         if let Some(VadEvent::SpeechEnd { duration_ms, .. }) = state_machine.process(false, -50.0)
         {
             assert_eq!(state_machine.current_state(), VadState::Silence);
