@@ -229,3 +229,49 @@ impl AudioResampler {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resampler_pass_through_same_rate_same_size() {
+        let mut rs = AudioResampler::new(16_000, 16_000, 512, 512).expect("init");
+        let input = vec![0i16; 512];
+        let out = rs.process(&input).expect("process");
+        assert_eq!(out.len(), 512);
+        assert!(out.iter().all(|&s| s == 0));
+    }
+
+    #[test]
+    fn resampler_frame_aggregation_same_rate_diff_size() {
+        // Aggregate two 256-sample inputs into one 512-sample output when rates match
+        let mut rs = AudioResampler::new(16_000, 16_000, 256, 512).expect("init");
+        let input = vec![1i16; 256];
+
+        let out1 = rs.process(&input).expect("process1");
+        assert!(out1.is_empty(), "First half-frame should not emit yet");
+
+        let out2 = rs.process(&input).expect("process2");
+        assert_eq!(out2.len(), 512);
+        assert!(out2.iter().all(|&s| s == 1));
+    }
+
+    #[test]
+    fn resampler_downsample_48k_to_16k_produces_full_frames() {
+        // When downsampling 48k -> 16k, multiple input chunks are needed before a full 512-sample output is ready.
+        let mut rs = AudioResampler::new(48_000, 16_000, 512, 512).expect("init");
+        let input = vec![0i16; 512];
+
+        let mut got = Vec::new();
+        for _ in 0..10 {
+            let out = rs.process(&input).expect("process");
+            if !out.is_empty() {
+                got = out;
+                break;
+            }
+        }
+        assert_eq!(got.len(), 512, "Should eventually produce one full 512-sample frame");
+        assert!(got.iter().all(|&s| s == 0));
+    }
+}
