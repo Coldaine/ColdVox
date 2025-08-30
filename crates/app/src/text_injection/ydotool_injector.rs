@@ -27,21 +27,87 @@ impl YdotoolInjector {
 
     /// Check if ydotool is available on the system
     fn check_ydotool() -> bool {
-        // Check if binary exists
-        let binary_exists = Command::new("which")
-            .arg("ydotool")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
+        match Self::check_binary_permissions("ydotool") {
+            Ok(()) => {
+                // Check if the ydotool socket exists (most reliable check)
+                let user_id = std::env::var("UID").unwrap_or_else(|_| "1000".to_string());
+                let socket_path = format!("/run/user/{}/.ydotool_socket", user_id);
+                if !std::path::Path::new(&socket_path).exists() {
+                    warn!("ydotool socket not found at {}, daemon may not be running", socket_path);
+                    return false;
+                }
+                true
+            }
+            Err(e) => {
+                warn!("ydotool not available: {}", e);
+                false
+            }
+        }
+    }
+    
+    /// Check if a binary exists and has proper permissions
+    fn check_binary_permissions(binary_name: &str) -> Result<(), InjectionError> {
+        use std::os::unix::fs::PermissionsExt;
         
-        if !binary_exists {
-            return false;
+        // Check if binary exists in PATH
+        let output = Command::new("which")
+            .arg(binary_name)
+            .output()
+            .map_err(|e| InjectionError::Process(format!("Failed to locate {}: {}", binary_name, e)))?;
+        
+        if !output.status.success() {
+            return Err(InjectionError::MethodUnavailable(
+                format!("{} not found in PATH", binary_name)
+            ));
         }
         
-        // Check if the ydotool socket exists (most reliable check)
-        let user_id = std::env::var("UID").unwrap_or_else(|_| "1000".to_string());
-        let socket_path = format!("/run/user/{}/.ydotool_socket", user_id);
-        std::path::Path::new(&socket_path).exists()
+        let binary_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        
+        // Check if binary is executable
+        let metadata = std::fs::metadata(&binary_path)
+            .map_err(|e| InjectionError::Io(e))?;
+        
+        let permissions = metadata.permissions();
+        if permissions.mode() & 0o111 == 0 {
+            return Err(InjectionError::PermissionDenied(
+                format!("{} is not executable", binary_name)
+            ));
+        }
+        
+        // For ydotool specifically, check uinput access
+        if binary_name == "ydotool" {
+            Self::check_uinput_access()?;
+        }
+        
+        Ok(())
+    }
+    
+    /// Check if we have access to /dev/uinput (required for ydotool)
+    fn check_uinput_access() -> Result<(), InjectionError> {
+        use std::fs::OpenOptions;
+        
+        // Check if we can open /dev/uinput
+        match OpenOptions::new().write(true).open("/dev/uinput") {
+            Ok(_) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                // Check if user is in input group
+                let groups = Command::new("groups")
+                    .output()
+                    .map_err(|e| InjectionError::Process(format!("Failed to check groups: {}", e)))?;
+                
+                let groups_str = String::from_utf8_lossy(&groups.stdout);
+                if !groups_str.contains("input") {
+                    return Err(InjectionError::PermissionDenied(
+                        "User not in 'input' group. Run: sudo usermod -a -G input $USER".to_string()
+                    ));
+                }
+                
+                Err(InjectionError::PermissionDenied(
+                    "/dev/uinput access denied. ydotool daemon may not be running".to_string()
+                ))
+            }
+            Err(e) => Err(InjectionError::Io(e))
+        }
     }
 
     /// Trigger paste action using ydotool (Ctrl+V)
