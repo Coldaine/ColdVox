@@ -124,7 +124,7 @@ mod tests {
         assert!(result.is_err(), "Should fail due to budget exhaustion");
         
         // Verify cooldown is active
-        let method = manager.get_method_order()[0]; // First method should be in cooldown
+    let method = manager.get_method_order_uncached()[0]; // First method should be in cooldown
         assert!(manager.is_in_cooldown(method), "Method should be in cooldown after failure");
         
         // Wait for cooldown to expire

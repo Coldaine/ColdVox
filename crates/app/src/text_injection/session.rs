@@ -1,5 +1,6 @@
 use std::time::{Duration, Instant};
 use tracing::{debug, info, warn};
+use crate::text_injection::types::InjectionMetrics;
 
 /// Session state machine for buffered text injection
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -93,8 +94,9 @@ pub struct InjectionSession {
     metrics: std::sync::Arc<std::sync::Mutex<InjectionMetrics>>,
 }
 
-/// Create a new session with the given configuration
-pub fn new(config: SessionConfig, metrics: std::sync::Arc<std::sync::Mutex<InjectionMetrics>>) -> Self {
+impl InjectionSession {
+    /// Create a new session with the given configuration
+    pub fn new(config: SessionConfig, metrics: std::sync::Arc<std::sync::Mutex<InjectionMetrics>>) -> Self {
     Self {
         state: SessionState::Idle,
         buffer: Vec::new(),
@@ -109,7 +111,7 @@ pub fn new(config: SessionConfig, metrics: std::sync::Arc<std::sync::Mutex<Injec
         normalize_whitespace: config.normalize_whitespace,
         metrics,
     }
-}
+    }
 
     /// Add a new transcription to the session buffer
     pub fn add_transcription(&mut self, text: String) {
@@ -320,7 +322,8 @@ mod tests {
             buffer_pause_timeout_ms: 50, // Short pause timeout for testing
             ..Default::default()
         };
-        let mut session = InjectionSession::new(config);
+    let metrics = std::sync::Arc::new(std::sync::Mutex::new(InjectionMetrics::default()));
+    let mut session = InjectionSession::new(config, metrics);
 
         // Start with idle state
         assert_eq!(session.state(), SessionState::Idle);
@@ -360,7 +363,8 @@ mod tests {
             max_buffer_size: 10, // Very small limit
             ..Default::default()
         };
-        let mut session = InjectionSession::new(config);
+    let metrics = std::sync::Arc::new(std::sync::Mutex::new(InjectionMetrics::default()));
+    let mut session = InjectionSession::new(config, metrics);
 
         // Add text that exceeds limit
         session.add_transcription("This is a long sentence".to_string());
@@ -369,7 +373,8 @@ mod tests {
 
     #[test]
     fn test_empty_transcription_filtering() {
-        let mut session = InjectionSession::new(SessionConfig::default());
+    let metrics = std::sync::Arc::new(std::sync::Mutex::new(InjectionMetrics::default()));
+    let mut session = InjectionSession::new(SessionConfig::default(), metrics);
 
         session.add_transcription("".to_string());
         session.add_transcription("   ".to_string());
@@ -386,7 +391,8 @@ mod tests {
             buffer_pause_timeout_ms: 50,
             ..Default::default()
         };
-        let mut session = InjectionSession::new(config);
+    let metrics = std::sync::Arc::new(std::sync::Mutex::new(InjectionMetrics::default()));
+    let mut session = InjectionSession::new(config, metrics);
 
         // Add transcription
         session.add_transcription("Test".to_string());
