@@ -1,23 +1,9 @@
+use crate::text_injection::backend::BackendDetector;
 use crate::text_injection::focus::{FocusTracker, FocusStatus};
-use crate::text_injection::types::{InjectionConfig, InjectionError, InjectionMethod, InjectionMetrics};
+use crate::text_injection::types::{InjectionConfig, InjectionError, InjectionMethod, InjectionMetrics, TextInjector};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
-
-/// Trait for all text injection methods
-pub trait TextInjector {
-    /// Name of the injector for logging and metrics
-    fn name(&self) -> &'static str;
-    
-    /// Check if this injector is available for use
-    fn is_available(&self) -> bool;
-    
-    /// Inject text using this method
-    fn inject(&mut self, text: &str) -> Result<(), InjectionError>;
-    
-    /// Get metrics for this injector
-    fn metrics(&self) -> &InjectionMetrics;
-}
 
 /// Key for identifying a specific app-method combination
 type AppMethodKey = (String, InjectionMethod);
@@ -55,18 +41,35 @@ pub struct StrategyManager {
     global_start: Option<Instant>,
     /// Metrics for the strategy manager
     metrics: InjectionMetrics,
+    /// Backend detector for platform-specific capabilities
+    backend_detector: BackendDetector,
 }
 
 impl StrategyManager {
     /// Create a new strategy manager
-    pub fn new(config: InjectionConfig) -> Self {
+    pub fn new(config: InjectionConfig, metrics: Arc<Mutex<InjectionMetrics>>) -> Self {
+        let backend_detector = BackendDetector::new(config.clone());
+        let preferred_backend = backend_detector.get_preferred_backend();
+        
+        match preferred_backend {
+            Some(backend) => info!("Selected backend: {:?}", backend),
+            None => {
+                warn!("No suitable backend found for text injection");
+                // Record backend denial in telemetry
+                if let Ok(mut metrics) = self.metrics.lock() {
+                    metrics.record_backend_denied();
+                }
+            }
+        }
+        
         Self {
             config: config.clone(),
-            focus_tracker: FocusTracker::new(config),
+            focus_tracker: FocusTracker::new(config.clone()),
             success_cache: HashMap::new(),
             cooldowns: HashMap::new(),
             global_start: None,
-            metrics: InjectionMetrics::default(),
+            metrics,
+            backend_detector,
         }
     }
 
@@ -76,6 +79,46 @@ impl StrategyManager {
         // For now, we'll use a placeholder
         Ok("unknown_app".to_string())
     }
+    
+    /// Check if injection is currently paused
+    fn is_paused(&self) -> bool {
+    // In a real implementation, this would check a global state
+    // For now, we'll always return false
+    false
+}
+
+/// Check if the current application is allowed for injection
+fn is_app_allowed(&self, app_id: &str) -> bool {
+    // If allowlist is not empty, only allow apps in the allowlist
+    if !self.config.allowlist.is_empty() {
+        return self.config.allowlist.iter().any(|pattern| {
+            match regex::Regex::new(pattern) {
+                Ok(re) => re.is_match(app_id),
+                Err(_) => app_id.contains(pattern),
+            }
+        });
+    }
+    
+    // If blocklist is not empty, block apps in the blocklist
+    if !self.config.blocklist.is_empty() {
+        return !self.config.blocklist.iter().any(|pattern| {
+            match regex::Regex::new(pattern) {
+                Ok(re) => re.is_match(app_id),
+                Err(_) => app_id.contains(pattern),
+            }
+        });
+    }
+    
+    // If neither allowlist nor blocklist is set, allow all apps
+    true
+}
+
+/// Get the current application identifier (e.g., window class)
+async fn get_current_app_id(&self) -> Result<String, InjectionError> {
+    // In a real implementation, this would get the app ID from the focused element
+    // For now, we'll use a placeholder
+    Ok("unknown_app".to_string())
+}
 
     /// Check if a method is in cooldown for the current app
     fn is_in_cooldown(&self, method: InjectionMethod) -> bool {
@@ -155,12 +198,38 @@ impl StrategyManager {
 
     /// Get the preferred method order based on current context and history
     fn get_method_order(&self) -> Vec<InjectionMethod> {
+        // Get available backends
+        let available_backends = self.backend_detector.detect_available_backends();
+        
         // Base order as specified in the requirements
-        let mut base_order = vec![
-            InjectionMethod::AtspiInsert,
-            InjectionMethod::ClipboardAndPaste,
-            InjectionMethod::Clipboard,
-        ];
+        let mut base_order = Vec::new();
+        
+        // Add methods based on available backends
+        for backend in available_backends {
+            match backend {
+                Backend::WaylandXdgDesktopPortal | Backend::WaylandVirtualKeyboard => {
+                    base_order.push(InjectionMethod::AtspiInsert);
+                    base_order.push(InjectionMethod::ClipboardAndPaste);
+                    base_order.push(InjectionMethod::Clipboard);
+                }
+                Backend::X11Xdotool | Backend::X11Native => {
+                    base_order.push(InjectionMethod::AtspiInsert);
+                    base_order.push(InjectionMethod::ClipboardAndPaste);
+                    base_order.push(InjectionMethod::Clipboard);
+                }
+                Backend::MacCgEvent => {
+                    base_order.push(InjectionMethod::AtspiInsert);
+                    base_order.push(InjectionMethod::ClipboardAndPaste);
+                    base_order.push(InjectionMethod::Clipboard);
+                }
+                Backend::WindowsSendInput => {
+                    base_order.push(InjectionMethod::AtspiInsert);
+                    base_order.push(InjectionMethod::ClipboardAndPaste);
+                    base_order.push(InjectionMethod::Clipboard);
+                }
+                _ => {}
+            }
+        }
         
         // Add optional methods if enabled
         if self.config.allow_kdotool {
@@ -218,6 +287,11 @@ impl StrategyManager {
             return Ok(());
         }
 
+        // Check if injection is paused
+        if self.is_paused() {
+            return Err(InjectionError::Other("Injection is currently paused".to_string()));
+        }
+
         // Start global timer
         self.global_start = Some(Instant::now());
         
@@ -233,8 +307,35 @@ impl StrategyManager {
         
         // Check if we should inject on unknown focus
         if focus_status == FocusStatus::Unknown && !self.config.inject_on_unknown_focus {
+            if let Ok(mut metrics) = self.metrics.lock() {
+                metrics.record_focus_missing();
+            }
             return Err(InjectionError::Other("Unknown focus state and injection disabled".to_string()));
         }
+        
+        // Check if focus is required
+        if self.config.require_focus && focus_status == FocusStatus::NonEditable {
+            if let Ok(mut metrics) = self.metrics.lock() {
+                metrics.record_focus_missing();
+            }
+            return Err(InjectionError::NoEditableFocus);
+        }
+        
+        // Get current application ID
+        let app_id = self.get_current_app_id().await?;
+        
+        // Check allowlist/blocklist
+        if !self.is_app_allowed(&app_id) {
+            return Err(InjectionError::Other(format!("Application {} is not allowed for injection", app_id)));
+        }
+        
+        // Determine injection method based on config
+        let use_paste = match self.config.injection_mode.as_str() {
+            "paste" => true,
+            "keystroke" => false,
+            "auto" => text.len() > self.config.paste_chunk_chars as usize,
+            _ => text.len() > self.config.paste_chunk_chars as usize,  // Default to auto
+        };
         
         // Get ordered list of methods to try
         let method_order = self.get_method_order();
@@ -249,6 +350,9 @@ impl StrategyManager {
             
             // Check budget
             if !self.has_budget_remaining() {
+                if let Ok(mut metrics) = self.metrics.lock() {
+                    metrics.record_rate_limited();
+                }
                 return Err(InjectionError::BudgetExhausted);
             }
             
@@ -256,7 +360,11 @@ impl StrategyManager {
             // In a real implementation, we would have a map of injectors
             // For this test, we'll just simulate the injection
             let start = Instant::now();
-            let result = self.simulate_inject(method, text).await;
+            let result = if use_paste {
+                self.simulate_paste(method, text).await
+            } else {
+                self.simulate_type_text(method, text).await
+            };
             
             match result {
                 Ok(()) => {
@@ -264,7 +372,9 @@ impl StrategyManager {
                     self.metrics.record_success(method, duration);
                     self.update_success_record(method, true);
                     self.clear_cooldown(method);
-                    info!("Successfully injected text using method {:?}", method);
+                    info!("Successfully injected text using method {:?} with mode {:?}", method, if use_paste { "paste" } else { "keystroke" });
+                    self.clear_cooldown(method);
+                    info!("Successfully injected text using method {:?} with mode {:?}", method, if use_paste { "paste" } else { "keystroke" });
                     return Ok(());
                 }
                 Err(e) => {
@@ -272,6 +382,8 @@ impl StrategyManager {
                     let error_string = e.to_string();
                     self.metrics.record_failure(method, duration, error_string.clone());
                     self.update_success_record(method, false);
+                    self.update_cooldown(method, &error_string);
+                    debug!("Method {:?} failed: {}", method, error_string);
                     self.update_cooldown(method, &error_string);
                     debug!("Method {:?} failed: {}", method, error_string);
                     // Continue to next method
@@ -282,6 +394,96 @@ impl StrategyManager {
         // If we get here, all methods failed
         error!("All injection methods failed");
         Err(InjectionError::MethodFailed("All injection methods failed".to_string()))
+    }
+
+    /// Simulate paste for testing purposes
+    async fn simulate_paste(&self, method: InjectionMethod, _text: &str) -> Result<(), InjectionError> {
+        use std::time::SystemTime;
+        
+        // Simple pseudo-random based on system time
+        let pseudo_rand = (SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap().as_nanos() % 100) as f64 / 100.0;
+            
+        // Simulate different success rates for different methods
+        match method {
+            InjectionMethod::AtspiInsert => {
+                // Simulate 90% success rate for paste
+                if pseudo_rand < 0.9 {
+                    Ok(())
+                } else {
+                    Err(InjectionError::MethodUnavailable("Paste action not available".to_string()))
+                }
+            }
+            InjectionMethod::ClipboardAndPaste => {
+                // Simulate 95% success rate
+                if pseudo_rand < 0.95 {
+                    Ok(())
+                } else {
+                    Err(InjectionError::MethodUnavailable("Paste action not available".to_string()))
+                }
+            }
+            InjectionMethod::Clipboard => {
+                // Simulate 95% success rate
+                if pseudo_rand < 0.95 {
+                    Ok(())
+                } else {
+                    Err(InjectionError::Other("Clipboard error".to_string()))
+                }
+            }
+            _ => {
+                // Other methods have lower success rates
+                if pseudo_rand < 0.7 {
+                    Ok(())
+                } else {
+                    Err(InjectionError::Other("Process failed".to_string()))
+                }
+            }
+        }
+    }
+
+    /// Simulate type text for testing purposes
+    async fn simulate_type_text(&self, method: InjectionMethod, _text: &str) -> Result<(), InjectionError> {
+        use std::time::SystemTime;
+        
+        // Simple pseudo-random based on system time
+        let pseudo_rand = (SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap().as_nanos() % 100) as f64 / 100.0;
+            
+        // Simulate different success rates for different methods
+        match method {
+            InjectionMethod::AtspiInsert => {
+                // Simulate 80% success rate for keystrokes
+                if pseudo_rand < 0.8 {
+                    Ok(())
+                } else {
+                    Err(InjectionError::Timeout(250))
+                }
+            }
+            InjectionMethod::ClipboardAndPaste => {
+                // Simulate 85% success rate
+                if pseudo_rand < 0.85 {
+                    Ok(())
+                } else {
+                    Err(InjectionError::MethodUnavailable("Paste action not available".to_string()))
+                }
+            }
+            InjectionMethod::Clipboard => {
+                // Simulate 85% success rate
+                if pseudo_rand < 0.85 {
+                    Ok(())
+                } else {
+                    Err(InjectionError::Other("Clipboard error".to_string()))
+                }
+            }
+            _ => {
+                // Other methods have lower success rates
+                if pseudo_rand < 0.6 {
+                    Ok(())
+                } else {
+                    Err(InjectionError::Other("Process failed".to_string()))
+                }
+            }
+        }
     }
 
     /// Simulate injection for testing purposes
@@ -365,7 +567,8 @@ mod tests {
     #[test]
     fn test_strategy_manager_creation() {
         let config = InjectionConfig::default();
-        let manager = StrategyManager::new(config);
+        let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
+        let manager = StrategyManager::new(config, metrics);
         
         assert_eq!(manager.metrics.attempts, 0);
         assert_eq!(manager.metrics.successes, 0);
@@ -376,7 +579,8 @@ mod tests {
     #[test]
     fn test_method_ordering() {
         let config = InjectionConfig::default();
-        let manager = StrategyManager::new(config);
+        let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
+        let manager = StrategyManager::new(config, metrics);
         
         let order = manager.get_method_order();
         
@@ -409,7 +613,8 @@ mod tests {
     #[test]
     fn test_success_record_update() {
         let mut config = InjectionConfig::default();
-        let mut manager = StrategyManager::new(config.clone());
+        let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
+        let mut manager = StrategyManager::new(config.clone(), metrics);
         
         // Test success
         manager.update_success_record(InjectionMethod::AtspiInsert, true);
@@ -431,7 +636,8 @@ mod tests {
     #[test]
     fn test_cooldown_update() {
         let mut config = InjectionConfig::default();
-        let mut manager = StrategyManager::new(config.clone());
+        let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
+        let mut manager = StrategyManager::new(config.clone(), metrics);
         
         // First failure
         manager.update_cooldown(InjectionMethod::AtspiInsert, "test error");
@@ -476,7 +682,8 @@ mod tests {
     #[tokio::test]
     async fn test_inject_success() {
         let mut config = InjectionConfig::default();
-        let mut manager = StrategyManager::new(config);
+        let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
+        let mut manager = StrategyManager::new(config, metrics);
         
         // Test with text
         let result = manager.inject("test text").await;
@@ -511,7 +718,8 @@ mod tests {
     #[test]
     fn test_empty_text() {
         let mut config = InjectionConfig::default();
-        let mut manager = StrategyManager::new(config);
+        let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
+        let mut manager = StrategyManager::new(config, metrics);
         
         // Inject empty text
         let result = std::panic::catch_unwind(|| {

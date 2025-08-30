@@ -87,7 +87,7 @@ impl AtspiInjector {
     }
 }
 
-impl TextInjector for AtspiInjector {
+impl super::types::TextInjector for AtspiInjector {
     fn name(&self) -> &'static str {
         "AT-SPI2"
     }

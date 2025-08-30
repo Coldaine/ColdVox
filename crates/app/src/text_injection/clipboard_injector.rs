@@ -1,4 +1,4 @@
-use crate::text_injection::types::{InjectionConfig, InjectionError, InjectionMethod, InjectionMetrics};
+use crate::text_injection::types::{InjectionConfig, InjectionError, InjectionMethod, InjectionMetrics, TextInjector};
 use anyhow::Result;
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
@@ -6,21 +6,6 @@ use wl_clipboard_rs::copy::{Options, Source, MimeType};
 use wl_clipboard_rs::paste::{get_contents, ClipboardType, MimeType as PasteMimeType};
 use std::thread;
 use std::sync::mpsc;
-
-/// Trait for all text injection methods
-pub trait TextInjector {
-    /// Name of the injector for logging and metrics
-    fn name(&self) -> &'static str;
-    
-    /// Check if this injector is available for use
-    fn is_available(&self) -> bool;
-    
-    /// Inject text using this method
-    fn inject(&mut self, text: &str) -> Result<()>;
-    
-    /// Get metrics for this injector
-    fn metrics(&self) -> &InjectionMetrics;
-}
 
 /// Clipboard injector using Wayland-native API
 pub struct ClipboardInjector {

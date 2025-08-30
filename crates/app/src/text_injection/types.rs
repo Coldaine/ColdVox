@@ -21,6 +21,7 @@ pub enum InjectionMethod {
 }
 
 /// Configuration for text injection system
+/// Configuration for text injection system
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InjectionConfig {
     /// Whether to allow ydotool usage (requires external binary and uinput permissions)
@@ -62,10 +63,38 @@ pub struct InjectionConfig {
     /// Maximum cooldown period to prevent excessively long waits.
     #[serde(default = "default_cooldown_max_ms")]
     pub cooldown_max_ms: u64,
-}
+
+    /// Mode for text injection: "keystroke", "paste", or "auto"
+    #[serde(default = "default_injection_mode")]
+    pub injection_mode: String,
+    /// Keystroke rate in characters per second (cps)
+    #[serde(default = "default_keystroke_rate_cps")]
+    pub keystroke_rate_cps: u32,
+    /// Maximum number of characters to send in a single burst
+    #[serde(default = "default_max_burst_chars")]
+    pub max_burst_chars: u32,
+    /// Number of characters to chunk paste operations into
+    #[serde(default = "default_paste_chunk_chars")]
+    pub paste_chunk_chars: u32,
 
 fn default_false() -> bool {
     false
+}
+
+fn default_injection_mode() -> String {
+    "auto".to_string()
+}
+
+fn default_keystroke_rate_cps() -> u32 {
+    20  // 20 characters per second (human typing speed)
+}
+
+fn default_max_burst_chars() -> u32 {
+    50  // Maximum 50 characters in a single burst
+}
+
+fn default_paste_chunk_chars() -> u32 {
+    500  // Chunk paste operations into 500 character chunks
 }
 
 fn default_max_total_latency_ms() -> u64 {
@@ -107,6 +136,14 @@ impl Default for InjectionConfig {
             cooldown_initial_ms: default_cooldown_initial_ms(),
             cooldown_backoff_factor: default_cooldown_backoff_factor(),
             cooldown_max_ms: default_cooldown_max_ms(),
+            injection_mode: default_injection_mode(),
+            keystroke_rate_cps: default_keystroke_rate_cps(),
+            max_burst_chars: default_max_burst_chars(),
+            paste_chunk_chars: default_paste_chunk_chars(),
+            allowlist: default_allowlist(),
+            blocklist: default_blocklist(),
+            require_focus: default_require_focus(),
+            pause_hotkey: default_pause_hotkey(),
         }
     }
 }
@@ -184,6 +221,30 @@ pub struct InjectionMetrics {
     pub avg_duration_ms: f64,
     /// Method-specific metrics
     pub method_metrics: std::collections::HashMap<InjectionMethod, MethodMetrics>,
+    /// Number of characters buffered
+    pub chars_buffered: u64,
+    /// Number of characters injected
+    pub chars_injected: u64,
+    /// Number of flushes
+    pub flushes: u64,
+    /// Number of paste operations
+    pub paste_uses: u64,
+    /// Number of keystroke operations
+    pub keystroke_uses: u64,
+    /// Number of backend denials
+    pub backend_denied: u64,
+    /// Number of focus missing errors
+    pub focus_missing: u64,
+    /// Number of rate limited events
+    pub rate_limited: u64,
+    /// Histogram of latency from final transcription to injection
+    pub latency_from_final_ms: Vec<u64>,
+    /// Histogram of flush sizes
+    pub flush_size_chars: Vec<u64>,
+    /// Timestamp of last injection
+    pub last_injection: Option<std::time::Instant>,
+    /// Age of stuck buffer (if any)
+    pub stuck_buffer_age_ms: u64,
 }
 
 /// Metrics for a specific injection method
@@ -213,6 +274,62 @@ impl InjectionMetrics {
         let method_metrics = self.method_metrics.entry(method).or_default();
         method_metrics.attempts += 1;
         method_metrics.total_duration_ms += duration_ms;
+    }
+    
+    /// Record characters that have been buffered
+    pub fn record_buffered_chars(&mut self, count: u64) {
+        self.chars_buffered += count;
+    }
+    
+    /// Record characters that have been successfully injected
+    pub fn record_injected_chars(&mut self, count: u64) {
+        self.chars_injected += count;
+    }
+    
+    /// Record a flush event
+    pub fn record_flush(&mut self, size: u64) {
+        self.flushes += 1;
+        self.flush_size_chars.push(size);
+    }
+    
+    /// Record a paste operation
+    pub fn record_paste(&mut self) {
+        self.paste_uses += 1;
+    }
+    
+    /// Record a keystroke operation
+    pub fn record_keystroke(&mut self) {
+        self.keystroke_uses += 1;
+    }
+    
+    /// Record a backend denial
+    pub fn record_backend_denied(&mut self) {
+        self.backend_denied += 1;
+    }
+    
+    /// Record a focus missing error
+    pub fn record_focus_missing(&mut self) {
+        self.focus_missing += 1;
+    }
+    
+    /// Record a rate limited event
+    pub fn record_rate_limited(&mut self) {
+        self.rate_limited += 1;
+    }
+    
+    /// Record latency from final transcription to injection
+    pub fn record_latency_from_final(&mut self, latency_ms: u64) {
+        self.latency_from_final_ms.push(latency_ms);
+    }
+    
+    /// Update the last injection timestamp
+    pub fn update_last_injection(&mut self) {
+        self.last_injection = Some(std::time::Instant::now());
+    }
+    
+    /// Update the stuck buffer age
+    pub fn update_stuck_buffer_age(&mut self, age_ms: u64) {
+        self.stuck_buffer_age_ms = age_ms;
     }
 
     /// Record a successful injection
@@ -247,4 +364,25 @@ impl InjectionMetrics {
             0.0
         };
     }
+}
+
+/// Trait for text injection backends
+pub trait TextInjector: Send {
+    /// Name of the injector for logging and metrics
+    fn name(&self) -> &'static str;
+    
+    /// Check if this injector is available for use
+    fn is_available(&self) -> bool;
+    
+    /// Inject text using this method
+    fn inject(&mut self, text: &str) -> Result<(), InjectionError>;
+    
+    /// Type text with pacing (characters per second)
+    fn type_text(&mut self, text: &str, rate_cps: u32) -> Result<(), InjectionError>;
+    
+    /// Paste text (may use clipboard or other methods)
+    fn paste(&mut self, text: &str) -> Result<(), InjectionError>;
+    
+    /// Get metrics for this injector
+    fn metrics(&self) -> &InjectionMetrics;
 }

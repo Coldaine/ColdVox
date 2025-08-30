@@ -50,6 +50,8 @@ pub struct InjectionProcessor {
     config: InjectionConfig,
     /// Metrics for telemetry
     metrics: Arc<Mutex<InjectionMetrics>>,
+    /// Shared injection metrics for all components
+    injection_metrics: Arc<Mutex<InjectionMetrics>>,
     /// Pipeline metrics for integration
     _pipeline_metrics: Option<Arc<PipelineMetrics>>,
 }
@@ -59,10 +61,13 @@ impl InjectionProcessor {
     pub fn new(
         config: InjectionConfig,
         pipeline_metrics: Option<Arc<PipelineMetrics>>,
+        injection_metrics: Arc<Mutex<InjectionMetrics>>,
     ) -> Self {
+        // Create session with shared metrics
         let session_config = SessionConfig::default(); // TODO: Expose this if needed
-        let session = InjectionSession::new(session_config);
-        let injector = StrategyManager::new(config.clone());
+        let session = InjectionSession::new(session_config, injection_metrics.clone());
+        
+        let injector = StrategyManager::new(config.clone(), injection_metrics.clone());
 
         let metrics = Arc::new(Mutex::new(InjectionMetrics {
             session_state: SessionState::Idle,
@@ -74,6 +79,7 @@ impl InjectionProcessor {
             injector,
             config,
             metrics,
+            injection_metrics,
             _pipeline_metrics: pipeline_metrics,
         }
     }
@@ -117,6 +123,10 @@ impl InjectionProcessor {
             TranscriptionEvent::Final { text, utterance_id, .. } => {
                 info!("Received final transcription [{}]: {}", utterance_id, text);
                 self.session.add_transcription(text);
+                // Record the number of characters buffered
+                if let Ok(mut metrics) = self.injection_metrics.lock() {
+                    metrics.record_buffered_chars(text.len() as u64);
+                }
                 self.update_metrics();
             }
             TranscriptionEvent::Error { code, message } => {
@@ -128,6 +138,29 @@ impl InjectionProcessor {
     /// Check if injection should be performed and execute if needed
     pub async fn check_and_inject(&mut self) -> anyhow::Result<()> {
         if self.session.should_inject() {
+            // Determine if we'll use paste or keystroke based on configuration
+            let use_paste = match self.config.injection_mode.as_str() {
+                "paste" => true,
+                "keystroke" => false,
+                "auto" => {
+                    let buffer_text = self.session.buffer_preview();
+                    buffer_text.len() > self.config.paste_chunk_chars as usize
+                }
+                _ => {
+                    let buffer_text = self.session.buffer_preview();
+                    buffer_text.len() > self.config.paste_chunk_chars as usize
+                }
+            };
+            
+            // Record the operation type
+            if let Ok(mut metrics) = self.injection_metrics.lock() {
+                if use_paste {
+                    metrics.record_paste();
+                } else {
+                    metrics.record_keystroke();
+                }
+            }
+            
             self.perform_injection().await?;
         }
         Ok(())
@@ -136,6 +169,29 @@ impl InjectionProcessor {
     /// Force injection of current buffer (for manual triggers)
     pub async fn force_inject(&mut self) -> anyhow::Result<()> {
         if self.session.has_content() {
+            // Determine if we'll use paste or keystroke based on configuration
+            let use_paste = match self.config.injection_mode.as_str() {
+                "paste" => true,
+                "keystroke" => false,
+                "auto" => {
+                    let buffer_text = self.session.buffer_preview();
+                    buffer_text.len() > self.config.paste_chunk_chars as usize
+                }
+                _ => {
+                    let buffer_text = self.session.buffer_preview();
+                    buffer_text.len() > self.config.paste_chunk_chars as usize
+                }
+            };
+            
+            // Record the operation type
+            if let Ok(mut metrics) = self.injection_metrics.lock() {
+                if use_paste {
+                    metrics.record_paste();
+                } else {
+                    metrics.record_keystroke();
+                }
+            }
+            
             self.session.force_inject();
             self.perform_injection().await?;
         }
@@ -156,7 +212,18 @@ impl InjectionProcessor {
             return Ok(());
         }
 
-        info!("Injecting {} characters from session", text.len());
+        // Record the time from final transcription to injection
+        let latency = self.session.time_since_last_transcription()
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+            
+        info!("Injecting {} characters from session (latency: {}ms)", text.len(), latency);
+
+        // Record the latency in metrics
+        if let Ok(mut metrics) = self.injection_metrics.lock() {
+            metrics.record_latency_from_final(latency);
+            metrics.update_last_injection();
+        }
 
         match self.injector.inject(&text).await {
             Ok(()) => {
@@ -221,8 +288,15 @@ impl AsyncInjectionProcessor {
         shutdown_rx: mpsc::Receiver<()>,
         pipeline_metrics: Option<Arc<PipelineMetrics>>,
     ) -> Self {
-        let injector = StrategyManager::new(config.clone());
-        let processor = Arc::new(Mutex::new(InjectionProcessor::new(config, pipeline_metrics)));
+        // Create shared injection metrics
+        let injection_metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
+        
+        // Create processor with shared metrics
+        let processor = Arc::new(Mutex::new(InjectionProcessor::new(config.clone(), pipeline_metrics, injection_metrics.clone())));
+        
+        // Create injector with shared metrics
+        let injector = StrategyManager::new(config, injection_metrics.clone());
+        
         Self {
             processor,
             transcription_rx,
@@ -311,7 +385,8 @@ mod tests {
     fn test_injection_processor_basic_flow() {
         let config = InjectionConfig::default();
 
-        let mut processor = InjectionProcessor::new(config, None);
+        let injection_metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
+        let mut processor = InjectionProcessor::new(config, None, injection_metrics);
 
         // Start with idle state
         assert_eq!(processor.session_state(), SessionState::Idle);
@@ -350,7 +425,8 @@ mod tests {
     #[test]
     fn test_metrics_update() {
         let config = InjectionConfig::default();
-        let mut processor = InjectionProcessor::new(config, None);
+        let injection_metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
+        let mut processor = InjectionProcessor::new(config, None, injection_metrics);
 
         // Add transcription
         processor.handle_transcription(TranscriptionEvent::Final {
@@ -368,7 +444,8 @@ mod tests {
     #[test]
     fn test_partial_transcription_handling() {
         let config = InjectionConfig::default();
-        let mut processor = InjectionProcessor::new(config, None);
+        let injection_metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
+        let mut processor = InjectionProcessor::new(config, None, injection_metrics);
 
         // Start with idle state
         assert_eq!(processor.session_state(), SessionState::Idle);

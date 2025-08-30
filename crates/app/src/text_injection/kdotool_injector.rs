@@ -1,24 +1,9 @@
-use crate::text_injection::types::{InjectionConfig, InjectionError, InjectionMethod, InjectionMetrics};
+use crate::text_injection::types::{InjectionConfig, InjectionError, InjectionMethod, InjectionMetrics, TextInjector};
 use anyhow::Result;
 use std::process::Command;
 use std::time::Duration;
 use tokio::time::{timeout, error::Elapsed};
 use tracing::{debug, error, info, warn};
-
-/// Trait for all text injection methods
-pub trait TextInjector {
-    /// Name of the injector for logging and metrics
-    fn name(&self) -> &'static str;
-    
-    /// Check if this injector is available for use
-    fn is_available(&self) -> bool;
-    
-    /// Inject text using this method
-    fn inject(&mut self, text: &str) -> Result<(), InjectionError>;
-    
-    /// Get metrics for this injector
-    fn metrics(&self) -> &InjectionMetrics;
-}
 
 /// Kdotool injector for KDE window activation/focus assistance
 pub struct KdotoolInjector {
