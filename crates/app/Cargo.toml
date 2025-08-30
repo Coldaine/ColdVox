@@ -39,6 +39,10 @@ name = "inject_demo"
 path = "../../examples/inject_demo.rs"
 required-features = ["text-injection"]
 
+[[bench]]
+name = "text_chunking_bench"
+harness = false
+
 [dependencies]
 tokio = { version = "1.35", features = ["full"] }
 anyhow = "1.0"
@@ -69,13 +73,14 @@ csv = "1.3"
 atspi = { version = "^0.28", features = ["tokio"], optional = true }
 zbus = { version = "^5", default-features = false, features = ["tokio"], optional = true }
 wl-clipboard-rs = { version = "^0.9", optional = true }
-enigo = { version = "^0.2", default-features = false, optional = true }
+enigo = { version = "^0.2", default-features = false, features = ["wayland"], optional = true }
 mouse-keyboard-input = { version = "^0.9", optional = true }
-ashpd = { version = "^0.9", features = ["tokio","wayland"], optional = true } # Phase 3
+ashpd = { version = "^0.9", features = ["wayland"], optional = true } # Phase 3
 reis = { version = "^0.4", features = ["tokio"], optional = true } # Phase 3
+regex = { version = "1.10", optional = true }
 
 [features]
-default = []
+default = ["text-injection-clipboard"]  # Keep minimal by default; AT-SPI opt-in
 live-hardware-tests = []
 vosk = []
 examples = []
@@ -95,6 +100,12 @@ text-injection-kdotool = ["text-injection"]
 text-injection-enigo = ["text-injection", "enigo"]
 # Enables mouse-keyboard-input as a fallback (virtual input)
 text-injection-mki = ["text-injection", "mouse-keyboard-input"]
+# Enables regex support for allowlist/blocklist patterns
+text-injection-regex = ["text-injection", "regex"]
+
+# Platform guidance:
+# Wayland Plasma/KDE: recommend clipboard and AT-SPI; ydotool optional.
+# X11: clipboard + xdotool path if you later add an X11 injector.
 
 # --- Phase 3 Placeholders ---
 text-injection-portal-eis = ["text-injection", "ashpd", "reis"]

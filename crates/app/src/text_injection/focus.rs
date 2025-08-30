@@ -24,11 +24,12 @@ pub struct FocusTracker {
 impl FocusTracker {
     /// Create a new focus tracker
     pub fn new(config: InjectionConfig) -> Self {
+        let cache_duration = Duration::from_millis(config.focus_cache_duration_ms);
         Self {
             config,
             last_check: None,
             cached_status: None,
-            cache_duration: Duration::from_millis(200), // Cache for 200ms
+            cache_duration,
         }
     }
 
@@ -55,10 +56,20 @@ impl FocusTracker {
 
     /// Check the actual focus status
     async fn check_focus_status(&self) -> Result<FocusStatus, InjectionError> {
-        // For Phase 2, we always assume editable focus
-        // Real AT-SPI implementation will come in Phase 3
-        warn!("AT-SPI focus checking not yet implemented, assuming editable focus");
-        Ok(FocusStatus::EditableText)
+        #[cfg(feature = "text-injection-atspi")]
+        {
+            // TODO: Implement real AT-SPI focus detection once API is stable
+            // For now, return a reasonable default
+            debug!("AT-SPI focus detection placeholder - returning Unknown");
+            return Ok(FocusStatus::Unknown);
+        }
+        
+        #[cfg(not(feature = "text-injection-atspi"))]
+        {
+            // Fallback: Without AT-SPI, we can't reliably determine focus
+            debug!("AT-SPI not available, returning unknown focus status");
+            Ok(FocusStatus::Unknown)
+        }
     }
 
     /// Clear the focus cache (useful when window focus changes)
