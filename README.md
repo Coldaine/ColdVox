@@ -28,10 +28,12 @@ RUST_LOG=debug cargo run --features vosk
 - Ring buffer and backpressure handling with stats
 - Voice Activity Detection (Silero V5 via vendored fork)
 - STT framework implemented (Vosk - requires system dependencies)
+- Optional push-to-talk mode activated by holding <kbd>Ctrl</kbd>+<kbd>Super</kbd> with a small on-screen indicator centered one-third from the bottom of the screen
 
 ## Configuration
 
 - CLI flags are the primary interface (see probes for examples).
+  - `--activation-mode`: select `hotkey` (default) or `vad` to control how speech is detected
 - Environment variables:
   - `RUST_LOG`: Controls logging verbosity (info/debug)
   - `VOSK_MODEL_PATH`: Path to Vosk model files (defaults to models/vosk-model-small-en-us-0.15)

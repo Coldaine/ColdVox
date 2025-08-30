@@ -16,8 +16,9 @@ use coldvox_app::vad::config::{UnifiedVadConfig, VadMode};
 use coldvox_app::vad::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 use coldvox_app::vad::types::VadEvent;
 use coldvox_app::telemetry::pipeline_metrics::PipelineMetrics;
+use coldvox_app::hotkey::spawn_hotkey_listener;
 use std::time::Duration;
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use tokio::sync::{broadcast, mpsc};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -74,6 +75,16 @@ struct Cli {
     /// Keep transcription files for N days (0 = forever)
     #[arg(long = "retention-days", default_value = "30")]
     retention_days: u32,
+
+    /// Activation mode: "vad" or "hotkey"
+    #[arg(long = "activation-mode", default_value = "hotkey", value_enum)]
+    activation_mode: ActivationMode,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum ActivationMode {
+    Vad,
+    Hotkey,
 }
 
 #[tokio::main]
@@ -161,20 +172,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // We no longer need a separate monitor; the chunker reads device config updates directly.
 
     let (event_tx, mut event_rx) = mpsc::channel::<VadEvent>(100);
-    let vad_audio_rx = audio_tx.subscribe();
-    let vad_handle = match coldvox_app::audio::vad_processor::VadProcessor::spawn(
-        vad_cfg.clone(),
-        vad_audio_rx,
-        event_tx,
-        Some(metrics.clone()),
-    ) {
-        Ok(h) => h,
-        Err(e) => {
-            chunker_handle.abort();
-            return Err(anyhow!(e).into());
+    let trigger_handle = match cli.activation_mode {
+        ActivationMode::Vad => {
+            let vad_audio_rx = audio_tx.subscribe();
+            match coldvox_app::audio::vad_processor::VadProcessor::spawn(
+                vad_cfg.clone(),
+                vad_audio_rx,
+                event_tx,
+                Some(metrics.clone()),
+            ) {
+                Ok(h) => {
+                    tracing::info!("VAD processor task started.");
+                    h
+                }
+                Err(e) => {
+                    chunker_handle.abort();
+                    return Err(anyhow!(e).into());
+                }
+            }
+        }
+        ActivationMode::Hotkey => {
+            tracing::info!("Hotkey listener started.");
+            spawn_hotkey_listener(event_tx)
         }
     };
-    tracing::info!("VAD processor task started.");
 
     // --- 4. STT Processor ---
     // Check for Vosk model path from environment or use default
@@ -305,7 +326,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let metadata = SessionMetadata {
                 device_name: device.clone().unwrap_or_else(|| "default".to_string()),
                 sample_rate: SAMPLE_RATE_HZ,
-                vad_mode: format!("{:?}", vad_cfg.mode),
+                vad_mode: match cli.activation_mode {
+                    ActivationMode::Vad => format!("{:?}", vad_cfg.mode),
+                    ActivationMode::Hotkey => "Hotkey".to_string(),
+                },
                 stt_model: stt_config.model_path.clone(),
                 app_version: env!("CARGO_PKG_VERSION").to_string(),
             };
@@ -382,7 +406,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 3. Abort the tasks. This will drop their channel senders, causing downstream
     //    tasks with `recv()` loops to terminate gracefully.
     chunker_handle.abort();
-    vad_handle.abort();
+    trigger_handle.abort();
     if let Some(handle) = &stt_handle {
         handle.abort();
     }
@@ -394,7 +418,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 4. Await all handles to ensure they have fully cleaned up.
     // We ignore the results since we are aborting them and expect JoinError.
     let _ = chunker_handle.await;
-    let _ = vad_handle.await;
+    let _ = trigger_handle.await;
     if let Some(handle) = stt_handle {
         let _ = handle.await;
     }
