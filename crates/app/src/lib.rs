@@ -5,3 +5,4 @@ pub mod stt;
 pub mod telemetry;
 pub mod text_injection;
 pub mod vad;
+pub mod hotkey;
