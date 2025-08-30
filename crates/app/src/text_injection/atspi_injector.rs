@@ -4,8 +4,9 @@ use atspi::action::Action;
 use atspi::editable_text::EditableText;
 use atspi::Accessible;
 use std::time::Duration;
-use tokio::time::{timeout, error::Elapsed};
+use tokio::time::timeout;
 use tracing::{debug, error, info, warn};
+use async_trait::async_trait;
 
 /// AT-SPI2 injector for direct text insertion
 pub struct AtspiInjector {
@@ -87,6 +88,7 @@ impl AtspiInjector {
     }
 }
 
+#[async_trait]
 impl super::types::TextInjector for AtspiInjector {
     fn name(&self) -> &'static str {
         "AT-SPI2"
@@ -97,7 +99,7 @@ impl super::types::TextInjector for AtspiInjector {
         std::env::var("XDG_SESSION_TYPE").map(|t| t == "wayland").unwrap_or(false)
     }
 
-    fn inject(&mut self, text: &str) -> Result<(), InjectionError> {
+    async fn inject(&mut self, text: &str) -> Result<(), InjectionError> {
         if text.is_empty() {
             return Ok(());
         }
@@ -105,14 +107,11 @@ impl super::types::TextInjector for AtspiInjector {
         let start = std::time::Instant::now();
         
         // Get focus status
-        let focus_status = match self.focus_tracker.get_focus_status().await {
-            Ok(status) => status,
-            Err(e) => {
-                let duration = start.elapsed().as_millis() as u64;
-                self.metrics.record_failure(InjectionMethod::AtspiInsert, duration, e.clone());
-                return Err(e);
-            }
-        };
+        let focus_status = self.focus_tracker.get_focus_status().await.map_err(|e| {
+            let duration = start.elapsed().as_millis() as u64;
+            self.metrics.record_failure(InjectionMethod::AtspiInsert, duration, e.to_string());
+            e
+        })?;
 
         // Only proceed if we have a confirmed editable field or unknown focus (if allowed)
         if focus_status == FocusStatus::NonEditable {
@@ -123,7 +122,7 @@ impl super::types::TextInjector for AtspiInjector {
 
         if focus_status == FocusStatus::Unknown && !self.config.inject_on_unknown_focus {
             debug!("Focus state unknown and injection on unknown focus disabled");
-            return Err(InjectionError::FocusError("Unknown focus state".to_string()));
+            return Err(InjectionError::Other("Unknown focus state".to_string()));
         }
 
         // Get focused element
@@ -131,33 +130,31 @@ impl super::types::TextInjector for AtspiInjector {
             Ok(Some(element)) => element,
             Ok(None) => {
                 debug!("No focused element");
-                return Err(InjectionError::FocusError("No focused element".to_string()));
+                return Err(InjectionError::Other("No focused element".to_string()));
             }
             Err(e) => {
                 let duration = start.elapsed().as_millis() as u64;
-                self.metrics.record_failure(InjectionMethod::AtspiInsert, duration, InjectionError::Atspi(e));
-                return Err(InjectionError::Atspi(e));
+                self.metrics.record_failure(InjectionMethod::AtspiInsert, duration, e.to_string());
+                return Err(InjectionError::Other(e.to_string()));
             }
         };
 
         // Try direct insertion first
-        match timeout(
+        let direct_res = timeout(
             Duration::from_millis(self.config.per_method_timeout_ms),
             self.insert_text_direct(text, &focused),
-        ).await {
-            Ok(Ok(())) => {
-                return Ok(());
-            }
+        ).await;
+        match direct_res {
+            Ok(Ok(())) => return Ok(()),
             Ok(Err(e)) => {
                 debug!("Direct insertion failed: {}", e);
-                // Continue to try paste action
             }
             Err(_) => {
                 let duration = start.elapsed().as_millis() as u64;
                 self.metrics.record_failure(
                     InjectionMethod::AtspiInsert,
                     duration,
-                    InjectionError::Timeout(self.config.per_method_timeout_ms)
+                    format!("Timeout after {}ms", self.config.per_method_timeout_ms)
                 );
                 return Err(InjectionError::Timeout(self.config.per_method_timeout_ms));
             }
@@ -165,13 +162,12 @@ impl super::types::TextInjector for AtspiInjector {
 
         // If direct insertion failed, try paste action if the element supports it
         if self.focus_tracker.supports_paste_action(&focused).await.unwrap_or(false) {
-            match timeout(
+            let paste_res = timeout(
                 Duration::from_millis(self.config.paste_action_timeout_ms),
                 self.trigger_paste_action(&focused),
-            ).await {
-                Ok(Ok(())) => {
-                    return Ok(());
-                }
+            ).await;
+            match paste_res {
+                Ok(Ok(())) => return Ok(()),
                 Ok(Err(e)) => {
                     debug!("Paste action failed: {}", e);
                 }
@@ -180,7 +176,7 @@ impl super::types::TextInjector for AtspiInjector {
                     self.metrics.record_failure(
                         InjectionMethod::AtspiInsert,
                         duration,
-                        InjectionError::Timeout(self.config.paste_action_timeout_ms)
+                        format!("Timeout after {}ms", self.config.paste_action_timeout_ms)
                     );
                     return Err(InjectionError::Timeout(self.config.paste_action_timeout_ms));
                 }
@@ -192,7 +188,7 @@ impl super::types::TextInjector for AtspiInjector {
         self.metrics.record_failure(
             InjectionMethod::AtspiInsert,
             duration,
-            InjectionError::MethodFailed("Both direct insertion and paste action failed".to_string())
+            "Both direct insertion and paste action failed".to_string()
         );
         Err(InjectionError::MethodFailed("AT-SPI2 injection failed".to_string()))
     }

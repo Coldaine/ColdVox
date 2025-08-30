@@ -2,7 +2,6 @@
 mod tests {
     #[cfg(feature = "text-injection-ydotool")]
     use crate::text_injection::ydotool_injector::YdotoolInjector;
-    use crate::text_injection::types::InjectionConfig;
     use std::process::Command;
 
     #[test]

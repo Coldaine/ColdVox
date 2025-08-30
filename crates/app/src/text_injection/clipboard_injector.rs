@@ -3,8 +3,7 @@ use std::time::{Duration, Instant};
 use tracing::{debug, info, warn};
 use wl_clipboard_rs::copy::{Options, Source, MimeType};
 use wl_clipboard_rs::paste::{MimeType as PasteMimeType};
-use std::thread;
-use std::sync::mpsc;
+use async_trait::async_trait;
 
 /// Clipboard injector using Wayland-native API
 pub struct ClipboardInjector {
@@ -25,6 +24,7 @@ impl ClipboardInjector {
     }
 }
 
+#[async_trait]
 impl TextInjector for ClipboardInjector {
     fn name(&self) -> &'static str {
         "Clipboard"
@@ -35,7 +35,7 @@ impl TextInjector for ClipboardInjector {
         std::env::var("WAYLAND_DISPLAY").is_ok()
     }
 
-    fn inject(&mut self, text: &str) -> Result<(), InjectionError> {
+    async fn inject(&mut self, text: &str) -> Result<(), InjectionError> {
         if text.is_empty() {
             return Ok(());
         }
@@ -49,20 +49,17 @@ impl TextInjector for ClipboardInjector {
         // This keeps the trait simple while still allowing async operations under the hood.
 
         // Set new clipboard content with timeout
-        let (tx, rx) = mpsc::channel();
         let text_clone = text.to_string();
+        let timeout_ms = self.config.per_method_timeout_ms;
         
-        thread::spawn(move || {
+        let result = tokio::task::spawn_blocking(move || {
             let source = Source::Bytes(text_clone.into_bytes().into());
             let options = Options::new();
             
-            let result = wl_clipboard_rs::copy::copy(options, source, MimeType::Text);
-            
-            tx.send(result).unwrap();
-        });
+            wl_clipboard_rs::copy::copy(options, source, MimeType::Text)
+        }).await;
 
-        // Wait for result with timeout
-        match rx.recv_timeout(Duration::from_millis(self.config.per_method_timeout_ms)) {
+        match result {
             Ok(Ok(_)) => {
                 let duration = start.elapsed().as_millis() as u64;
                 self.metrics.record_success(InjectionMethod::Clipboard, duration);
@@ -76,16 +73,16 @@ impl TextInjector for ClipboardInjector {
                     duration, 
                     e.to_string()
                 );
-                Err(InjectionError::Clipboard(e))
+                Err(InjectionError::Clipboard(e.to_string()))
             }
             Err(_) => {
                 let duration = start.elapsed().as_millis() as u64;
                 self.metrics.record_failure(
                     InjectionMethod::Clipboard, 
                     duration, 
-                    format!("Timeout after {}ms", self.config.per_method_timeout_ms)
+                    format!("Timeout after {}ms", timeout_ms)
                 );
-                Err(InjectionError::Timeout(self.config.per_method_timeout_ms))
+                Err(InjectionError::Timeout(timeout_ms))
             }
         }
     }
@@ -187,7 +184,7 @@ impl ClipboardInjector {
                     Ok(())
                 }
                 Err(e) => {
-            Err(InjectionError::Clipboard(e))
+            Err(InjectionError::Clipboard(e.to_string()))
                 }
             }
         }
@@ -270,12 +267,12 @@ mod tests {
     }
 
     // Test that inject fails with empty text
-    #[test]
-    fn test_clipboard_inject_empty_text() {
+    #[tokio::test]
+    async fn test_clipboard_inject_empty_text() {
         let config = InjectionConfig::default();
         let mut injector = ClipboardInjector::new(config);
         
-        let result = injector.inject("");
+        let result = injector.inject("").await;
         assert!(result.is_ok());
         assert_eq!(injector.metrics.attempts, 0); // Should not record attempt for empty text
     }

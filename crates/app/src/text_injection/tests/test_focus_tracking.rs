@@ -26,7 +26,7 @@ mod tests {
         let mut tracker = FocusTracker::new(config);
         
         // Get initial status
-        let status1 = tracker.get_focus_status().await.unwrap();
+        let _status1 = tracker.get_focus_status().await.unwrap();
         assert!(tracker.cached_focus_status().is_some());
         
         // Wait for cache to expire

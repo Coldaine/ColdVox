@@ -2,8 +2,9 @@ use crate::text_injection::types::{InjectionConfig, InjectionError, InjectionMet
 use anyhow::Result;
 use std::process::Command;
 use std::time::Duration;
-use tokio::time::{timeout, error::Elapsed};
+use tokio::time::timeout;
 use tracing::{debug, error, info, warn};
+use async_trait::async_trait;
 
 /// Ydotool injector for synthetic key events
 pub struct YdotoolInjector {
@@ -121,9 +122,9 @@ impl YdotoolInjector {
                 .args(&["key", "ctrl+v"])
                 .output(),
         )
-        .await
-        .map_err(|_| InjectionError::Timeout(self.config.paste_action_timeout_ms))?
-        .map_err(|e| InjectionError::Process(e))?;
+    .await
+    .map_err(|_| InjectionError::Timeout(self.config.paste_action_timeout_ms))?
+    .map_err(|e| InjectionError::Process(format!("{e}")))?;
         
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -148,9 +149,9 @@ impl YdotoolInjector {
                 .args(&["type", "--delay", "10", text])
                 .output(),
         )
-        .await
-        .map_err(|_| InjectionError::Timeout(self.config.per_method_timeout_ms))?
-        .map_err(|e| InjectionError::Process(e))?;
+    .await
+    .map_err(|_| InjectionError::Timeout(self.config.per_method_timeout_ms))?
+    .map_err(|e| InjectionError::Process(format!("{e}")))?;
         
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -165,6 +166,7 @@ impl YdotoolInjector {
     }
 }
 
+#[async_trait]
 impl TextInjector for YdotoolInjector {
     fn name(&self) -> &'static str {
         "Ydotool"
@@ -174,18 +176,18 @@ impl TextInjector for YdotoolInjector {
         self.is_available && self.config.allow_ydotool
     }
 
-    fn inject(&mut self, text: &str) -> Result<(), InjectionError> {
+    async fn inject(&mut self, text: &str) -> Result<(), InjectionError> {
         if text.is_empty() {
             return Ok(());
         }
 
         // First try paste action (more reliable for batch text)
-        match self.trigger_paste() {
+        match self.trigger_paste().await {
             Ok(()) => Ok(()),
             Err(e) => {
                 debug!("Paste action failed: {}", e);
                 // Fall back to direct typing
-                self.type_text(text)
+                self.type_text(text).await
             }
         }
     }

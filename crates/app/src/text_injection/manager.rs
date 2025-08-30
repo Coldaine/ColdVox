@@ -560,7 +560,7 @@ pub(crate) fn is_app_allowed(&self, app_id: &str) -> bool {
 
     /// Back-compat: previous tests may call no-arg version; compute without caching
     #[allow(dead_code)]
-    pub(crate) fn get_method_order_uncached(&self) -> Vec<InjectionMethod> {
+    pub fn get_method_order_uncached(&self) -> Vec<InjectionMethod> {
         // Compute using a placeholder app id without affecting cache
         // Duplicate core logic minimally by delegating to a copy of code
         let available_backends = self.backend_detector.detect_available_backends();
@@ -624,7 +624,7 @@ pub(crate) fn is_app_allowed(&self, app_id: &str) -> bool {
     
     /// Chunk text and paste with delays between chunks
     #[allow(dead_code)]
-    fn chunk_and_paste(&mut self, injector: &mut Box<dyn TextInjector>, text: &str) -> Result<(), InjectionError> {
+    async fn chunk_and_paste(&mut self, injector: &mut Box<dyn TextInjector>, text: &str) -> Result<(), InjectionError> {
         let chunk_size = self.config.paste_chunk_chars as usize;
 
         // Use iterator-based chunking without collecting
@@ -648,13 +648,13 @@ pub(crate) fn is_app_allowed(&self, app_id: &str) -> bool {
             }
 
             let chunk = &text[start..end];
-            injector.paste(chunk)?;
+            injector.paste(chunk).await?;
 
             start = end;
 
             // Delay between chunks (except after last)
             if start < text.len() {
-                std::thread::sleep(Duration::from_millis(self.config.chunk_delay_ms));
+                tokio::time::sleep(Duration::from_millis(self.config.chunk_delay_ms)).await;
             }
         }
         
@@ -669,7 +669,7 @@ pub(crate) fn is_app_allowed(&self, app_id: &str) -> bool {
     
     /// Type text with pacing based on keystroke rate
     #[allow(dead_code)]
-    fn pace_type_text(&mut self, injector: &mut Box<dyn TextInjector>, text: &str) -> Result<(), InjectionError> {
+    async fn pace_type_text(&mut self, injector: &mut Box<dyn TextInjector>, text: &str) -> Result<(), InjectionError> {
         let rate_cps = self.config.keystroke_rate_cps;
         let max_burst = self.config.max_burst_chars as usize;
         
@@ -694,12 +694,12 @@ pub(crate) fn is_app_allowed(&self, app_id: &str) -> bool {
             }
 
             let burst = &text[start..end];
-            injector.type_text(burst, rate_cps)?;
+            injector.type_text(burst, rate_cps).await?;
 
             // Calculate delay based on burst size and rate
             let delay_ms = (burst.len() as f64 / rate_cps as f64 * 1000.0) as u64;
             if delay_ms > 0 {
-                std::thread::sleep(Duration::from_millis(delay_ms));
+                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
             }
 
             start = end;
@@ -808,9 +808,9 @@ pub(crate) fn is_app_allowed(&self, app_id: &str) -> bool {
                 if let Some(injector) = self.injectors.get_mut(method) {
                     if use_paste {
                         // For now, perform a single paste operation; chunking is optional
-                        injector.paste(text)
+                        injector.paste(text).await
                     } else {
-                        injector.type_text(text, self.config.keystroke_rate_cps)
+                        injector.type_text(text, self.config.keystroke_rate_cps).await
                     }
                 } else {
                     continue;
@@ -886,6 +886,7 @@ pub(crate) fn is_app_allowed(&self, app_id: &str) -> bool {
 mod tests {
     use super::*;
     use std::time::Duration;
+    use async_trait::async_trait;
     
     
     /// Mock injector for testing
@@ -897,6 +898,7 @@ mod tests {
         metrics: InjectionMetrics,
     }
     
+    #[allow(dead_code)]
     impl MockInjector {
         fn new(name: &'static str, available: bool, success_rate: f64) -> Self {
             Self {
@@ -908,6 +910,7 @@ mod tests {
         }
     }
     
+    #[async_trait]
     impl TextInjector for MockInjector {
         fn name(&self) -> &'static str {
             self.name
@@ -917,7 +920,7 @@ mod tests {
             self.available
         }
         
-        fn inject(&mut self, _text: &str) -> Result<(), InjectionError> {
+        async fn inject(&mut self, _text: &str) -> Result<(), InjectionError> {
             use std::time::SystemTime;
             
             // Simple pseudo-random based on system time

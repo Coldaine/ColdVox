@@ -2,20 +2,19 @@ use std::sync::Arc;
 use crate::telemetry::pipeline_metrics::PipelineMetrics;
 use crate::text_injection::manager::StrategyManager;
 use crate::text_injection::types::{InjectionConfig, InjectionMetrics};
-use crate::probes::common::{LiveTestResult, TestContext, TestError, TestErrorKind};
+use crate::probes::common::{LiveTestResult, TestContext, TestError};
 use serde_json::json;
 use std::collections::HashMap;
-use std::time::Duration;
 
 #[derive(Debug)]
 pub struct TextInjectionProbe;
 
 impl TextInjectionProbe {
-    pub async fn run(ctx: &TestContext) -> Result<LiveTestResult, TestError> {
+    pub async fn run(_ctx: &TestContext) -> Result<LiveTestResult, TestError> {
         let config = InjectionConfig::default();
         
         // Create shared metrics
-        let metrics = Arc::new(PipelineMetrics::default());
+        let _metrics = Arc::new(PipelineMetrics::default());
         let injection_metrics = Arc::new(std::sync::Mutex::new(InjectionMetrics::default()));
         
         // Create strategy manager

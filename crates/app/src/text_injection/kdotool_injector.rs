@@ -4,6 +4,7 @@ use std::process::Command;
 use std::time::Duration;
 use tokio::time::{timeout, error::Elapsed};
 use tracing::{debug, error, info, warn};
+use async_trait::async_trait;
 
 /// Kdotool injector for KDE window activation/focus assistance
 pub struct KdotoolInjector {
@@ -108,6 +109,7 @@ impl KdotoolInjector {
     }
 }
 
+#[async_trait]
 impl TextInjector for KdotoolInjector {
     fn name(&self) -> &'static str {
         "Kdotool"
@@ -117,7 +119,7 @@ impl TextInjector for KdotoolInjector {
         self.is_available && self.config.allow_kdotool
     }
 
-    fn inject(&mut self, _text: &str) -> Result<(), InjectionError> {
+    async fn inject(&mut self, _text: &str) -> Result<(), InjectionError> {
         // Kdotool is only used for window activation/focus assistance
         // It doesn't actually inject text, so this method should not be called
         // directly for text injection

@@ -1,6 +1,6 @@
 use crate::text_injection::types::{InjectionConfig, InjectionError};
 use std::time::{Duration, Instant};
-use tracing::{debug, warn};
+use tracing::debug;
 
 /// Status of current focus in the system
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

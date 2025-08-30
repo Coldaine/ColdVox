@@ -1,4 +1,4 @@
-use super::super::*;
+use crate::text_injection::types::*;
 use crate::text_injection::noop_injector::NoOpInjector;
 
 #[test]

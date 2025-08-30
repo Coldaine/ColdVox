@@ -11,7 +11,7 @@ mod integration_tests {
         config.restore_clipboard = true;
         
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
-        let mut manager = StrategyManager::new(config, metrics.clone());
+        let manager = StrategyManager::new(config, metrics.clone());
         
         // Test getting current app ID
         let app_id = manager.get_current_app_id().await;

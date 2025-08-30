@@ -78,6 +78,7 @@ mouse-keyboard-input = { version = "^0.9", optional = true }
 ashpd = { version = "^0.9", features = ["wayland"], optional = true } # Phase 3
 reis = { version = "^0.4", features = ["tokio"], optional = true } # Phase 3
 regex = { version = "1.10", optional = true }
+async-trait = "0.1"
 
 [features]
 default = ["text-injection-clipboard"]  # Keep minimal by default; AT-SPI opt-in

@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use async_trait::async_trait;
 
 /// Enumeration of all available text injection methods
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -288,9 +289,8 @@ pub enum InjectionError {
     #[error("Budget exhausted")]
     BudgetExhausted,
     
-    #[cfg(feature = "text-injection-clipboard")]
     #[error("Clipboard error: {0}")]
-    Clipboard(#[from] wl_clipboard_rs::copy::Error),
+    Clipboard(String),
     
     #[error("Process error: {0}")]
     Process(String),
@@ -472,6 +472,7 @@ impl InjectionMetrics {
 /// runtime on callers.
 
 /// Trait for text injection backends
+#[async_trait]
 pub trait TextInjector: Send {
     /// Name of the injector for logging and metrics
     fn name(&self) -> &'static str;
@@ -480,18 +481,18 @@ pub trait TextInjector: Send {
     fn is_available(&self) -> bool;
     
     /// Inject text using this method
-    fn inject(&mut self, text: &str) -> Result<(), InjectionError>;
+    async fn inject(&mut self, text: &str) -> Result<(), InjectionError>;
     
     /// Type text with pacing (characters per second)
     /// Default implementation falls back to inject()
-    fn type_text(&mut self, text: &str, _rate_cps: u32) -> Result<(), InjectionError> {
-        self.inject(text)
+    async fn type_text(&mut self, text: &str, _rate_cps: u32) -> Result<(), InjectionError> {
+        self.inject(text).await
     }
     
     /// Paste text (may use clipboard or other methods)
     /// Default implementation falls back to inject()
-    fn paste(&mut self, text: &str) -> Result<(), InjectionError> {
-        self.inject(text)
+    async fn paste(&mut self, text: &str) -> Result<(), InjectionError> {
+        self.inject(text).await
     }
     
     /// Get metrics for this injector

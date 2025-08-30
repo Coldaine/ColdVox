@@ -1,6 +1,7 @@
 use crate::text_injection::types::InjectionError;
 use std::process::Command;
-use tracing::{debug, warn};
+use tracing::debug;
+use serde_json;
 
 /// Get the currently active window class name
 pub async fn get_active_window_class() -> Result<String, InjectionError> {
@@ -96,22 +97,38 @@ async fn get_wayland_window_class() -> Result<String, InjectionError> {
         .map_err(|e| InjectionError::Process(format!("swaymsg failed: {}", e)))?;
     
     if output.status.success() {
-        // Parse JSON to find focused window
-        // This would require serde_json dependency
-        // For now, we'll use a simple text search approach
+        // Parse JSON to find focused window using serde_json
         let tree = String::from_utf8_lossy(&output.stdout);
-        
-        // Look for focused node
-        if let Some(focused_idx) = tree.find("\"focused\":true") {
-            // Look backwards for the app_id
-            let search_area = &tree[..focused_idx];
-            if let Some(app_id_idx) = search_area.rfind("\"app_id\":\"") {
-                let start = app_id_idx + 10; // Length of "app_id":"
-                if let Some(end_idx) = tree[start..].find('"') {
-                    let app_id = &tree[start..start + end_idx];
-                    return Ok(app_id.to_string());
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&tree) {
+            // Depth-first search for focused node with app_id
+            fn dfs(node: &serde_json::Value) -> Option<String> {
+                if node.get("focused").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    if let Some(app_id) = node.get("app_id").and_then(|v| v.as_str()) {
+                        return Some(app_id.to_string());
+                    }
+                    if let Some(window_props) = node.get("window_properties") {
+                        if let Some(class) = window_props.get("class").and_then(|v| v.as_str()) {
+                            return Some(class.to_string());
+                        }
+                    }
                 }
+                if let Some(nodes) = node.get("nodes").and_then(|v| v.as_array()) {
+                    for n in nodes {
+                        if let Some(found) = dfs(n) { return Some(found); }
+                    }
+                }
+                if let Some(floating_nodes) = node.get("floating_nodes").and_then(|v| v.as_array()) {
+                    for n in floating_nodes {
+                        if let Some(found) = dfs(n) { return Some(found); }
+                    }
+                }
+                None
             }
+            if let Some(app_id) = dfs(&json) {
+                return Ok(app_id);
+            }
+        } else {
+            debug!("Failed to parse swaymsg JSON; falling back");
         }
     }
     

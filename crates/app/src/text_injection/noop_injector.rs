@@ -1,4 +1,5 @@
 use crate::text_injection::types::{InjectionConfig, InjectionError, InjectionMethod, InjectionMetrics, TextInjector};
+use async_trait::async_trait;
 
 /// NoOp injector that always succeeds but does nothing
 /// Used as a fallback when no other injectors are available
@@ -17,6 +18,7 @@ impl NoOpInjector {
     }
 }
 
+#[async_trait]
 impl TextInjector for NoOpInjector {
     fn name(&self) -> &'static str {
         "NoOp"
@@ -26,7 +28,7 @@ impl TextInjector for NoOpInjector {
         true  // Always available as fallback
     }
 
-    fn inject(&mut self, text: &str) -> Result<(), InjectionError> {
+    async fn inject(&mut self, text: &str) -> Result<(), InjectionError> {
         if text.is_empty() {
             return Ok(());
         }
@@ -61,12 +63,12 @@ mod tests {
         assert_eq!(injector.metrics().attempts, 0);
     }
 
-    #[test]
-    fn test_noop_inject_success() {
+    #[tokio::test]
+    async fn test_noop_inject_success() {
         let config = InjectionConfig::default();
         let mut injector = NoOpInjector::new(config);
 
-        let result = injector.inject("test text");
+        let result = injector.inject("test text").await;
         assert!(result.is_ok());
 
         // Check metrics
@@ -76,12 +78,12 @@ mod tests {
         assert_eq!(metrics.failures, 0);
     }
 
-    #[test]
-    fn test_noop_inject_empty_text() {
+    #[tokio::test]
+    async fn test_noop_inject_empty_text() {
         let config = InjectionConfig::default();
         let mut injector = NoOpInjector::new(config);
 
-        let result = injector.inject("");
+        let result = injector.inject("").await;
         assert!(result.is_ok());
 
         // Should not record metrics for empty text

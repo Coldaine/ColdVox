@@ -1,4 +1,4 @@
-use crate::text_injection::types::{InjectionConfig, TextInjector};
+use crate::text_injection::types::InjectionConfig;
 use std::env;
 
 /// Available text injection backends
