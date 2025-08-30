@@ -18,6 +18,8 @@ pub enum InjectionMethod {
     EnigoText,
     /// Use mouse-keyboard-input for synthetic key events (opt-in, last resort)
     UinputKeys,
+    /// No-op fallback injector (always succeeds, does nothing)
+    NoOp,
 }
 
 /// Configuration for text injection system
@@ -40,8 +42,20 @@ pub struct InjectionConfig {
     #[serde(default = "default_false")]
     pub restore_clipboard: bool,
     /// Whether to allow injection when focus state is unknown
-    #[serde(default = "default_false")]
+    #[serde(default = "default_inject_on_unknown_focus")]
     pub inject_on_unknown_focus: bool,
+    
+    /// Whether to require editable focus for injection
+    #[serde(default = "default_require_focus")]
+    pub require_focus: bool,
+    
+    /// Hotkey to pause/resume injection (e.g., "Ctrl+Alt+P")
+    #[serde(default = "default_pause_hotkey")]
+    pub pause_hotkey: Option<String>,
+    
+    /// Whether to redact text content in logs
+    #[serde(default = "default_redact_logs")]
+    pub redact_logs: bool,
 
     /// Overall latency budget for a single injection call, across all fallbacks.
     #[serde(default = "default_max_total_latency_ms")]
@@ -76,9 +90,65 @@ pub struct InjectionConfig {
     /// Number of characters to chunk paste operations into
     #[serde(default = "default_paste_chunk_chars")]
     pub paste_chunk_chars: u32,
+    /// Delay between paste chunks in milliseconds
+    #[serde(default = "default_chunk_delay_ms")]
+    pub chunk_delay_ms: u64,
+    
+    /// Cache duration for focus status (ms)
+    #[serde(default = "default_focus_cache_duration_ms")]
+    pub focus_cache_duration_ms: u64,
+    
+    /// Minimum success rate before trying fallback methods
+    #[serde(default = "default_min_success_rate")]
+    pub min_success_rate: f64,
+    
+    /// Number of samples before trusting success rate
+    #[serde(default = "default_min_sample_size")]
+    pub min_sample_size: u32,
+    
+    /// Enable window manager integration
+    #[serde(default = "default_true")]
+    pub enable_window_detection: bool,
+    
+    /// Delay before restoring clipboard (ms)
+    #[serde(default = "default_clipboard_restore_delay_ms")]
+    pub clipboard_restore_delay_ms: Option<u64>,
+    
+    /// Allowlist of application patterns (regex) for injection
+    #[serde(default)]
+    pub allowlist: Vec<String>,
+    
+    /// Blocklist of application patterns (regex) to block injection
+    #[serde(default)]
+    pub blocklist: Vec<String>,
+}
 
 fn default_false() -> bool {
     false
+}
+
+fn default_inject_on_unknown_focus() -> bool {
+    true  // Default to true to avoid blocking on Wayland without AT-SPI
+}
+
+fn default_require_focus() -> bool {
+    false
+}
+
+fn default_pause_hotkey() -> Option<String> {
+    None
+}
+
+fn default_redact_logs() -> bool {
+    true  // Privacy-first by default
+}
+
+fn default_allowlist() -> Vec<String> {
+    vec![]
+}
+
+fn default_blocklist() -> Vec<String> {
+    vec![]
 }
 
 fn default_injection_mode() -> String {
@@ -95,6 +165,28 @@ fn default_max_burst_chars() -> u32 {
 
 fn default_paste_chunk_chars() -> u32 {
     500  // Chunk paste operations into 500 character chunks
+}
+
+fn default_chunk_delay_ms() -> u64 { 30 }
+
+fn default_focus_cache_duration_ms() -> u64 {
+    200  // Cache focus status for 200ms
+}
+
+fn default_min_success_rate() -> f64 {
+    0.3  // 30% minimum success rate before considering fallback
+}
+
+fn default_min_sample_size() -> u32 {
+    5  // Need at least 5 samples before trusting success rate
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_clipboard_restore_delay_ms() -> Option<u64> {
+    Some(500)  // Wait 500ms before restoring clipboard
 }
 
 fn default_max_total_latency_ms() -> u64 {
@@ -129,7 +221,10 @@ impl Default for InjectionConfig {
             allow_enigo: default_false(),
             allow_mki: default_false(),
             restore_clipboard: default_false(),
-            inject_on_unknown_focus: default_false(),
+            inject_on_unknown_focus: default_inject_on_unknown_focus(),
+            require_focus: default_require_focus(),
+            pause_hotkey: default_pause_hotkey(),
+            redact_logs: default_redact_logs(),
             max_total_latency_ms: default_max_total_latency_ms(),
             per_method_timeout_ms: default_per_method_timeout_ms(),
             paste_action_timeout_ms: default_paste_action_timeout_ms(),
@@ -140,10 +235,14 @@ impl Default for InjectionConfig {
             keystroke_rate_cps: default_keystroke_rate_cps(),
             max_burst_chars: default_max_burst_chars(),
             paste_chunk_chars: default_paste_chunk_chars(),
+            chunk_delay_ms: default_chunk_delay_ms(),
+            focus_cache_duration_ms: default_focus_cache_duration_ms(),
+            min_success_rate: default_min_success_rate(),
+            min_sample_size: default_min_sample_size(),
+            enable_window_detection: default_true(),
+            clipboard_restore_delay_ms: default_clipboard_restore_delay_ms(),
             allowlist: default_allowlist(),
             blocklist: default_blocklist(),
-            require_focus: default_require_focus(),
-            pause_hotkey: default_pause_hotkey(),
         }
     }
 }
@@ -365,6 +464,12 @@ impl InjectionMetrics {
         };
     }
 }
+/// Trait for text injection backends
+/// This trait is intentionally synchronous. Implementations needing async
+/// operations should use thread::spawn with channels or block_on as appropriate.
+/// Rationale: many backends interact with system services where blocking calls
+/// are acceptable and simplify cross-backend orchestration without forcing a
+/// runtime on callers.
 
 /// Trait for text injection backends
 pub trait TextInjector: Send {
@@ -378,10 +483,16 @@ pub trait TextInjector: Send {
     fn inject(&mut self, text: &str) -> Result<(), InjectionError>;
     
     /// Type text with pacing (characters per second)
-    fn type_text(&mut self, text: &str, rate_cps: u32) -> Result<(), InjectionError>;
+    /// Default implementation falls back to inject()
+    fn type_text(&mut self, text: &str, _rate_cps: u32) -> Result<(), InjectionError> {
+        self.inject(text)
+    }
     
     /// Paste text (may use clipboard or other methods)
-    fn paste(&mut self, text: &str) -> Result<(), InjectionError>;
+    /// Default implementation falls back to inject()
+    fn paste(&mut self, text: &str) -> Result<(), InjectionError> {
+        self.inject(text)
+    }
     
     /// Get metrics for this injector
     fn metrics(&self) -> &InjectionMetrics;
