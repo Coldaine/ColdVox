@@ -8,10 +8,11 @@ use tracing::{debug, error, info, warn};
 use super::session::{InjectionSession, SessionConfig, SessionState};
 use super::{InjectionConfig};
 use super::manager::StrategyManager;
+use crate::text_injection::types::InjectionMetrics;
 
-/// Metrics for injection processor
+/// Local metrics for the injection processor (UI/state), distinct from types::InjectionMetrics
 #[derive(Debug, Clone, Default)]
-pub struct InjectionMetrics {
+pub struct ProcessorMetrics {
     /// Current session state
     pub session_state: SessionState,
     /// Number of transcriptions in current buffer
@@ -28,7 +29,7 @@ pub struct InjectionMetrics {
     pub last_injection_time: Option<Instant>,
 }
 
-impl InjectionMetrics {
+impl ProcessorMetrics {
     /// Update metrics from current session state
     pub fn update_from_session(&mut self, session: &InjectionSession) {
         self.session_state = session.state();
@@ -49,9 +50,9 @@ pub struct InjectionProcessor {
     /// Configuration
     config: InjectionConfig,
     /// Metrics for telemetry
-    metrics: Arc<Mutex<InjectionMetrics>>,
+    metrics: Arc<Mutex<ProcessorMetrics>>,
     /// Shared injection metrics for all components
-    injection_metrics: Arc<Mutex<InjectionMetrics>>,
+    injection_metrics: Arc<Mutex<crate::text_injection::types::InjectionMetrics>>,
     /// Pipeline metrics for integration
     _pipeline_metrics: Option<Arc<PipelineMetrics>>,
 }
@@ -65,11 +66,11 @@ impl InjectionProcessor {
     ) -> Self {
         // Create session with shared metrics
         let session_config = SessionConfig::default(); // TODO: Expose this if needed
-        let session = InjectionSession::new(session_config, injection_metrics.clone());
+    let session = InjectionSession::new(session_config, injection_metrics.clone());
         
         let injector = StrategyManager::new(config.clone(), injection_metrics.clone());
 
-        let metrics = Arc::new(Mutex::new(InjectionMetrics {
+    let metrics = Arc::new(Mutex::new(ProcessorMetrics {
             session_state: SessionState::Idle,
             ..Default::default()
         }));
@@ -109,7 +110,7 @@ impl InjectionProcessor {
     }
 
     /// Get current metrics
-    pub fn metrics(&self) -> InjectionMetrics {
+    pub fn metrics(&self) -> ProcessorMetrics {
         self.metrics.lock().unwrap().clone()
     }
 
@@ -121,11 +122,12 @@ impl InjectionProcessor {
                 self.update_metrics();
             }
             TranscriptionEvent::Final { text, utterance_id, .. } => {
+                let text_len = text.len();
                 info!("Received final transcription [{}]: {}", utterance_id, text);
                 self.session.add_transcription(text);
                 // Record the number of characters buffered
                 if let Ok(mut metrics) = self.injection_metrics.lock() {
-                    metrics.record_buffered_chars(text.len() as u64);
+                    metrics.record_buffered_chars(text_len as u64);
                 }
                 self.update_metrics();
             }
@@ -289,7 +291,7 @@ impl AsyncInjectionProcessor {
         pipeline_metrics: Option<Arc<PipelineMetrics>>,
     ) -> Self {
         // Create shared injection metrics
-        let injection_metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
+    let injection_metrics = Arc::new(Mutex::new(crate::text_injection::types::InjectionMetrics::default()));
         
         // Create processor with shared metrics
         let processor = Arc::new(Mutex::new(InjectionProcessor::new(config.clone(), pipeline_metrics, injection_metrics.clone())));
@@ -355,7 +357,7 @@ impl AsyncInjectionProcessor {
     }
 
     /// Get current metrics
-    pub fn metrics(&self) -> InjectionMetrics {
+    pub fn metrics(&self) -> ProcessorMetrics {
         self.processor.lock().unwrap().metrics()
     }
 
@@ -385,7 +387,7 @@ mod tests {
     fn test_injection_processor_basic_flow() {
         let config = InjectionConfig::default();
 
-        let injection_metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
+    let injection_metrics = Arc::new(Mutex::new(crate::text_injection::types::InjectionMetrics::default()));
         let mut processor = InjectionProcessor::new(config, None, injection_metrics);
 
         // Start with idle state
@@ -425,7 +427,7 @@ mod tests {
     #[test]
     fn test_metrics_update() {
         let config = InjectionConfig::default();
-        let injection_metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
+    let injection_metrics = Arc::new(Mutex::new(crate::text_injection::types::InjectionMetrics::default()));
         let mut processor = InjectionProcessor::new(config, None, injection_metrics);
 
         // Add transcription
@@ -444,7 +446,7 @@ mod tests {
     #[test]
     fn test_partial_transcription_handling() {
         let config = InjectionConfig::default();
-        let injection_metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
+    let injection_metrics = Arc::new(Mutex::new(crate::text_injection::types::InjectionMetrics::default()));
         let mut processor = InjectionProcessor::new(config, None, injection_metrics);
 
         // Start with idle state
