@@ -6,32 +6,13 @@ use tokio::time::{self, Duration, Instant};
 use tracing::{debug, error, info, warn};
 
 use super::session::{InjectionSession, SessionConfig, SessionState};
-use super::TextInjector;
+use super::{InjectionConfig};
+use super::manager::StrategyManager;
+use crate::text_injection::types::InjectionMetrics;
 
-/// Configuration for the injection processor
-#[derive(Debug, Clone)]
-pub struct InjectionProcessorConfig {
-    /// Session configuration
-    pub session_config: SessionConfig,
-    /// How often to check for silence timeout (default: 100ms)
-    pub check_interval_ms: u64,
-    /// Whether to inject on unknown focus state (default: true for Phase 1)
-    pub inject_on_unknown_focus: bool,
-}
-
-impl Default for InjectionProcessorConfig {
-    fn default() -> Self {
-        Self {
-            session_config: SessionConfig::default(),
-            check_interval_ms: 100,
-            inject_on_unknown_focus: true,
-        }
-    }
-}
-
-/// Metrics for injection processor
+/// Local metrics for the injection processor (UI/state), distinct from types::InjectionMetrics
 #[derive(Debug, Clone, Default)]
-pub struct InjectionMetrics {
+pub struct ProcessorMetrics {
     /// Current session state
     pub session_state: SessionState,
     /// Number of transcriptions in current buffer
@@ -48,7 +29,7 @@ pub struct InjectionMetrics {
     pub last_injection_time: Option<Instant>,
 }
 
-impl InjectionMetrics {
+impl ProcessorMetrics {
     /// Update metrics from current session state
     pub fn update_from_session(&mut self, session: &InjectionSession) {
         self.session_state = session.state();
@@ -65,11 +46,13 @@ pub struct InjectionProcessor {
     /// The injection session
     session: InjectionSession,
     /// Text injector for performing the actual injection
-    injector: TextInjector,
+    injector: StrategyManager,
     /// Configuration
-    config: InjectionProcessorConfig,
+    config: InjectionConfig,
     /// Metrics for telemetry
-    metrics: Arc<Mutex<InjectionMetrics>>,
+    metrics: Arc<Mutex<ProcessorMetrics>>,
+    /// Shared injection metrics for all components
+    injection_metrics: Arc<Mutex<crate::text_injection::types::InjectionMetrics>>,
     /// Pipeline metrics for integration
     _pipeline_metrics: Option<Arc<PipelineMetrics>>,
 }
@@ -77,13 +60,17 @@ pub struct InjectionProcessor {
 impl InjectionProcessor {
     /// Create a new injection processor
     pub fn new(
-        config: InjectionProcessorConfig,
+        config: InjectionConfig,
         pipeline_metrics: Option<Arc<PipelineMetrics>>,
+        injection_metrics: Arc<Mutex<InjectionMetrics>>,
     ) -> Self {
-        let session = InjectionSession::new(config.session_config.clone());
-        let injector = TextInjector::new();
+        // Create session with shared metrics
+        let session_config = SessionConfig::default(); // TODO: Expose this if needed
+    let session = InjectionSession::new(session_config, injection_metrics.clone());
+        
+        let injector = StrategyManager::new(config.clone(), injection_metrics.clone());
 
-        let metrics = Arc::new(Mutex::new(InjectionMetrics {
+    let metrics = Arc::new(Mutex::new(ProcessorMetrics {
             session_state: SessionState::Idle,
             ..Default::default()
         }));
@@ -93,6 +80,7 @@ impl InjectionProcessor {
             injector,
             config,
             metrics,
+            injection_metrics,
             _pipeline_metrics: pipeline_metrics,
         }
     }
@@ -122,7 +110,7 @@ impl InjectionProcessor {
     }
 
     /// Get current metrics
-    pub fn metrics(&self) -> InjectionMetrics {
+    pub fn metrics(&self) -> ProcessorMetrics {
         self.metrics.lock().unwrap().clone()
     }
 
@@ -134,8 +122,13 @@ impl InjectionProcessor {
                 self.update_metrics();
             }
             TranscriptionEvent::Final { text, utterance_id, .. } => {
+                let text_len = text.len();
                 info!("Received final transcription [{}]: {}", utterance_id, text);
                 self.session.add_transcription(text);
+                // Record the number of characters buffered
+                if let Ok(mut metrics) = self.injection_metrics.lock() {
+                    metrics.record_buffered_chars(text_len as u64);
+                }
                 self.update_metrics();
             }
             TranscriptionEvent::Error { code, message } => {
@@ -147,6 +140,29 @@ impl InjectionProcessor {
     /// Check if injection should be performed and execute if needed
     pub async fn check_and_inject(&mut self) -> anyhow::Result<()> {
         if self.session.should_inject() {
+            // Determine if we'll use paste or keystroke based on configuration
+            let use_paste = match self.config.injection_mode.as_str() {
+                "paste" => true,
+                "keystroke" => false,
+                "auto" => {
+                    let buffer_text = self.session.buffer_preview();
+                    buffer_text.len() > self.config.paste_chunk_chars as usize
+                }
+                _ => {
+                    let buffer_text = self.session.buffer_preview();
+                    buffer_text.len() > self.config.paste_chunk_chars as usize
+                }
+            };
+            
+            // Record the operation type
+            if let Ok(mut metrics) = self.injection_metrics.lock() {
+                if use_paste {
+                    metrics.record_paste();
+                } else {
+                    metrics.record_keystroke();
+                }
+            }
+            
             self.perform_injection().await?;
         }
         Ok(())
@@ -155,6 +171,29 @@ impl InjectionProcessor {
     /// Force injection of current buffer (for manual triggers)
     pub async fn force_inject(&mut self) -> anyhow::Result<()> {
         if self.session.has_content() {
+            // Determine if we'll use paste or keystroke based on configuration
+            let use_paste = match self.config.injection_mode.as_str() {
+                "paste" => true,
+                "keystroke" => false,
+                "auto" => {
+                    let buffer_text = self.session.buffer_preview();
+                    buffer_text.len() > self.config.paste_chunk_chars as usize
+                }
+                _ => {
+                    let buffer_text = self.session.buffer_preview();
+                    buffer_text.len() > self.config.paste_chunk_chars as usize
+                }
+            };
+            
+            // Record the operation type
+            if let Ok(mut metrics) = self.injection_metrics.lock() {
+                if use_paste {
+                    metrics.record_paste();
+                } else {
+                    metrics.record_keystroke();
+                }
+            }
+            
             self.session.force_inject();
             self.perform_injection().await?;
         }
@@ -175,18 +214,29 @@ impl InjectionProcessor {
             return Ok(());
         }
 
-        info!("Injecting {} characters from session", text.len());
+        // Record the time from final transcription to injection
+        let latency = self.session.time_since_last_transcription()
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+            
+        info!("Injecting {} characters from session (latency: {}ms)", text.len(), latency);
+
+        // Record the latency in metrics
+        if let Ok(mut metrics) = self.injection_metrics.lock() {
+            metrics.record_latency_from_final(latency);
+            metrics.update_last_injection();
+        }
 
         match self.injector.inject(&text).await {
             Ok(()) => {
-                info!("Successfully injected text via clipboard");
+                info!("Successfully injected text");
                 self.metrics.lock().unwrap().successful_injections += 1;
                 self.metrics.lock().unwrap().last_injection_time = Some(Instant::now());
             }
             Err(e) => {
                 error!("Failed to inject text: {}", e);
                 self.metrics.lock().unwrap().failed_injections += 1;
-                return Err(e);
+                return Err(e.into());
             }
         }
 
@@ -229,30 +279,37 @@ pub struct AsyncInjectionProcessor {
     transcription_rx: mpsc::Receiver<TranscriptionEvent>,
     shutdown_rx: mpsc::Receiver<()>,
     // dedicated injector to avoid awaiting while holding the processor lock
-    injector: TextInjector,
+    injector: StrategyManager,
 }
 
 impl AsyncInjectionProcessor {
     /// Create a new async injection processor
     pub fn new(
-        config: InjectionProcessorConfig,
+        config: InjectionConfig,
         transcription_rx: mpsc::Receiver<TranscriptionEvent>,
         shutdown_rx: mpsc::Receiver<()>,
         pipeline_metrics: Option<Arc<PipelineMetrics>>,
     ) -> Self {
-        let processor = Arc::new(Mutex::new(InjectionProcessor::new(config, pipeline_metrics)));
+        // Create shared injection metrics
+    let injection_metrics = Arc::new(Mutex::new(crate::text_injection::types::InjectionMetrics::default()));
+        
+        // Create processor with shared metrics
+        let processor = Arc::new(Mutex::new(InjectionProcessor::new(config.clone(), pipeline_metrics, injection_metrics.clone())));
+        
+        // Create injector with shared metrics
+        let injector = StrategyManager::new(config, injection_metrics.clone());
+        
         Self {
             processor,
             transcription_rx,
             shutdown_rx,
-            injector: TextInjector::new(),
+            injector,
         }
     }
 
     /// Run the injection processor loop
     pub async fn run(mut self) -> anyhow::Result<()> {
-        let check_interval_ms = self.processor.lock().unwrap().config.check_interval_ms;
-        let check_interval = Duration::from_millis(check_interval_ms);
+        let check_interval = Duration::from_millis(100); // TODO: Make configurable
         let mut interval = time::interval(check_interval);
 
         info!("Injection processor started");
@@ -300,7 +357,7 @@ impl AsyncInjectionProcessor {
     }
 
     /// Get current metrics
-    pub fn metrics(&self) -> InjectionMetrics {
+    pub fn metrics(&self) -> ProcessorMetrics {
         self.processor.lock().unwrap().metrics()
     }
 
@@ -328,16 +385,10 @@ mod tests {
 
     #[test]
     fn test_injection_processor_basic_flow() {
-        let config = InjectionProcessorConfig {
-            session_config: SessionConfig {
-                silence_timeout_ms: 200, // Short timeout for testing
-                buffer_pause_timeout_ms: 200, // Also set buffer pause timeout
-                ..Default::default()
-            },
-            ..Default::default()
-        };
+        let config = InjectionConfig::default();
 
-        let mut processor = InjectionProcessor::new(config, None);
+    let injection_metrics = Arc::new(Mutex::new(crate::text_injection::types::InjectionMetrics::default()));
+        let mut processor = InjectionProcessor::new(config, None, injection_metrics);
 
         // Start with idle state
         assert_eq!(processor.session_state(), SessionState::Idle);
@@ -375,8 +426,9 @@ mod tests {
 
     #[test]
     fn test_metrics_update() {
-        let config = InjectionProcessorConfig::default();
-        let mut processor = InjectionProcessor::new(config, None);
+        let config = InjectionConfig::default();
+    let injection_metrics = Arc::new(Mutex::new(crate::text_injection::types::InjectionMetrics::default()));
+        let mut processor = InjectionProcessor::new(config, None, injection_metrics);
 
         // Add transcription
         processor.handle_transcription(TranscriptionEvent::Final {
@@ -393,8 +445,9 @@ mod tests {
 
     #[test]
     fn test_partial_transcription_handling() {
-        let config = InjectionProcessorConfig::default();
-        let mut processor = InjectionProcessor::new(config, None);
+        let config = InjectionConfig::default();
+    let injection_metrics = Arc::new(Mutex::new(crate::text_injection::types::InjectionMetrics::default()));
+        let mut processor = InjectionProcessor::new(config, None, injection_metrics);
 
         // Start with idle state
         assert_eq!(processor.session_state(), SessionState::Idle);

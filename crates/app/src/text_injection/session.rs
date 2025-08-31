@@ -1,5 +1,6 @@
 use std::time::{Duration, Instant};
 use tracing::{debug, info, warn};
+use crate::text_injection::types::InjectionMetrics;
 
 /// Session state machine for buffered text injection
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,6 +43,12 @@ pub struct SessionConfig {
     pub join_separator: String,
     /// Time to wait before transitioning from Buffering to WaitingForSilence (default: 500ms)
     pub buffer_pause_timeout_ms: u64,
+    /// Whether to flush on punctuation marks
+    pub flush_on_punctuation: bool,
+    /// Punctuation marks that trigger flushing
+    pub punctuation_marks: Vec<char>,
+    /// Whether to normalize whitespace
+    pub normalize_whitespace: bool,
 }
 
 impl Default for SessionConfig {
@@ -51,6 +58,9 @@ impl Default for SessionConfig {
             max_buffer_size: 5000,
             join_separator: " ".to_string(),
             buffer_pause_timeout_ms: 0,  // No pause needed since STT buffers audio
+            flush_on_punctuation: true,
+            punctuation_marks: vec!['.', '!', '?', ';'],
+            normalize_whitespace: true,
         }
     }
 }
@@ -74,21 +84,33 @@ pub struct InjectionSession {
     max_buffer_size: usize,
     /// Separator for joining buffered text
     join_separator: String,
+    /// Whether to flush on punctuation marks
+    flush_on_punctuation: bool,
+    /// Punctuation marks that trigger flushing
+    punctuation_marks: Vec<char>,
+    /// Whether to normalize whitespace
+    normalize_whitespace: bool,
+    /// Reference to injection metrics for telemetry
+    metrics: std::sync::Arc<std::sync::Mutex<InjectionMetrics>>,
 }
 
 impl InjectionSession {
     /// Create a new session with the given configuration
-    pub fn new(config: SessionConfig) -> Self {
-        Self {
-            state: SessionState::Idle,
-            buffer: Vec::new(),
-            last_transcription: None,
-            buffering_start: None,
-            silence_timeout: Duration::from_millis(config.silence_timeout_ms),
-            buffer_pause_timeout: Duration::from_millis(config.buffer_pause_timeout_ms),
-            max_buffer_size: config.max_buffer_size,
-            join_separator: config.join_separator,
-        }
+    pub fn new(config: SessionConfig, metrics: std::sync::Arc<std::sync::Mutex<InjectionMetrics>>) -> Self {
+    Self {
+        state: SessionState::Idle,
+        buffer: Vec::new(),
+        last_transcription: None,
+        buffering_start: None,
+        silence_timeout: Duration::from_millis(config.silence_timeout_ms),
+        buffer_pause_timeout: Duration::from_millis(config.buffer_pause_timeout_ms),
+        max_buffer_size: config.max_buffer_size,
+        join_separator: config.join_separator,
+        flush_on_punctuation: config.flush_on_punctuation,
+        punctuation_marks: config.punctuation_marks,
+        normalize_whitespace: config.normalize_whitespace,
+        metrics,
+    }
     }
 
     /// Add a new transcription to the session buffer
@@ -99,7 +121,20 @@ impl InjectionSession {
             return;
         }
 
-        let text = text.to_string();
+        let text = if self.normalize_whitespace {
+            // Normalize whitespace (collapse multiple spaces, remove leading/trailing)
+            text.split_whitespace().collect::<Vec<&str>>().join(" ")
+        } else {
+            text.to_string()
+        };
+
+        // Record the number of characters being buffered
+        self.record_buffered_chars(text.len() as u64);
+
+        // Check if text ends with punctuation that should trigger flushing
+        let ends_with_punctuation = self.flush_on_punctuation &&
+            !text.is_empty() &&
+            self.punctuation_marks.contains(&text.chars().last().unwrap());
 
         // Add to buffer
         self.buffer.push(text);
@@ -133,6 +168,13 @@ impl InjectionSession {
         if self.total_chars() > self.max_buffer_size {
             self.state = SessionState::ReadyToInject;
             warn!("Buffer size limit reached, forcing injection");
+            return;
+        }
+
+        // Check if we should flush due to punctuation
+        if ends_with_punctuation {
+            self.state = SessionState::ReadyToInject;
+            info!("Flushing buffer due to punctuation mark");
         }
     }
 
@@ -177,7 +219,15 @@ impl InjectionSession {
                     false
                 }
             }
-            SessionState::ReadyToInject => true,
+            SessionState::ReadyToInject => {
+                // Check if buffer is empty (could happen if cleared)
+                if self.buffer.is_empty() {
+                    self.state = SessionState::Idle;
+                    false
+                } else {
+                    true
+                }
+            }
             SessionState::Idle => false,
         }
     }
@@ -185,11 +235,15 @@ impl InjectionSession {
     /// Take the buffered text and reset the session to idle
     pub fn take_buffer(&mut self) -> String {
         let text = self.buffer.join(&self.join_separator);
+        let size = text.len();
         self.buffer.clear();
         self.last_transcription = None;
         self.buffering_start = None;
         self.state = SessionState::Idle;
         debug!("Session buffer cleared, {} chars taken", text.len());
+        
+        // Record the flush event with the size
+        self.record_flush(size as u64);
         text
     }
 
@@ -240,6 +294,20 @@ impl InjectionSession {
     pub fn buffer_preview(&self) -> String {
         self.buffer.join(&self.join_separator)
     }
+    
+    /// Record characters that have been buffered
+    pub fn record_buffered_chars(&self, count: u64) {
+        if let Ok(mut metrics) = self.metrics.lock() {
+            metrics.record_buffered_chars(count);
+        }
+    }
+    
+    /// Record a flush event
+    pub fn record_flush(&self, size: u64) {
+        if let Ok(mut metrics) = self.metrics.lock() {
+            metrics.record_flush(size);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -254,7 +322,8 @@ mod tests {
             buffer_pause_timeout_ms: 50, // Short pause timeout for testing
             ..Default::default()
         };
-        let mut session = InjectionSession::new(config);
+    let metrics = std::sync::Arc::new(std::sync::Mutex::new(InjectionMetrics::default()));
+    let mut session = InjectionSession::new(config, metrics);
 
         // Start with idle state
         assert_eq!(session.state(), SessionState::Idle);
@@ -294,7 +363,8 @@ mod tests {
             max_buffer_size: 10, // Very small limit
             ..Default::default()
         };
-        let mut session = InjectionSession::new(config);
+    let metrics = std::sync::Arc::new(std::sync::Mutex::new(InjectionMetrics::default()));
+    let mut session = InjectionSession::new(config, metrics);
 
         // Add text that exceeds limit
         session.add_transcription("This is a long sentence".to_string());
@@ -303,7 +373,8 @@ mod tests {
 
     #[test]
     fn test_empty_transcription_filtering() {
-        let mut session = InjectionSession::new(SessionConfig::default());
+    let metrics = std::sync::Arc::new(std::sync::Mutex::new(InjectionMetrics::default()));
+    let mut session = InjectionSession::new(SessionConfig::default(), metrics);
 
         session.add_transcription("".to_string());
         session.add_transcription("   ".to_string());
@@ -320,7 +391,8 @@ mod tests {
             buffer_pause_timeout_ms: 50,
             ..Default::default()
         };
-        let mut session = InjectionSession::new(config);
+    let metrics = std::sync::Arc::new(std::sync::Mutex::new(InjectionMetrics::default()));
+    let mut session = InjectionSession::new(config, metrics);
 
         // Add transcription
         session.add_transcription("Test".to_string());

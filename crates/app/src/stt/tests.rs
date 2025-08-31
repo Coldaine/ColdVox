@@ -157,13 +157,13 @@ mod processor_tests {
         
         let active = UtteranceState::SpeechActive {
             started_at: Instant::now(),
-            last_partial_at: None,
-            frames_processed: 0,
+            audio_buffer: Vec::new(),
+            frames_buffered: 0,
         };
         
         match active {
-            UtteranceState::SpeechActive { frames_processed, .. } => {
-                assert_eq!(frames_processed, 0);
+            UtteranceState::SpeechActive { frames_buffered, .. } => {
+                assert_eq!(frames_buffered, 0);
             }
             _ => panic!("Expected SpeechActive state"),
         }

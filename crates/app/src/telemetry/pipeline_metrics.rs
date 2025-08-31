@@ -3,6 +3,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use parking_lot::RwLock;
 
+#[cfg(feature = "text-injection")]
+use parking_lot::Mutex;
+#[cfg(feature = "text-injection")]
+use crate::text_injection::types::InjectionMetrics;
+
 /// Shared metrics for cross-thread pipeline monitoring
 #[derive(Clone, Default)]
 pub struct PipelineMetrics {
@@ -44,7 +49,10 @@ pub struct PipelineMetrics {
     // Error tracking
     pub capture_errors: Arc<AtomicU64>,
     pub chunker_errors: Arc<AtomicU64>,
-    pub vad_errors: Arc<AtomicU64>,
+    // Text Injection Metrics
+    #[cfg(feature = "text-injection")]
+    pub injection: Arc<Mutex<InjectionMetrics>>,
+
 }
 
 impl PipelineMetrics {
