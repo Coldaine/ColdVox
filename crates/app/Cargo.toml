@@ -50,6 +50,7 @@ thiserror = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
+async-trait = "0.1"
 cpal = "0.15"
 hound = "3.5"
 dasp = { version = "0.11", features = ["all"] }
