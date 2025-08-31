@@ -11,6 +11,12 @@ pub enum InjectionMethod {
     Clipboard,
     /// Set clipboard then trigger paste via AT-SPI2 Action interface
     ClipboardAndPaste,
+    /// Use XDG Portal / EIS for permissioned typed input
+    PortalEis,
+    /// Use Wayland virtual keyboard (compositor-dependent)
+    Vkm,
+    /// Use X11/XWayland clipboard fallback
+    X11Clipboard,
     /// Use ydotool to simulate Ctrl+V paste (opt-in)
     YdoToolPaste,
     /// Use kdotool for window activation/focus assistance (opt-in)

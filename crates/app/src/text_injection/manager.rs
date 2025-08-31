@@ -15,6 +15,12 @@ use crate::text_injection::ydotool_injector::YdotoolInjector;
 use crate::text_injection::enigo_injector::EnigoInjector;
 #[cfg(feature = "text-injection-mki")]
 use crate::text_injection::mki_injector::MkiInjector;
+#[cfg(feature = "text-injection-portal-eis")]
+use crate::text_injection::portal_eis_injector::PortalEisInjector;
+#[cfg(feature = "text-injection-vkm")]
+use crate::text_injection::vkm_injector::VkmInjector;
+#[cfg(feature = "text-injection-clipboard-x11")]
+use crate::text_injection::x11_clipboard_injector::X11ClipboardInjector;
 use crate::text_injection::noop_injector::NoOpInjector;
 #[cfg(feature = "text-injection-kdotool")]
 use crate::text_injection::kdotool_injector::KdotoolInjector;
@@ -104,9 +110,33 @@ impl InjectorRegistry {
         }
         
         // Add optional injectors based on config
+        #[cfg(feature = "text-injection-portal-eis")]
+        {
+            let injector = PortalEisInjector::new();
+            if injector.is_available() {
+                injectors.insert(InjectionMethod::PortalEis, Box::new(injector));
+            }
+        }
+
+        #[cfg(feature = "text-injection-vkm")]
+        {
+            let injector = VkmInjector::new();
+            if injector.is_available() {
+                injectors.insert(InjectionMethod::Vkm, Box::new(injector));
+            }
+        }
+
+        #[cfg(feature = "text-injection-clipboard-x11")]
+        {
+            let injector = X11ClipboardInjector::new();
+            if injector.is_available() {
+                injectors.insert(InjectionMethod::X11Clipboard, Box::new(injector));
+            }
+        }
+
         #[cfg(feature = "text-injection-ydotool")]
         if config.allow_ydotool {
-            let ydotool = YdotoolInjector::new(config.clone());
+            let ydotool = YdotoolInjector::new();
             if ydotool.is_available() {
                 injectors.insert(InjectionMethod::YdoToolPaste, Box::new(ydotool));
             }
@@ -464,7 +494,7 @@ pub(crate) fn is_app_allowed(&self, app_id: &str) -> bool {
         if self.config.allow_mki && !self.is_in_cooldown(InjectionMethod::UinputKeys) {
             methods.push(InjectionMethod::UinputKeys);
         }
-        
+        methods.push(InjectionMethod::NoOp);
         methods
     }
 
@@ -477,38 +507,28 @@ pub(crate) fn is_app_allowed(&self, app_id: &str) -> bool {
             }
         }
 
-        // Get available backends
-        let available_backends = self.backend_detector.detect_available_backends();
-        
         // Base order as specified in the requirements
         let mut base_order = Vec::new();
-        
-        // Add methods based on available backends
-        for backend in available_backends {
-            match backend {
-                Backend::WaylandXdgDesktopPortal | Backend::WaylandVirtualKeyboard => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::X11Xdotool | Backend::X11Native => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::MacCgEvent => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::WindowsSendInput => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                _ => {}
-            }
-        }
+
+        // 1) AT-SPI direct
+        #[cfg(feature = "text-injection-atspi")]
+        base_order.push(InjectionMethod::AtspiInsert);
+
+        // 2) Wayland clipboard (optionally followed by AT-SPI paste later)
+        #[cfg(feature = "text-injection-clipboard")]
+        base_order.push(InjectionMethod::Clipboard);
+
+        // 3) XDG Portal / EIS (permissioned typed input)
+        #[cfg(feature = "text-injection-portal-eis")]
+        base_order.push(InjectionMethod::PortalEis);
+
+        // 4) Wayland virtual keyboard (compositor-dependent)
+        #[cfg(feature = "text-injection-vkm")]
+        base_order.push(InjectionMethod::Vkm);
+
+        // 5) X11/XWayland clipboard fallback
+        #[cfg(feature = "text-injection-clipboard-x11")]
+        base_order.push(InjectionMethod::X11Clipboard);
         
     // Add optional methods if enabled
         if self.config.allow_kdotool {
@@ -561,54 +581,48 @@ pub(crate) fn is_app_allowed(&self, app_id: &str) -> bool {
     /// Back-compat: previous tests may call no-arg version; compute without caching
     #[allow(dead_code)]
     pub fn get_method_order_uncached(&self) -> Vec<InjectionMethod> {
-        // Compute using a placeholder app id without affecting cache
-        // Duplicate core logic minimally by delegating to a copy of code
-        let available_backends = self.backend_detector.detect_available_backends();
         let mut base_order = Vec::new();
-        for backend in available_backends {
-            match backend {
-                Backend::WaylandXdgDesktopPortal | Backend::WaylandVirtualKeyboard => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::X11Xdotool | Backend::X11Native => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::MacCgEvent | Backend::WindowsSendInput => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                _ => {}
-            }
+
+        // 1) AT-SPI direct
+        #[cfg(feature = "text-injection-atspi")]
+        base_order.push(InjectionMethod::AtspiInsert);
+
+        // 2) Wayland clipboard (optionally followed by AT-SPI paste later)
+        #[cfg(feature = "text-injection-clipboard")]
+        base_order.push(InjectionMethod::Clipboard);
+
+        #[cfg(all(feature = "text-injection-clipboard", feature = "text-injection-atspi"))]
+        base_order.push(InjectionMethod::ClipboardAndPaste);
+
+        // 3) XDG Portal / EIS (permissioned typed input)
+        #[cfg(feature = "text-injection-portal-eis")]
+        base_order.push(InjectionMethod::PortalEis);
+
+        // 4) Wayland virtual keyboard (compositor-dependent)
+        #[cfg(feature = "text-injection-vkm")]
+        base_order.push(InjectionMethod::Vkm);
+
+        // 5) X11/XWayland clipboard fallback
+        #[cfg(feature = "text-injection-clipboard-x11")]
+        base_order.push(InjectionMethod::X11Clipboard);
+
+        if self.config.allow_kdotool {
+            base_order.push(InjectionMethod::KdoToolAssist);
         }
-        if self.config.allow_kdotool { base_order.push(InjectionMethod::KdoToolAssist); }
-        if self.config.allow_enigo { base_order.push(InjectionMethod::EnigoText); }
-        if self.config.allow_mki { base_order.push(InjectionMethod::UinputKeys); }
-        if self.config.allow_ydotool { base_order.push(InjectionMethod::YdoToolPaste); }
+        if self.config.allow_enigo {
+            base_order.push(InjectionMethod::EnigoText);
+        }
+        if self.config.allow_mki {
+            base_order.push(InjectionMethod::UinputKeys);
+        }
+        if self.config.allow_ydotool {
+            base_order.push(InjectionMethod::YdoToolPaste);
+        }
         use std::collections::HashSet;
         let mut seen = HashSet::new();
         base_order.retain(|m| seen.insert(*m));
-        // Sort by success rate for placeholder app id
-        let app_id = "unknown_app";
-        let base_order_copy = base_order.clone();
-        let mut base_order2 = base_order;
-        base_order2.sort_by(|a, b| {
-            let key_a = (app_id.to_string(), *a);
-            let key_b = (app_id.to_string(), *b);
-            let success_a = self.success_cache.get(&key_a).map(|r| r.success_rate).unwrap_or(0.5);
-            let success_b = self.success_cache.get(&key_b).map(|r| r.success_rate).unwrap_or(0.5);
-            success_b.partial_cmp(&success_a).unwrap().then_with(|| {
-                let pos_a = base_order_copy.iter().position(|m| m == a).unwrap_or(0);
-                let pos_b = base_order_copy.iter().position(|m| m == b).unwrap_or(0);
-                pos_a.cmp(&pos_b)
-            })
-        });
-        base_order2.push(InjectionMethod::NoOp);
-    base_order2
+        base_order.push(InjectionMethod::NoOp);
+        base_order
     }
 
     /// Check if we've exceeded the global time budget
@@ -957,36 +971,20 @@ mod tests {
     // Test method ordering
     #[test]
     fn test_method_ordering() {
-    let config = InjectionConfig::default();
+        let config = InjectionConfig::default();
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
-    let manager = StrategyManager::new(config, metrics);
+        let manager = StrategyManager::new(config, metrics);
         
-    let order = manager.get_method_order_uncached();
+        let order = manager.get_method_order_uncached();
         
-    // Verify core methods are present
-    assert!(order.contains(&InjectionMethod::AtspiInsert));
-    assert!(order.contains(&InjectionMethod::ClipboardAndPaste));
-    assert!(order.contains(&InjectionMethod::Clipboard));
-        
-        // Verify optional methods are included if enabled
-    let mut config = InjectionConfig::default();
-        config.allow_ydotool = true;
-        config.allow_kdotool = true;
-        config.allow_enigo = true;
-        config.allow_mki = true;
-        
-        let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
-    let manager = StrategyManager::new(config, metrics);
-    let order = manager.get_method_order_uncached();
-        
-        // All methods should be present
+        #[cfg(feature = "text-injection-atspi")]
         assert!(order.contains(&InjectionMethod::AtspiInsert));
-        assert!(order.contains(&InjectionMethod::ClipboardAndPaste));
+
+        #[cfg(feature = "text-injection-clipboard")]
         assert!(order.contains(&InjectionMethod::Clipboard));
-        assert!(order.contains(&InjectionMethod::YdoToolPaste));
-        assert!(order.contains(&InjectionMethod::KdoToolAssist));
-        assert!(order.contains(&InjectionMethod::EnigoText));
-        assert!(order.contains(&InjectionMethod::UinputKeys));
+
+        #[cfg(all(feature = "text-injection-clipboard", feature = "text-injection-atspi"))]
+        assert!(order.contains(&InjectionMethod::ClipboardAndPaste));
     }
 
     // Test success record updates

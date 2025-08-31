@@ -169,6 +169,10 @@ mod tests {
     
     #[test]
     fn test_backend_detection() {
+        // Simulate an X11 environment for testing
+        std::env::set_var("XDG_SESSION_TYPE", "x11");
+        std::env::set_var("DISPLAY", ":0");
+
         let config = InjectionConfig::default();
         let detector = BackendDetector::new(config);
         
@@ -181,6 +185,10 @@ mod tests {
         if let Some(preferred) = detector.get_preferred_backend() {
             assert!(backends.contains(&preferred));
         }
+
+        // Clean up environment variables
+        std::env::remove_var("XDG_SESSION_TYPE");
+        std::env::remove_var("DISPLAY");
     }
     
     #[test]
