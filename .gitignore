@@ -41,6 +41,9 @@ models/
 *.model
 *.zip
 
-# ColdVox test data and logs
-.coldvox/
-crates/app/.coldvox/
+# ColdVox local run artifacts
+# Keep directory structure but ignore contents
+.coldvox/*
+!.coldvox/.gitkeep
+crates/app/.coldvox/*
+!crates/app/.coldvox/.gitkeep
