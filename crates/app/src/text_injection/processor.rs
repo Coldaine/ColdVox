@@ -1,6 +1,6 @@
 use crate::stt::TranscriptionEvent;
-use crate::telemetry::pipeline_metrics::PipelineMetrics;
-use std::sync::{Arc, Mutex};
+use coldvox_telemetry::pipeline_metrics::PipelineMetrics;
+use std::sync::{Arc, Mutex}; use tokio::sync::Mutex as TokioMutex;
 use tokio::sync::mpsc;
 use tokio::time::{self, Duration, Instant};
 use tracing::{debug, error, info, warn};
@@ -100,11 +100,12 @@ impl InjectionProcessor {
 
     /// Record the result of an injection attempt and refresh metrics.
     pub fn record_injection_result(&mut self, success: bool) {
+        let mut metrics = self.metrics.lock().unwrap();
         if success {
-            self.metrics.lock().unwrap().successful_injections += 1;
-            self.metrics.lock().unwrap().last_injection_time = Some(Instant::now());
+            metrics.successful_injections += 1;
+            metrics.last_injection_time = Some(Instant::now());
         } else {
-            self.metrics.lock().unwrap().failed_injections += 1;
+            metrics.failed_injections += 1;
         }
         self.update_metrics();
     }
@@ -140,19 +141,7 @@ impl InjectionProcessor {
     /// Check if injection should be performed and execute if needed
     pub async fn check_and_inject(&mut self) -> anyhow::Result<()> {
         if self.session.should_inject() {
-            // Determine if we'll use paste or keystroke based on configuration
-            let use_paste = match self.config.injection_mode.as_str() {
-                "paste" => true,
-                "keystroke" => false,
-                "auto" => {
-                    let buffer_text = self.session.buffer_preview();
-                    buffer_text.len() > self.config.paste_chunk_chars as usize
-                }
-                _ => {
-                    let buffer_text = self.session.buffer_preview();
-                    buffer_text.len() > self.config.paste_chunk_chars as usize
-                }
-            };
+            let use_paste = self.determine_use_paste();
             
             // Record the operation type
             if let Ok(mut metrics) = self.injection_metrics.lock() {
@@ -171,19 +160,7 @@ impl InjectionProcessor {
     /// Force injection of current buffer (for manual triggers)
     pub async fn force_inject(&mut self) -> anyhow::Result<()> {
         if self.session.has_content() {
-            // Determine if we'll use paste or keystroke based on configuration
-            let use_paste = match self.config.injection_mode.as_str() {
-                "paste" => true,
-                "keystroke" => false,
-                "auto" => {
-                    let buffer_text = self.session.buffer_preview();
-                    buffer_text.len() > self.config.paste_chunk_chars as usize
-                }
-                _ => {
-                    let buffer_text = self.session.buffer_preview();
-                    buffer_text.len() > self.config.paste_chunk_chars as usize
-                }
-            };
+            let use_paste = self.determine_use_paste();
             
             // Record the operation type
             if let Ok(mut metrics) = self.injection_metrics.lock() {
@@ -229,13 +206,14 @@ impl InjectionProcessor {
 
         match self.injector.inject(&text).await {
             Ok(()) => {
+                let mut metrics = self.metrics.lock().unwrap();
                 info!("Successfully injected text");
-                self.metrics.lock().unwrap().successful_injections += 1;
-                self.metrics.lock().unwrap().last_injection_time = Some(Instant::now());
+                metrics.successful_injections += 1;
+                metrics.last_injection_time = Some(Instant::now());
             }
             Err(e) => {
                 error!("Failed to inject text: {}", e);
-                self.metrics.lock().unwrap().failed_injections += 1;
+                self.metrics.lock().unwrap().failed_injections += 1; // Single-use lock is fine here
                 return Err(e.into());
             }
         }
@@ -271,11 +249,25 @@ impl InjectionProcessor {
     pub fn last_partial_text(&self) -> Option<String> {
         None
     }
+
+    /// Determine if paste or keystroke injection should be used.
+    fn determine_use_paste(&self) -> bool {
+        match self.config.injection_mode.as_str() {
+            "paste" => true,
+            "keystroke" => false,
+            "auto" => {
+                self.session.buffer_preview().len() > self.config.paste_chunk_chars as usize
+            }
+            _ => {
+                self.session.buffer_preview().len() > self.config.paste_chunk_chars as usize
+            }
+        }
+    }
 }
 
 /// Async wrapper for the injection processor that runs in a dedicated task
 pub struct AsyncInjectionProcessor {
-    processor: Arc<Mutex<InjectionProcessor>>,
+    processor: Arc<TokioMutex<InjectionProcessor>>,
     transcription_rx: mpsc::Receiver<TranscriptionEvent>,
     shutdown_rx: mpsc::Receiver<()>,
     // dedicated injector to avoid awaiting while holding the processor lock
@@ -294,7 +286,7 @@ impl AsyncInjectionProcessor {
     let injection_metrics = Arc::new(Mutex::new(crate::text_injection::types::InjectionMetrics::default()));
         
         // Create processor with shared metrics
-        let processor = Arc::new(Mutex::new(InjectionProcessor::new(config.clone(), pipeline_metrics, injection_metrics.clone())));
+        let processor = Arc::new(TokioMutex::new(InjectionProcessor::new(config.clone(), pipeline_metrics, injection_metrics.clone())));
         
         // Create injector with shared metrics
         let injector = StrategyManager::new(config, injection_metrics.clone());
@@ -318,7 +310,7 @@ impl AsyncInjectionProcessor {
             tokio::select! {
                 // Handle transcription events
                 Some(event) = self.transcription_rx.recv() => {
-                    let mut processor = self.processor.lock().unwrap();
+                    let mut processor = self.processor.lock().await;
                     processor.handle_transcription(event);
                 }
 
@@ -326,7 +318,7 @@ impl AsyncInjectionProcessor {
                 _ = interval.tick() => {
                     // Prepare any pending injection without holding the lock across await
                     let maybe_text = {
-                        let mut processor = self.processor.lock().unwrap();
+                        let mut processor = self.processor.lock().await;
                         // Extract text to inject if session criteria are met
                         processor.prepare_injection()
                     };
@@ -337,7 +329,7 @@ impl AsyncInjectionProcessor {
                         let success = result.is_ok();
 
                         // Record result back into the processor state/metrics
-                        let mut processor = self.processor.lock().unwrap();
+                        let mut processor = self.processor.lock().await;
                         processor.record_injection_result(success);
                         if let Err(e) = result {
                             error!("Injection failed: {}", e);
@@ -357,23 +349,23 @@ impl AsyncInjectionProcessor {
     }
 
     /// Get current metrics
-    pub fn metrics(&self) -> ProcessorMetrics {
-        self.processor.lock().unwrap().metrics()
+    pub async fn metrics(&self) -> ProcessorMetrics {
+        self.processor.lock().await.metrics()
     }
 
     /// Force injection (for manual triggers)
     pub async fn force_inject(&self) -> anyhow::Result<()> {
-        self.processor.lock().unwrap().force_inject().await
+        self.processor.lock().await.force_inject().await
     }
 
     /// Clear session (for cancellation)
-    pub fn clear_session(&self) {
-        self.processor.lock().unwrap().clear_session();
+    pub async fn clear_session(&self) {
+        self.processor.lock().await.clear_session();
     }
 
     /// Get the last partial transcription text (for real-time feedback)
-    pub fn last_partial_text(&self) -> Option<String> {
-        self.processor.lock().unwrap().last_partial_text()
+    pub async fn last_partial_text(&self) -> Option<String> {
+        self.processor.lock().await.last_partial_text()
     }
 }
 

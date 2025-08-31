@@ -1,6 +1,6 @@
-use crate::telemetry::pipeline_metrics::{FpsTracker, PipelineMetrics};
-use crate::vad::config::UnifiedVadConfig;
-use crate::vad::types::VadEvent;
+use coldvox_telemetry::{FpsTracker, PipelineMetrics};
+use coldvox_vad::{UnifiedVadConfig, VadEvent};
+use coldvox_audio::chunker::AudioFrame;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::Sender;
@@ -8,12 +8,6 @@ use tokio::task::JoinHandle;
 use tracing::{debug, error, info};
 
 use super::vad_adapter::VadAdapter;
-
-#[derive(Debug, Clone)]
-pub struct AudioFrame {
-    pub data: Vec<i16>,
-    pub timestamp_ms: u64,
-}
 
 pub struct VadProcessor {
     adapter: VadAdapter,
@@ -66,7 +60,13 @@ impl VadProcessor {
             }
         }
 
-        match self.adapter.process(&frame.data) {
+        // Convert f32 samples back to i16
+        let i16_data: Vec<i16> = frame.samples
+            .iter()
+            .map(|&s| (s * i16::MAX as f32) as i16)
+            .collect();
+
+        match self.adapter.process(&i16_data) {
             Ok(Some(event)) => {
                 self.events_generated += 1;
 

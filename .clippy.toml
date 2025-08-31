@@ -2,7 +2,7 @@
 
 # Disallow println! and eprintln! in the library.
 # This enforces the use of the tracing framework for logging.
-disallowed-methods = [
+disallowed-names = [
     "std::println",
     "std::eprintln",
 ]

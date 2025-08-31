@@ -1,12 +1,10 @@
 use std::sync::Arc;
-use crate::telemetry::pipeline_metrics::PipelineMetrics;
+use coldvox_telemetry::PipelineMetrics;
 use crate::probes::MicCaptureThresholds;
 
 use super::common::{LiveTestResult, TestContext, TestError, TestErrorKind};
-use crate::audio::capture::AudioCaptureThread;
-use crate::audio::frame_reader::FrameReader;
-use crate::audio::ring_buffer::AudioRingBuffer;
-use crate::foundation::error::{AudioConfig, AudioError};
+use coldvox_audio::{AudioCaptureThread, FrameReader, AudioRingBuffer};
+use coldvox_foundation::{AudioConfig, AudioError};
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};

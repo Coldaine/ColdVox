@@ -7,14 +7,14 @@ use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, mpsc};
 use tracing::info;
 
-use crate::audio::chunker::{AudioChunker, ChunkerConfig};
-use crate::audio::ring_buffer::{AudioRingBuffer, AudioProducer};
-use crate::audio::vad_processor::AudioFrame;
+use coldvox_audio::chunker::{AudioChunker, ChunkerConfig};
+use coldvox_audio::ring_buffer::{AudioRingBuffer, AudioProducer};
+use coldvox_audio::chunker::AudioFrame;
 use crate::stt::{processor::SttProcessor, TranscriptionConfig, TranscriptionEvent};
 // use crate::text_injection::{AsyncInjectionProcessor, InjectionProcessorConfig};
-use crate::vad::config::{UnifiedVadConfig, VadMode};
-use crate::vad::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
-use crate::vad::types::VadEvent;
+use coldvox_vad::config::{UnifiedVadConfig, VadMode};
+use coldvox_vad::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
+use coldvox_vad::types::VadEvent;
 
 /// Mock text injector that captures injection attempts for testing
 pub struct MockTextInjector {
@@ -227,7 +227,7 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
     
     // Set up audio chunker
     let (audio_tx, _) = broadcast::channel::<AudioFrame>(200);
-    let frame_reader = crate::audio::frame_reader::FrameReader::new(
+    let frame_reader = coldvox_audio::frame_reader::FrameReader::new(
         audio_consumer,
         SAMPLE_RATE_HZ,
         1, // mono
@@ -238,7 +238,7 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
     let chunker_cfg = ChunkerConfig {
         frame_size_samples: FRAME_SIZE_SAMPLES,
         sample_rate_hz: SAMPLE_RATE_HZ,
-        resampler_quality: crate::audio::chunker::ResamplerQuality::Balanced,
+        resampler_quality: coldvox_audio::chunker::ResamplerQuality::Balanced,
     };
     
     let chunker = AudioChunker::new(frame_reader, audio_tx.clone(), chunker_cfg);

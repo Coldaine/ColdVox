@@ -15,7 +15,7 @@ pub enum FocusStatus {
 
 /// Tracks the current focused element for text injection targeting
 pub struct FocusTracker {
-    config: InjectionConfig,
+    _config: InjectionConfig,
     last_check: Option<Instant>,
     cached_status: Option<FocusStatus>,
     cache_duration: Duration,
@@ -26,7 +26,7 @@ impl FocusTracker {
     pub fn new(config: InjectionConfig) -> Self {
         let cache_duration = Duration::from_millis(config.focus_cache_duration_ms);
         Self {
-            config,
+            _config: config,
             last_check: None,
             cached_status: None,
             cache_duration,

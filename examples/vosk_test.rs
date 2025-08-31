@@ -1,6 +1,8 @@
+#[cfg(feature = "vosk")]
 use coldvox_app::stt::{Transcriber, VoskTranscriber, TranscriptionConfig, TranscriptionEvent};
 use std::path::Path;
 
+#[cfg(feature = "vosk")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Test with a small Vosk model (download required)
     let model_path = "models/vosk-model-small-en-us-0.15";
@@ -63,7 +65,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut error_count = 0;
     
     for (chunk_idx, chunk) in test_audio.chunks(chunk_size).enumerate() {
-        match transcriber.accept_frame(chunk)? {
+        // Use EventBasedTranscriber interface directly
+        match coldvox_stt::EventBasedTranscriber::accept_frame(&mut transcriber, chunk)? {
             Some(TranscriptionEvent::Partial { utterance_id, text, t0, t1 }) => {
                 partial_count += 1;
                 println!("Chunk {}: Partial result (utterance {}): \"{}\"", chunk_idx, utterance_id, text);
@@ -97,7 +100,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Get final result
     println!("\nFinalizing utterance...");
-    match transcriber.finalize_utterance()? {
+    match coldvox_stt::EventBasedTranscriber::finalize_utterance(&mut transcriber)? {
         Some(TranscriptionEvent::Final { utterance_id, text, words }) => {
             println!("Final transcription (utterance {}): \"{}\"", utterance_id, text);
             if let Some(words) = words {
@@ -138,5 +141,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         None => println!("Transcriber trait: No final result"),
     }
     
+    Ok(())
+}
+
+#[cfg(not(feature = "vosk"))]
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    eprintln!("Vosk feature is not enabled!");
+    eprintln!("Run with: cargo run --example vosk_test --features vosk");
+    eprintln!("\nThis demonstrates feature gating - the example only compiles and runs when the vosk feature is enabled.");
     Ok(())
 }

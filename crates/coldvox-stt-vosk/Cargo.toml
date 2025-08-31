@@ -1,0 +1,14 @@
+[package]
+name = "coldvox-stt-vosk"
+version = "0.1.0"
+edition = "2021"
+description = "Vosk speech recognition implementation for ColdVox STT"
+
+[dependencies]
+coldvox-stt = { path = "../coldvox-stt" }
+vosk = { version = "0.3", optional = true }
+tracing = "0.1"
+
+[features]
+default = []
+vosk = ["dep:vosk"]

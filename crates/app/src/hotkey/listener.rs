@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc::Sender;
 use device_query::{DeviceQuery, DeviceState, Keycode};
-use crate::vad::types::VadEvent;
+use coldvox_vad::types::VadEvent;
 use super::indicator::RecordingIndicator;
 
 /// Spawn a blocking task that listens for Ctrl+Super key combinations

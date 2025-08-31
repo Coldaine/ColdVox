@@ -1,34 +1,69 @@
 # ColdVox – Voice AI audio pipeline
 
-[![Status: Phase 3 Complete](https://img.shields.io/badge/Status-Phase%203%20Complete-brightgreen)](docs/PROJECT_STATUS.md)
-[![STT: Blocked](https://img.shields.io/badge/STT-Blocked%20by%20Dependencies-yellow)](docs/PROJECT_STATUS.md)
+[![Status: Workspace Refactoring](https://img.shields.io/badge/Status-Workspace%20Refactoring-yellow)](docs/PROJECT_STATUS.md)
+[![CI](https://github.com/YOUR_USERNAME/ColdVox/workflows/CI/badge.svg)](https://github.com/YOUR_USERNAME/ColdVox/actions)
 
 Rust-based real-time audio capture and processing with robust recovery, VAD, and STT integration.
 
+## Workspace Structure
+
+ColdVox is organized as a Cargo workspace with the following crates:
+
+- **`crates/app/`** - Main application binaries and CLI interface
+- **`crates/coldvox-foundation/`** - Core types, errors, and foundation functionality  
+- **`crates/coldvox-audio/`** - Audio capture, processing, and device management
+- **`crates/coldvox-telemetry/`** - Metrics and performance monitoring
+- **`crates/coldvox-stt/`** - Speech-to-text framework and interfaces
+- **`crates/coldvox-stt-vosk/`** - Vosk STT implementation
+- **`crates/coldvox-text-injection/`** - Text injection for automation
+
 ## Quick Start
 
-```bash
-# Build and run the app (STT requires vosk feature and system library)
-cargo run --bin mic_probe  # Basic audio pipeline without STT
-cargo run --features vosk  # With STT (requires libvosk installed)
+### VAD-Only Mode (Recommended for getting started)
 
-# Probe binaries
-cargo run --bin mic_probe -- --duration 30 --silence_threshold 120
-cargo run --bin foundation_probe -- --duration 30
+```bash
+# Build the workspace
+cargo build --workspace
+
+# Run basic VAD pipeline without STT dependencies
+cargo run -p coldvox-app --bin coldvox
+
+# Run audio probe utilities  
+cargo run -p coldvox-app --bin mic_probe -- --duration 30
+cargo run -p coldvox-app --bin tui_dashboard
+```
+
+### With Feature Flags
+
+```bash
+# STT with Vosk (requires system dependencies)
+cargo run -p coldvox-app --features vosk
+
+# Text injection capabilities
+cargo run -p coldvox-app --features text-injection
+
+# Full feature set
+cargo run -p coldvox-app --features vosk,text-injection
 
 # Debug logging
-RUST_LOG=debug cargo run --features vosk
+RUST_LOG=debug cargo run -p coldvox-app --features vosk
 ```
 
 ## Features
 
+**Core (always available):**
 - Reliable microphone capture with auto-recovery (watchdog)
-- Device‑native capture to ring buffer (no resampling on capture thread)
+- Device‑native capture to ring buffer (no resampling on capture thread) 
 - AudioChunker handles stereo→mono and resampling to 16 kHz
 - Ring buffer and backpressure handling with stats
 - Voice Activity Detection (Silero V5 via vendored fork)
-- STT framework implemented (Vosk - requires system dependencies)
-- Optional push-to-talk mode activated by holding <kbd>Ctrl</kbd>+<kbd>Super</kbd> with a small on-screen indicator centered one-third from the bottom of the screen
+- Optional push-to-talk mode activated by holding <kbd>Ctrl</kbd>+<kbd>Super</kbd>
+
+**Optional features (via feature flags):**
+- **`vosk`**: Speech-to-text using Vosk engine (requires system dependencies)
+- **`text-injection`**: Automated text input for transcribed speech
+- **`examples`**: Additional example programs and demos  
+- **`live-hardware-tests`**: Hardware-specific test suites
 
 ## Configuration
 

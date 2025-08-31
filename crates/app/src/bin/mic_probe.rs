@@ -5,7 +5,7 @@ use coldvox_app::probes::{
 };
 use std::path::PathBuf;
 use std::time::Duration;
-use tokio;
+
 
 #[derive(Parser)]
 #[command(name = "mic-probe")]
@@ -72,7 +72,7 @@ enum TestType {
 
 async fn run_single_test(cli: &Cli, test_type: TestType) -> Result<(), Box<dyn std::error::Error>> {
     let context = create_test_context(cli);
-    let results_dir = ensure_results_dir(cli.output_dir.as_ref().map(|v| v.as_path()))?;
+    let results_dir = ensure_results_dir(cli.output_dir.as_deref())?;
 
     if cli.verbose {
         println!("Starting {} test...", get_test_name(&test_type));
@@ -112,7 +112,7 @@ async fn run_single_test(cli: &Cli, test_type: TestType) -> Result<(), Box<dyn s
 
 async fn run_all_tests(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     let context = create_test_context(cli);
-    let results_dir = ensure_results_dir(cli.output_dir.as_ref().map(|v| v.as_path()))?;
+    let results_dir = ensure_results_dir(cli.output_dir.as_deref())?;
 
     if cli.verbose {
         println!("Running all audio tests...");
@@ -151,11 +151,7 @@ async fn run_all_tests(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
                 let result_path = write_result_json(&results_dir, &test_result)?;
                 results.push((display_name, test_result, result_path));
 
-                if cli.verbose {
-                    println!("{}: {}", display_name, status);
-                } else {
-                    println!("{}: {}", display_name, status);
-                }
+                println!("{}: {}", display_name, status);
             }
             Err(e) => {
                 all_passed = false;

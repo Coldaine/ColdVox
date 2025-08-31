@@ -53,3 +53,9 @@ impl RecordingIndicator {
         self.displayed = false;
     }
 }
+
+impl Default for RecordingIndicator {
+    fn default() -> Self {
+        Self::new()
+    }
+}

@@ -1,6 +1,14 @@
-
 [workspace]
 members = [
     "crates/app",
+    "crates/coldvox-foundation",
+    "crates/coldvox-telemetry", 
+    "crates/coldvox-audio",
+    "crates/coldvox-vad",
+    "crates/coldvox-vad-silero",
+    "crates/coldvox-text-injection",
+    "crates/coldvox-stt",
+    "crates/coldvox-stt-vosk",
+    "crates/coldvox-gui",
 ]
 resolver = "2"

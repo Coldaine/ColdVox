@@ -1,20 +1,5 @@
-pub mod capture;
-pub mod detector;
-pub mod device;
-pub mod chunker;
-pub mod frame_reader;
-pub mod ring_buffer;
-pub mod resampler;
 pub mod vad_adapter;
 pub mod vad_processor;
-pub mod watchdog;
 
-pub use capture::*;
-pub use detector::*;
-pub use device::*;
-pub use chunker::*;
-pub use frame_reader::*;
-pub use ring_buffer::*;
-pub use resampler::*;
 pub use vad_adapter::*;
-pub use watchdog::*;
+pub use vad_processor::*;

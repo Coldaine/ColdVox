@@ -1,15 +1,16 @@
 use std::sync::Arc;
-use crate::telemetry::pipeline_metrics::PipelineMetrics;
+use coldvox_telemetry::pipeline_metrics::PipelineMetrics;
 
 use super::common::{LiveTestResult, TestContext, TestError, TestErrorKind};
-use crate::audio::capture::AudioCaptureThread;
-use crate::audio::chunker::{AudioChunker, ChunkerConfig};
-use crate::audio::frame_reader::FrameReader;
-use crate::audio::ring_buffer::AudioRingBuffer;
-use crate::audio::vad_processor::{AudioFrame as VadFrame, VadProcessor};
-use crate::vad::types::VadEvent;
-use crate::vad::config::{UnifiedVadConfig, VadMode};
-use crate::foundation::error::AudioConfig;
+use coldvox_audio::capture::AudioCaptureThread;
+use coldvox_audio::chunker::{AudioChunker, ChunkerConfig, ResamplerQuality};
+use coldvox_audio::frame_reader::FrameReader;
+use coldvox_audio::ring_buffer::AudioRingBuffer;
+use coldvox_audio::chunker::AudioFrame as VadFrame;
+use crate::audio::vad_processor::VadProcessor;
+use coldvox_vad::types::VadEvent;
+use coldvox_vad::config::{UnifiedVadConfig, VadMode};
+use coldvox_foundation::error::AudioConfig;
 use serde_json::json;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -64,7 +65,7 @@ impl VadMicCheck {
         let chunker_cfg = ChunkerConfig {
             frame_size_samples: 512,
             sample_rate_hz: 16_000,
-            resampler_quality: crate::audio::chunker::ResamplerQuality::Balanced,
+            resampler_quality: ResamplerQuality::Balanced,
         };
 
         let frame_reader = FrameReader::new(
@@ -102,9 +103,7 @@ impl VadMicCheck {
         let start_time = Instant::now();
         let mut vad_events = Vec::new();
     let mut speech_segments = 0;
-    // TODO: Add periodic logging of metrics here (e.g., FPS and buffer fill)
         let mut total_speech_duration_ms = 0;
-        let mut last_speech_start: Option<u64> = None;
 
         let timeout = tokio::time::sleep(duration);
         tokio::pin!(timeout);
@@ -113,19 +112,15 @@ impl VadMicCheck {
             tokio::select! {
                 Some(event) = event_rx.recv() => {
                     let timestamp_ms = start_time.elapsed().as_millis() as u64;
-                    vad_events.push((timestamp_ms, event));
-
-                    match event {
+                    match &event {
                         VadEvent::SpeechStart { .. } => {
                             speech_segments += 1;
-                            last_speech_start = Some(timestamp_ms);
                         }
                         VadEvent::SpeechEnd { duration_ms, .. } => {
-                            if let Some(_start_time) = last_speech_start.take() {
-                                total_speech_duration_ms += duration_ms;
-                            }
+                            total_speech_duration_ms += *duration_ms;
                         }
                     }
+                    vad_events.push((timestamp_ms, event));
                 }
                 _ = &mut timeout => break,
             }

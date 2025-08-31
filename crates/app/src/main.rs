@@ -4,21 +4,19 @@
 // - The logs/ directory is created on startup if missing; file output uses a non-blocking writer.
 // - This ensures persistent logs for post-run analysis while keeping console output for live use.
 use anyhow::anyhow;
-use coldvox_app::audio::chunker::{AudioChunker, ChunkerConfig};
-use coldvox_app::audio::ring_buffer::AudioRingBuffer;
-use coldvox_app::audio::*;
-use coldvox_app::foundation::*;
-use coldvox_app::stt::{processor::SttProcessor, TranscriptionConfig, TranscriptionEvent};
+use coldvox_audio::{AudioChunker, ChunkerConfig, AudioRingBuffer, AudioCaptureThread, FrameReader};
+use coldvox_foundation::*;
+use coldvox_app::stt::TranscriptionConfig;
+#[cfg(feature = "vosk")]
+use coldvox_app::stt::{processor::SttProcessor, TranscriptionEvent};
 #[cfg(feature = "vosk")]
 use coldvox_app::stt::persistence::{PersistenceConfig, TranscriptFormat, AudioFormat, SessionMetadata};
-use coldvox_app::text_injection::{self, AsyncInjectionProcessor};
-use coldvox_app::vad::config::{UnifiedVadConfig, VadMode};
-use coldvox_app::vad::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
-use coldvox_app::vad::types::VadEvent;
-use coldvox_app::telemetry::pipeline_metrics::PipelineMetrics;
+
+use coldvox_vad::{UnifiedVadConfig, VadMode, FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ, VadEvent};
+use coldvox_telemetry::PipelineMetrics;
 use coldvox_app::hotkey::spawn_hotkey_listener;
 use std::time::Duration;
-use clap::{Args, Parser, ValueEnum};
+use clap::{Parser, ValueEnum};
 use tokio::sync::{broadcast, mpsc};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -56,22 +54,27 @@ struct Cli {
     #[arg(long = "resampler-quality", default_value = "balanced")]
     resampler_quality: String,
 
+    #[cfg(feature = "vosk")]
     /// Enable transcription persistence to disk
     #[arg(long = "save-transcriptions")]
     save_transcriptions: bool,
 
+    #[cfg(feature = "vosk")]
     /// Save audio alongside transcriptions
     #[arg(long = "save-audio", requires = "save_transcriptions")]
     save_audio: bool,
 
+    #[cfg(feature = "vosk")]
     /// Output directory for transcriptions
     #[arg(long = "output-dir", default_value = "transcriptions")]
     output_dir: String,
 
+    #[cfg(feature = "vosk")]
     /// Transcription format: json, csv, text
     #[arg(long = "transcript-format", default_value = "json")]
     transcript_format: String,
 
+    #[cfg(feature = "vosk")]
     /// Keep transcription files for N days (0 = forever)
     #[arg(long = "retention-days", default_value = "30")]
     retention_days: u32,
@@ -153,7 +156,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let resampler_quality = std::env::var("COLDVOX_RESAMPLER_QUALITY").unwrap_or(cli.resampler_quality.clone());
 
     if cli.list_devices {
-        let dm = coldvox_app::audio::device::DeviceManager::new()?;
+        let dm = coldvox_audio::DeviceManager::new()?;
         tracing::info!("CPAL host: {:?}", dm.host_id());
         let devices = dm.enumerate_devices();
         println!("Input devices (host: {:?}):", dm.host_id());
@@ -182,7 +185,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Audio capture thread started successfully.");
 
     // --- 2. Audio Chunker ---
-    let frame_reader = coldvox_app::audio::frame_reader::FrameReader::new(
+    let frame_reader = FrameReader::new(
         audio_consumer,
         device_cfg.sample_rate,
         device_cfg.channels,
@@ -194,9 +197,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Target 16k for VAD; resampler in chunker will convert from device rate
         sample_rate_hz: SAMPLE_RATE_HZ,
         resampler_quality: match resampler_quality.to_lowercase().as_str() {
-            "fast" => coldvox_app::audio::chunker::ResamplerQuality::Fast,
-            "quality" => coldvox_app::audio::chunker::ResamplerQuality::Quality,
-            _ => coldvox_app::audio::chunker::ResamplerQuality::Balanced, // default/balanced
+            "fast" => coldvox_audio::ResamplerQuality::Fast,
+            "quality" => coldvox_audio::ResamplerQuality::Quality,
+            _ => coldvox_audio::ResamplerQuality::Balanced, // default/balanced
         },
     };
 
@@ -210,7 +213,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // This broadcast channel will distribute audio frames to all interested components.
     let (audio_tx, _) =
-        broadcast::channel::<coldvox_app::audio::vad_processor::AudioFrame>(200);
+        broadcast::channel::<coldvox_audio::chunker::AudioFrame>(200);
     let chunker = AudioChunker::new(frame_reader, audio_tx.clone(), chunker_cfg)
         .with_metrics(metrics.clone())
         .with_device_config(device_config_rx.resubscribe());
@@ -247,34 +250,51 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // --- 4. STT Processor ---
-    // Check for Vosk model path from environment or use default
-    let model_path = std::env::var("VOSK_MODEL_PATH")
-        .unwrap_or_else(|_| "models/vosk-model-small-en-us-0.15".to_string());
+    #[cfg(feature = "vosk")]
+    let stt_config = {
+        // Check for Vosk model path from environment or use default
+        let model_path = std::env::var("VOSK_MODEL_PATH")
+            .unwrap_or_else(|_| "models/vosk-model-small-en-us-0.15".to_string());
 
-    // Check if model exists to determine if STT should be enabled
-    let stt_enabled = std::path::Path::new(&model_path).exists();
+        // Check if model exists to determine if STT should be enabled
+        let stt_enabled = std::path::Path::new(&model_path).exists();
 
-    if !stt_enabled && !model_path.is_empty() {
-        tracing::warn!(
-            "STT disabled: Vosk model not found at '{}'. \
-            Download a model from https://alphacephei.com/vosk/models \
-            or set VOSK_MODEL_PATH environment variable.",
-            model_path
-        );
-    }
+        if !stt_enabled && !model_path.is_empty() {
+            tracing::warn!(
+                "STT disabled: Vosk model not found at '{}'. \
+                Download a model from https://alphacephei.com/vosk/models \
+                or set VOSK_MODEL_PATH environment variable.",
+                model_path
+            );
+        }
 
-    // Create STT configuration
-    let stt_config = TranscriptionConfig {
-        enabled: stt_enabled,
-        model_path,
-        partial_results: true,
-        max_alternatives: 1,
-        include_words: false,
-        buffer_size_ms: 512,
+        // Create STT configuration
+        TranscriptionConfig {
+            enabled: stt_enabled,
+            model_path,
+            partial_results: true,
+            max_alternatives: 1,
+            include_words: false,
+            buffer_size_ms: 512,
+        }
+    };
+
+    #[cfg(not(feature = "vosk"))]
+    let _stt_config = {
+        tracing::info!("STT support not compiled - build with --features vosk to enable");
+        TranscriptionConfig {
+            enabled: false,
+            model_path: String::new(),
+            partial_results: false,
+            max_alternatives: 1,
+            include_words: false,
+            buffer_size_ms: 512,
+        }
     };
 
     // Only spawn STT processor if enabled
     let mut injection_shutdown_tx: Option<mpsc::Sender<()>> = None;
+    #[cfg(feature = "vosk")]
     let (stt_handle, _persistence_handle, injection_handle) = if stt_config.enabled {
         // Create mpsc channel for STT processor to send transcription events
         let (stt_transcription_tx, mut stt_transcription_rx) = mpsc::channel::<TranscriptionEvent>(100);
@@ -430,6 +450,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         tracing::info!("STT processor disabled - no model available");
         (None, None, None)
+    };
+
+    #[cfg(not(feature = "vosk"))]
+    let (stt_handle, _persistence_handle, injection_handle) = {
+        tracing::info!("STT processor disabled - no vosk feature");
+        
+        // Consume VAD events even when STT is disabled to prevent channel backpressure
+        tokio::spawn(async move {
+            while let Some(_event) = event_rx.recv().await {
+                // Just consume the events - no STT processing when vosk is disabled
+            }
+        });
+        
+        (None::<tokio::task::JoinHandle<()>>, None::<tokio::task::JoinHandle<()>>, None::<tokio::task::JoinHandle<()>>)
     };
 
     // --- Main Application Loop ---

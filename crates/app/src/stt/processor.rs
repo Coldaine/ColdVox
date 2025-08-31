@@ -5,11 +5,14 @@
 // Text injection happens immediately (0ms timeout) after transcription completes.
 
 use tokio::sync::{broadcast, mpsc};
-use crate::audio::vad_processor::AudioFrame;
-use crate::stt::{VoskTranscriber, TranscriptionEvent, TranscriptionConfig};
-use crate::vad::types::VadEvent;
+use coldvox_audio::chunker::AudioFrame;
+use crate::stt::{TranscriptionEvent, TranscriptionConfig};
+use coldvox_vad::types::VadEvent;
 use std::sync::Arc;
 use std::time::Instant;
+
+#[cfg(feature = "vosk")]
+use crate::stt::VoskTranscriber;
 
 /// STT processor state
 #[derive(Debug, Clone)]
@@ -48,6 +51,7 @@ pub struct SttMetrics {
     pub last_event_time: Option<Instant>,
 }
 
+#[cfg(feature = "vosk")]
 pub struct SttProcessor {
     /// Audio frame receiver (broadcast from pipeline)
     audio_rx: broadcast::Receiver<AudioFrame>,
@@ -65,6 +69,7 @@ pub struct SttProcessor {
     config: TranscriptionConfig,
 }
 
+#[cfg(feature = "vosk")]
 impl SttProcessor {
     /// Create a new STT processor
     pub fn new(
@@ -100,10 +105,10 @@ impl SttProcessor {
         // Create a simple event channel for compatibility
         let (event_tx, _event_rx) = mpsc::channel(100);
         
-        // Use default config with a placeholder model path
+        // Use default config with the default model path
         let config = TranscriptionConfig {
             enabled: true,
-            model_path: "vosk-model-en-us-0.22-lgraph".to_string(),
+            model_path: crate::stt::vosk::default_model_path(),
             partial_results: true,
             max_alternatives: 1,
             include_words: false,
@@ -191,7 +196,7 @@ impl SttProcessor {
         };
         
         // Reset transcriber for new utterance
-        if let Err(e) = self.transcriber.reset() {
+        if let Err(e) = coldvox_stt::EventBasedTranscriber::reset(&mut self.transcriber) {
             tracing::warn!(target: "stt", "Failed to reset transcriber: {}", e);
         }
         
@@ -220,7 +225,7 @@ impl SttProcessor {
             
             if !audio_buffer.is_empty() {
                 // Send the entire buffer to the transcriber at once
-                match self.transcriber.accept_frame(&audio_buffer) {
+                match coldvox_stt::EventBasedTranscriber::accept_frame(&mut self.transcriber, &audio_buffer) {
                     Ok(Some(event)) => {
                         self.send_event(event).await;
                         
@@ -249,7 +254,7 @@ impl SttProcessor {
             }
             
             // Finalize to get any remaining transcription
-            match self.transcriber.finalize_utterance() {
+            match coldvox_stt::EventBasedTranscriber::finalize_utterance(&mut self.transcriber) {
                 Ok(Some(event)) => {
                     self.send_event(event).await;
                     
@@ -287,8 +292,14 @@ impl SttProcessor {
         
         // Only buffer if speech is active
         if let UtteranceState::SpeechActive { ref mut audio_buffer, ref mut frames_buffered, .. } = &mut self.state {
+            // Convert f32 samples back to i16
+            let i16_samples: Vec<i16> = frame.samples
+                .iter()
+                .map(|&s| (s * i16::MAX as f32) as i16)
+                .collect();
+            
             // Buffer the audio frame
-            audio_buffer.extend_from_slice(&frame.data);
+            audio_buffer.extend_from_slice(&i16_samples);
             *frames_buffered += 1;
             
             // Log periodically to show we're buffering
@@ -338,6 +349,45 @@ impl SttProcessor {
                 tracing::warn!(target: "stt", "Event channel send timed out after 5s - consumer too slow");
                 self.metrics.write().frames_dropped += 1;
             }
+        }
+    }
+}
+
+#[cfg(not(feature = "vosk"))]
+pub struct SttProcessor;
+
+#[cfg(not(feature = "vosk"))]
+impl SttProcessor {
+    /// Create a stub STT processor when Vosk feature is disabled
+    pub fn new(
+        _audio_rx: broadcast::Receiver<AudioFrame>,
+        _vad_event_rx: mpsc::Receiver<VadEvent>,
+        _event_tx: mpsc::Sender<TranscriptionEvent>,
+        _config: TranscriptionConfig,
+    ) -> Result<Self, String> {
+        tracing::info!("STT processor disabled - Vosk feature not enabled");
+        Ok(Self)
+    }
+    
+    /// Stub method for backward compatibility
+    pub fn new_with_default(
+        _audio_rx: broadcast::Receiver<AudioFrame>,
+        _vad_event_rx: mpsc::Receiver<VadEvent>,
+    ) -> Result<Self, String> {
+        Self::new(_audio_rx, _vad_event_rx, mpsc::channel(1).0, TranscriptionConfig::default())
+    }
+    
+    /// Get stub metrics
+    pub fn metrics(&self) -> SttMetrics {
+        SttMetrics::default()
+    }
+    
+    /// Run stub processor
+    pub async fn run(self) {
+        tracing::info!("STT processor stub running - no actual processing (Vosk feature disabled)");
+        // Just sleep forever since there's nothing to do
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
         }
     }
 }

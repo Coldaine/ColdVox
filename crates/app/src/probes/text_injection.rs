@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use crate::telemetry::pipeline_metrics::PipelineMetrics;
+use coldvox_telemetry::pipeline_metrics::PipelineMetrics;
 use crate::text_injection::manager::StrategyManager;
 use crate::text_injection::types::{InjectionConfig, InjectionMetrics};
 use crate::probes::common::{LiveTestResult, TestContext, TestError};
