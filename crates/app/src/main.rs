@@ -11,7 +11,7 @@ use coldvox_app::foundation::*;
 use coldvox_app::stt::{processor::SttProcessor, TranscriptionConfig, TranscriptionEvent};
 #[cfg(feature = "vosk")]
 use coldvox_app::stt::persistence::{PersistenceConfig, TranscriptFormat, AudioFormat, SessionMetadata};
-use coldvox_app::text_injection::{self, AsyncInjectionProcessor, InjectionProcessorConfig};
+use coldvox_app::text_injection::{self, AsyncInjectionProcessor};
 use coldvox_app::vad::config::{UnifiedVadConfig, VadMode};
 use coldvox_app::vad::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 use coldvox_app::vad::types::VadEvent;
@@ -135,34 +135,6 @@ struct InjectionArgs {
     #[arg(long, env = "COLDVOX_INJECTION_COOLDOWN_MS")]
     cooldown_initial_ms: Option<u64>,
 }
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Give PipeWire better routing hints if using its ALSA bridge
-    std::env::set_var(
-        "PIPEWIRE_PROPS",
-        "{ application.name=ColdVox media.role=capture }",
-    );
-    let _log_guard = init_logging()?;
-    tracing::info!("Starting ColdVox application");
-
-    let cli = Cli::parse();
-
-    // Apply environment variable overrides
-    let device = cli.device.clone().or_else(|| std::env::var("COLDVOX_DEVICE").ok());
-    let resampler_quality = std::env::var("COLDVOX_RESAMPLER_QUALITY").unwrap_or(cli.resampler_quality.clone());
-
-    if cli.list_devices {
-        let dm = coldvox_app::audio::device::DeviceManager::new()?;
-        tracing::info!("CPAL host: {:?}", dm.host_id());
-        let devices = dm.enumerate_devices();
-        println!("Input devices (host: {:?}):", dm.host_id());
-        for d in devices {
-            let def = if d.is_default { " (default)" } else { "" };
-            println!("- {}{}", d.name, def);
-        }
-        return Ok(());
-    }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

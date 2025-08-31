@@ -473,7 +473,7 @@ impl InjectionMetrics {
 
 /// Trait for text injection backends
 #[async_trait]
-pub trait TextInjector: Send {
+pub trait TextInjector: Send + Sync {
     /// Name of the injector for logging and metrics
     fn name(&self) -> &'static str;
     

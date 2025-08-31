@@ -419,53 +419,84 @@ pub(crate) fn is_app_allowed(&self, app_id: &str) -> bool {
         self.cooldowns.remove(&key);
     }
     
-    /// Get ordered list of methods to try based on success rates
-    #[allow(dead_code)]
+    /// Get ordered list of methods to try based on backend availability and success rates.
+    /// Includes NoOp as a final fallback so the list is never empty.
     pub(crate) fn get_method_priority(&self, app_id: &str) -> Vec<InjectionMethod> {
-        let mut methods = vec![];
-        
-        // Always try AT-SPI first if available
-        #[cfg(feature = "text-injection-atspi")]
-        methods.push(InjectionMethod::AtspiInsert);
-        
-        // Add clipboard methods
-        #[cfg(feature = "text-injection-clipboard")]
-        {
-            methods.push(InjectionMethod::Clipboard);
-            #[cfg(feature = "text-injection-atspi")]
-            methods.push(InjectionMethod::ClipboardAndPaste);
+        // Base order derived from detected backends (mirrors get_method_order_cached)
+        let available_backends = self.backend_detector.detect_available_backends();
+        let mut base_order: Vec<InjectionMethod> = Vec::new();
+
+        for backend in available_backends {
+            match backend {
+                Backend::WaylandXdgDesktopPortal | Backend::WaylandVirtualKeyboard => {
+                    base_order.push(InjectionMethod::AtspiInsert);
+                    base_order.push(InjectionMethod::ClipboardAndPaste);
+                    base_order.push(InjectionMethod::Clipboard);
+                }
+                Backend::X11Xdotool | Backend::X11Native => {
+                    base_order.push(InjectionMethod::AtspiInsert);
+                    base_order.push(InjectionMethod::ClipboardAndPaste);
+                    base_order.push(InjectionMethod::Clipboard);
+                }
+                Backend::MacCgEvent | Backend::WindowsSendInput => {
+                    base_order.push(InjectionMethod::AtspiInsert);
+                    base_order.push(InjectionMethod::ClipboardAndPaste);
+                    base_order.push(InjectionMethod::Clipboard);
+                }
+                _ => {}
+            }
         }
-        
-        // Sort by success rate for this app
-        methods.sort_by(|a, b| {
+
+        // Optional, opt-in fallbacks
+        if self.config.allow_kdotool {
+            base_order.push(InjectionMethod::KdoToolAssist);
+        }
+        if self.config.allow_enigo {
+            base_order.push(InjectionMethod::EnigoText);
+        }
+        if self.config.allow_mki {
+            base_order.push(InjectionMethod::UinputKeys);
+        }
+        if self.config.allow_ydotool {
+            base_order.push(InjectionMethod::YdoToolPaste);
+        }
+
+        // Deduplicate while preserving order
+        use std::collections::HashSet;
+        let mut seen = HashSet::new();
+        base_order.retain(|m| seen.insert(*m));
+
+        // Sort by historical success rate, preserving base order when equal
+        let base_order_copy = base_order.clone();
+        base_order.sort_by(|a, b| {
             let key_a = (app_id.to_string(), *a);
             let key_b = (app_id.to_string(), *b);
-            
-            let rate_a = self.success_cache.get(&key_a)
-                .map(|r| r.success_rate)
-                .unwrap_or(0.5); // Default 50% assumed success
-            
-            let rate_b = self.success_cache.get(&key_b)
+
+            let rate_a = self
+                .success_cache
+                .get(&key_a)
                 .map(|r| r.success_rate)
                 .unwrap_or(0.5);
-            
-            rate_b.partial_cmp(&rate_a).unwrap_or(std::cmp::Ordering::Equal)
+            let rate_b = self
+                .success_cache
+                .get(&key_b)
+                .map(|r| r.success_rate)
+                .unwrap_or(0.5);
+
+            rate_b
+                .partial_cmp(&rate_a)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| {
+                    let pos_a = base_order_copy.iter().position(|m| m == a).unwrap_or(0);
+                    let pos_b = base_order_copy.iter().position(|m| m == b).unwrap_or(0);
+                    pos_a.cmp(&pos_b)
+                })
         });
-        
-        // Add opt-in fallback methods at the end
-        if self.config.allow_ydotool && !self.is_in_cooldown(InjectionMethod::YdoToolPaste) {
-            methods.push(InjectionMethod::YdoToolPaste);
-        }
-        
-        if self.config.allow_enigo && !self.is_in_cooldown(InjectionMethod::EnigoText) {
-            methods.push(InjectionMethod::EnigoText);
-        }
-        
-        if self.config.allow_mki && !self.is_in_cooldown(InjectionMethod::UinputKeys) {
-            methods.push(InjectionMethod::UinputKeys);
-        }
-        
-        methods
+
+        // Always include NoOp at the end as a last resort
+        base_order.push(InjectionMethod::NoOp);
+
+        base_order
     }
 
     /// Get the preferred method order based on current context and history (cached per app)
