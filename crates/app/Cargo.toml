@@ -2,11 +2,11 @@
 name = "coldvox-app"
 version = "0.1.0"
 edition = "2021"
+default-run = "coldvox"
 
 [[bin]]
 name = "coldvox"
 path = "src/main.rs"
-required-features = ["vosk"]
 
 [[bin]]
 name = "tui_dashboard"
@@ -48,16 +48,15 @@ tokio = { version = "1.35", features = ["full"] }
 anyhow = "1.0"
 thiserror = "1.0"
 tracing = "0.1"
+parking_lot = "0.12"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
 async-trait = "0.1"
-cpal = "0.15"
+# Some audio processing dependencies still needed for VAD adapter
 hound = "3.5"
-dasp = { version = "0.11", features = ["all"] }
 rubato = "0.16"
-rtrb = "0.3"
 crossbeam-channel = "0.5"
-parking_lot = "0.12"
+# parking_lot moved to foundation and other crates
 once_cell = "1.19"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -68,21 +67,19 @@ chrono = { version = "0.4", features = ["serde"] }
 ratatui = "0.26"
 crossterm = "0.27"
 futures = "0.3"
-voice_activity_detector = { git = "https://github.com/nkeenan38/voice_activity_detector", rev = "234b7484860125014f06ad85da842da81b02e51a" }
-vosk = "0.3"
+# voice_activity_detector moved to coldvox-vad-silero
+coldvox-foundation = { path = "../coldvox-foundation" }
+coldvox-telemetry = { path = "../coldvox-telemetry" }
+coldvox-audio = { path = "../coldvox-audio" }
+coldvox-vad = { path = "../coldvox-vad" }
+coldvox-vad-silero = { path = "../coldvox-vad-silero", features = ["silero"] }
+coldvox-stt = { path = "../coldvox-stt" }
+coldvox-stt-vosk = { path = "../coldvox-stt-vosk", optional = true, features = ["vosk"] }
+coldvox-text-injection = { path = "../coldvox-text-injection", optional = true }
 csv = "1.3"
 device_query = "4.0"
-
-[features]
-default = []
-live-hardware-tests = []
-vosk = []
-examples = []
-text-injection = []
-
-[dependencies.rand]
-version = "0.8"
-optional = true
+cpal = "0.15.2"
+regex = { version = "1.10", optional = true }
 
 [dev-dependencies]
 tempfile = "3.8"
@@ -92,3 +89,19 @@ ctrlc = "3.4"
 proptest = "1.4"
 criterion = "0.5"
 rand = "0.8"
+
+[features]
+default = ["silero"]
+live-hardware-tests = []
+vosk = ["dep:coldvox-stt-vosk"]
+examples = []
+text-injection = ["dep:coldvox-text-injection"]
+silero = ["coldvox-vad-silero/silero"]
+level3 = ["coldvox-vad/level3"]
+text-injection-atspi = ["text-injection", "coldvox-text-injection/atspi"]
+text-injection-clipboard = ["text-injection", "coldvox-text-injection/wl_clipboard"]
+text-injection-ydotool = ["text-injection", "coldvox-text-injection/ydotool"]
+text-injection-enigo = ["text-injection", "coldvox-text-injection/enigo"]
+text-injection-mki = ["text-injection", "coldvox-text-injection/mki"]
+text-injection-kdotool = ["text-injection", "coldvox-text-injection/xdg_kdotool"]
+text-injection-regex = ["text-injection", "dep:regex"]

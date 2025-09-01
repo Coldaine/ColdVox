@@ -1,6 +1,6 @@
 use crate::text_injection::types::{InjectionConfig, InjectionError, InjectionMethod, InjectionMetrics, TextInjector};
 use anyhow::Result;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::Duration;
 use tokio::time::timeout;
 use tracing::{debug, error, info, warn};
@@ -30,8 +30,16 @@ impl YdotoolInjector {
     fn check_ydotool() -> bool {
         match Self::check_binary_permissions("ydotool") {
             Ok(()) => {
-                // Check if the ydotool socket exists (most reliable check)
-                let user_id = std::env::var("UID").unwrap_or_else(|_| "1000".to_string());
+                // Check if the ydotool socket exists (most reliable check).
+                // Use `id -u` as it's more reliable than the $UID env var.
+                let user_id = Command::new("id")
+                    .arg("-u")
+                    .output()
+                    .ok()
+                    .and_then(|o| String::from_utf8(o.stdout).ok())
+                    .map(|s| s.trim().to_string())
+                    .unwrap_or_else(|| "1000".to_string());
+
                 let socket_path = format!("/run/user/{}/.ydotool_socket", user_id);
                 if !std::path::Path::new(&socket_path).exists() {
                     warn!("ydotool socket not found at {}, daemon may not be running", socket_path);

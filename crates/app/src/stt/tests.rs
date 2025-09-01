@@ -9,7 +9,7 @@ mod vosk_tests {
     fn test_transcription_config_default() {
         let config = TranscriptionConfig::default();
         assert_eq!(config.enabled, false);
-        assert_eq!(config.model_path, "");
+        assert_eq!(config.model_path, "models/vosk-model-small-en-us-0.15");
         assert_eq!(config.partial_results, true);
         assert_eq!(config.max_alternatives, 1);
         assert_eq!(config.include_words, false);

@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        feature_set:
+          - name: "Default features"
+            features: ""
+          - name: "VAD only" 
+            features: ""
+          - name: "STT with Vosk"
+            features: "vosk"
+          - name: "Text injection"
+            features: "text-injection"
+          - name: "Full features"
+            features: "vosk,text-injection"
+          - name: "Examples"
+            features: "examples"
+          - name: "Live hardware tests"
+            features: "live-hardware-tests"
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+
+    - name: Cache dependencies
+      uses: Swatinem/rust-cache@v2
+      with:
+        key: ${{ matrix.feature_set.name }}
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libasound2-dev \
+          libxdo-dev \
+          libxtst-dev \
+          libxinerama-dev \
+          libx11-dev \
+          libxcursor-dev \
+          libxi-dev \
+          libgl1-mesa-dev \
+          pkg-config
+
+    - name: Check formatting
+      run: cargo fmt --all -- --check
+
+    - name: Run clippy
+      run: |
+        if [ -n "${{ matrix.feature_set.features }}" ]; then
+          cargo clippy --workspace --features ${{ matrix.feature_set.features }} -- -D warnings
+        else
+          cargo clippy --workspace -- -D warnings
+        fi
+
+    - name: Run tests
+      run: |
+        if [ -n "${{ matrix.feature_set.features }}" ]; then
+          cargo test --workspace --features ${{ matrix.feature_set.features }}
+        else
+          cargo test --workspace
+        fi
+
+    - name: Build
+      run: |
+        if [ -n "${{ matrix.feature_set.features }}" ]; then
+          cargo build --workspace --features ${{ matrix.feature_set.features }}
+        else
+          cargo build --workspace
+        fi
+
+  # Separate job for documentation
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      
+    - name: Cache dependencies
+      uses: Swatinem/rust-cache@v2
+      
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libasound2-dev \
+          libxdo-dev \
+          libxtst-dev
+          
+    - name: Check documentation
+      run: cargo doc --workspace --no-deps --all-features
+      env:
+        RUSTDOCFLAGS: "-D warnings"

@@ -51,8 +51,12 @@ pub fn is_atspi_available() -> bool {
     if atspi_bus_addr.is_err() {
         warn!("AT_SPI_BUS_ADDRESS not set, assuming accessibility is disabled.");
         return false;
+    let is_available = std::env::var("AT_SPI_BUS_ADDRESS").is_ok();
+    if !is_available {
+        warn!("AT_SPI_BUS_ADDRESS environment variable not set, assuming AT-SPI accessibility is disabled.");
     }
     true
+    is_available
 }
 
 /// Check if `wl-copy` binary is in the PATH.
@@ -74,6 +78,19 @@ pub fn is_ydotool_available() -> bool {
 
     if !binary_exists {
         return false;
+    binary_exists && {
+        // Check for the socket, which is more reliable than just the binary.
+        // Use `id -u` as it's more reliable than the $UID env var.
+        let user_id = Command::new("id")
+            .arg("-u")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|s| s.trim().to_string())
+            .unwrap_or_else(|| "1000".to_string());
+
+        let socket_path = format!("/run/user/{}/.ydotool_socket", user_id);
+        std::path::Path::new(&socket_path).exists()
     }
 
     // Check for the socket
@@ -103,4 +120,11 @@ pub fn has_uinput_access() -> bool {
         return perms.mode() & 0o002 != 0; // Writable by "other"
     }
     false
+    // The most reliable way to check for write access is to try to open the file.
+    // This avoids race conditions and complex permission-checking logic (e.g.,
+    // checking user/group ownership and modes).
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open("/dev/uinput")
+        .is_ok()
 }

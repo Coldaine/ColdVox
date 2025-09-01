@@ -1,0 +1,17 @@
+[package]
+name = "coldvox-vad"
+version = "0.1.0"
+edition = "2021"
+description = "Voice Activity Detection (VAD) trait and core functionality for ColdVox"
+authors = ["ColdVox Contributors"]
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+
+[features]
+default = []
+level3 = []
+
+[dev-dependencies]
+rand = "0.8"

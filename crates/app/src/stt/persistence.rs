@@ -8,8 +8,8 @@ use parking_lot::Mutex;
 use csv::Writer;
 
 use crate::stt::TranscriptionEvent;
-use crate::audio::vad_processor::AudioFrame;
-use crate::vad::types::VadEvent;
+use coldvox_audio::chunker::AudioFrame;
+use coldvox_vad::types::VadEvent;
 
 /// Configuration for transcription persistence
 #[derive(Debug, Clone)]
@@ -198,9 +198,15 @@ impl TranscriptionWriter {
         
         let is_active = *self.utterance_active.lock();
         if is_active {
+            // Convert f32 samples back to i16
+            let i16_samples: Vec<i16> = frame.samples
+                .iter()
+                .map(|&s| (s * i16::MAX as f32) as i16)
+                .collect();
+            
             // Accumulate audio for current utterance
             let mut audio = self.current_utterance_audio.lock();
-            audio.extend_from_slice(&frame.data);
+            audio.extend_from_slice(&i16_samples);
         }
     }
     

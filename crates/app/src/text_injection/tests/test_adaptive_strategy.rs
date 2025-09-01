@@ -40,15 +40,15 @@ mod tests {
         config.allow_enigo = false;
         
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
-        let manager = StrategyManager::new(config, metrics);
+    let mut manager = StrategyManager::new(config, metrics);
         
-        let methods = manager.get_method_priority("test_app");
+    let methods = manager.get_method_priority("test_app");
         
         // Should have some methods available
         assert!(!methods.is_empty());
         
         // AT-SPI should be preferred if available
-        #[cfg(feature = "text-injection-atspi")]
+    #[cfg(feature = "text-injection-atspi")]
         assert_eq!(methods[0], InjectionMethod::AtspiInsert);
     }
     

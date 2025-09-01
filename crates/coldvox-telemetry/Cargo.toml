@@ -1,0 +1,15 @@
+[package]
+name = "coldvox-telemetry"
+version = "0.1.0"
+edition = "2021"
+description = "Telemetry and metrics infrastructure for ColdVox"
+authors = ["ColdVox Contributors"]
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+parking_lot = "0.12"
+coldvox-text-injection = { path = "../coldvox-text-injection", optional = true }
+
+[features]
+default = []
+text-injection = ["dep:coldvox-text-injection"]

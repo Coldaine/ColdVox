@@ -147,7 +147,7 @@ yay -S kdotool
 
 ## Architecture
 
-The implementation is in `crates/app/src/text_injection/mod.rs` and follows 2024-2025 best practices for KDE Plasma Wayland:
+The implementation is in the `crates/coldvox-text-injection/` crate and follows 2024-2025 best practices for KDE Plasma Wayland:
 
 - Automatic capability detection
 - Graceful fallbacks

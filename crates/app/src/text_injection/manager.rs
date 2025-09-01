@@ -18,6 +18,7 @@ use crate::text_injection::mki_injector::MkiInjector;
 use crate::text_injection::noop_injector::NoOpInjector;
 #[cfg(feature = "text-injection-kdotool")]
 use crate::text_injection::kdotool_injector::KdotoolInjector;
+use crate::text_injection::window_manager;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -71,8 +72,8 @@ impl InjectorRegistry {
         
         // Check backend availability
         let backends = backend_detector.detect_available_backends();
-        let has_wayland = backends.iter().any(|b| matches!(b, Backend::WaylandXdgDesktopPortal | Backend::WaylandVirtualKeyboard));
-        let has_x11 = backends.iter().any(|b| matches!(b, Backend::X11Xdotool | Backend::X11Native));
+        let _has_wayland = backends.iter().any(|b| matches!(b, Backend::WaylandXdgDesktopPortal | Backend::WaylandVirtualKeyboard));
+        let _has_x11 = backends.iter().any(|b| matches!(b, Backend::X11Xdotool | Backend::X11Native));
         
         // Add AT-SPI injector if available
         #[cfg(feature = "text-injection-atspi")]
@@ -239,56 +240,16 @@ impl StrategyManager {
         }
     }
 
+    /// Public wrapper for tests and external callers to obtain method priority
+    pub fn get_method_priority(&mut self, app_id: &str) -> Vec<InjectionMethod> {
+        self.get_method_order_cached(app_id)
+    }
+
     /// Get the current application identifier (e.g., window class)
     pub(crate) async fn get_current_app_id(&self) -> Result<String, InjectionError> {
-        #[cfg(feature = "text-injection-atspi")]
-        {
-            // TODO: Implement real AT-SPI app identification once API is stable
-            debug!("AT-SPI app identification placeholder");
-        }
-        
-        // Fallback: Try window manager
-        #[cfg(target_os = "linux")]
-        {
-            if let Ok(window_class) = self.get_active_window_class().await {
-                return Ok(window_class);
-            }
-        }
-        
-        Ok("unknown".to_string())
-    }
-    
-    /// Get active window class via window manager
-    #[cfg(target_os = "linux")]
-    async fn get_active_window_class(&self) -> Result<String, InjectionError> {
-        use std::process::Command;
-        
-        // Try xprop for X11
-        if let Ok(output) = Command::new("xprop")
-            .args(&["-root", "_NET_ACTIVE_WINDOW"])
-            .output() {
-            if output.status.success() {
-                let window_str = String::from_utf8_lossy(&output.stdout);
-                if let Some(window_id) = window_str.split("# ").nth(1) {
-                    let window_id = window_id.trim();
-                    
-                    // Get window class
-                    if let Ok(class_output) = Command::new("xprop")
-                        .args(&["-id", window_id, "WM_CLASS"])
-                        .output() {
-                        if class_output.status.success() {
-                            let class_str = String::from_utf8_lossy(&class_output.stdout);
-                            // Parse WM_CLASS string (format: WM_CLASS(STRING) = "instance", "class")
-                            if let Some(class_part) = class_str.split('"').nth(3) {
-                                return Ok(class_part.to_string());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-        Err(InjectionError::Other("Could not determine active window".to_string()))
+        // Use the robust window manager utility to get the active window class.
+        // This supports Wayland and X11 through various methods.
+        window_manager::get_active_window_class().await
     }
     
     /// Check if injection is currently paused
@@ -419,85 +380,7 @@ pub(crate) fn is_app_allowed(&self, app_id: &str) -> bool {
         self.cooldowns.remove(&key);
     }
     
-    /// Get ordered list of methods to try based on backend availability and success rates.
-    /// Includes NoOp as a final fallback so the list is never empty.
-    pub(crate) fn get_method_priority(&self, app_id: &str) -> Vec<InjectionMethod> {
-        // Base order derived from detected backends (mirrors get_method_order_cached)
-        let available_backends = self.backend_detector.detect_available_backends();
-        let mut base_order: Vec<InjectionMethod> = Vec::new();
-
-        for backend in available_backends {
-            match backend {
-                Backend::WaylandXdgDesktopPortal | Backend::WaylandVirtualKeyboard => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::X11Xdotool | Backend::X11Native => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::MacCgEvent | Backend::WindowsSendInput => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                _ => {}
-            }
-        }
-
-        // Optional, opt-in fallbacks
-        if self.config.allow_kdotool {
-            base_order.push(InjectionMethod::KdoToolAssist);
-        }
-        if self.config.allow_enigo {
-            base_order.push(InjectionMethod::EnigoText);
-        }
-        if self.config.allow_mki {
-            base_order.push(InjectionMethod::UinputKeys);
-        }
-        if self.config.allow_ydotool {
-            base_order.push(InjectionMethod::YdoToolPaste);
-        }
-
-        // Deduplicate while preserving order
-        use std::collections::HashSet;
-        let mut seen = HashSet::new();
-        base_order.retain(|m| seen.insert(*m));
-
-        // Sort by historical success rate, preserving base order when equal
-        let base_order_copy = base_order.clone();
-        base_order.sort_by(|a, b| {
-            let key_a = (app_id.to_string(), *a);
-            let key_b = (app_id.to_string(), *b);
-
-            let rate_a = self
-                .success_cache
-                .get(&key_a)
-                .map(|r| r.success_rate)
-                .unwrap_or(0.5);
-            let rate_b = self
-                .success_cache
-                .get(&key_b)
-                .map(|r| r.success_rate)
-                .unwrap_or(0.5);
-
-            rate_b
-                .partial_cmp(&rate_a)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| {
-                    let pos_a = base_order_copy.iter().position(|m| m == a).unwrap_or(0);
-                    let pos_b = base_order_copy.iter().position(|m| m == b).unwrap_or(0);
-                    pos_a.cmp(&pos_b)
-                })
-        });
-
-        // Always include NoOp at the end as a last resort
-        base_order.push(InjectionMethod::NoOp);
-
-        base_order
-    }
+    
 
     /// Get the preferred method order based on current context and history (cached per app)
     pub(crate) fn get_method_order_cached(&mut self, app_id: &str) -> Vec<InjectionMethod> {
@@ -508,59 +391,16 @@ pub(crate) fn is_app_allowed(&self, app_id: &str) -> bool {
             }
         }
 
-        // Get available backends
-        let available_backends = self.backend_detector.detect_available_backends();
-        
-        // Base order as specified in the requirements
-        let mut base_order = Vec::new();
-        
-        // Add methods based on available backends
-        for backend in available_backends {
-            match backend {
-                Backend::WaylandXdgDesktopPortal | Backend::WaylandVirtualKeyboard => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::X11Xdotool | Backend::X11Native => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::MacCgEvent => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::WindowsSendInput => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                _ => {}
-            }
-        }
-        
-    // Add optional methods if enabled
-        if self.config.allow_kdotool {
-            base_order.push(InjectionMethod::KdoToolAssist);
-        }
-        if self.config.allow_enigo {
-            base_order.push(InjectionMethod::EnigoText);
-        }
-        if self.config.allow_mki {
-            base_order.push(InjectionMethod::UinputKeys);
-        }
-        if self.config.allow_ydotool {
-            base_order.push(InjectionMethod::YdoToolPaste);
-        }
+        // Build the base order of methods.
+        let mut base_order = self.build_base_method_order();
+
     // Deduplicate while preserving order
     use std::collections::HashSet;
     let mut seen = HashSet::new();
     base_order.retain(|m| seen.insert(*m));
 
     // Sort by preference: methods with higher success rate first, then by base order
-    let app_id = app_id; // use provided app_id
+    
         
         // Create a copy of base order for position lookup
         let base_order_copy = base_order.clone();
@@ -593,41 +433,11 @@ pub(crate) fn is_app_allowed(&self, app_id: &str) -> bool {
     #[allow(dead_code)]
     pub fn get_method_order_uncached(&self) -> Vec<InjectionMethod> {
         // Compute using a placeholder app id without affecting cache
-        // Duplicate core logic minimally by delegating to a copy of code
-        let available_backends = self.backend_detector.detect_available_backends();
-        let mut base_order = Vec::new();
-        for backend in available_backends {
-            match backend {
-                Backend::WaylandXdgDesktopPortal | Backend::WaylandVirtualKeyboard => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::X11Xdotool | Backend::X11Native => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::MacCgEvent | Backend::WindowsSendInput => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                _ => {}
-            }
-        }
-        if self.config.allow_kdotool { base_order.push(InjectionMethod::KdoToolAssist); }
-        if self.config.allow_enigo { base_order.push(InjectionMethod::EnigoText); }
-        if self.config.allow_mki { base_order.push(InjectionMethod::UinputKeys); }
-        if self.config.allow_ydotool { base_order.push(InjectionMethod::YdoToolPaste); }
-        use std::collections::HashSet;
-        let mut seen = HashSet::new();
-        base_order.retain(|m| seen.insert(*m));
+        let mut base_order = self.build_base_method_order();
         // Sort by success rate for placeholder app id
         let app_id = "unknown_app";
         let base_order_copy = base_order.clone();
-        let mut base_order2 = base_order;
-        base_order2.sort_by(|a, b| {
+        base_order.sort_by(|a, b| {
             let key_a = (app_id.to_string(), *a);
             let key_b = (app_id.to_string(), *b);
             let success_a = self.success_cache.get(&key_a).map(|r| r.success_rate).unwrap_or(0.5);
@@ -638,8 +448,46 @@ pub(crate) fn is_app_allowed(&self, app_id: &str) -> bool {
                 pos_a.cmp(&pos_b)
             })
         });
-        base_order2.push(InjectionMethod::NoOp);
-    base_order2
+        base_order.push(InjectionMethod::NoOp);
+        base_order
+    }
+
+    /// Builds the base, unsorted list of available injection methods.
+    fn build_base_method_order(&self) -> Vec<InjectionMethod> {
+        let available_backends = self.backend_detector.detect_available_backends();
+        let mut base_order = Vec::new();
+
+        for backend in available_backends {
+            match backend {
+                Backend::WaylandXdgDesktopPortal
+                | Backend::WaylandVirtualKeyboard
+                | Backend::X11Xdotool
+                | Backend::X11Native
+                | Backend::MacCgEvent
+                | Backend::WindowsSendInput => {
+                    base_order.push(InjectionMethod::AtspiInsert);
+                    base_order.push(InjectionMethod::ClipboardAndPaste);
+                    base_order.push(InjectionMethod::Clipboard);
+                }
+                _ => {}
+            }
+        }
+
+        // Add optional, opt-in fallbacks
+        if self.config.allow_kdotool {
+            base_order.push(InjectionMethod::KdoToolAssist);
+        }
+        if self.config.allow_enigo {
+            base_order.push(InjectionMethod::EnigoText);
+        }
+        if self.config.allow_mki {
+            base_order.push(InjectionMethod::UinputKeys);
+        }
+        if self.config.allow_ydotool {
+            base_order.push(InjectionMethod::YdoToolPaste);
+        }
+
+        base_order
     }
 
     /// Check if we've exceeded the global time budget

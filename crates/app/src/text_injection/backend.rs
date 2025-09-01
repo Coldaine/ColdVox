@@ -24,13 +24,13 @@ pub enum Backend {
 
 /// Backend capability detector
 pub struct BackendDetector {
-    config: InjectionConfig,
+    _config: InjectionConfig,
 }
 
 impl BackendDetector {
     /// Create a new backend detector
     pub fn new(config: InjectionConfig) -> Self {
-        Self { config }
+        Self { _config: config }
     }
 
     /// Detect available backends on the current system
@@ -81,13 +81,7 @@ impl BackendDetector {
         let available = self.detect_available_backends();
         
         // Return the most preferred available backend
-        for preferred in Self::preferred_order() {
-            if available.contains(&preferred) {
-                return Some(preferred);
-            }
-        }
-        
-        None
+        Self::preferred_order().into_iter().find(|&preferred| available.contains(&preferred))
     }
     
     /// Get the preferred order of backends

@@ -1,9 +1,6 @@
-pub mod error;
-pub mod health;
-pub mod shutdown;
-pub mod state;
+//! Foundation module re-exports
+//!
+//! This module provides a unified interface to foundation functionality
+//! by re-exporting types from the coldvox-foundation crate.
 
-pub use error::*;
-pub use health::*;
-pub use shutdown::*;
-pub use state::*;
+pub use coldvox_foundation::*;

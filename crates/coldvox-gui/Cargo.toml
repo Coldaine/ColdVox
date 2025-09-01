@@ -1,0 +1,13 @@
+[package]
+name = "coldvox-gui"
+version = "0.1.0"
+edition = "2021"
+description = "GUI frontend for ColdVox (placeholder crate for future development)"
+
+[[bin]]
+name = "coldvox-gui"
+path = "src/main.rs"
+
+[dependencies]
+# No GUI toolkit dependencies yet - this is a placeholder crate
+# Future considerations will include: egui, tauri, gtk4, qt, slint, etc.

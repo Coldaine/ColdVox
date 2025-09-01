@@ -4,15 +4,13 @@ use async_trait::async_trait;
 /// NoOp injector that always succeeds but does nothing
 /// Used as a fallback when no other injectors are available
 pub struct NoOpInjector {
-    config: InjectionConfig,
     metrics: InjectionMetrics,
 }
 
 impl NoOpInjector {
     /// Create a new NoOp injector
-    pub fn new(config: InjectionConfig) -> Self {
+    pub fn new(_config: InjectionConfig) -> Self {
         Self {
-            config,
             metrics: InjectionMetrics::default(),
         }
     }

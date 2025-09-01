@@ -1,7 +1,4 @@
-use std::sync::atomic::Ordering;
-use std::time::{Duration, Instant};
-use cpal::{SampleFormat, StreamConfig};
-use coldvox_app::audio::{AudioFrame, CaptureStats, AudioProducer};
+use coldvox_app::audio::AudioProducer;
 
 /// Write samples into the audio ring buffer producer in fixed-size chunks.
 /// Returns the total number of samples successfully written.

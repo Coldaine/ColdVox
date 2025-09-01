@@ -4,16 +4,17 @@
 // - File output uses a non-blocking writer; logs/ is created if missing.
 // - Useful for post-session analysis even when the TUI is active.
 use clap::Parser;
-use coldvox_app::audio::capture::AudioCaptureThread;
-use coldvox_app::audio::chunker::{AudioChunker, ChunkerConfig};
-use coldvox_app::audio::frame_reader::FrameReader;
-use coldvox_app::audio::ring_buffer::AudioRingBuffer;
-use coldvox_app::audio::vad_processor::{AudioFrame as VadFrame, VadProcessor};
-use coldvox_app::foundation::error::AudioConfig;
-use coldvox_app::telemetry::pipeline_metrics::{PipelineMetrics, PipelineStage};
-use coldvox_app::vad::config::{UnifiedVadConfig, VadMode};
-use coldvox_app::vad::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
-use coldvox_app::vad::types::VadEvent;
+use coldvox_audio::capture::AudioCaptureThread;
+use coldvox_audio::chunker::{AudioChunker, ChunkerConfig};
+use coldvox_audio::frame_reader::FrameReader;
+use coldvox_audio::ring_buffer::AudioRingBuffer;
+use coldvox_audio::chunker::AudioFrame as VadFrame;
+use coldvox_app::audio::vad_processor::VadProcessor;
+use coldvox_foundation::error::AudioConfig;
+use coldvox_telemetry::pipeline_metrics::{PipelineMetrics, PipelineStage};
+use coldvox_vad::config::{UnifiedVadConfig, VadMode};
+use coldvox_vad::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
+use coldvox_vad::types::VadEvent;
 #[cfg(feature = "vosk")]
 use coldvox_app::stt::{processor::SttProcessor, TranscriptionConfig, TranscriptionEvent};
 use crossterm::{
@@ -405,7 +406,7 @@ async fn run_audio_pipeline(tx: mpsc::Sender<AppEvent>, device: String) {
     let chunker_cfg = ChunkerConfig {
         frame_size_samples: FRAME_SIZE_SAMPLES,
         sample_rate_hz: SAMPLE_RATE_HZ,
-        resampler_quality: coldvox_app::audio::chunker::ResamplerQuality::Balanced,
+        resampler_quality: coldvox_audio::chunker::ResamplerQuality::Balanced,
     };
     // Build FrameReader from ring buffer consumer and feed it to the chunker
     let frame_reader = FrameReader::new(
@@ -488,7 +489,7 @@ async fn run_audio_pipeline(tx: mpsc::Sender<AppEvent>, device: String) {
     tokio::spawn(async move {
         while let Some(ev) = raw_vad_rx_task.recv().await {
             // Send to UI
-            let _ = ui_vad_tx.send(ev.clone()).await;
+            let _ = ui_vad_tx.send(ev).await;
             // Send to STT if available
             #[cfg(feature = "vosk")]
             if let Some(stt_tx) = &stt_vad_tx_clone {

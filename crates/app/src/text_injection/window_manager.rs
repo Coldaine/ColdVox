@@ -206,7 +206,7 @@ async fn get_window_pid() -> Result<u32, InjectionError> {
             
             // Get window PID
             let pid_output = Command::new("xprop")
-                .args(&["-id", window_id, "_NET_WM_PID"])
+                .args(["-id", window_id, "_NET_WM_PID"])
                 .output()
                 .map_err(|e| InjectionError::Process(format!("xprop failed: {}", e)))?;
             

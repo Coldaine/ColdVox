@@ -1,4 +1,6 @@
-pub mod metrics;
-pub mod pipeline_metrics;
+//! Telemetry module re-exports
+//!
+//! This module provides a unified interface to telemetry functionality
+//! by re-exporting types from the coldvox-telemetry crate.
 
-pub use metrics::*;
+pub use coldvox_telemetry::*;

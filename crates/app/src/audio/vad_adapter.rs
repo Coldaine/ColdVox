@@ -1,13 +1,15 @@
-use crate::vad::{
-    config::{UnifiedVadConfig, VadMode},
-    engine::{VadEngine, VadEngineBox},
-    level3::Level3Vad,
-    silero_wrapper::SileroEngine,
-    types::{VadConfig, VadEvent, VadState},
+use coldvox_vad::{
+    UnifiedVadConfig, VadMode, VadEngine, VadEvent, VadState,
 };
+#[cfg(feature = "level3")]
+use coldvox_vad::VadConfig;
+#[cfg(feature = "level3")]
+use coldvox_vad::level3::Level3Vad;
+#[cfg(feature = "silero")]  
+use coldvox_vad_silero::SileroEngine;
 
 pub struct VadAdapter {
-    engine: VadEngineBox,
+    engine: Box<dyn VadEngine>,
     config: UnifiedVadConfig,
     resampler: Option<AudioResampler>,
 }
@@ -15,6 +17,7 @@ pub struct VadAdapter {
 impl VadAdapter {
     pub fn new(config: UnifiedVadConfig) -> Result<Self, String> {
         let engine: Box<dyn VadEngine> = match config.mode {
+            #[cfg(feature = "level3")]
             VadMode::Level3 => {
                 // INTENTIONAL: Level3 VAD is disabled by default
                 // This check ensures it's not accidentally enabled without explicit configuration
@@ -33,8 +36,18 @@ impl VadAdapter {
                 };
                 Box::new(Level3Vad::new(level3_config))
             }
+            #[cfg(not(feature = "level3"))]
+            VadMode::Level3 => {
+                return Err("Level3 VAD is not available in this build. Use Silero mode instead.".to_string());
+            }
             VadMode::Silero => {
-                Box::new(SileroEngine::new(config.silero.clone())?)
+                let silero_config = coldvox_vad_silero::SileroConfig {
+                    threshold: config.silero.threshold,
+                    min_speech_duration_ms: config.silero.min_speech_duration_ms,
+                    min_silence_duration_ms: config.silero.min_silence_duration_ms,
+                    window_size_samples: config.silero.window_size_samples,
+                };
+                Box::new(SileroEngine::new(silero_config)?)
             }
         };
         
@@ -52,7 +65,7 @@ impl VadAdapter {
         };
         
         Ok(Self {
-            engine: VadEngineBox::new(engine),
+            engine,
             config,
             resampler,
         })

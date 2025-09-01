@@ -3,9 +3,10 @@ use tracing::{debug, info, warn};
 use crate::text_injection::types::InjectionMetrics;
 
 /// Session state machine for buffered text injection
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SessionState {
     /// No active session, waiting for first transcription
+    #[default]
     Idle,
     /// Actively receiving transcriptions, buffering them
     Buffering,
@@ -26,11 +27,7 @@ impl std::fmt::Display for SessionState {
     }
 }
 
-impl Default for SessionState {
-    fn default() -> Self {
-        SessionState::Idle
-    }
-}
+
 
 /// Configuration for session management
 #[derive(Debug, Clone)]
