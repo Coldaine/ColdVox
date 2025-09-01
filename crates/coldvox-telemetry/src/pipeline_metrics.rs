@@ -6,7 +6,7 @@ use parking_lot::RwLock;
 #[cfg(feature = "text-injection")]
 use parking_lot::Mutex;
 #[cfg(feature = "text-injection")]
-use crate::text_injection::types::InjectionMetrics;
+use coldvox_text_injection::types::InjectionMetrics;
 
 /// Shared metrics for cross-thread pipeline monitoring
 #[derive(Clone, Default)]

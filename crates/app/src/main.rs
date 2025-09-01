@@ -15,8 +15,12 @@ use coldvox_app::stt::persistence::{PersistenceConfig, TranscriptFormat, AudioFo
 use coldvox_vad::{UnifiedVadConfig, VadMode, FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ, VadEvent};
 use coldvox_telemetry::PipelineMetrics;
 use coldvox_app::hotkey::spawn_hotkey_listener;
+#[cfg(feature = "text-injection")]
+use coldvox_app::text_injection::{AsyncInjectionProcessor, InjectionConfig};
 use std::time::Duration;
 use clap::{Parser, ValueEnum};
+#[cfg(feature = "text-injection")]
+use clap::Args;
 use tokio::sync::{broadcast, mpsc};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -354,18 +358,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .map_err(|e| anyhow!("Failed to create STT processor: {}", e))?;
 
         // --- 5. Text Injection Processor ---
-        let injection_handle = if cfg!(feature = "text-injection") && cli.injection.enable {
+        #[cfg(feature = "text-injection")]
+        let injection_handle = if cli.injection.enable {
             // Build the full injection config from CLI args and defaults
-            let injection_config = text_injection::InjectionConfig {
+            let injection_config = InjectionConfig {
                 allow_ydotool: cli.injection.allow_ydotool,
                 allow_kdotool: cli.injection.allow_kdotool,
                 allow_enigo: cli.injection.allow_enigo,
                 allow_mki: cli.injection.allow_mki,
                 restore_clipboard: cli.injection.restore_clipboard,
                 inject_on_unknown_focus: cli.injection.inject_on_unknown_focus,
-                max_total_latency_ms: cli.injection.max_total_latency_ms.unwrap_or(text_injection::types::InjectionConfig::default().max_total_latency_ms),
-                per_method_timeout_ms: cli.injection.per_method_timeout_ms.unwrap_or(text_injection::types::InjectionConfig::default().per_method_timeout_ms),
-                cooldown_initial_ms: cli.injection.cooldown_initial_ms.unwrap_or(text_injection::types::InjectionConfig::default().cooldown_initial_ms),
+                max_total_latency_ms: cli.injection.max_total_latency_ms.unwrap_or(InjectionConfig::default().max_total_latency_ms),
+                per_method_timeout_ms: cli.injection.per_method_timeout_ms.unwrap_or(InjectionConfig::default().per_method_timeout_ms),
+                cooldown_initial_ms: cli.injection.cooldown_initial_ms.unwrap_or(InjectionConfig::default().cooldown_initial_ms),
                 ..Default::default()
             };
 
@@ -389,6 +394,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             tracing::info!("Text injection disabled.");
             None
         };
+        
+        #[cfg(not(feature = "text-injection"))]
+        let injection_handle: Option<tokio::task::JoinHandle<()>> = None;
 
         // Note: For now, we've removed the separate transcription persistence handler
         // since transcription events go directly to the injection processor.

@@ -1,3 +1,5 @@
+// TODO: This is a placeholder crate for future GUI implementation.
+// Remove this comment when implementing the actual GUI functionality.
 fn main() {
     println!("ColdVox GUI - Development Placeholder");
     println!("=====================================");

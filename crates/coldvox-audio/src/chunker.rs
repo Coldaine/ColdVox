@@ -260,8 +260,8 @@ impl ChunkerWorker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::audio::ring_buffer::AudioRingBuffer;
-    use crate::audio::capture::AudioFrame;
+    use crate::ring_buffer::AudioRingBuffer;
+    use crate::capture::AudioFrame as CapFrame;
     use std::time::Instant;
 
     #[test]
@@ -274,12 +274,12 @@ mod tests {
     let mut worker = ChunkerWorker::new(reader, tx, cfg, None, None);
 
         // First frame at 48kHz stereo -> resampler should be created
-        let frame1 = AudioFrame { samples: vec![0i16; 480], timestamp: Instant::now(), sample_rate: 48_000, channels: 2 };
+        let frame1 = CapFrame { samples: vec![0i16; 480], timestamp: Instant::now(), sample_rate: 48_000, channels: 2 };
     worker.reconfigure_for_device(&frame1);
         assert!(worker.resampler.is_some());
 
         // Frame at 16k mono -> resampler not needed
-        let frame2 = AudioFrame { samples: vec![0i16; 160], timestamp: Instant::now(), sample_rate: 16_000, channels: 1 };
+        let frame2 = CapFrame { samples: vec![0i16; 160], timestamp: Instant::now(), sample_rate: 16_000, channels: 1 };
     worker.reconfigure_for_device(&frame2);
         assert!(worker.resampler.is_none());
     }
@@ -293,8 +293,8 @@ mod tests {
         let cfg = ChunkerConfig { frame_size_samples: 512, sample_rate_hz: 16_000, resampler_quality: ResamplerQuality::Balanced };
     let mut worker = ChunkerWorker::new(reader, tx, cfg, None, None);
 
-        let samples = vec![1000i16, -1000, 900, -900, 800, -800, 700, -700];
-        let frame = AudioFrame { samples, timestamp: Instant::now(), sample_rate: 16_000, channels: 2 };
+    let samples = vec![1000i16, -1000, 900, -900, 800, -800, 700, -700];
+    let frame = CapFrame { samples, timestamp: Instant::now(), sample_rate: 16_000, channels: 2 };
         worker.reconfigure_for_device(&frame);
         let out = worker.process_frame(&frame);
         // Each pair averaged -> zeros

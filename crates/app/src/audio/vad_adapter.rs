@@ -2,6 +2,8 @@ use coldvox_vad::{
     UnifiedVadConfig, VadMode, VadEngine, VadEvent, VadState,
 };
 #[cfg(feature = "level3")]
+use coldvox_vad::VadConfig;
+#[cfg(feature = "level3")]
 use coldvox_vad::level3::Level3Vad;
 #[cfg(feature = "silero")]  
 use coldvox_vad_silero::SileroEngine;

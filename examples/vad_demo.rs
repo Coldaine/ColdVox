@@ -1,6 +1,5 @@
-use coldvox_app::audio::vad_processor::{AudioFrame, VadProcessor};
-use coldvox_app::vad::config::{UnifiedVadConfig, VadMode};
-use coldvox_app::vad::types::VadEvent;
+use coldvox_app::audio::{AudioFrame, VadProcessor};
+use coldvox_app::vad::{UnifiedVadConfig, VadMode, VadEvent};
 use dasp::interpolate::sinc::Sinc;
 use dasp::{ring_buffer, signal, Signal};
 use hound::WavReader;

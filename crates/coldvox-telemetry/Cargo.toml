@@ -8,7 +8,8 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 parking_lot = "0.12"
+coldvox-text-injection = { path = "../coldvox-text-injection", optional = true }
 
 [features]
 default = []
-text-injection = []
+text-injection = ["dep:coldvox-text-injection"]

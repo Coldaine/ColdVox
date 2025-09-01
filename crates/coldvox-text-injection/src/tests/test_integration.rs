@@ -1,4 +1,4 @@
-#[cfg(all(test, feature = "text-injection"))]
+#[cfg(test)]
 mod integration_tests {
     use crate::manager::StrategyManager;
     use crate::types::{InjectionConfig, InjectionMetrics};

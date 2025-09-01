@@ -239,6 +239,11 @@ impl StrategyManager {
         }
     }
 
+    /// Public wrapper for tests and external callers to obtain method priority
+    pub fn get_method_priority(&self, app_id: &str) -> Vec<InjectionMethod> {
+        self._get_method_priority(app_id)
+    }
+
     /// Get the current application identifier (e.g., window class)
     pub(crate) async fn get_current_app_id(&self) -> Result<String, InjectionError> {
         #[cfg(feature = "atspi")]

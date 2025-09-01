@@ -716,9 +716,11 @@ dependencies = [
  "hound",
  "mockall",
  "once_cell",
+ "parking_lot",
  "proptest",
  "rand 0.8.5",
  "ratatui",
+ "regex",
  "rubato",
  "serde",
  "serde_json",
@@ -788,6 +790,7 @@ dependencies = [
 name = "coldvox-telemetry"
 version = "0.1.0"
 dependencies = [
+ "coldvox-text-injection",
  "parking_lot",
 ]
 
@@ -822,6 +825,7 @@ dependencies = [
 name = "coldvox-vad"
 version = "0.1.0"
 dependencies = [
+ "rand 0.8.5",
  "serde",
 ]
 

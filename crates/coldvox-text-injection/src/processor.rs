@@ -428,6 +428,7 @@ mod tests {
             utterance_id: 1,
             text: "Hello world".to_string(),
             words: None,
+            confidence: None,
         });
 
         assert_eq!(processor.session_state(), SessionState::Buffering);
@@ -465,6 +466,7 @@ mod tests {
             utterance_id: 1,
             text: "Test transcription".to_string(),
             words: None,
+            confidence: None,
         });
 
         let metrics = processor.metrics();
@@ -486,8 +488,7 @@ mod tests {
         processor.handle_transcription(TranscriptionEvent::Partial {
             utterance_id: 1,
             text: "Hello".to_string(),
-            t0: None,
-            t1: None,
+            confidence: None,
         });
 
         // Should still be idle since partial events don't change session state
@@ -498,6 +499,7 @@ mod tests {
             utterance_id: 1,
             text: "Hello world".to_string(),
             words: None,
+            confidence: None,
         });
 
         // Now should be buffering

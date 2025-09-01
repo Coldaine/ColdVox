@@ -1,4 +1,4 @@
-use crate::vad::{
+use crate::{
     engine::VadEngine,
     energy::EnergyCalculator,
     state::VadStateMachine,
@@ -187,7 +187,7 @@ impl Default for Level3VadBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vad::constants::FRAME_SIZE_SAMPLES;
+    use crate::constants::FRAME_SIZE_SAMPLES;
 
     #[test]
     fn test_builder_pattern() {

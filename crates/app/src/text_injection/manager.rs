@@ -240,6 +240,11 @@ impl StrategyManager {
         }
     }
 
+    /// Public wrapper for tests and external callers to obtain method priority
+    pub fn get_method_priority(&mut self, app_id: &str) -> Vec<InjectionMethod> {
+        self.get_method_order_cached(app_id)
+    }
+
     /// Get the current application identifier (e.g., window class)
     pub(crate) async fn get_current_app_id(&self) -> Result<String, InjectionError> {
         // Use the robust window manager utility to get the active window class.
