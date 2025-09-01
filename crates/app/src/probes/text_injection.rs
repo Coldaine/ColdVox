@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use coldvox_telemetry::pipeline_metrics::PipelineMetrics;
-use crate::text_injection::manager::StrategyManager;
-use crate::text_injection::types::{InjectionConfig, InjectionMetrics};
+use coldvox_text_injection::manager::StrategyManager;
+use coldvox_text_injection::types::{InjectionConfig, InjectionMetrics};
 use crate::probes::common::{LiveTestResult, TestContext, TestError};
 use serde_json::json;
 use std::collections::HashMap;
@@ -47,7 +47,7 @@ impl TextInjectionProbe {
     }
 }
 
-fn evaluate_injection_result(result: &Result<(), crate::text_injection::types::InjectionError>, 
+fn evaluate_injection_result(result: &Result<(), coldvox_text_injection::types::InjectionError>,
                            metrics: &HashMap<String, serde_json::Value>) -> (bool, String) {
     let mut pass = true;
     let mut issues = Vec::new();

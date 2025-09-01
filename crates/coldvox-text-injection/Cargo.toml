@@ -8,6 +8,7 @@ keywords = ["accessibility", "automation", "text-injection", "atspi", "clipboard
 categories = ["accessibility", "gui"]
 
 [dependencies]
+coldvox-stt = { path = "../coldvox-stt" }
 tokio = { version = "1.35", features = ["full"] }
 anyhow = "1.0"
 thiserror = "1.0"

@@ -33,11 +33,13 @@ impl TextInjector for NoOpInjector {
             return Ok(());
         }
 
+        self.metrics.attempts += 1;
         let start = std::time::Instant::now();
 
         // Record the operation but do nothing
-        let _duration = start.elapsed().as_millis() as u64;
-        // TODO: Fix metrics - self.metrics.record_success requires &mut self
+        let duration = start.elapsed().as_millis() as u64;
+        self.metrics.successes += 1;
+        self.metrics.total_duration_ms += duration;
 
         tracing::debug!("NoOp injector: would inject {} characters", text.len());
 

@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tokio::time::{self, Duration};
@@ -97,6 +98,7 @@ struct ChunkerWorker {
     metrics: Option<Arc<PipelineMetrics>>,
     capture_fps_tracker: FpsTracker,
     chunker_fps_tracker: FpsTracker,
+    start_time: Option<Instant>,
     // Resampling state
     resampler: Option<Arc<parking_lot::Mutex<StreamResampler>>>,
     current_input_rate: Option<u32>,
@@ -122,6 +124,7 @@ impl ChunkerWorker {
             metrics,
             capture_fps_tracker: FpsTracker::new(),
             chunker_fps_tracker: FpsTracker::new(),
+            start_time: None,
             resampler: None,
             current_input_rate: None,
             current_input_channels: None,
@@ -175,13 +178,16 @@ impl ChunkerWorker {
                 out.push(self.buffer.pop_front().unwrap());
             }
 
-            let _timestamp_ms =
-                (self.samples_emitted as u128 * 1000 / self.cfg.sample_rate_hz as u128) as u64;
+            let start = self.start_time.get_or_insert_with(Instant::now);
+            let duration_since_start = Duration::from_millis(
+                (self.samples_emitted as u128 * 1000 / self.cfg.sample_rate_hz as u128) as u64
+            );
+            let timestamp = *start + duration_since_start;
 
             let vf = AudioFrame {
                 samples: out.into_iter().map(|s| s as f32 / i16::MAX as f32).collect(),
                 sample_rate: self.cfg.sample_rate_hz,
-                timestamp: std::time::Instant::now(),
+                timestamp,
             };
 
             // A send on a broadcast channel can fail if there are no receivers.
@@ -260,8 +266,8 @@ impl ChunkerWorker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::audio::ring_buffer::AudioRingBuffer;
-    use crate::audio::capture::AudioFrame;
+    use crate::ring_buffer::AudioRingBuffer;
+    use crate::capture::AudioFrame as CaptureAudioFrame;
     use std::time::Instant;
 
     #[test]
@@ -271,16 +277,16 @@ mod tests {
         let reader = FrameReader::new(cons, 48_000, 2, 1024, None);
         let (tx, _rx) = broadcast::channel::<AudioFrame>(8);
         let cfg = ChunkerConfig { frame_size_samples: 512, sample_rate_hz: 16_000, resampler_quality: ResamplerQuality::Balanced };
-    let mut worker = ChunkerWorker::new(reader, tx, cfg, None, None);
+        let mut worker = ChunkerWorker::new(reader, tx, cfg, None, None);
 
         // First frame at 48kHz stereo -> resampler should be created
-        let frame1 = AudioFrame { samples: vec![0i16; 480], timestamp: Instant::now(), sample_rate: 48_000, channels: 2 };
-    worker.reconfigure_for_device(&frame1);
+        let frame1 = CaptureAudioFrame { samples: vec![0i16; 480], timestamp: Instant::now(), sample_rate: 48_000, channels: 2 };
+        worker.reconfigure_for_device(&frame1);
         assert!(worker.resampler.is_some());
 
         // Frame at 16k mono -> resampler not needed
-        let frame2 = AudioFrame { samples: vec![0i16; 160], timestamp: Instant::now(), sample_rate: 16_000, channels: 1 };
-    worker.reconfigure_for_device(&frame2);
+        let frame2 = CaptureAudioFrame { samples: vec![0i16; 160], timestamp: Instant::now(), sample_rate: 16_000, channels: 1 };
+        worker.reconfigure_for_device(&frame2);
         assert!(worker.resampler.is_none());
     }
 
@@ -291,10 +297,10 @@ mod tests {
         let reader = FrameReader::new(cons, 16_000, 2, 1024, None);
         let (tx, _rx) = broadcast::channel::<AudioFrame>(8);
         let cfg = ChunkerConfig { frame_size_samples: 512, sample_rate_hz: 16_000, resampler_quality: ResamplerQuality::Balanced };
-    let mut worker = ChunkerWorker::new(reader, tx, cfg, None, None);
+        let mut worker = ChunkerWorker::new(reader, tx, cfg, None, None);
 
         let samples = vec![1000i16, -1000, 900, -900, 800, -800, 700, -700];
-        let frame = AudioFrame { samples, timestamp: Instant::now(), sample_rate: 16_000, channels: 2 };
+        let frame = CaptureAudioFrame { samples, timestamp: Instant::now(), sample_rate: 16_000, channels: 2 };
         worker.reconfigure_for_device(&frame);
         let out = worker.process_frame(&frame);
         // Each pair averaged -> zeros

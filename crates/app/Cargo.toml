@@ -43,6 +43,11 @@ required-features = ["text-injection"]
 name = "text_chunking_bench"
 harness = false
 
+[[test]]
+name = "vad_pipeline_tests"
+path = "tests/vad_pipeline_tests.rs"
+required-features = ["level3"]
+
 [dependencies]
 tokio = { version = "1.35", features = ["full"] }
 anyhow = "1.0"

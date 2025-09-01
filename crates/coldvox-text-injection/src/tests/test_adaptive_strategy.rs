@@ -16,7 +16,7 @@ mod tests {
         manager.update_success_record("test_app", InjectionMethod::Clipboard, false);
         
         // Success rate should be approximately 66%
-        let methods = manager.get_method_priority("test_app");
+        let methods = manager._get_method_priority("test_app");
         assert!(!methods.is_empty());
     }
     
@@ -42,7 +42,7 @@ mod tests {
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
         let manager = StrategyManager::new(config, metrics);
         
-        let methods = manager.get_method_priority("test_app");
+        let methods = manager._get_method_priority("test_app");
         
         // Should have some methods available
         assert!(!methods.is_empty());
@@ -67,7 +67,7 @@ mod tests {
         }
         
         // Success rate should still be high despite decay
-        let methods = manager.get_method_priority("test_app");
+        let methods = manager._get_method_priority("test_app");
         assert!(!methods.is_empty());
     }
 }

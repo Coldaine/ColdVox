@@ -1,8 +1,7 @@
-use coldvox_app::audio::chunker::{AudioChunker, ChunkerConfig, ResamplerQuality};
-use coldvox_app::audio::frame_reader::FrameReader;
-use coldvox_app::audio::ring_buffer::AudioRingBuffer;
-use coldvox_app::audio::vad_processor::AudioFrame as VadFrame;
-use coldvox_app::telemetry::pipeline_metrics::PipelineMetrics;
+use coldvox_audio::chunker::{AudioChunker, ChunkerConfig, ResamplerQuality, AudioFrame as VadFrame};
+use coldvox_audio::frame_reader::FrameReader;
+use coldvox_audio::ring_buffer::AudioRingBuffer;
+use coldvox_telemetry::pipeline_metrics::PipelineMetrics;
 use tokio::sync::broadcast;
 use std::sync::Arc;
 
@@ -32,7 +31,7 @@ async fn chunker_timestamps_are_32ms_apart_at_16k() {
     let mut attempts = 0;
     while got.len() < 5 && attempts < 50 {
         if let Ok(frame) = rx.try_recv() {
-            got.push(frame.timestamp_ms);
+            got.push(frame.timestamp);
         } else {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
             attempts += 1;
@@ -42,7 +41,7 @@ async fn chunker_timestamps_are_32ms_apart_at_16k() {
     handle.abort();
     assert!(got.len() >= 3, "expected at least 3 frames, got {}", got.len());
     for w in got.windows(2) {
-        assert_eq!(w[1] - w[0], 32, "timestamps should step by 32ms");
+        assert_eq!((w[1] - w[0]).as_millis(), 32, "timestamps should step by 32ms");
     }
 }
 

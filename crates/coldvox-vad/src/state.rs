@@ -138,7 +138,7 @@ impl VadStateMachine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vad::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
+    use crate::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
     
     #[test]
     fn test_initial_state() {

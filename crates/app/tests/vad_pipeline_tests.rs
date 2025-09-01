@@ -1,8 +1,11 @@
-use coldvox_app::telemetry::pipeline_metrics::PipelineMetrics;
-use coldvox_app::vad::config::{UnifiedVadConfig, VadMode};
-use coldvox_app::vad::constants::FRAME_SIZE_SAMPLES;
-use coldvox_app::audio::vad_processor::{AudioFrame as VadFrame, VadProcessor};
+use coldvox_telemetry::pipeline_metrics::PipelineMetrics;
+use coldvox_vad::config::{UnifiedVadConfig, VadMode};
+use coldvox_vad::constants::FRAME_SIZE_SAMPLES;
+use coldvox_app::audio::vad_processor::{VadProcessor};
+use coldvox_audio::chunker::AudioFrame as VadFrame;
 use tokio::sync::{broadcast, mpsc};
+use std::time::{Duration, Instant};
+
 
 #[tokio::test]
 async fn vad_processor_silence_no_events_level3() {
@@ -24,8 +27,10 @@ async fn vad_processor_silence_no_events_level3() {
         .expect("spawn vad");
 
     // Send a few frames of silence at 16k/512-sample frames
+    let start_time = Instant::now();
     for i in 0..10u64 {
-        let frame = VadFrame { data: vec![0i16; FRAME_SIZE_SAMPLES], timestamp_ms: i * 32 };
+        let timestamp = start_time + Duration::from_millis(i * 32);
+        let frame = VadFrame { samples: vec![0.0f32; FRAME_SIZE_SAMPLES], sample_rate: 16_000, timestamp };
         let _ = tx.send(frame);
     }
 

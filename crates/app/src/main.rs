@@ -11,12 +11,15 @@ use coldvox_app::stt::TranscriptionConfig;
 use coldvox_app::stt::{processor::SttProcessor, TranscriptionEvent};
 #[cfg(feature = "vosk")]
 use coldvox_app::stt::persistence::{PersistenceConfig, TranscriptFormat, AudioFormat, SessionMetadata};
+#[cfg(feature = "text-injection")]
+use coldvox_text_injection::{self as text_injection, AsyncInjectionProcessor, InjectionConfig};
+
 
 use coldvox_vad::{UnifiedVadConfig, VadMode, FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ, VadEvent};
 use coldvox_telemetry::PipelineMetrics;
 use coldvox_app::hotkey::spawn_hotkey_listener;
 use std::time::Duration;
-use clap::{Parser, ValueEnum};
+use clap::{Args, Parser, ValueEnum};
 use tokio::sync::{broadcast, mpsc};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};

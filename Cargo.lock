@@ -770,6 +770,8 @@ version = "0.1.0"
 name = "coldvox-stt"
 version = "0.1.0"
 dependencies = [
+ "coldvox-audio",
+ "coldvox-vad",
  "parking_lot",
  "tokio",
  "tracing",
@@ -800,6 +802,7 @@ dependencies = [
  "async-trait",
  "atspi",
  "chrono",
+ "coldvox-stt",
  "device_query 2.1.0",
  "enigo",
  "mockall",

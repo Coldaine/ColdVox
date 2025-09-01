@@ -1,28 +1,5 @@
+use coldvox_stt::types::TranscriptionEvent;
 use serde::{Deserialize, Serialize};
-
-/// Transcription event that can be processed by the injection system
-/// This is a simplified version that can be implemented by the main app
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum TranscriptionEvent {
-    /// Partial (interim) transcription result
-    Partial {
-        utterance_id: u64,
-        text: String,
-        confidence: Option<f32>,
-    },
-    /// Final transcription result
-    Final {
-        utterance_id: u64,
-        text: String,
-        words: Option<Vec<String>>,
-        confidence: Option<f32>,
-    },
-    /// Error during transcription
-    Error {
-        code: String,
-        message: String,
-    },
-}
 
 /// Placeholder for pipeline metrics - to be provided by the main app
 #[derive(Debug, Clone, Default)]

@@ -55,7 +55,7 @@ impl Default for EnergyCalculator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vad::constants::FRAME_SIZE_SAMPLES;
+    use crate::constants::FRAME_SIZE_SAMPLES;
     
     #[test]
     fn test_silence_returns_low_dbfs() {
