@@ -5,7 +5,7 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, trace};
 
 use super::vad_adapter::VadAdapter;
 
@@ -54,6 +54,12 @@ impl VadProcessor {
     }
 
     async fn process_frame(&mut self, frame: AudioFrame) {
+        trace!(
+            "VAD: Processing frame {:?} with {} samples",
+            frame.timestamp,
+            frame.samples.len()
+        );
+
         if let Some(metrics) = &self.metrics {
             if let Some(fps) = self.fps_tracker.tick() {
                 metrics.update_vad_fps(fps);
@@ -67,9 +73,34 @@ impl VadProcessor {
             .map(|&s| (s * i16::MAX as f32) as i16)
             .collect();
 
+        trace!("VAD: Converted {} f32 samples to i16", i16_data.len());
+
         match self.adapter.process(&i16_data) {
             Ok(Some(event)) => {
                 self.events_generated += 1;
+
+                // Log the specific VAD event
+                match &event {
+                    VadEvent::SpeechStart {
+                        timestamp_ms,
+                        energy_db,
+                    } => {
+                        info!(
+                            "VAD: Speech started at {}ms (energy: {:.2} dB)",
+                            timestamp_ms, energy_db
+                        );
+                    }
+                    VadEvent::SpeechEnd {
+                        timestamp_ms,
+                        duration_ms,
+                        energy_db,
+                    } => {
+                        info!(
+                            "VAD: Speech ended at {}ms (duration: {}ms, energy: {:.2} dB)",
+                            timestamp_ms, duration_ms, energy_db
+                        );
+                    }
+                }
 
                 if let Err(e) = self.event_tx.send(event).await {
                     error!("Failed to send VAD event: {}", e);

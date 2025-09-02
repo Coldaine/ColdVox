@@ -26,9 +26,23 @@ impl SilenceDetector {
         if rms < self.threshold {
             if self.silence_start.is_none() {
                 self.silence_start = Some(Instant::now());
+                tracing::debug!(
+                    "SilenceDetector: Silence started (RMS {} < threshold {})",
+                    rms,
+                    self.threshold
+                );
             }
             true
         } else {
+            if self.silence_start.is_some() {
+                let duration = self.silence_duration();
+                tracing::debug!(
+                    "SilenceDetector: Silence ended after {:?} (RMS {} >= threshold {})",
+                    duration,
+                    rms,
+                    self.threshold
+                );
+            }
             self.silence_start = None;
             false
         }

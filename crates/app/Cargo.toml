@@ -39,6 +39,14 @@ name = "inject_demo"
 path = "../../examples/inject_demo.rs"
 required-features = ["text-injection"]
 
+[[example]]
+name = "test_hotkey_backend"
+path = "../../examples/test_hotkey_backend.rs"
+
+[[example]]
+name = "test_kglobalaccel_hotkey"
+path = "../../examples/test_kglobalaccel_hotkey.rs"
+
 [dependencies]
 zbus = { version = "3.10.0" }
 tokio = { version = "1", features = ["full"] }
@@ -64,6 +72,7 @@ chrono = { version = "0.4", features = ["serde"] }
 ratatui = "0.26"
 crossterm = "0.27"
 futures = "0.3"
+fastrand = "2.0"
 # voice_activity_detector moved to coldvox-vad-silero
 coldvox-foundation = { path = "../coldvox-foundation" }
 coldvox-telemetry = { path = "../coldvox-telemetry" }
@@ -103,7 +112,6 @@ text-injection-enigo = ["text-injection", "coldvox-text-injection/enigo"]
 text-injection-mki = ["text-injection", "coldvox-text-injection/mki"]
 text-injection-kdotool = ["text-injection", "coldvox-text-injection/xdg_kdotool"]
 text-injection-regex = ["text-injection", "dep:regex"]
-# plasma-hotkey = ["kglobalaccel"]  # TODO: Disabled until kglobalaccel dependency is resolved
 
 # Platform-specific dependencies for Linux
 [target.'cfg(target_os = "linux")'.dependencies]

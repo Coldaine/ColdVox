@@ -200,8 +200,13 @@ impl ChunkerWorker {
 
             // A send on a broadcast channel can fail if there are no receivers.
             // This is not a critical error for us; it just means no one is listening.
-            if self.output_tx.send(vf).is_err() {
-                tracing::warn!("No active listeners for audio frames.");
+            match self.output_tx.send(vf) {
+                Ok(num_receivers) => {
+                    tracing::trace!("Chunker: Frame sent to {} receivers", num_receivers);
+                }
+                Err(_) => {
+                    tracing::warn!("No active listeners for audio frames.");
+                }
             }
 
             self.samples_emitted += fs as u64;

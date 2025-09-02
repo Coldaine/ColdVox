@@ -53,6 +53,7 @@ impl FrameReader {
         let samples_read = self.consumer.read(&mut buffer);
 
         if samples_read == 0 {
+            tracing::trace!("FrameReader: No samples available to read");
             return None;
         }
 
@@ -64,6 +65,14 @@ impl FrameReader {
         let timestamp = self.start_time + std::time::Duration::from_millis(elapsed_ms);
 
         self.samples_read += samples_read as u64;
+
+        tracing::trace!(
+            "FrameReader: Read {} samples at {}Hz {}ch, timestamp: {:?}",
+            samples_read,
+            self.device_sample_rate,
+            self.device_channels,
+            timestamp
+        );
 
         Some(AudioFrame {
             samples: buffer,

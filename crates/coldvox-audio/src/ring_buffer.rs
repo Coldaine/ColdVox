@@ -1,5 +1,5 @@
 use rtrb::{Consumer, Producer, RingBuffer};
-use tracing::warn;
+use tracing::{trace, warn};
 
 /// Audio ring buffer using rtrb (real-time safe)
 pub struct AudioRingBuffer {
@@ -61,6 +61,7 @@ impl AudioProducer {
             second.copy_from_slice(&samples[split..]);
         }
         chunk.commit_all();
+        trace!("Ring buffer: wrote {} samples", samples.len());
         Ok(samples.len())
     }
 
@@ -78,6 +79,10 @@ pub struct AudioConsumer {
 impl AudioConsumer {
     /// Read available samples (non-blocking)
     pub fn read(&mut self, buffer: &mut [i16]) -> usize {
+        trace!(
+            "Ring buffer: attempting to read up to {} samples",
+            buffer.len()
+        );
         let chunk = match self.consumer.read_chunk(buffer.len()) {
             Ok(chunk) => chunk,
             Err(rtrb::chunks::ChunkError::TooFewSlots(available)) => {
@@ -98,6 +103,7 @@ impl AudioConsumer {
             buffer[split..split + second.len()].copy_from_slice(second);
         }
         chunk.commit_all();
+        trace!("Ring buffer: read {} samples", len);
         len
     }
 

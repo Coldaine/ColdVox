@@ -740,6 +740,7 @@ dependencies = [
  "ctrlc",
  "device_query 4.0.1",
  "env_logger",
+ "fastrand 2.3.0",
  "futures",
  "hound",
  "mockall",

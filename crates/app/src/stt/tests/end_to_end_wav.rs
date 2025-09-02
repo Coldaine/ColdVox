@@ -5,7 +5,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, mpsc};
-use tracing::info;
+use tracing::{debug, info};
 
 use crate::stt::{processor::SttProcessor, TranscriptionConfig, TranscriptionEvent};
 use crate::text_injection::{AsyncInjectionProcessor, InjectionConfig};
@@ -15,6 +15,19 @@ use coldvox_audio::ring_buffer::{AudioProducer, AudioRingBuffer};
 use coldvox_vad::config::{UnifiedVadConfig, VadMode};
 use coldvox_vad::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 use coldvox_vad::types::VadEvent;
+
+/// Initialize tracing for tests with debug level
+fn init_test_tracing() {
+    use std::sync::Once;
+    use tracing_subscriber::{fmt, EnvFilter};
+
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("debug"));
+
+        fmt().with_env_filter(filter).with_test_writer().init();
+    });
+}
 
 /// Mock text injector that captures injection attempts for testing
 pub struct MockTextInjector {
@@ -130,7 +143,10 @@ impl WavFileLoader {
             tokio::time::sleep(frame_duration).await;
         }
 
-        info!("WAV streaming completed");
+        info!(
+            "WAV streaming completed ({} total samples processed)",
+            self.current_pos
+        );
         Ok(())
     }
 
@@ -221,7 +237,10 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
     wav_path: P,
     expected_text_fragments: Vec<&str>,
 ) -> Result<Vec<String>> {
+    init_test_tracing();
     info!("Starting end-to-end WAV pipeline test");
+    debug!("Processing WAV file: {:?}", wav_path.as_ref());
+    debug!("Expected text fragments: {:?}", expected_text_fragments);
 
     // Set up components
     let mock_injector = MockTextInjector::new();
@@ -365,6 +384,7 @@ mod tests {
     #[tokio::test]
     #[ignore] // Requires WAV files and Vosk model
     async fn test_end_to_end_wav_pipeline() {
+        init_test_tracing();
         use rand::seq::SliceRandom;
         use std::fs;
 
@@ -481,6 +501,7 @@ mod tests {
     #[tokio::test]
     #[ignore] // Requires WAV files, Vosk model, and text injection backend
     async fn test_end_to_end_with_real_injection() {
+        init_test_tracing();
         // This test uses the real AsyncInjectionProcessor for comprehensive testing
         // It requires:
         // 1. A WAV file with known speech content

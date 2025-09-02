@@ -73,13 +73,13 @@ impl InjectorRegistry {
 
         // Check backend availability
         let backends = backend_detector.detect_available_backends();
-        let has_wayland = backends.iter().any(|b| {
+        let _has_wayland = backends.iter().any(|b| {
             matches!(
                 b,
                 Backend::WaylandXdgDesktopPortal | Backend::WaylandVirtualKeyboard
             )
         });
-        let has_x11 = backends
+        let _has_x11 = backends
             .iter()
             .any(|b| matches!(b, Backend::X11Xdotool | Backend::X11Native));
 
@@ -95,7 +95,7 @@ impl InjectorRegistry {
         // Add clipboard injectors if available
         #[cfg(feature = "wl_clipboard")]
         {
-            if has_wayland || has_x11 {
+            if _has_wayland || _has_x11 {
                 let clipboard_injector = ClipboardInjector::new(config.clone());
                 if clipboard_injector.is_available() {
                     injectors.insert(InjectionMethod::Clipboard, Box::new(clipboard_injector));

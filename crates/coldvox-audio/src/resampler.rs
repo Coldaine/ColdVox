@@ -30,6 +30,12 @@ impl StreamResampler {
 
     /// Create a new mono resampler with specified quality preset.
     pub fn new_with_quality(in_rate: u32, out_rate: u32, quality: ResamplerQuality) -> Self {
+        tracing::debug!(
+            "Creating resampler: {}Hz -> {}Hz with quality {:?}",
+            in_rate,
+            out_rate,
+            quality
+        );
         // For VAD, we want low latency, so use a relatively small chunk size
         // 512 samples at 16kHz = 32ms, which aligns well with typical VAD frame sizes
         let chunk_size = 512;
@@ -94,6 +100,10 @@ impl StreamResampler {
     pub fn process(&mut self, input: &[i16]) -> Vec<i16> {
         if self.in_rate == self.out_rate {
             // Fast path: just clone input
+            tracing::trace!(
+                "Resampler: Passthrough {} samples (no rate change)",
+                input.len()
+            );
             return input.to_vec();
         }
 
@@ -112,7 +122,7 @@ impl StreamResampler {
             let output_frames = match self.resampler.process(&input_frames, None) {
                 Ok(frames) => frames,
                 Err(e) => {
-                    eprintln!("Resampler error: {}", e);
+                    tracing::error!("Resampler error: {}", e);
                     // Return empty on error to maintain stream continuity
                     return Vec::new();
                 }
@@ -135,6 +145,16 @@ impl StreamResampler {
 
         // Clear the output buffer for next time
         self.output_buffer.clear();
+
+        if !result.is_empty() {
+            tracing::trace!(
+                "Resampler: Processed {} input samples -> {} output samples ({}Hz -> {}Hz)",
+                input.len(),
+                result.len(),
+                self.in_rate,
+                self.out_rate
+            );
+        }
 
         result
     }
