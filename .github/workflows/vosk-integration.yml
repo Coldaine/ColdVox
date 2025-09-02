@@ -15,6 +15,14 @@ on:
   # Manual trigger
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: vosk-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   vosk-tests:
     name: Vosk STT Integration
@@ -70,9 +78,7 @@ jobs:
           rm vosk-model-small-en-us-0.15.zip
       
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@5ff18d7fb42b9cb96e9b08bd87f965bb411b4daf # v2.44.45
-        with:
-          tool: cargo-nextest
+        run: cargo install cargo-nextest --locked
       
       - name: Build with Vosk
         run: |

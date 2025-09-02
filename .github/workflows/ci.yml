@@ -6,6 +6,10 @@ on:
     branches: [main, develop]
   workflow_dispatch:  # Allow manual triggering for agents
 
+permissions:
+  contents: read
+  pull-requests: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -26,18 +30,17 @@ jobs:
       test_timeout_minutes: 30
       max_parallel: 4                  # Limit parallel crate builds
       # Crate-specific system dependencies
-      crate_system_deps: '{
-        "coldvox-audio": "libasound2-dev",
-        "coldvox-text-injection": "libxdo-dev libxtst-dev",
-        "coldvox-gui": "libgl1-mesa-dev libxcursor-dev"
-      }'
+      crate_system_deps: |
+        {"coldvox-audio":"libasound2-dev","coldvox-text-injection":"libxdo-dev libxtst-dev","coldvox-gui":"libgl1-mesa-dev libxcursor-dev"}
 
   # Validate lockfile is committed and up-to-date
   lockfile-check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3df4ab11eba7bda6032a0b82a6bb43b11571feac # v4.1.7
-      - uses: moonrepo/setup-rust@b8edcc56728bbc002beca25e7f6723d1aab343f8 # v1.2.1
+      - uses: dtolnay/rust-toolchain@1482605bfc5719782e1267fd0c0cc350fe7646b8 # v1
+        with:
+          toolchain: stable
       - name: Validate lockfile
         run: |
           cargo check --locked --workspace
@@ -53,9 +56,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3df4ab11eba7bda6032a0b82a6bb43b11571feac # v4.1.7
-      - uses: moonrepo/setup-rust@b8edcc56728bbc002beca25e7f6723d1aab343f8 # v1.2.1
+      - uses: dtolnay/rust-toolchain@1482605bfc5719782e1267fd0c0cc350fe7646b8 # v1
         with:
-          bins: cargo-nextest
+          toolchain: stable
       - uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84 # v2.7.3
       - name: Install system deps
         run: |
