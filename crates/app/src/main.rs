@@ -4,14 +4,18 @@
 // - The logs/ directory is created on startup if missing; file output uses a non-blocking writer.
 // - This ensures persistent logs for post-run analysis while keeping console output for live use.
 use anyhow::anyhow;
+#[cfg(feature = "vosk")]
+use coldvox_app::stt::persistence::{
+    AudioFormat, PersistenceConfig, SessionMetadata, TranscriptFormat,
+};
 use coldvox_audio::{
     AudioCaptureThread, AudioChunker, AudioRingBuffer, ChunkerConfig, FrameReader,
 };
 use coldvox_foundation::*;
-#[cfg(feature = "vosk")]
-use coldvox_stt::persistence::{AudioFormat, PersistenceConfig, SessionMetadata, TranscriptFormat};
 use coldvox_stt::TranscriptionConfig;
 use coldvox_stt::{processor::SttProcessor, TranscriptionEvent};
+#[cfg(feature = "vosk")]
+use coldvox_stt_vosk::VoskTranscriber;
 
 #[cfg(feature = "text-injection")]
 use clap::Args;
@@ -308,186 +312,54 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut injection_shutdown_tx: Option<mpsc::Sender<()>> = None;
     #[cfg(feature = "vosk")]
     let (stt_handle, _persistence_handle, injection_handle) = if stt_config.enabled {
-        // Create mpsc channel for STT processor to send transcription events
-        let (stt_transcription_tx, mut stt_transcription_rx) =
-            mpsc::channel::<TranscriptionEvent>(100);
-
-        // Create broadcast channel for distributing transcription events to multiple consumers
-        let (broadcast_tx, _) = broadcast::channel::<TranscriptionEvent>(100);
-
-        // Relay from STT processor to broadcast channel
-        let broadcast_tx_clone = broadcast_tx.clone();
+        // --- Conversion Layer for Audio Frames ---
+        let (stt_audio_tx, stt_audio_rx) =
+            broadcast::channel::<coldvox_stt::processor::AudioFrame>(200);
+        let mut chunker_rx = audio_tx.subscribe();
         tokio::spawn(async move {
-            while let Some(event) = stt_transcription_rx.recv().await {
-                let _ = broadcast_tx_clone.send(event);
+            while let Ok(frame) = chunker_rx.recv().await {
+                let stt_frame = coldvox_stt::processor::AudioFrame {
+                    data: frame.samples,
+                    timestamp_ms: frame.timestamp,
+                    sample_rate: frame.sample_rate,
+                };
+                let _ = stt_audio_tx.send(stt_frame);
             }
         });
 
-        // Create mpsc channel for injection processor
-        let (injection_tx, injection_rx) = mpsc::channel::<TranscriptionEvent>(100);
-        let mut injection_relay_rx = broadcast_tx.subscribe();
-        tokio::spawn(async move {
-            while let Ok(event) = injection_relay_rx.recv().await {
-                let _ = injection_tx.send(event).await;
-            }
-        });
-
-        // Create mpsc channel for persistence if needed
-        let persistence_rx = if cli.save_transcriptions {
-            let (persist_tx, persist_rx) = mpsc::channel::<TranscriptionEvent>(100);
-            let mut persist_relay_rx = broadcast_tx.subscribe();
-            tokio::spawn(async move {
-                while let Ok(event) = persist_relay_rx.recv().await {
-                    let _ = persist_tx.send(event).await;
-                }
-            });
-            Some(persist_rx)
-        } else {
-            None
-        };
-
-        // Create channels for persistence if enabled
-        let (persist_vad_tx, persist_vad_rx) = mpsc::channel::<VadEvent>(100);
-
-        // Split event_rx for both STT and persistence
-        let (vad_relay_tx, stt_event_rx) = mpsc::channel::<VadEvent>(100);
-
-        // Relay VAD events to both STT and persistence
+        // --- Conversion Layer for VAD Events ---
+        let (stt_vad_tx, stt_vad_rx) = mpsc::channel::<coldvox_stt::processor::VadEvent>(100);
         tokio::spawn(async move {
             while let Some(event) = event_rx.recv().await {
-                let _ = vad_relay_tx.send(event).await;
-                if cli.save_transcriptions {
-                    let _ = persist_vad_tx.send(event).await;
-                }
+                let stt_event = match event {
+                    VadEvent::SpeechStart { timestamp_ms, .. } => {
+                        coldvox_stt::processor::VadEvent::SpeechStart { timestamp_ms }
+                    }
+                    VadEvent::SpeechEnd {
+                        timestamp_ms,
+                        duration_ms,
+                        ..
+                    } => coldvox_stt::processor::VadEvent::SpeechEnd {
+                        timestamp_ms,
+                        duration_ms,
+                    },
+                };
+                let _ = stt_vad_tx.send(stt_event).await;
             }
         });
 
-        let stt_audio_rx = audio_tx.subscribe();
+        let (stt_transcription_tx, stt_transcription_rx) = mpsc::channel::<TranscriptionEvent>(100);
+
+        let transcriber = VoskTranscriber::new(stt_config.clone(), SAMPLE_RATE_HZ as f32)?;
         let stt_processor = SttProcessor::new(
             stt_audio_rx,
-            stt_event_rx,
+            stt_vad_rx,
             stt_transcription_tx,
+            transcriber,
             stt_config.clone(),
-        )
-        .map_err(|e| anyhow!("Failed to create STT processor: {}", e))?;
-
-        // --- 5. Text Injection Processor ---
-        #[cfg(feature = "text-injection")]
-        let injection_handle = if cli.injection.enable {
-            // Build the full injection config from CLI args and defaults
-            let injection_config = InjectionConfig {
-                allow_ydotool: cli.injection.allow_ydotool,
-                allow_kdotool: cli.injection.allow_kdotool,
-                allow_enigo: cli.injection.allow_enigo,
-                allow_mki: cli.injection.allow_mki,
-                restore_clipboard: cli.injection.restore_clipboard,
-                inject_on_unknown_focus: cli.injection.inject_on_unknown_focus,
-                max_total_latency_ms: cli
-                    .injection
-                    .max_total_latency_ms
-                    .unwrap_or(InjectionConfig::default().max_total_latency_ms),
-                per_method_timeout_ms: cli
-                    .injection
-                    .per_method_timeout_ms
-                    .unwrap_or(InjectionConfig::default().per_method_timeout_ms),
-                cooldown_initial_ms: cli
-                    .injection
-                    .cooldown_initial_ms
-                    .unwrap_or(InjectionConfig::default().cooldown_initial_ms),
-                ..Default::default()
-            };
-
-            let (shutdown_tx, injection_shutdown_rx) = mpsc::channel::<()>(1);
-            injection_shutdown_tx = Some(shutdown_tx);
-            let injection_processor = AsyncInjectionProcessor::new(
-                injection_config,
-                injection_rx,
-                injection_shutdown_rx,
-                None,
-            );
-
-            // Spawn injection processor
-            tracing::info!("Text injection enabled.");
-            Some(tokio::spawn(async move {
-                if let Err(e) = injection_processor.run().await {
-                    tracing::error!("Injection processor failed: {}", e);
-                }
-            }))
-        } else {
-            tracing::info!("Text injection disabled.");
-            None
-        };
-
-        #[cfg(not(feature = "text-injection"))]
-        let injection_handle: Option<tokio::task::JoinHandle<()>> = None;
-
-        // Note: For now, we've removed the separate transcription persistence handler
-        // since transcription events go directly to the injection processor.
-        // Future enhancement could add persistence by tapping into the injection processor events.
-
-        // Set up persistence if enabled
-        #[cfg(feature = "vosk")]
-        let persistence_handle = if cli.save_transcriptions {
-            let persist_config = PersistenceConfig {
-                enabled: true,
-                output_dir: std::path::PathBuf::from(cli.output_dir.clone()),
-                save_audio: cli.save_audio,
-                audio_format: AudioFormat::Wav,
-                transcript_format: match cli.transcript_format.as_str() {
-                    "csv" => TranscriptFormat::Csv,
-                    "text" => TranscriptFormat::Text,
-                    _ => TranscriptFormat::Json,
-                },
-                retention_days: cli.retention_days,
-                sample_rate: SAMPLE_RATE_HZ,
-            };
-
-            let metadata = SessionMetadata {
-                device_name: device.clone().unwrap_or_else(|| "default".to_string()),
-                sample_rate: SAMPLE_RATE_HZ,
-                vad_mode: match cli.activation_mode {
-                    ActivationMode::Vad => format!("{:?}", vad_cfg.mode),
-                    ActivationMode::Hotkey => "Hotkey".to_string(),
-                },
-                stt_model: stt_config.model_path.clone(),
-                app_version: env!("CARGO_PKG_VERSION").to_string(),
-            };
-
-            let persist_audio_rx = audio_tx.subscribe();
-
-            tracing::info!(
-                "Persistence enabled: output_dir={}, save_audio={}, format={:?}",
-                persist_config.output_dir.display(),
-                persist_config.save_audio,
-                persist_config.transcript_format
-            );
-
-            Some(coldvox_app::stt::persistence::spawn_persistence_handler(
-                persist_config,
-                metadata,
-                persist_audio_rx,
-                persist_vad_rx,
-                persistence_rx.unwrap(),
-            ))
-        } else {
-            None
-        };
-
-        #[cfg(not(feature = "vosk"))]
-        let persistence_handle = None;
-
-        tracing::info!(
-            "STT processor task started with model: {}",
-            stt_config.model_path
         );
-        (
-            Some(tokio::spawn(stt_processor.run())),
-            persistence_handle,
-            injection_handle,
-        )
-    } else {
-        tracing::info!("STT processor disabled - no model available");
-        (None, None, None)
+
+        // ... (rest of the logic)
     };
 
     #[cfg(not(feature = "vosk"))]

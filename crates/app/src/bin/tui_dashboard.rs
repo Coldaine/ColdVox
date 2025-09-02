@@ -419,8 +419,8 @@ async fn run_audio_pipeline(tx: mpsc::Sender<AppEvent>, device: String) {
         ))
         .await;
 
-    // Broadcast channel for audio frames
-    let (audio_tx, _) = broadcast::channel::<VadFrame>(200);
+    // Broadcast channel for audio frames from the chunker
+    let (chunker_audio_tx, _) = broadcast::channel::<coldvox_audio::AudioFrame>(200);
     let (event_tx, raw_vad_rx) = mpsc::channel(200);
 
     let chunker_cfg = ChunkerConfig {
@@ -428,7 +428,6 @@ async fn run_audio_pipeline(tx: mpsc::Sender<AppEvent>, device: String) {
         sample_rate_hz: SAMPLE_RATE_HZ,
         resampler_quality: coldvox_audio::chunker::ResamplerQuality::Balanced,
     };
-    // Build FrameReader from ring buffer consumer and feed it to the chunker
     let frame_reader = FrameReader::new(
         audio_consumer,
         device_cfg.sample_rate,
@@ -436,18 +435,18 @@ async fn run_audio_pipeline(tx: mpsc::Sender<AppEvent>, device: String) {
         rb_capacity,
         Some(metrics.clone()),
     );
-    let chunker = AudioChunker::new(frame_reader, audio_tx.clone(), chunker_cfg)
+    let chunker = AudioChunker::new(frame_reader, chunker_audio_tx.clone(), chunker_cfg)
         .with_metrics(metrics.clone());
     let _chunker_handle = chunker.spawn();
 
     let vad_cfg = UnifiedVadConfig {
         mode: VadMode::Silero,
         frame_size_samples: FRAME_SIZE_SAMPLES,
-        sample_rate_hz: SAMPLE_RATE_HZ, // Standard 16kHz - resampler will handle conversion
+        sample_rate_hz: SAMPLE_RATE_HZ,
         ..Default::default()
     };
 
-    let vad_audio_rx = audio_tx.subscribe();
+    let vad_audio_rx = chunker_audio_tx.subscribe();
     let _vad_thread =
         match VadProcessor::spawn(vad_cfg, vad_audio_rx, event_tx, Some(metrics.clone())) {
             Ok(h) => h,
@@ -469,58 +468,63 @@ async fn run_audio_pipeline(tx: mpsc::Sender<AppEvent>, device: String) {
 
     // --- Optional STT setup (vosk feature) ---
     #[cfg(feature = "vosk")]
-    let stt_enabled = {
-        // Resolve model path like main.rs
+    let (mut stt_transcription_rx_opt, stt_vad_tx_opt) = {
         let model_path = std::env::var("VOSK_MODEL_PATH")
             .unwrap_or_else(|_| "models/vosk-model-small-en-us-0.15".to_string());
-        std::path::Path::new(&model_path).exists()
+        if std::path::Path::new(&model_path).exists() {
+            let (stt_transcription_tx, stt_transcription_rx) =
+                mpsc::channel::<TranscriptionEvent>(100);
+            let (stt_vad_tx, stt_vad_rx) = mpsc::channel::<coldvox_stt::processor::VadEvent>(100);
+
+            // --- Conversion Layer for Audio Frames ---
+            let (stt_audio_tx, stt_audio_rx) =
+                broadcast::channel::<coldvox_stt::processor::AudioFrame>(200);
+            let mut chunker_rx_for_stt = chunker_audio_tx.subscribe();
+            tokio::spawn(async move {
+                while let Ok(frame) = chunker_rx_for_stt.recv().await {
+                    let stt_frame = coldvox_stt::processor::AudioFrame {
+                        data: frame.samples,
+                        timestamp_ms: frame.timestamp,
+                        sample_rate: frame.sample_rate,
+                    };
+                    let _ = stt_audio_tx.send(stt_frame);
+                }
+            });
+
+            let stt_config = TranscriptionConfig {
+                enabled: true,
+                model_path,
+                partial_results: true,
+                max_alternatives: 1,
+                include_words: false,
+                buffer_size_ms: 512,
+            };
+            let transcriber =
+                VoskTranscriber::new(stt_config.clone(), SAMPLE_RATE_HZ as f32).unwrap();
+            let stt_processor = SttProcessor::new(
+                stt_audio_rx,
+                stt_vad_rx,
+                stt_transcription_tx,
+                transcriber,
+                stt_config,
+            );
+            tokio::spawn(async move {
+                stt_processor.run().await;
+            });
+            (Some(stt_transcription_rx), Some(stt_vad_tx))
+        } else {
+            (None, None)
+        }
     };
 
-    #[cfg(feature = "vosk")]
-    let (mut stt_transcription_rx_opt, stt_vad_tx_opt) = if stt_enabled {
-        // Channels for STT events
-        let (stt_transcription_tx, stt_transcription_rx) = mpsc::channel::<TranscriptionEvent>(100);
-        // VAD relay channel for STT
-        let (stt_vad_tx, stt_vad_rx) = mpsc::channel::<coldvox_stt::processor::VadEvent>(100);
-        // Subscribe to audio broadcast for STT
-        let stt_audio_rx = audio_tx.subscribe();
-        // STT config
-        let stt_config = TranscriptionConfig {
-            enabled: true,
-            model_path: std::env::var("VOSK_MODEL_PATH")
-                .unwrap_or_else(|_| "models/vosk-model-small-en-us-0.15".to_string()),
-            partial_results: true,
-            max_alternatives: 1,
-            include_words: false,
-            buffer_size_ms: 512,
-        };
-        // Spawn STT processor
-        let transcriber = VoskTranscriber::new(stt_config.clone(), SAMPLE_RATE_HZ as f32).unwrap();
-        let stt_processor = SttProcessor::new(
-            stt_audio_rx,
-            stt_vad_rx,
-            stt_transcription_tx,
-            transcriber,
-            stt_config,
-        );
-        tokio::spawn(async move {
-            stt_processor.run().await;
-        });
-        (Some(stt_transcription_rx), Some(stt_vad_tx))
-    } else {
-        (None, None)
-    };
-
-    // Relay VAD events: to UI and to STT (if enabled)
+    // Relay VAD events
     let (ui_vad_tx, mut ui_vad_rx) = mpsc::channel::<VadEvent>(200);
     let mut raw_vad_rx_task = raw_vad_rx;
     #[cfg(feature = "vosk")]
     let stt_vad_tx_clone = stt_vad_tx_opt.clone();
     tokio::spawn(async move {
         while let Some(ev) = raw_vad_rx_task.recv().await {
-            // Send to UI
             let _ = ui_vad_tx.send(ev.clone()).await;
-            // Send to STT if available
             #[cfg(feature = "vosk")]
             if let Some(stt_tx) = &stt_vad_tx_clone {
                 let stt_event = match ev {

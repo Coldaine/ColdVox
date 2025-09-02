@@ -295,7 +295,7 @@ impl KGlobalAccelBackend {
             tokio::select! {
                 Some(msg) = pressed_stream.next() => {
                     if let Ok((component, action, _timestamp)) =
-                        msg.body::<(String, String, i64)>()
+                        msg.body().deserialize::<(String, String, i64)>()
                     {
                         if component == component_name && action == action_name {
                             last_event_time = Instant::now();
@@ -326,7 +326,7 @@ impl KGlobalAccelBackend {
                 }
                 Some(msg) = released_stream.next() => {
                     if let Ok((component, action, _timestamp)) =
-                        msg.body::<(String, String, i64)>()
+                        msg.body().deserialize::<(String, String, i64)>()
                     {
                         tracing::trace!(
                             "Received globalShortcutReleased: component='{}', action='{}'",
