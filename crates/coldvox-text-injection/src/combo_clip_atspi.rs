@@ -7,7 +7,7 @@ use tracing::{debug, warn};
 /// Combo injector that sets clipboard and then triggers AT-SPI paste action
 /// NOTE: AT-SPI paste action not yet implemented for atspi 0.22
 pub struct ComboClipboardAtspi {
-    config: InjectionConfig,
+    _config: InjectionConfig,
     metrics: InjectionMetrics,
     clipboard_injector: ClipboardInjector,
 }
@@ -16,7 +16,7 @@ impl ComboClipboardAtspi {
     /// Create a new combo clipboard+AT-SPI injector
     pub fn new(config: InjectionConfig) -> Self {
         Self {
-            config: config.clone(),
+            _config: config.clone(),
             metrics: InjectionMetrics::default(),
             clipboard_injector: ClipboardInjector::new(config),
         }

@@ -61,7 +61,7 @@ impl FocusTracker {
             // TODO: Implement real AT-SPI focus detection once API is stable
             // For now, return a reasonable default
             debug!("AT-SPI focus detection placeholder - returning Unknown");
-            return Ok(FocusStatus::Unknown);
+            Ok(FocusStatus::Unknown)
         }
 
         #[cfg(not(feature = "atspi"))]

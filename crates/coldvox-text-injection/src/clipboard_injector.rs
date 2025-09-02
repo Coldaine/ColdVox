@@ -12,7 +12,7 @@ pub struct ClipboardInjector {
     config: InjectionConfig,
     metrics: InjectionMetrics,
     /// Previous clipboard content if we're restoring
-    previous_clipboard: Option<String>,
+    _previous_clipboard: Option<String>,
 }
 
 impl ClipboardInjector {
@@ -21,7 +21,7 @@ impl ClipboardInjector {
         Self {
             config,
             metrics: InjectionMetrics::default(),
-            previous_clipboard: None,
+            _previous_clipboard: None,
         }
     }
 }
@@ -64,7 +64,7 @@ impl TextInjector for ClipboardInjector {
 
         match result {
             Ok(Ok(_)) => {
-                let duration = start.elapsed().as_millis() as u64;
+                let _duration = start.elapsed().as_millis() as u64;
                 // TODO: Fix metrics - self.metrics.record_success requires &mut self
                 info!("Clipboard set successfully ({} chars)", text.len());
                 Ok(())
@@ -94,6 +94,7 @@ impl TextInjector for ClipboardInjector {
 
 impl ClipboardInjector {
     /// Save current clipboard content for restoration
+    #[allow(dead_code)]
     async fn save_clipboard(&mut self) -> Result<Option<String>, InjectionError> {
         if !self.config.restore_clipboard {
             return Ok(None);
@@ -126,6 +127,7 @@ impl ClipboardInjector {
     }
 
     /// Restore previously saved clipboard content
+    #[allow(dead_code)]
     async fn restore_clipboard(&mut self, content: Option<String>) -> Result<(), InjectionError> {
         if let Some(content) = content {
             if !self.config.restore_clipboard {
@@ -152,6 +154,7 @@ impl ClipboardInjector {
     }
 
     /// Enhanced clipboard operation with automatic save/restore
+    #[allow(dead_code)]
     async fn clipboard_with_restore(&mut self, text: &str) -> Result<(), InjectionError> {
         // Save current clipboard
         let saved = self.save_clipboard().await?;
@@ -173,6 +176,7 @@ impl ClipboardInjector {
     }
 
     /// Set clipboard content (internal helper)
+    #[allow(dead_code)]
     async fn set_clipboard(&self, text: &str) -> Result<(), InjectionError> {
         #[cfg(feature = "wl_clipboard")]
         {

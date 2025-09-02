@@ -5,7 +5,7 @@ use tracing::warn;
 /// AT-SPI2 injector for direct text insertion
 /// NOTE: This is a placeholder implementation - full AT-SPI support requires API clarification
 pub struct AtspiInjector {
-    config: InjectionConfig,
+    _config: InjectionConfig,
     metrics: InjectionMetrics,
 }
 
@@ -13,7 +13,7 @@ impl AtspiInjector {
     /// Create a new AT-SPI2 injector
     pub fn new(config: InjectionConfig) -> Self {
         Self {
-            config,
+            _config: config,
             metrics: InjectionMetrics::default(),
         }
     }
