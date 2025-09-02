@@ -1,5 +1,5 @@
 use coldvox_app::audio::{AudioFrame, VadProcessor};
-use coldvox_app::vad::{UnifiedVadConfig, VadMode, VadEvent};
+use coldvox_app::vad::{UnifiedVadConfig, VadEvent, VadMode};
 use dasp::interpolate::sinc::Sinc;
 use dasp::{ring_buffer, signal, Signal};
 use hound::WavReader;
@@ -77,11 +77,19 @@ async fn generate_audio_from_wav(
     file_path: &str,
 ) -> Result<(), String> {
     info!("Reading audio from: {}", file_path);
-    let mut reader = WavReader::open(file_path).map_err(|e| format!("Failed to open WAV file: {}", e))?;
+    let mut reader =
+        WavReader::open(file_path).map_err(|e| format!("Failed to open WAV file: {}", e))?;
     let spec = reader.spec();
-    info!("WAV spec: {:?}, duration: {}ms", spec, reader.duration() as f32 / spec.sample_rate as f32 * 1000.0);
+    info!(
+        "WAV spec: {:?}, duration: {}ms",
+        spec,
+        reader.duration() as f32 / spec.sample_rate as f32 * 1000.0
+    );
 
-    let samples_f32: Vec<f32> = reader.samples::<i16>().map(|s| s.unwrap() as f32 / i16::MAX as f32).collect();
+    let samples_f32: Vec<f32> = reader
+        .samples::<i16>()
+        .map(|s| s.unwrap() as f32 / i16::MAX as f32)
+        .collect();
 
     let source_signal = signal::from_iter(samples_f32.into_iter().map(|s| [s]));
 
@@ -89,25 +97,23 @@ async fn generate_audio_from_wav(
 
     let original_rate = spec.sample_rate as f64;
     let new_rate = 16000.0;
-    let mut converter = signal::interpolate::Converter::from_hz_to_hz(
-        source_signal,
-        sinc,
-        original_rate,
-        new_rate,
-    );
+    let mut converter =
+        signal::interpolate::Converter::from_hz_to_hz(source_signal, sinc, original_rate, new_rate);
 
     let mut timestamp_ms = 0u64;
     let frame_duration_ms = (frame_size as f32 * 1000.0 / 16000.0) as u64;
 
     while !converter.is_exhausted() {
-
         let mut frame_f32 = Vec::with_capacity(frame_size);
         for _ in 0..frame_size {
             let frame = converter.next();
             frame_f32.push(frame[0]);
         }
 
-        let frame_i16: Vec<i16> = frame_f32.iter().map(|&s| (s * i16::MAX as f32) as i16).collect();
+        let frame_i16: Vec<i16> = frame_f32
+            .iter()
+            .map(|&s| (s * i16::MAX as f32) as i16)
+            .collect();
 
         let mut frame = frame_i16;
         if frame.len() < frame_size {
@@ -119,10 +125,10 @@ async fn generate_audio_from_wav(
             timestamp_ms,
         };
 
-    let _ = tx.send(audio_frame);
+        let _ = tx.send(audio_frame);
 
         timestamp_ms += frame_duration_ms;
-    sleep(Duration::from_millis(frame_duration_ms)).await;
+        sleep(Duration::from_millis(frame_duration_ms)).await;
     }
 
     info!("Audio generator stopped");
@@ -135,7 +141,10 @@ async fn handle_vad_events(rx: &mut mpsc::Receiver<VadEvent>) {
 
     while let Some(event) = rx.recv().await {
         match event {
-            VadEvent::SpeechStart { timestamp_ms, energy_db } => {
+            VadEvent::SpeechStart {
+                timestamp_ms,
+                energy_db,
+            } => {
                 speech_segments += 1;
                 info!(
                     "[{:6.2}s] Speech START - Energy: {:.2} dB",
@@ -143,7 +152,11 @@ async fn handle_vad_events(rx: &mut mpsc::Receiver<VadEvent>) {
                     energy_db
                 );
             }
-            VadEvent::SpeechEnd { timestamp_ms, duration_ms, energy_db } => {
+            VadEvent::SpeechEnd {
+                timestamp_ms,
+                duration_ms,
+                energy_db,
+            } => {
                 total_speech_ms += duration_ms;
                 info!(
                     "[{:6.2}s] Speech END   - Duration: {} ms, Energy: {:.2} dB",
@@ -167,7 +180,7 @@ async fn handle_vad_events(rx: &mut mpsc::Receiver<VadEvent>) {
 fn simple_random() -> f32 {
     use std::cell::Cell;
     use std::num::Wrapping;
-    
+
     thread_local! {
         static SEED: Cell<Wrapping<u32>> = Cell::new(Wrapping(
             std::time::SystemTime::now()
@@ -176,7 +189,7 @@ fn simple_random() -> f32 {
                 .as_secs() as u32
         ));
     }
-    
+
     SEED.with(|seed| {
         let mut s = seed.get();
         s = s * Wrapping(1103515245) + Wrapping(12345);

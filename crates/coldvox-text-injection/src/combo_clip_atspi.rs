@@ -1,12 +1,14 @@
 use crate::clipboard_injector::ClipboardInjector;
-use crate::focus::{FocusTracker, FocusStatus};
-use crate::types::{InjectionConfig, InjectionError, InjectionMethod, InjectionMetrics, TextInjector};
+use crate::focus::{FocusStatus, FocusTracker};
+use crate::types::{
+    InjectionConfig, InjectionError, InjectionMethod, InjectionMetrics, TextInjector,
+};
+use async_trait::async_trait;
 use atspi::action::Action;
 use atspi::Accessible;
 use std::time::Duration;
-use tokio::time::{timeout, error::Elapsed};
+use tokio::time::{error::Elapsed, timeout};
 use tracing::{debug, error, info, warn};
-use async_trait::async_trait;
 
 /// Combo injector that sets clipboard and then triggers AT-SPI paste action
 pub struct ComboClipboardAtspiInjector {
@@ -30,39 +32,54 @@ impl ComboClipboardAtspiInjector {
     /// Trigger paste action on the focused element via AT-SPI2
     async fn trigger_paste_action(&self, accessible: &Accessible) -> Result<(), InjectionError> {
         let start = std::time::Instant::now();
-        
+
         // Get Action interface
-        let action = Action::new(accessible).await
+        let action = Action::new(accessible)
+            .await
             .map_err(|e| InjectionError::Atspi(e))?;
-        
+
         // Find paste action
-        let n_actions = action.n_actions().await
+        let n_actions = action
+            .n_actions()
+            .await
             .map_err(|e| InjectionError::Atspi(e))?;
-        
+
         for i in 0..n_actions {
-            let action_name = action.get_action_name(i).await
+            let action_name = action
+                .get_action_name(i)
+                .await
                 .map_err(|e| InjectionError::Atspi(e))?;
-            
-            let action_description = action.get_action_description(i).await
+
+            let action_description = action
+                .get_action_description(i)
+                .await
                 .map_err(|e| InjectionError::Atspi(e))?;
-            
+
             // Check if this is a paste action (case-insensitive)
-            if action_name.to_lowercase().contains("paste") || 
-               action_description.to_lowercase().contains("paste") {
-                debug!("Found paste action: {} ({})", action_name, action_description);
-                
+            if action_name.to_lowercase().contains("paste")
+                || action_description.to_lowercase().contains("paste")
+            {
+                debug!(
+                    "Found paste action: {} ({})",
+                    action_name, action_description
+                );
+
                 // Execute the paste action
-                action.do_action(i).await
+                action
+                    .do_action(i)
+                    .await
                     .map_err(|e| InjectionError::Atspi(e))?;
-                
+
                 let duration = start.elapsed().as_millis() as u64;
                 // TODO: Fix metrics - self.metrics.record_success requires &mut self
                 info!("Successfully triggered paste action via AT-SPI2");
                 return Ok(());
             }
         }
-        
-        Err(InjectionError::MethodUnavailable("No paste action found".to_string()))
+
+        Err(InjectionError::MethodUnavailable(
+            "No paste action found".to_string(),
+        ))
     }
 }
 
@@ -74,8 +91,10 @@ impl TextInjector for ComboClipboardAtspiInjector {
 
     fn is_available(&self) -> bool {
         // Available if both clipboard and AT-SPI are available
-        self.clipboard_injector.is_available() && 
-        std::env::var("XDG_SESSION_TYPE").map(|t| t == "wayland").unwrap_or(false)
+        self.clipboard_injector.is_available()
+            && std::env::var("XDG_SESSION_TYPE")
+                .map(|t| t == "wayland")
+                .unwrap_or(false)
     }
 
     async fn inject(&mut self, text: &str) -> Result<(), InjectionError> {
@@ -84,7 +103,7 @@ impl TextInjector for ComboClipboardAtspiInjector {
         }
 
         let start = std::time::Instant::now();
-        
+
         // First, set the clipboard
         match self.clipboard_injector.inject(text) {
             Ok(()) => {
@@ -92,8 +111,14 @@ impl TextInjector for ComboClipboardAtspiInjector {
             }
             Err(e) => {
                 let duration = start.elapsed().as_millis() as u64;
-                self.metrics.record_failure(InjectionMethod::ClipboardAndPaste, duration, e.to_string());
-                return Err(InjectionError::MethodFailed("Failed to set clipboard".to_string()));
+                self.metrics.record_failure(
+                    InjectionMethod::ClipboardAndPaste,
+                    duration,
+                    e.to_string(),
+                );
+                return Err(InjectionError::MethodFailed(
+                    "Failed to set clipboard".to_string(),
+                ));
             }
         }
 
@@ -105,7 +130,11 @@ impl TextInjector for ComboClipboardAtspiInjector {
             Ok(status) => status,
             Err(e) => {
                 let duration = start.elapsed().as_millis() as u64;
-                self.metrics.record_failure(InjectionMethod::ClipboardAndPaste, duration, e.to_string());
+                self.metrics.record_failure(
+                    InjectionMethod::ClipboardAndPaste,
+                    duration,
+                    e.to_string(),
+                );
                 return Err(InjectionError::Other(e.to_string()));
             }
         };
@@ -125,22 +154,34 @@ impl TextInjector for ComboClipboardAtspiInjector {
             }
             Err(e) => {
                 let duration = start.elapsed().as_millis() as u64;
-                self.metrics.record_failure(InjectionMethod::ClipboardAndPaste, duration, e.to_string());
+                self.metrics.record_failure(
+                    InjectionMethod::ClipboardAndPaste,
+                    duration,
+                    e.to_string(),
+                );
                 return Err(InjectionError::Other(e.to_string()));
             }
         };
 
         // Check if the element supports paste action
-        if !self.focus_tracker.supports_paste_action(&focused).await.unwrap_or(false) {
+        if !self
+            .focus_tracker
+            .supports_paste_action(&focused)
+            .await
+            .unwrap_or(false)
+        {
             debug!("Focused element does not support paste action");
-            return Err(InjectionError::MethodUnavailable("Focused element does not support paste action".to_string()));
+            return Err(InjectionError::MethodUnavailable(
+                "Focused element does not support paste action".to_string(),
+            ));
         }
 
         // Trigger paste action
         let res = timeout(
             Duration::from_millis(self.config.paste_action_timeout_ms),
             self.trigger_paste_action(&focused),
-        ).await;
+        )
+        .await;
         match res {
             Ok(Ok(())) => Ok(()),
             Ok(Err(e)) => Err(e),
@@ -149,7 +190,7 @@ impl TextInjector for ComboClipboardAtspiInjector {
                 self.metrics.record_failure(
                     InjectionMethod::ClipboardAndPaste,
                     duration,
-                    format!("Timeout after {}ms", self.config.paste_action_timeout_ms)
+                    format!("Timeout after {}ms", self.config.paste_action_timeout_ms),
                 );
                 Err(InjectionError::Timeout(self.config.paste_action_timeout_ms))
             }

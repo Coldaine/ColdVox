@@ -1,10 +1,12 @@
-use crate::types::{InjectionConfig, InjectionError, InjectionMethod, InjectionMetrics, TextInjector};
+use crate::types::{
+    InjectionConfig, InjectionError, InjectionMethod, InjectionMetrics, TextInjector,
+};
 use anyhow::Result;
+use async_trait::async_trait;
 use std::process::Command;
 use std::time::Duration;
-use tokio::time::{timeout, error::Elapsed};
+use tokio::time::{error::Elapsed, timeout};
 use tracing::{debug, error, info, warn};
-use async_trait::async_trait;
 
 /// Kdotool injector for KDE window activation/focus assistance
 pub struct KdotoolInjector {
@@ -18,7 +20,7 @@ impl KdotoolInjector {
     /// Create a new kdotool injector
     pub fn new(config: InjectionConfig) -> Self {
         let is_available = Self::check_kdotool();
-        
+
         Self {
             config,
             metrics: InjectionMetrics::default(),
@@ -46,12 +48,15 @@ impl KdotoolInjector {
         .await
         .map_err(|_| InjectionError::Timeout(self.config.discovery_timeout_ms))?
         .map_err(|e| InjectionError::Process(e))?;
-        
+
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(InjectionError::MethodFailed(format!("kdotool getactivewindow failed: {}", stderr)));
+            return Err(InjectionError::MethodFailed(format!(
+                "kdotool getactivewindow failed: {}",
+                stderr
+            )));
         }
-        
+
         let window_id = String::from_utf8_lossy(&output.stdout).trim().to_string();
         Ok(window_id)
     }
@@ -59,7 +64,7 @@ impl KdotoolInjector {
     /// Activate a window by ID
     async fn activate_window(&self, window_id: &str) -> Result<(), InjectionError> {
         let start = std::time::Instant::now();
-        
+
         let output = timeout(
             Duration::from_millis(self.config.per_method_timeout_ms),
             tokio::process::Command::new("kdotool")
@@ -69,23 +74,26 @@ impl KdotoolInjector {
         .await
         .map_err(|_| InjectionError::Timeout(self.config.per_method_timeout_ms))?
         .map_err(|e| InjectionError::Process(e))?;
-        
+
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(InjectionError::MethodFailed(format!("kdotool windowactivate failed: {}", stderr)));
+            return Err(InjectionError::MethodFailed(format!(
+                "kdotool windowactivate failed: {}",
+                stderr
+            )));
         }
-        
+
         let duration = start.elapsed().as_millis() as u64;
         // TODO: Fix metrics - self.metrics.record_success requires &mut self
         info!("Successfully activated window {}", window_id);
-        
+
         Ok(())
     }
 
     /// Focus a window by ID
     async fn focus_window(&self, window_id: &str) -> Result<(), InjectionError> {
         let start = std::time::Instant::now();
-        
+
         let output = timeout(
             Duration::from_millis(self.config.per_method_timeout_ms),
             tokio::process::Command::new("kdotool")
@@ -95,16 +103,19 @@ impl KdotoolInjector {
         .await
         .map_err(|_| InjectionError::Timeout(self.config.per_method_timeout_ms))?
         .map_err(|e| InjectionError::Process(e))?;
-        
+
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(InjectionError::MethodFailed(format!("kdotool windowfocus failed: {}", stderr)));
+            return Err(InjectionError::MethodFailed(format!(
+                "kdotool windowfocus failed: {}",
+                stderr
+            )));
         }
-        
+
         let duration = start.elapsed().as_millis() as u64;
         // TODO: Fix metrics - self.metrics.record_success requires &mut self
         info!("Successfully focused window {}", window_id);
-        
+
         Ok(())
     }
 }
@@ -123,7 +134,9 @@ impl TextInjector for KdotoolInjector {
         // Kdotool is only used for window activation/focus assistance
         // It doesn't actually inject text, so this method should not be called
         // directly for text injection
-        Err(InjectionError::MethodUnavailable("Kdotool is only for window activation/focus assistance".to_string()))
+        Err(InjectionError::MethodUnavailable(
+            "Kdotool is only for window activation/focus assistance".to_string(),
+        ))
     }
 
     fn metrics(&self) -> &InjectionMetrics {
@@ -138,13 +151,13 @@ impl KdotoolInjector {
             Some(id) => id.to_string(),
             None => self.get_active_window().await?,
         };
-        
+
         // First focus the window
         self.focus_window(&target_window).await?;
-        
+
         // Then activate it
         self.activate_window(&target_window).await?;
-        
+
         Ok(())
     }
 }

@@ -25,7 +25,7 @@ impl TextInjector for NoOpInjector {
     }
 
     fn is_available(&self) -> bool {
-        true  // Always available as fallback
+        true // Always available as fallback
     }
 
     async fn inject(&mut self, text: &str) -> Result<(), InjectionError> {
@@ -37,7 +37,8 @@ impl TextInjector for NoOpInjector {
 
         // Record the operation but do nothing
         let duration = start.elapsed().as_millis() as u64;
-        self.metrics.record_success(crate::types::InjectionMethod::NoOp, duration);
+        self.metrics
+            .record_success(crate::types::InjectionMethod::NoOp, duration);
 
         tracing::debug!("NoOp injector: would inject {} characters", text.len());
 

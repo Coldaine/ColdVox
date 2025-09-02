@@ -13,16 +13,16 @@ pub mod atspi_injector;
 pub mod clipboard_injector;
 #[cfg(all(feature = "text-injection-clipboard", feature = "text-injection-atspi"))]
 pub mod combo_clip_atspi;
-#[cfg(feature = "text-injection-ydotool")]
-pub mod ydotool_injector;
 #[cfg(feature = "text-injection-enigo")]
 pub mod enigo_injector;
 #[cfg(feature = "text-injection-mki")]
 pub mod mki_injector;
+#[cfg(feature = "text-injection-ydotool")]
+pub mod ydotool_injector;
 // NoOp fallback is always available
-pub mod noop_injector;
 #[cfg(feature = "text-injection-kdotool")]
 pub mod kdotool_injector;
+pub mod noop_injector;
 
 #[cfg(test)]
 mod tests;
@@ -31,10 +31,10 @@ mod tests;
 pub mod probes;
 
 // Re-export key components
-pub use processor::{AsyncInjectionProcessor, ProcessorMetrics, InjectionProcessor};
+pub use backend::Backend;
+pub use processor::{AsyncInjectionProcessor, InjectionProcessor, ProcessorMetrics};
 pub use session::{InjectionSession, SessionConfig, SessionState};
 pub use types::{InjectionConfig, InjectionError, InjectionMethod, InjectionResult};
-pub use backend::Backend;
 
 #[cfg(feature = "text-injection")]
 pub use manager::StrategyManager;

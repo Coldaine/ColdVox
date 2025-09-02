@@ -1,6 +1,6 @@
+use coldvox_audio::AudioFrame;
 use coldvox_telemetry::{FpsTracker, PipelineMetrics};
 use coldvox_vad::{UnifiedVadConfig, VadEvent};
-use coldvox_audio::AudioFrame;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::Sender;
@@ -61,7 +61,8 @@ impl VadProcessor {
         }
 
         // Convert f32 samples back to i16
-        let i16_data: Vec<i16> = frame.samples
+        let i16_data: Vec<i16> = frame
+            .samples
             .iter()
             .map(|&s| (s * i16::MAX as f32) as i16)
             .collect();

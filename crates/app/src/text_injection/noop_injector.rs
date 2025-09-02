@@ -1,4 +1,6 @@
-use crate::text_injection::types::{InjectionConfig, InjectionError, InjectionMethod, InjectionMetrics, TextInjector};
+use crate::text_injection::types::{
+    InjectionConfig, InjectionError, InjectionMethod, InjectionMetrics, TextInjector,
+};
 use async_trait::async_trait;
 
 /// NoOp injector that always succeeds but does nothing
@@ -23,7 +25,7 @@ impl TextInjector for NoOpInjector {
     }
 
     fn is_available(&self) -> bool {
-        true  // Always available as fallback
+        true // Always available as fallback
     }
 
     async fn inject(&mut self, text: &str) -> Result<(), InjectionError> {

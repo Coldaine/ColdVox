@@ -2,12 +2,8 @@
 
 // Re-export core STT types from the new crate
 pub use coldvox_stt::{
-    next_utterance_id, 
-    EventBasedTranscriber, 
-    Transcriber, 
-    TranscriptionConfig, 
-    TranscriptionEvent, 
-    WordInfo
+    next_utterance_id, EventBasedTranscriber, Transcriber, TranscriptionConfig, TranscriptionEvent,
+    WordInfo,
 };
 
 #[cfg(feature = "vosk")]

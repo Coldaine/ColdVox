@@ -1,5 +1,48 @@
 # Org-Level Reusable Workflow Design
 
+## IMPLEMENTATION INSTRUCTIONS FOR AGENTS
+
+**TASK:** Create the organizational `.github` repository and implement the reusable workflow defined in this document.
+
+### Required Actions:
+1. **Create Repository**: Create a new public repository at `Coldaine/.github` with description "Organization-level reusable workflows"
+2. **Add Workflow File**: Create `.github/workflows/lang-ci.yml` in that repository with the exact content from the "Reusable Workflow Specification" section below
+3. **Create Version Tags**: After committing the workflow:
+   - Tag as `v1.0.0` with message "Initial release of common CI workflow"
+   - Tag as `v1` pointing to the same commit for stable version reference
+4. **Verify**: Ensure the workflow is accessible at `coldaine/.github/.github/workflows/lang-ci.yml@v1`
+
+### Implementation Commands:
+```bash
+# Create the repository
+gh repo create Coldaine/.github --public --description "Organization-level reusable workflows"
+
+# Clone and set up
+gh repo clone Coldaine/.github /tmp/coldaine-github
+cd /tmp/coldaine-github
+
+# Create the workflow directory and file
+mkdir -p .github/workflows
+# Copy the workflow content from this document's "Reusable Workflow Specification" section
+# into .github/workflows/lang-ci.yml
+
+# Commit and push
+git add .
+git commit -m "feat: add reusable lang-ci workflow for Rust and Python projects"
+git push origin main
+
+# Create version tags
+git tag -a v1.0.0 -m "Initial release of common CI workflow"
+git push origin v1.0.0
+git tag -a v1 -m "v1 stable" v1.0.0
+git push origin v1
+```
+
+### Post-Implementation:
+Once created, the ColdVox repository's CI workflows will automatically start working as they reference `coldaine/.github/.github/workflows/lang-ci.yml@v1`
+
+---
+
 **Last Updated:** 2025-09-01  
 **Purpose:** Define a centralized, reusable CI workflow for organization-wide use  
 **Repository:** `<org>/.github`
@@ -120,7 +163,8 @@ jobs:
   # ============================================================
   detect-members:
     name: Detect Workspace Members
-    if: inputs.run_rust && hashFiles('**/Cargo.toml') != ''
+    # Server-side: avoid hashFiles here; run unconditionally when run_rust is true
+    if: inputs.run_rust
     runs-on: ubuntu-latest
     outputs:
       members: ${{ steps.detect.outputs.members }}
@@ -131,6 +175,12 @@ jobs:
       - name: Detect workspace members
         id: detect
         run: |
+          if ! git ls-files '**/Cargo.toml' | grep -q .; then
+            echo "No Rust workspace detected; default to '.'"
+            echo "members=." >> $GITHUB_OUTPUT
+            echo 'matrix={"member":["."]}' >> $GITHUB_OUTPUT
+            exit 0
+          fi
           if [ -n "${{ inputs.rust_workspace_members }}" ]; then
             # Use provided members
             MEMBERS="${{ inputs.rust_workspace_members }}"
@@ -155,7 +205,8 @@ jobs:
   rust:
     name: Rust CI - ${{ matrix.member }}
     needs: detect-members
-    if: inputs.run_rust && hashFiles('**/Cargo.toml') != ''
+  # Avoid hashFiles at job level; rely on detect-members
+  if: inputs.run_rust
     runs-on: ubuntu-latest
     timeout-minutes: ${{ inputs.test_timeout_minutes }}
     continue-on-error: ${{ inputs.continue_on_error }}
@@ -611,11 +662,11 @@ concurrency:
 
 ### Auto-detection
 
-- Language detection via `hashFiles()`
-- Workspace member detection via `cargo metadata`
-- Skip jobs when language files absent
-- Override with explicit inputs
-- Per-crate system dependency mapping
+- Do not use `hashFiles()` in job-level `if:` (server-evaluated). Use it only in step-level `if:` after checkout, or compute presence in a small precheck job and gate downstream jobs via `needs` outputs.
+- Workspace member detection via `cargo metadata` in the detect-members job.
+- Skip language steps when files are absent (step gating) or skip whole jobs via precheck outputs.
+- Override with explicit inputs when desired (e.g., disable Python entirely via `run_python: false`).
+- Per-crate system dependency mapping supported via `crate_system_deps` input.
 
 ## Usage Examples
 

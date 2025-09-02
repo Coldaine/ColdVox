@@ -1,4 +1,6 @@
-use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput, black_box};
+use criterion::{
+    black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput,
+};
 
 // Old approach: allocate Vec<char> and chunk by character count
 fn chunk_old_collect(text: &str, chunk_chars: usize) -> usize {

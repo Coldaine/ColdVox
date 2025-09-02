@@ -11,8 +11,8 @@ pub use vosk_transcriber::VoskTranscriber;
 
 // Re-export common types
 pub use coldvox_stt::{
-    EventBasedTranscriber, Transcriber, TranscriptionConfig, TranscriptionEvent, WordInfo,
-    next_utterance_id,
+    next_utterance_id, EventBasedTranscriber, Transcriber, TranscriptionConfig, TranscriptionEvent,
+    WordInfo,
 };
 
 /// Get default model path from environment or fallback

@@ -1,17 +1,18 @@
 use clap::{Parser, Subcommand};
 use coldvox_app::probes::{
-    common::{ensure_results_dir, LiveTestResult, TestContext, write_result_json},
-    MicCaptureCheck, VadMicCheck
+    common::{ensure_results_dir, write_result_json, LiveTestResult, TestContext},
+    MicCaptureCheck, VadMicCheck,
 };
 use std::path::PathBuf;
 use std::time::Duration;
-
 
 #[derive(Parser)]
 #[command(name = "mic-probe")]
 #[command(version = "1.0")]
 #[command(about = "ColdVox live audio testing tool")]
-#[command(long_about = "Comprehensive audio testing tool for microphone capture, VAD processing, and system validation")]
+#[command(
+    long_about = "Comprehensive audio testing tool for microphone capture, VAD processing, and system validation"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -50,18 +51,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::MicCapture => {
-            run_single_test(&cli, TestType::MicCapture).await
-        }
-        Commands::VadMic => {
-            run_single_test(&cli, TestType::VadMic).await
-        }
-        Commands::All => {
-            run_all_tests(&cli).await
-        }
-        Commands::ListDevices => {
-            list_devices().await
-        }
+        Commands::MicCapture => run_single_test(&cli, TestType::MicCapture).await,
+        Commands::VadMic => run_single_test(&cli, TestType::VadMic).await,
+        Commands::All => run_all_tests(&cli).await,
+        Commands::ListDevices => list_devices().await,
     }
 }
 
@@ -98,7 +91,12 @@ async fn run_single_test(cli: &Cli, test_type: TestType) -> Result<(), Box<dyn s
             } else {
                 // Brief output for non-verbose mode
                 let status = if test_result.pass { "PASS" } else { "FAIL" };
-                println!("{}: {} - {}", get_test_name(&test_type), status, test_result.notes.as_deref().unwrap_or(""));
+                println!(
+                    "{}: {} - {}",
+                    get_test_name(&test_type),
+                    status,
+                    test_result.notes.as_deref().unwrap_or("")
+                );
             }
         }
         Err(e) => {
@@ -173,7 +171,14 @@ async fn run_all_tests(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    println!("\nOverall result: {}", if all_passed { "ALL TESTS PASSED" } else { "SOME TESTS FAILED" });
+    println!(
+        "\nOverall result: {}",
+        if all_passed {
+            "ALL TESTS PASSED"
+        } else {
+            "SOME TESTS FAILED"
+        }
+    );
 
     if !all_passed {
         std::process::exit(1);
@@ -184,12 +189,12 @@ async fn run_all_tests(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
 
 async fn list_devices() -> Result<(), Box<dyn std::error::Error>> {
     use cpal::traits::{DeviceTrait, HostTrait};
-    
+
     println!("Available audio devices:");
     println!();
-    
+
     let host = cpal::default_host();
-    
+
     // List input devices
     println!("Input Devices:");
     match host.input_devices() {
@@ -205,7 +210,7 @@ async fn list_devices() -> Result<(), Box<dyn std::error::Error>> {
             println!("  Error listing input devices: {}", e);
         }
     }
-    
+
     // Show default input device
     println!();
     if let Some(device) = host.default_input_device() {
@@ -216,7 +221,7 @@ async fn list_devices() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         println!("No default input device found");
     }
-    
+
     Ok(())
 }
 

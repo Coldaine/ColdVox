@@ -1,8 +1,8 @@
 pub mod audio;
+pub mod foundation;
+pub mod hotkey;
 pub mod probes;
 pub mod stt;
-pub mod text_injection;
-pub mod hotkey;
-pub mod vad;
 pub mod telemetry;
-pub mod foundation;
+pub mod text_injection;
+pub mod vad;

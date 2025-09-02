@@ -1,0 +1,36 @@
+name: Feature Matrix Tests
+
+on:
+  # Weekly comprehensive testing
+  schedule:
+    - cron: '0 2 * * 1'
+  # Manual trigger
+  workflow_dispatch:
+
+jobs:
+  feature-combinations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3df4ab11eba7bda6032a0b82a6bb43b11571feac # v4.1.7
+      - uses: moonrepo/setup-rust@b8edcc56728bbc002beca25e7f6723d1aab343f8 # v1.2.1
+        with:
+          bins: cargo-hack
+      - uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84 # v2.7.3
+      
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libxdo-dev libxtst-dev
+      
+      - name: Test feature combinations for critical crates
+        run: |
+          # Test each feature in isolation and combinations
+          cargo hack test --each-feature -p coldvox-audio
+          cargo hack test --each-feature -p coldvox-vad
+          cargo hack test --each-feature -p coldvox-text-injection
+          
+          # Skip GUI and Vosk crates (require special setup)
+          cargo hack test --each-feature --workspace \
+            --exclude coldvox-gui \
+            --exclude coldvox-stt-vosk

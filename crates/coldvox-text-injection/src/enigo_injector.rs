@@ -1,9 +1,11 @@
-use crate::types::{InjectionConfig, InjectionError, InjectionMethod, InjectionMetrics, TextInjector};
-use enigo::{Enigo, KeyboardControllable, Key};
-use std::time::Duration;
-use tokio::time::{timeout, error::Elapsed};
-use tracing::{debug, error, info, warn};
+use crate::types::{
+    InjectionConfig, InjectionError, InjectionMethod, InjectionMetrics, TextInjector,
+};
 use async_trait::async_trait;
+use enigo::{Enigo, Key, KeyboardControllable};
+use std::time::Duration;
+use tokio::time::{error::Elapsed, timeout};
+use tracing::{debug, error, info, warn};
 
 /// Enigo injector for synthetic input
 pub struct EnigoInjector {
@@ -17,7 +19,7 @@ impl EnigoInjector {
     /// Create a new enigo injector
     pub fn new(config: InjectionConfig) -> Self {
         let is_available = Self::check_availability();
-        
+
         Self {
             config,
             metrics: InjectionMetrics::default(),
@@ -36,10 +38,10 @@ impl EnigoInjector {
     async fn type_text(&mut self, text: &str) -> Result<(), InjectionError> {
         let start = std::time::Instant::now();
         let text_clone = text.to_string();
-        
+
         let result = tokio::task::spawn_blocking(move || {
             let mut enigo = Enigo::new();
-            
+
             // Type each character with a small delay
             for c in text_clone.chars() {
                 match c {
@@ -51,14 +53,17 @@ impl EnigoInjector {
                             enigo.key_sequence(&c.to_string());
                         } else {
                             // For non-ASCII characters, we might need to use clipboard
-                            return Err(InjectionError::MethodFailed("Enigo doesn't support non-ASCII characters directly".to_string()));
+                            return Err(InjectionError::MethodFailed(
+                                "Enigo doesn't support non-ASCII characters directly".to_string(),
+                            ));
                         }
                     }
                 }
             }
-            
+
             Ok(())
-        }).await;
+        })
+        .await;
 
         match result {
             Ok(Ok(())) => {
@@ -75,17 +80,18 @@ impl EnigoInjector {
     /// Trigger paste action using enigo (Ctrl+V)
     async fn trigger_paste(&mut self) -> Result<(), InjectionError> {
         let start = std::time::Instant::now();
-        
+
         let result = tokio::task::spawn_blocking(|| {
             let mut enigo = Enigo::new();
-            
+
             // Press Ctrl+V
             enigo.key_down(Key::Control);
             enigo.key_click(Key::Layout('v'));
             enigo.key_up(Key::Control);
-            
+
             Ok(())
-        }).await;
+        })
+        .await;
 
         match result {
             Ok(Ok(())) => {

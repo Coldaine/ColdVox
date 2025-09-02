@@ -1,113 +1,68 @@
 name: CI
 
 on:
+  pull_request:
   push:
     branches: [main, develop]
-  pull_request:
-    branches: [main, develop]
+  workflow_dispatch:  # Allow manual triggering for agents
 
-env:
-  CARGO_TERM_COLOR: always
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  test:
-    name: Test Suite
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        feature_set:
-          - name: "Default features"
-            features: ""
-          - name: "VAD only" 
-            features: ""
-          - name: "STT with Vosk"
-            features: "vosk"
-          - name: "Text injection"
-            features: "text-injection"
-          - name: "Full features"
-            features: "vosk,text-injection"
-          - name: "Examples"
-            features: "examples"
-          - name: "Live hardware tests"
-            features: "live-hardware-tests"
+  # Core CI using org workflow with workspace support
+  common-ci:
+    uses: coldaine/.github/.github/workflows/lang-ci.yml@v1
+    secrets: inherit
+    with:
+      run_rust: true
+      run_python: false
+      rust_no_default_features: true  # Baseline without Vosk
+      rust_msrv: "1.70.0"             # Minimum supported version
+      use_nextest: true                # Faster test execution
+      use_sccache: true                # Build caching
+      run_cargo_deny: true             # License/security checks
+      test_timeout_minutes: 30
+      max_parallel: 4                  # Limit parallel crate builds
+      # Crate-specific system dependencies
+      crate_system_deps: '{
+        "coldvox-audio": "libasound2-dev",
+        "coldvox-text-injection": "libxdo-dev libxtst-dev",
+        "coldvox-gui": "libgl1-mesa-dev libxcursor-dev"
+      }'
 
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        components: rustfmt, clippy
-
-    - name: Cache dependencies
-      uses: Swatinem/rust-cache@v2
-      with:
-        key: ${{ matrix.feature_set.name }}
-
-    - name: Install system dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          libasound2-dev \
-          libxdo-dev \
-          libxtst-dev \
-          libxinerama-dev \
-          libx11-dev \
-          libxcursor-dev \
-          libxi-dev \
-          libgl1-mesa-dev \
-          pkg-config
-
-    - name: Check formatting
-      run: cargo fmt --all -- --check
-
-    - name: Run clippy
-      run: |
-        if [ -n "${{ matrix.feature_set.features }}" ]; then
-          cargo clippy --workspace --features ${{ matrix.feature_set.features }} -- -D warnings
-        else
-          cargo clippy --workspace -- -D warnings
-        fi
-
-    - name: Run tests
-      run: |
-        if [ -n "${{ matrix.feature_set.features }}" ]; then
-          cargo test --workspace --features ${{ matrix.feature_set.features }}
-        else
-          cargo test --workspace
-        fi
-
-    - name: Build
-      run: |
-        if [ -n "${{ matrix.feature_set.features }}" ]; then
-          cargo build --workspace --features ${{ matrix.feature_set.features }}
-        else
-          cargo build --workspace
-        fi
-
-  # Separate job for documentation
-  docs:
-    name: Documentation
+  # Validate lockfile is committed and up-to-date
+  lockfile-check:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Install Rust
-      uses: dtolnay/rust-toolchain@stable
-      
-    - name: Cache dependencies
-      uses: Swatinem/rust-cache@v2
-      
-    - name: Install system dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          libasound2-dev \
-          libxdo-dev \
-          libxtst-dev
-          
-    - name: Check documentation
-      run: cargo doc --workspace --no-deps --all-features
-      env:
-        RUSTDOCFLAGS: "-D warnings"
+      - uses: actions/checkout@3df4ab11eba7bda6032a0b82a6bb43b11571feac # v4.1.7
+      - uses: moonrepo/setup-rust@b8edcc56728bbc002beca25e7f6723d1aab343f8 # v1.2.1
+      - name: Validate lockfile
+        run: |
+          cargo check --locked --workspace
+          if git diff --exit-code Cargo.lock; then
+            echo "✅ Lockfile is up to date"
+          else
+            echo "❌ Cargo.lock is out of date"
+            exit 1
+          fi
+
+  # Quick validation of key features
+  feature-smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3df4ab11eba7bda6032a0b82a6bb43b11571feac # v4.1.7
+      - uses: moonrepo/setup-rust@b8edcc56728bbc002beca25e7f6723d1aab343f8 # v1.2.1
+        with:
+          bins: cargo-nextest
+      - uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84 # v2.7.3
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libxdo-dev libxtst-dev
+      - name: Check key features
+        run: |
+          cargo check --locked -p coldvox-text-injection
+          cargo check --locked -p app --features text-injection
+          cargo check --locked -p app --features examples

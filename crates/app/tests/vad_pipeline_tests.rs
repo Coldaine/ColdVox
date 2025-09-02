@@ -1,6 +1,6 @@
+use coldvox_app::audio::{AudioFrame as VadFrame, VadProcessor};
 use coldvox_app::telemetry::pipeline_metrics::PipelineMetrics;
 use coldvox_app::vad::{UnifiedVadConfig, VadMode, FRAME_SIZE_SAMPLES};
-use coldvox_app::audio::{AudioFrame as VadFrame, VadProcessor};
 use tokio::sync::{broadcast, mpsc};
 
 #[tokio::test]
@@ -19,8 +19,7 @@ async fn vad_processor_silence_no_events_level3() {
     // Create metrics for test
     let metrics = std::sync::Arc::new(PipelineMetrics::default());
 
-    let handle = VadProcessor::spawn(cfg, rx, event_tx, Some(metrics.clone()))
-        .expect("spawn vad");
+    let handle = VadProcessor::spawn(cfg, rx, event_tx, Some(metrics.clone())).expect("spawn vad");
 
     // Send a few frames of silence at 16k/512-sample frames
     for _ in 0..10u64 {

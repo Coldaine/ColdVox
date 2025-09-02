@@ -47,15 +47,10 @@ pub fn is_atspi_available() -> bool {
     // A proper check would be to try to connect to the bus.
     // For now, we'll check for the accessibility environment variable.
     // This is not foolproof, but it's a good hint.
-    let atspi_bus_addr = std::env::var("AT_SPI_BUS_ADDRESS");
-    if atspi_bus_addr.is_err() {
-        warn!("AT_SPI_BUS_ADDRESS not set, assuming accessibility is disabled.");
-        return false;
     let is_available = std::env::var("AT_SPI_BUS_ADDRESS").is_ok();
     if !is_available {
         warn!("AT_SPI_BUS_ADDRESS environment variable not set, assuming AT-SPI accessibility is disabled.");
     }
-    true
     is_available
 }
 
@@ -78,23 +73,18 @@ pub fn is_ydotool_available() -> bool {
 
     if !binary_exists {
         return false;
-    binary_exists && {
-        // Check for the socket, which is more reliable than just the binary.
-        // Use `id -u` as it's more reliable than the $UID env var.
-        let user_id = Command::new("id")
-            .arg("-u")
-            .output()
-            .ok()
-            .and_then(|o| String::from_utf8(o.stdout).ok())
-            .map(|s| s.trim().to_string())
-            .unwrap_or_else(|| "1000".to_string());
-
-        let socket_path = format!("/run/user/{}/.ydotool_socket", user_id);
-        std::path::Path::new(&socket_path).exists()
     }
 
-    // Check for the socket
-    let user_id = std::env::var("UID").unwrap_or_else(|_| "1000".to_string());
+    // Check for the socket, which is more reliable than just the binary.
+    // Use `id -u` as it's more reliable than the $UID env var.
+    let user_id = Command::new("id")
+        .arg("-u")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| "1000".to_string());
+
     let socket_path = format!("/run/user/{}/.ydotool_socket", user_id);
     std::path::Path::new(&socket_path).exists()
 }
@@ -110,16 +100,6 @@ pub fn is_kdotool_available() -> bool {
 
 /// Check for write access to `/dev/uinput`.
 pub fn has_uinput_access() -> bool {
-    use std::fs;
-    use std::os::unix::fs::PermissionsExt;
-
-    if let Ok(metadata) = fs::metadata("/dev/uinput") {
-        let perms = metadata.permissions();
-        // Check if the file is writable by the current user.
-        // This is a simplified check. A more robust check would involve checking group membership.
-        return perms.mode() & 0o002 != 0; // Writable by "other"
-    }
-    false
     // The most reliable way to check for write access is to try to open the file.
     // This avoids race conditions and complex permission-checking logic (e.g.,
     // checking user/group ownership and modes).

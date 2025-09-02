@@ -1,9 +1,9 @@
-use std::sync::Arc;
-use coldvox_telemetry::PipelineMetrics;
 use crate::probes::MicCaptureThresholds;
+use coldvox_telemetry::PipelineMetrics;
+use std::sync::Arc;
 
 use super::common::{LiveTestResult, TestContext, TestError, TestErrorKind};
-use coldvox_audio::{AudioCaptureThread, FrameReader, AudioRingBuffer};
+use coldvox_audio::{AudioCaptureThread, AudioRingBuffer, FrameReader};
 use coldvox_foundation::{AudioConfig, AudioError};
 use serde_json::json;
 use std::collections::HashMap;
@@ -23,13 +23,16 @@ impl MicCaptureCheck {
         // Prepare ring buffer and spawn capture thread
         let rb = AudioRingBuffer::new(16_384);
         let (audio_producer, audio_consumer) = rb.split();
-    let (capture_thread, dev_cfg, _config_rx) = AudioCaptureThread::spawn(config, audio_producer, device_name).map_err(|e| TestError {
-            kind: match e {
-                AudioError::DeviceNotFound { .. } => TestErrorKind::Device,
-                _ => TestErrorKind::Setup,
-            },
-            message: format!("Failed to create audio capture thread: {}", e),
-        })?;
+        let (capture_thread, dev_cfg, _config_rx) =
+            AudioCaptureThread::spawn(config, audio_producer, device_name).map_err(|e| {
+                TestError {
+                    kind: match e {
+                        AudioError::DeviceNotFound { .. } => TestErrorKind::Device,
+                        _ => TestErrorKind::Setup,
+                    },
+                    message: format!("Failed to create audio capture thread: {}", e),
+                }
+            })?;
 
         tokio::time::sleep(Duration::from_millis(200)).await; // Give the thread time to start
 
@@ -38,18 +41,18 @@ impl MicCaptureCheck {
 
         // Add optional logging of metrics every 30s
         let metrics_clone = metrics.clone();
-    let log_handle = tokio::spawn(async move {
+        let log_handle = tokio::spawn(async move {
             let mut interval = interval(Duration::from_secs(30));
             loop {
                 interval.tick().await;
-        let capture_fps = metrics_clone.capture_fps.load(Ordering::Relaxed);
+                let capture_fps = metrics_clone.capture_fps.load(Ordering::Relaxed);
                 let capture_fill = metrics_clone.capture_buffer_fill.load(Ordering::Relaxed);
                 tracing::info!(
-                    target: "mic_capture",
-            "Capture FPS: {}, Capture Buffer Fill: {}%",
-            capture_fps,
-                    capture_fill
-                );
+                        target: "mic_capture",
+                "Capture FPS: {}, Capture Buffer Fill: {}%",
+                capture_fps,
+                        capture_fill
+                    );
             }
         });
 
@@ -59,7 +62,7 @@ impl MicCaptureCheck {
         tokio::pin!(timeout);
 
         // Build a single reader for the duration of the test
-    let mut reader = FrameReader::new(
+        let mut reader = FrameReader::new(
             audio_consumer,
             dev_cfg.sample_rate,
             dev_cfg.channels,
@@ -94,8 +97,8 @@ impl MicCaptureCheck {
         metrics.insert("frames_captured".to_string(), json!(frames_count));
         metrics.insert("frames_per_sec".to_string(), json!(frames_per_sec));
         metrics.insert("duration_secs".to_string(), json!(elapsed.as_secs_f64()));
-    metrics.insert("device_sample_rate".to_string(), json!(dev_cfg.sample_rate));
-    metrics.insert("device_channels".to_string(), json!(dev_cfg.channels));
+        metrics.insert("device_sample_rate".to_string(), json!(dev_cfg.sample_rate));
+        metrics.insert("device_channels".to_string(), json!(dev_cfg.channels));
 
         let default_thresholds = MicCaptureThresholds {
             max_drop_rate_error: Some(0.20),
@@ -105,7 +108,9 @@ impl MicCaptureCheck {
             watchdog_must_be_false: Some(false),
         };
 
-        let thresholds = ctx.thresholds.as_ref()
+        let thresholds = ctx
+            .thresholds
+            .as_ref()
             .map(|t| &t.mic_capture)
             .unwrap_or(&default_thresholds);
 
@@ -121,31 +126,51 @@ impl MicCaptureCheck {
     }
 }
 
-pub fn evaluate_mic_capture(metrics: &HashMap<String, serde_json::Value>, thresholds: &MicCaptureThresholds) -> (bool, String) {
+pub fn evaluate_mic_capture(
+    metrics: &HashMap<String, serde_json::Value>,
+    thresholds: &MicCaptureThresholds,
+) -> (bool, String) {
     let mut pass = true;
     let mut failures = vec![];
 
-    let frames_per_sec = metrics.get("frames_per_sec").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    let frames_captured = metrics.get("frames_captured").and_then(|v| v.as_u64()).unwrap_or(0);
-    let duration_secs = metrics.get("duration_secs").and_then(|v| v.as_f64()).unwrap_or(0.0);
+    let frames_per_sec = metrics
+        .get("frames_per_sec")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
+    let frames_captured = metrics
+        .get("frames_captured")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let duration_secs = metrics
+        .get("duration_secs")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0);
 
     if let Some(min_fps) = thresholds.frames_per_sec_min {
         if frames_per_sec < min_fps {
             pass = false;
-            failures.push(format!("FPS {:.1} below minimum {:.1}", frames_per_sec, min_fps));
+            failures.push(format!(
+                "FPS {:.1} below minimum {:.1}",
+                frames_per_sec, min_fps
+            ));
         }
     }
 
     if let Some(max_fps) = thresholds.frames_per_sec_max {
         if frames_per_sec > max_fps {
             pass = false;
-            failures.push(format!("fps {:.1} exceeds maximum {:.1}", frames_per_sec, max_fps));
+            failures.push(format!(
+                "fps {:.1} exceeds maximum {:.1}",
+                frames_per_sec, max_fps
+            ));
         }
     }
 
     let notes = if failures.is_empty() {
-        format!("All checks passed. Captured {} frames in {:.1}s at {:.1} FPS",
-            frames_captured, duration_secs, frames_per_sec)
+        format!(
+            "All checks passed. Captured {} frames in {:.1}s at {:.1} FPS",
+            frames_captured, duration_secs, frames_per_sec
+        )
     } else {
         failures.join("; ")
     };

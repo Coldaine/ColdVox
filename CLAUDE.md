@@ -1,187 +1,197 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code when working in this repository.
 
 ## Project Overview
 
-ColdVox is a Rust-based voice AI project focused on real-time audio processing with emphasis on reliability and automatic recovery. The project implements a multi-phase STT (Speech-to-Text) system with voice activity detection (VAD) and resilient audio capture using lock-free ring buffers for real-time communication.
+ColdVox is a Rust-based voice AI project focused on real-time audio processing, reliability, and automatic recovery. It implements a VAD-gated STT (speech-to-text) pipeline with resilient audio capture using lock-free ring buffers and async tasks.
 
-## Architecture
+## Architecture (multi-crate)
 
-### Core Components
+- `crates/coldvox-foundation/` — App scaffolding and core types
+  - `state.rs`: `AppState` + `StateManager`
+  - `shutdown.rs`: Ctrl+C handler + panic hook (`ShutdownHandler`/`ShutdownGuard`)
+  - `health.rs`: `HealthMonitor`
+  - `error.rs`: `AppError`/`AudioError`, `AudioConfig { silence_threshold }`
 
-- **Foundation Layer** (`crates/app/src/foundation/`): Error handling, health monitoring, state management, graceful shutdown
-- **Audio System** (`crates/app/src/audio/`): Microphone capture, device management, watchdog monitoring, automatic recovery
-  - `AudioCapture`: Device-native capture (no resampling, converts device sample format → i16)
-  - `AudioChunker`: Downmixes to mono, resamples to 16 kHz, converts variable-sized frames to fixed 512-sample chunks
-  - `VadAdapter`: Trait for pluggable VAD implementations
-  - `VADProcessor`: VAD processing pipeline integration
-- **VAD System** (`crates/app/src/vad/`): Dual VAD implementation with power-based VAD and ML models
-  - `Level3VAD`: Progressive energy-based VAD implementation **[DISABLED BY Default]**
-  - `SileroEngine`: Silero model wrapper for ML-based VAD **[Default ACTIVE VAD]**
-  - `VADStateMachine`: State management for VAD transitions
-  - `UnifiedVADConfig`: Configuration supporting both VAD modes (defaults to Silero)
-- **STT System** (`crates/app/src/stt/`): Speech-to-text transcription with buffered processing
-  - `VoskTranscriber`: Vosk-based STT implementation
-  - `STTProcessor`: Buffers audio during speech segments, processes entire buffer at SpeechEnd for better accuracy
-  - `Transcriber` trait for pluggable STT backers
-  - **Buffering Strategy**: Accumulates all audio frames from SpeechStart → SpeechEnd, then processes as single chunk
-- **Text Injection System** (`crates/app/src/text_injection/`): Immediate text injection
-  - `TextInjector`: Production text injection using ydotool/clipboard
-  - `InjectionProcessor`: Immediate injection (0ms timeout) after transcription completes
-  - `AsyncInjectionProcessor`: Async wrapper for pipeline integration
-- **Telemetry** (`crates/app/src/telemetry/`): Metrics collection and monitoring
-  - `PipelineMetrics`: Real-time pipeline performance metrics
-  - Cross-thread monitoring of audio levels, latency, and throughput
+- `crates/coldvox-audio/` — Capture & chunking pipeline
+  - `device.rs`: CPAL host/device discovery; PipeWire-aware priorities
+  - `capture.rs`: `AudioCaptureThread::spawn(...)` (input stream, watchdog, silence detection)
+  - `ring_buffer.rs`: `AudioRingBuffer` (rtrb SPSC for i16 samples)
+  - `frame_reader.rs`: `FrameReader` to normalize device frames
+  - `chunker.rs`: `AudioChunker` → fixed 512-sample frames (32 ms at 16 kHz)
+  - `watchdog.rs`: 5s no-data watchdog and auto-recovery hooks
+  - `detector.rs`: RMS-based `SilenceDetector`
 
-### Threading Model
+- `crates/coldvox-vad/` — VAD traits and configs; Level3 energy VAD (feature `level3`)
+  - `config.rs`: `UnifiedVadConfig`, `VadMode`
+  - `engine.rs`, `types.rs`, `constants.rs`, `VadProcessor` trait
 
-- **Mic Thread**: Owns audio device, handles capture
-- **Processing Thread**: Runs VAD and chunking
-- **STT Thread**: Processes speech segments when VAD detects speech
-- **Main Thread**: Orchestrates and monitors components
-- Communication via lock-free ring buffers (rtrb), broadcast channels, and mpsc channels
+- `crates/coldvox-vad-silero/` — Silero V5 ONNX VAD (feature `silero`)
+  - `silero_wrapper.rs`: `SileroEngine` implementing `VadEngine`
+  - Uses external `voice_activity_detector` crate
 
-### Audio Specifications
+- `crates/coldvox-stt/` — STT core abstractions and events
 
-- Internal processing format: 16 kHz, 16-bit signed (i16), mono
-- Capture: Device‑native format and rate; converted to i16 only
+- `crates/coldvox-stt-vosk/` — Vosk STT integration (feature `vosk`)
+
+- `crates/coldvox-telemetry/` — Pipeline metrics (`PipelineMetrics`, `FpsTracker`)
+
+- `crates/coldvox-text-injection/` — Text injection backends (feature-gated)
+
+- `crates/app/` — App glue, UI, re-exports
+  - `src/audio/`: `vad_adapter.rs`, `vad_processor.rs`, re-exports from `coldvox-audio`
+  - `src/vad/mod.rs`: re-exports VAD types from VAD crates
+  - `src/stt/`: processor/persistence wrappers and Vosk re-exports
+  - Binaries: `src/main.rs` (app), `src/bin/tui_dashboard.rs`, probes under `src/probes/`
+
+## Threading & Tasks
+
+- Dedicated capture thread: owns CPAL stream; watchdog monitors no-data; restarts on errors
+- Async tasks (Tokio): VAD processor, STT processor, UI/TUI tasks
+- Channels: rtrb SPSC ring buffer, `broadcast` for audio frames, `mpsc` for events
+
+## Audio Specifications
+
+- Internal pipeline target: 16 kHz, 16-bit i16, mono
+- Device capture: device-native format, converted to i16; channel/rate normalization downstream
 - Chunker output: 512 samples (32 ms) at 16 kHz
-- Conversion: Stereo→mono averaging and resampling happen in the chunker task
-- Overflow handling: Lock‑free ring buffer backpressure with stats
+- Conversions: stereo→mono and resampling via `FrameReader`/`AudioChunker` and VAD adapter when needed
+- Backpressure: non-blocking writes; drop on full (metrics recorded)
 
 ### Resampler Quality
 
 - Presets: `Fast`, `Balanced` (default), `Quality`
-- Trade‑offs:
-  - Fast: lowest CPU, slightly more aliasing
-  - Balanced: good default balance
-  - Quality: higher CPU, best stopband attenuation
-- Where: set via `ChunkerConfig { resampler_quality, .. }`
+- Location: `crates/coldvox-audio/src/chunker.rs` (`ChunkerConfig { resampler_quality, .. }`)
 
 ## Development Commands
+
+All commands below assume working from `crates/app` unless noted.
 
 ### Building
 
 ```bash
-# Main application (requires --features vosk)
 cd crates/app
+
+# App (no STT)
+cargo build
+
+# App with STT (requires system libvosk)
 cargo build --features vosk
 cargo build --release --features vosk
 
-# TUI Dashboard binary
+# TUI Dashboard
 cargo build --bin tui_dashboard
 
-# Build specific examples (from crates/app directory)
+# Examples (wired from root /examples via Cargo metadata)
 cargo build --example foundation_probe
 cargo build --example mic_probe
 cargo build --example vad_demo
+cargo build --example record_10s
+```
+
+### Running
+
+```bash
+# App
+cargo run
+
+# App with STT (vosk)
+cargo run --features vosk
+
+# TUI Dashboard (optionally select device)
+cargo run --bin tui_dashboard
+cargo run --bin tui_dashboard -- -D "USB Microphone"
+
+# Examples
+cargo run --example foundation_probe -- --duration 60
+cargo run --example mic_probe -- --duration 120 --device "pipewire" --silence_threshold 120
+cargo run --example vad_demo
+cargo run --example record_10s
 ```
 
 ### Testing
 
 ```bash
-# Run all tests
+# Workspace tests
 cargo test
 
-# Run specific test
-cargo test test_name
-
-# Run with verbose output  
+# Verbose
 cargo test -- --nocapture
 
-# Run tests for specific module
-cargo test audio::
-cargo test vad::
+# Specific crate/module
+cargo test -p coldvox-app vad_pipeline_tests
 
-# Run end-to-end WAV pipeline test (requires Vosk model)
+# End-to-end WAV pipeline test (requires Vosk model)
 VOSK_MODEL_PATH=models/vosk-model-small-en-us-0.15 \
-    cargo test --features vosk test_end_to_end_wav_pipeline -- --ignored --nocapture
-```
-
-### Running Test Binaries
-
-```bash
-# Main application (requires --features vosk)
-cargo run --features vosk
-
-# TUI Dashboard for real-time monitoring
-cargo run --bin tui_dashboard
-cargo run --bin tui_dashboard -- -D "USB Microphone"  # Specific device
-
-# Examples (from crates/app directory):
-cargo run --example foundation_probe -- --duration 60
-cargo run --example mic_probe -- --duration 120 --expect-disconnect
-cargo run --example vad_demo  # Test VAD with microphone
-cargo run --example record_10s  # Record 10 seconds to WAV
+  cargo test -p coldvox-app --features vosk test_end_to_end_wav_pipeline -- --ignored --nocapture
 ```
 
 ### Type Checking & Linting
+
 ```bash
 cargo check --all-targets
-cargo fmt -- --check  # Check formatting
-cargo clippy -- -D warnings  # Strict linting
+cargo fmt -- --check
+cargo clippy -- -D warnings
 ```
 
 ## Key Design Principles
 
-1. **Monotonic Time**: Use `std::time::Instant` for all durations/intervals
-2. **Graceful Degradation**: Primary VAD with energy-based fallback
-3. **Automatic Recovery**: Exponential backoff with jitter for reconnection
-4. **Lock-free Communication**: Ring buffers (rtrb) with atomic operations
-5. **Structured Logging**: Rate-limited, JSON-formatted logs with daily rotation
-6. **Power-of-two Buffers**: For efficient index masking in ring buffers
+1. Monotonic time (`std::time::Instant`) for durations and timestamps
+2. Graceful degradation: Silero VAD default, Level3 fallback via feature
+3. Automatic recovery: watchdog + restart on stream error
+4. Lock-free communication: rtrb ring buffer with atomic counters
+5. Structured logging with rotation; avoid TUI stderr logging
+6. Power-of-two buffers for efficient masking
 
-## Configuration
+## Tuning Knobs
 
-Configuration parameters:
-- Window/overlap for audio processing (default: 500ms window, 0.5 overlap)
-- VAD thresholds and debouncing (speech_threshold: 0.6, min_speech_ms: 200)
-- Retry policies and timeouts (exponential backoff with jitter)
-- Buffer overflow handling (DropOldest/DropNewest/Panic)
-- Logging and metrics settings (JSON structured, rate-limited)
+- Chunker (`crates/coldvox-audio/src/chunker.rs` → `ChunkerConfig`)
+  - `frame_size_samples` (default 512), `sample_rate_hz` (16000), `resampler_quality`
+
+- VAD (`crates/coldvox-vad/src/config.rs`)
+  - `UnifiedVadConfig.mode`: `Silero` (default) | `Level3`
+  - Silero (`crates/coldvox-vad-silero/src/config.rs`): `threshold`, `min_speech_duration_ms`, `min_silence_duration_ms`, `window_size_samples`
+  - Level3 (feature `level3`): `onset_threshold_db`, `offset_threshold_db`, `ema_alpha`, `speech_debounce_ms`, `silence_debounce_ms`, `initial_floor_db`
+
+- STT (`crates/app/src/stt/` wrappers; core in `crates/coldvox-stt/`) [feature `vosk`]
+  - `TranscriptionConfig`: `model_path`, `partial_results`, `max_alternatives`, `include_words`, `buffer_size_ms`
+
+- Text Injection (`crates/coldvox-text-injection/`; app glue in `crates/app/src/text_injection/`)
+  - Backends via features: `text-injection-*`
+
+- Foundation (`crates/coldvox-foundation/src/error.rs`)
+  - `AudioConfig.silence_threshold` (default 100)
 
 ## Important Files
 
-- `crates/app/src/main.rs`: Main application entry point with Vosk STT
-- `crates/app/src/bin/tui_dashboard.rs`: Real-time monitoring dashboard
-- `crates/app/src/audio/capture.rs`: Core audio capture with format negotiation
-- `crates/app/src/audio/chunker.rs`: Audio chunking for VAD processing
-- `crates/app/src/vad/processor.rs`: VAD processing pipeline integration
-- `crates/app/src/stt/processor.rs`: STT processor gated by VAD
-- `crates/app/src/text_injection/processor.rs`: Session-based text injection processor
-- `crates/app/src/telemetry/pipeline_metrics.rs`: Real-time metrics tracking
-- `crates/app/src/stt/tests/end_to_end_wav.rs`: End-to-end pipeline test with WAV files
+- App entry points: `crates/app/src/main.rs`, `crates/app/src/bin/tui_dashboard.rs`
+- Audio glue: `crates/app/src/audio/vad_adapter.rs`, `crates/app/src/audio/vad_processor.rs`
+- Audio core: `crates/coldvox-audio/src/capture.rs`, `frame_reader.rs`, `chunker.rs`, `ring_buffer.rs`, `device.rs`
+- VAD: `crates/coldvox-vad/src/*`, `crates/coldvox-vad-silero/src/silero_wrapper.rs`
+- STT: `crates/app/src/stt/processor.rs`, `crates/app/src/stt/vosk.rs`, `crates/app/src/stt/tests/end_to_end_wav.rs`
+- Telemetry: `crates/coldvox-telemetry/src/*`
 
-## Error Handling
+## Error Handling & Recovery
 
-Hierarchical error types with recovery strategies:
-- `AppError`: Top-level application errors
-- `AudioError`: Audio subsystem specific errors (supports all CPAL formats)
-- Recovery via exponential backoff with jitter
-- Watchdog monitoring for device disconnection (with proper epoch handling)
-- Clean shutdown with `stop()` methods on all components
+- `AppError` and `AudioError` types in foundation
+- Watchdog monitors no-data; stream errors trigger restarts
+- Clean shutdown via `AudioCaptureThread::stop()` and task aborts
 
 ## Testing Approach
 
-- Unit tests for individual components
-- Integration tests for subsystems  
-- Examples for manual testing (in `/examples/` directory)
-- TUI dashboard (`tui_dashboard`) for real-time monitoring
-- Mock traits using `mockall` for isolation
-- WAV file testing for VAD validation
-- **End-to-end pipeline testing** (`crates/app/src/stt/tests/end_to_end_wav.rs`): Complete pipeline validation using real WAV files
+- Unit tests within crates; integration tests under `crates/app/tests/`
+- Example programs under `/examples` for manual verification
+- End-to-end WAV pipeline test: `crates/app/src/stt/tests/end_to_end_wav.rs`
 
 ## Vosk Model Setup
 
-ColdVox uses Vosk for speech-to-text transcription. A small English model is already installed:
+- Default model path: `models/vosk-model-small-en-us-0.15/`
+- Override with `VOSK_MODEL_PATH=models/vosk-model-small-en-us-0.15`
+- Larger models at https://alphacephei.com/vosk/models
 
-- **Location**: `models/vosk-model-small-en-us-0.15/`
-- **Environment Variable**: Set `VOSK_MODEL_PATH=models/vosk-model-small-en-us-0.15` if not using default
-- **Alternative Models**: Download larger models from https://alphacephei.com/vosk/models for better accuracy
+## Notes / Known Behaviors
 
-## Known Issues
-
-- **Example paths**: Cargo.toml references `crates/app/examples/` but actual files are in root `/examples/` directory
-- **Device selection**: TUI dashboard device selection (-D flag) requires exact device name match
-- **Dynamic device reconfiguration**: Capture→Chunker config update is driven by frame metadata; ensure `FrameReader` is updated on device changes
+- Linux/PipeWire: `DeviceManager` prioritizes `pipewire` → default device → others
+- TUI `-D` expects a device name; use exact device string shown by system when possible
+- On format changes (rate/channels), `FrameReader` should receive updated device config via broadcast

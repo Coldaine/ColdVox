@@ -1,0 +1,50 @@
+[workspace]
+allow-dirty = false
+changelog-include = ["crates/*"]
+pr-labels = ["release"]
+
+[git]
+tag-prefix = "v"
+release-commit-message = "chore: release {{package_name}} v{{version}}"
+
+# Configure all workspace members
+[[package]]
+name = "app"
+publish = false
+changelog-path = "crates/app/CHANGELOG.md"
+
+[[package]]
+name = "coldvox-foundation"
+publish = false
+
+[[package]]
+name = "coldvox-audio"
+publish = false
+
+[[package]]
+name = "coldvox-vad"
+publish = false
+
+[[package]]
+name = "coldvox-vad-silero"
+publish = false
+
+[[package]]
+name = "coldvox-stt"
+publish = false
+
+[[package]]
+name = "coldvox-stt-vosk"
+publish = false
+
+[[package]]
+name = "coldvox-text-injection"
+publish = false
+
+[[package]]
+name = "coldvox-telemetry"
+publish = false
+
+[[package]]
+name = "coldvox-gui"
+publish = false

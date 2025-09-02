@@ -1,11 +1,11 @@
+use chrono::{DateTime, Local, TimeZone};
+use csv::Writer;
+use hound::{WavSpec, WavWriter};
+use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::fs;
-use chrono::{DateTime, Local, TimeZone};
-use serde::{Serialize, Deserialize};
-use hound::{WavWriter, WavSpec};
-use parking_lot::Mutex;
-use csv::Writer;
 
 use crate::stt::TranscriptionEvent;
 use coldvox_audio::chunker::AudioFrame;
@@ -151,19 +151,21 @@ impl TranscriptionWriter {
 
         // Create output directory structure
         let timestamp = Local::now();
-        let date_dir = config.output_dir.join(timestamp.format("%Y-%m-%d").to_string());
+        let date_dir = config
+            .output_dir
+            .join(timestamp.format("%Y-%m-%d").to_string());
         let session_id = format!("{}", timestamp.format("%H%M%S"));
         let session_dir = date_dir.join(&session_id);
-        
+
         fs::create_dir_all(&session_dir)
             .map_err(|e| format!("Failed to create session directory: {}", e))?;
-        
+
         // Create subdirectories
         if config.save_audio {
             fs::create_dir_all(session_dir.join("audio"))
                 .map_err(|e| format!("Failed to create audio directory: {}", e))?;
         }
-        
+
         let session = TranscriptionSession {
             session_id: session_id.clone(),
             started_at: timestamp.to_rfc3339(),
@@ -171,14 +173,14 @@ impl TranscriptionWriter {
             utterances: Vec::new(),
             metadata,
         };
-        
+
         // Save initial session manifest
         let manifest_path = session_dir.join("session.json");
         let manifest_json = serde_json::to_string_pretty(&session)
             .map_err(|e| format!("Failed to serialize session: {}", e))?;
         fs::write(&manifest_path, manifest_json)
             .map_err(|e| format!("Failed to write session manifest: {}", e))?;
-        
+
         Ok(Self {
             config,
             current_session: Arc::new(Mutex::new(session)),
@@ -189,27 +191,28 @@ impl TranscriptionWriter {
             last_speech_duration_ms: Arc::new(Mutex::new(None)),
         })
     }
-    
+
     /// Handle audio frame for potential saving
     pub fn handle_audio_frame(&self, frame: &AudioFrame) {
         if !self.config.enabled || !self.config.save_audio {
             return;
         }
-        
+
         let is_active = *self.utterance_active.lock();
         if is_active {
             // Convert f32 samples back to i16
-            let i16_samples: Vec<i16> = frame.samples
+            let i16_samples: Vec<i16> = frame
+                .samples
                 .iter()
                 .map(|&s| (s * i16::MAX as f32) as i16)
                 .collect();
-            
+
             // Accumulate audio for current utterance
             let mut audio = self.current_utterance_audio.lock();
             audio.extend_from_slice(&i16_samples);
         }
     }
-    
+
     /// Handle VAD event
     pub fn handle_vad_event(&self, event: &VadEvent) {
         if !self.config.enabled {
@@ -230,14 +233,19 @@ impl TranscriptionWriter {
                 *self.last_speech_duration_ms.lock() = Some(*duration_ms);
             }
         }
-    }    /// Handle transcription event
+    }
+    /// Handle transcription event
     pub async fn handle_transcription(&self, event: &TranscriptionEvent) -> Result<(), String> {
         if !self.config.enabled {
             return Ok(());
         }
 
         match event {
-            TranscriptionEvent::Final { utterance_id, text, words } => {
+            TranscriptionEvent::Final {
+                utterance_id,
+                text,
+                words,
+            } => {
                 // Get timing information from VAD events
                 let (start_ms, duration_ms) = {
                     let start_lock = self.last_speech_start_ms.lock();
@@ -246,28 +254,32 @@ impl TranscriptionWriter {
                 };
 
                 // Calculate actual timestamps using VAD timing relative to session start
-                let (started_at, ended_at) = if let (Some(start_ms), Some(duration_ms)) = (start_ms, duration_ms) {
-                    // Parse session start time
-                    let session_start = DateTime::parse_from_rfc3339(&self.current_session.lock().started_at)
-                        .map_err(|e| format!("Failed to parse session start time: {}", e))
-                        .ok()
-                        .and_then(|dt| Some(dt.with_timezone(&Local)));
-                    
-                    if let Some(session_start) = session_start {
-                        // VAD timestamps are relative to session start
-                        let start_time = session_start + chrono::Duration::milliseconds(start_ms as i64);
-                        let end_time = start_time + chrono::Duration::milliseconds(duration_ms as i64);
-                        (start_time.to_rfc3339(), end_time.to_rfc3339())
+                let (started_at, ended_at) =
+                    if let (Some(start_ms), Some(duration_ms)) = (start_ms, duration_ms) {
+                        // Parse session start time
+                        let session_start =
+                            DateTime::parse_from_rfc3339(&self.current_session.lock().started_at)
+                                .map_err(|e| format!("Failed to parse session start time: {}", e))
+                                .ok()
+                                .and_then(|dt| Some(dt.with_timezone(&Local)));
+
+                        if let Some(session_start) = session_start {
+                            // VAD timestamps are relative to session start
+                            let start_time =
+                                session_start + chrono::Duration::milliseconds(start_ms as i64);
+                            let end_time =
+                                start_time + chrono::Duration::milliseconds(duration_ms as i64);
+                            (start_time.to_rfc3339(), end_time.to_rfc3339())
+                        } else {
+                            // Fallback if session start parsing fails
+                            let now = Local::now();
+                            (now.to_rfc3339(), now.to_rfc3339())
+                        }
                     } else {
-                        // Fallback if session start parsing fails
+                        // Fallback to current time if VAD timing not available
                         let now = Local::now();
                         (now.to_rfc3339(), now.to_rfc3339())
-                    }
-                } else {
-                    // Fallback to current time if VAD timing not available
-                    let now = Local::now();
-                    (now.to_rfc3339(), now.to_rfc3339())
-                };
+                    };
 
                 let audio_path = if self.config.save_audio {
                     let audio_data = std::mem::take(&mut *self.current_utterance_audio.lock());
@@ -281,7 +293,9 @@ impl TranscriptionWriter {
                         let sample_rate = self.config.sample_rate;
                         match tokio::task::spawn_blocking(move || {
                             Self::save_wav_file(&path_clone, &audio_data_move, sample_rate)
-                        }).await {
+                        })
+                        .await
+                        {
                             Ok(Ok(())) => Some(PathBuf::from(format!("audio/{}", filename))),
                             Ok(Err(e)) => {
                                 tracing::error!("Failed to save audio: {}", e);
@@ -309,12 +323,14 @@ impl TranscriptionWriter {
                     confidence: None,
                     audio_path,
                     words: words.as_ref().map(|w| {
-                        w.iter().map(|word| WordTiming {
-                            word: word.text.clone(),
-                            start_ms: (word.start * 1000.0) as u32,
-                            end_ms: (word.end * 1000.0) as u32,
-                            confidence: word.conf,
-                        }).collect()
+                        w.iter()
+                            .map(|word| WordTiming {
+                                word: word.text.clone(),
+                                start_ms: (word.start * 1000.0) as u32,
+                                end_ms: (word.end * 1000.0) as u32,
+                                confidence: word.conf,
+                            })
+                            .collect()
                     }),
                 };
 
@@ -337,7 +353,7 @@ impl TranscriptionWriter {
 
         Ok(())
     }
-    
+
     /// Save individual utterance based on format
     async fn save_utterance(&self, utterance: &UtteranceRecord) -> Result<(), String> {
         let filename = format!("utterance_{:06}", utterance.utterance_id);
@@ -347,16 +363,15 @@ impl TranscriptionWriter {
                 let path = self.session_dir.join(format!("{}.json", filename));
                 let json = serde_json::to_string_pretty(utterance)
                     .map_err(|e| format!("Failed to serialize utterance: {}", e))?;
-                tokio::fs::write(&path, json).await
+                tokio::fs::write(&path, json)
+                    .await
                     .map_err(|e| format!("Failed to write utterance file: {}", e))?;
             }
             TranscriptFormat::Text => {
                 let path = self.session_dir.join(format!("{}.txt", filename));
-                let content = format!("[{}] {}\n",
-                    utterance.started_at,
-                    utterance.text
-                );
-                tokio::fs::write(&path, content).await
+                let content = format!("[{}] {}\n", utterance.started_at, utterance.text);
+                tokio::fs::write(&path, content)
+                    .await
                     .map_err(|e| format!("Failed to write text file: {}", e))?;
             }
             TranscriptFormat::Csv => {
@@ -364,7 +379,8 @@ impl TranscriptionWriter {
                 let path = self.session_dir.join("transcriptions.csv");
 
                 // Check if file exists and is empty to determine if we need headers
-                let needs_header = tokio::fs::metadata(&path).await
+                let needs_header = tokio::fs::metadata(&path)
+                    .await
                     .map(|m| m.len() == 0)
                     .unwrap_or(true);
 
@@ -383,8 +399,14 @@ impl TranscriptionWriter {
 
                     // Write header if file is new
                     if needs_header {
-                        wtr.write_record(&["utterance_id", "timestamp", "duration_ms", "text", "audio_path"])
-                            .map_err(|e| format!("Failed to write CSV header: {}", e))?;
+                        wtr.write_record(&[
+                            "utterance_id",
+                            "timestamp",
+                            "duration_ms",
+                            "text",
+                            "audio_path",
+                        ])
+                        .map_err(|e| format!("Failed to write CSV header: {}", e))?;
                     }
 
                     // Write the record (CSV writer handles proper escaping and quoting)
@@ -393,7 +415,9 @@ impl TranscriptionWriter {
                         utterance_clone.started_at,
                         utterance_clone.duration_ms.to_string(),
                         utterance_clone.text,
-                        utterance_clone.audio_path.as_ref()
+                        utterance_clone
+                            .audio_path
+                            .as_ref()
                             .map(|p| p.to_string_lossy().to_string())
                             .unwrap_or_default(),
                     ])
@@ -403,7 +427,8 @@ impl TranscriptionWriter {
                         .map_err(|e| format!("Failed to flush CSV writer: {}", e))?;
 
                     Ok::<(), String>(())
-                }).await
+                })
+                .await
                 .map_err(|e| format!("CSV writing task panicked: {}", e))?;
                 csv_join.map_err(|e| e)?;
             }
@@ -411,18 +436,19 @@ impl TranscriptionWriter {
 
         Ok(())
     }
-    
+
     /// Update the session manifest file
     async fn update_session_manifest(&self) -> Result<(), String> {
         let session = self.current_session.lock().clone();
         let manifest_path = self.session_dir.join("session.json");
         let json = serde_json::to_string_pretty(&session)
             .map_err(|e| format!("Failed to serialize session: {}", e))?;
-        tokio::fs::write(&manifest_path, json).await
+        tokio::fs::write(&manifest_path, json)
+            .await
             .map_err(|e| format!("Failed to update session manifest: {}", e))?;
         Ok(())
     }
-    
+
     /// Save audio data as WAV file
     fn save_wav_file(path: &Path, samples: &[i16], sample_rate: u32) -> Result<(), String> {
         let spec = WavSpec {
@@ -436,38 +462,41 @@ impl TranscriptionWriter {
             .map_err(|e| format!("Failed to create WAV file: {}", e))?;
 
         for sample in samples {
-            writer.write_sample(*sample)
+            writer
+                .write_sample(*sample)
                 .map_err(|e| format!("Failed to write WAV sample: {}", e))?;
         }
 
-        writer.finalize()
+        writer
+            .finalize()
             .map_err(|e| format!("Failed to finalize WAV file: {}", e))?;
 
         Ok(())
     }
-    
+
     /// Finalize the session
     pub async fn finalize(&self) -> Result<(), String> {
         if !self.config.enabled {
             return Ok(());
         }
-        
+
         {
             let mut session = self.current_session.lock();
             session.ended_at = Some(Local::now().to_rfc3339());
         }
-        
+
         self.update_session_manifest().await?;
-        
+
         // Create summary file
         let summary = self.generate_summary();
         let summary_path = self.session_dir.join("summary.txt");
-        tokio::fs::write(&summary_path, summary).await
+        tokio::fs::write(&summary_path, summary)
+            .await
             .map_err(|e| format!("Failed to write summary: {}", e))?;
-        
+
         Ok(())
     }
-    
+
     /// Generate session summary
     fn generate_summary(&self) -> String {
         let session = self.current_session.lock();
@@ -477,14 +506,18 @@ impl TranscriptionWriter {
             .map(|dt| dt.with_timezone(&Local))
             .unwrap_or_else(|_| Local::now());
 
-        let end_time = session.ended_at.as_ref()
+        let end_time = session
+            .ended_at
+            .as_ref()
             .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.with_timezone(&Local))
             .unwrap_or_else(|| Local::now());
 
         let duration = end_time.signed_duration_since(start_time);
 
-        let total_words: usize = session.utterances.iter()
+        let total_words: usize = session
+            .utterances
+            .iter()
             .map(|u| u.text.split_whitespace().count())
             .sum();
 
@@ -507,7 +540,7 @@ impl TranscriptionWriter {
             session.metadata.stt_model,
         )
     }
-    
+
     /// Clean up old files based on retention policy
     pub async fn cleanup_old_files(&self) -> Result<(), String> {
         if self.config.retention_days == 0 {
@@ -530,14 +563,19 @@ impl TranscriptionWriter {
                     // Parse date from directory name (YYYY-MM-DD format)
                     if let Some(dir_name) = path.file_name().and_then(|n| n.to_str()) {
                         if let Ok(date) = chrono::NaiveDate::parse_from_str(dir_name, "%Y-%m-%d") {
-                            let datetime = date.and_hms_opt(0, 0, 0)
+                            let datetime = date
+                                .and_hms_opt(0, 0, 0)
                                 .and_then(|dt| Local.from_local_datetime(&dt).single());
 
                             if let Some(dt) = datetime {
                                 if dt < cutoff {
-                                    tracing::info!("Removing old transcription directory: {:?}", path);
-                                    std::fs::remove_dir_all(&path)
-                                        .map_err(|e| format!("Failed to remove old directory: {}", e))?;
+                                    tracing::info!(
+                                        "Removing old transcription directory: {:?}",
+                                        path
+                                    );
+                                    std::fs::remove_dir_all(&path).map_err(|e| {
+                                        format!("Failed to remove old directory: {}", e)
+                                    })?;
                                 }
                             }
                         }
@@ -546,7 +584,8 @@ impl TranscriptionWriter {
             }
 
             Ok(())
-        }).await
+        })
+        .await
         .map_err(|e| format!("Cleanup task panicked: {}", e))?
     }
 }
@@ -567,13 +606,13 @@ pub fn spawn_persistence_handler(
                 return;
             }
         };
-        
+
         tracing::info!("Transcription persistence handler started");
         // Apply retention policy at startup (best-effort)
         if let Err(e) = writer.cleanup_old_files().await {
             tracing::warn!("Retention cleanup failed: {}", e);
         }
-        
+
         loop {
             tokio::select! {
                 Ok(frame) = audio_rx.recv() => {
@@ -593,7 +632,7 @@ pub fn spawn_persistence_handler(
                 }
             }
         }
-        
+
         // Finalize session
         if let Err(e) = writer.finalize().await {
             tracing::error!("Failed to finalize session: {}", e);

@@ -55,10 +55,15 @@ async fn run_processor_demo() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Create shared injection metrics and injection processor
-    let injection_metrics = Arc::new(Mutex::new(coldvox_app::text_injection::types::InjectionMetrics::default()));
+    let injection_metrics = Arc::new(Mutex::new(
+        coldvox_app::text_injection::types::InjectionMetrics::default(),
+    ));
     let mut processor = InjectionProcessor::new(config.clone(), None, injection_metrics.clone());
 
-    info!("Processor created. Current state: {:?}", processor.session_state());
+    info!(
+        "Processor created. Current state: {:?}",
+        processor.session_state()
+    );
 
     // Simulate receiving transcriptions
     let test_transcriptions = vec![
@@ -98,7 +103,7 @@ async fn run_processor_demo() -> Result<(), Box<dyn std::error::Error>> {
         // In a real scenario, this would be handled by the async processor
         // For demo purposes, we'll create a temporary strategy manager
         let config_clone = config.clone();
-    let mut temp_manager = StrategyManager::new(config_clone, injection_metrics.clone());
+        let mut temp_manager = StrategyManager::new(config_clone, injection_metrics.clone());
         match temp_manager.inject(&text).await {
             Ok(()) => {
                 info!("✅ Injection successful!");
@@ -142,7 +147,9 @@ async fn run_direct_injection_demo() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Create shared injection metrics and strategy manager
-    let injection_metrics = Arc::new(Mutex::new(coldvox_app::text_injection::types::InjectionMetrics::default()));
+    let injection_metrics = Arc::new(Mutex::new(
+        coldvox_app::text_injection::types::InjectionMetrics::default(),
+    ));
     let mut manager = StrategyManager::new(config, injection_metrics);
 
     info!("StrategyManager created");

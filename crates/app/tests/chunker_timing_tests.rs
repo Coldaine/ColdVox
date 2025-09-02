@@ -1,7 +1,10 @@
-use coldvox_app::audio::{AudioChunker, ChunkerConfig, ResamplerQuality, FrameReader, AudioRingBuffer, AudioFrame as VadFrame};
+use coldvox_app::audio::{
+    AudioChunker, AudioFrame as VadFrame, AudioRingBuffer, ChunkerConfig, FrameReader,
+    ResamplerQuality,
+};
 use coldvox_app::telemetry::pipeline_metrics::PipelineMetrics;
-use tokio::sync::broadcast;
 use std::sync::Arc;
+use tokio::sync::broadcast;
 
 mod common;
 use common::test_utils::feed_samples_to_ring_buffer;
@@ -14,7 +17,11 @@ async fn chunker_timestamps_are_32ms_apart_at_16k() {
     let (mut prod, cons) = ring.split();
 
     let reader = FrameReader::new(cons, 16_000, 1, rb_capacity, Some(metrics.clone()));
-    let cfg = ChunkerConfig { frame_size_samples: 512, sample_rate_hz: 16_000, resampler_quality: ResamplerQuality::Balanced };
+    let cfg = ChunkerConfig {
+        frame_size_samples: 512,
+        sample_rate_hz: 16_000,
+        resampler_quality: ResamplerQuality::Balanced,
+    };
     let (tx, _) = broadcast::channel::<VadFrame>(64);
     let mut rx = tx.subscribe();
     let chunker = AudioChunker::new(reader, tx.clone(), cfg).with_metrics(metrics.clone());
@@ -38,10 +45,17 @@ async fn chunker_timestamps_are_32ms_apart_at_16k() {
     }
 
     handle.abort();
-    assert!(got.len() >= 3, "expected at least 3 frames, got {}", got.len());
+    assert!(
+        got.len() >= 3,
+        "expected at least 3 frames, got {}",
+        got.len()
+    );
     for w in got.windows(2) {
         let delta = w[1] - w[0];
-        assert!((delta as i64 - 32).abs() <= 5, "timestamp delta ~32ms, got {}", delta);
+        assert!(
+            (delta as i64 - 32).abs() <= 5,
+            "timestamp delta ~32ms, got {}",
+            delta
+        );
     }
 }
-

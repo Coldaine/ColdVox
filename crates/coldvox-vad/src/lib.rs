@@ -1,7 +1,7 @@
 pub mod config;
 pub mod constants;
-pub mod engine;
 pub mod energy;
+pub mod engine;
 pub mod state;
 pub mod threshold;
 pub mod types;
@@ -10,10 +10,10 @@ pub mod types;
 pub mod level3;
 
 // Core exports
-pub use constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ, FRAME_DURATION_MS};
-pub use types::{VadConfig, VadEvent, VadState, VadMetrics};
 pub use config::{UnifiedVadConfig, VadMode};
+pub use constants::{FRAME_DURATION_MS, FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 pub use engine::VadEngine;
+pub use types::{VadConfig, VadEvent, VadMetrics, VadState};
 
 // Level3 VAD exports when feature is enabled
 #[cfg(feature = "level3")]

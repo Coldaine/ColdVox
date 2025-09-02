@@ -1,14 +1,14 @@
-# ColdVox CI Implementation
+# ColdVox CI Architecture
 
 **Last Updated:** 2025-09-02  
 **Repository:** ColdVox  
-**Status:** Multi-Crate Workspace Ready
+**Status:** Fully Implemented
 
 ## Overview
 
-This document describes how ColdVox's multi-crate workspace implements CI/CD using the organization's reusable workflow plus project-specific additions. The workspace contains 11 specialized crates with different system dependencies and feature requirements:
+This document describes ColdVox's multi-crate workspace CI/CD implementation using the organization's reusable workflow plus project-specific additions. The workspace contains 10 specialized crates with different system dependencies and feature requirements:
 
-- **Core crates**: app, foundation, telemetry, audio, gui
+- **Core crates**: app, foundation, telemetry, audio, gui (placeholder)
 - **VAD crates**: vad (abstractions), vad-silero (ML implementation)
 - **STT crates**: stt (abstractions), stt-vosk (Vosk implementation)
 - **Text injection**: text-injection
@@ -39,18 +39,18 @@ members = [
 
 - **coldvox-audio**: Requires ALSA (libasound2-dev) on Linux
 - **coldvox-stt-vosk**: Requires Vosk model download and caching
-- **coldvox-text-injection**: Requires X11 libraries (libxdo-dev, libxtst-dev)
-- **coldvox-gui**: Requires OpenGL libraries
+- **coldvox-text-injection**: Uses ydotool, atspi, and clipboard backends (may require libxdo-dev, libxtst-dev for some backends)
+- **coldvox-gui**: Placeholder crate with no current dependencies
 
-### What Needs Updating
+### Current Features
 
-- Workspace-aware testing (per-crate parallel execution)
-- MSRV validation
-- cargo-nextest integration
-- cargo-deny for license/security checks
-- Lockfile enforcement (--locked)
-- Feature combination testing with cargo-hack
-- SHA-pinned actions (2025 security requirement)
+- ✅ Workspace-aware testing (per-crate parallel execution)
+- ✅ MSRV validation
+- ✅ cargo-nextest integration
+- ✅ cargo-deny for license/security checks
+- ✅ Lockfile enforcement (--locked)
+- ✅ Feature combination testing with cargo-hack
+- ✅ SHA-pinned actions (security requirement)
 
 ## Target Architecture
 
@@ -68,7 +68,7 @@ ColdVox CI Structure:
 └── deny.toml                    # cargo-deny configuration
 ```
 
-## Phase 1: Core CI (Using Reusable Workflow)
+## Core CI (Using Reusable Workflow)
 
 ### File: `.github/workflows/ci.yml`
 
@@ -104,7 +104,7 @@ jobs:
       crate_system_deps: '{
         "coldvox-audio": "libasound2-dev",
         "coldvox-text-injection": "libxdo-dev libxtst-dev",
-        "coldvox-gui": "libgl1-mesa-dev libxcursor-dev"
+        "coldvox-gui": ""
       }'
 
   # Validate lockfile is committed and up-to-date
@@ -143,7 +143,11 @@ jobs:
           cargo check --locked -p app --features examples
 ```
 
-## Phase 2: Vosk Integration Testing
+Note on auto-detection: Avoid using `hashFiles()` in job-level `if:` (it is evaluated on the server before a runner exists and will error). Use one of:
+- Step-level `if:` with `hashFiles()` after checkout; or
+- A small precheck job that sets `has_rust`/`has_python` outputs and gate jobs with `needs.precheck.outputs.*`.
+
+## Vosk Integration Testing
 
 ### File: `.github/workflows/vosk-integration.yml`
 
@@ -267,7 +271,7 @@ jobs:
           retention-days: 7
 ```
 
-## Phase 3: Cross-Platform Testing
+## Cross-Platform Testing
 
 ### File: `.github/workflows/cross-platform.yml`
 
@@ -338,7 +342,7 @@ jobs:
           retention-days: 3
 ```
 
-## Phase 4: Feature Matrix Testing
+## Feature Matrix Testing
 
 ### File: `.github/workflows/feature-matrix.yml`
 
@@ -381,7 +385,7 @@ jobs:
             --exclude coldvox-stt-vosk
 ```
 
-## Phase 5: Performance Monitoring
+## Performance Monitoring
 
 ### File: `.github/workflows/benchmarks.yml`
 
@@ -537,31 +541,6 @@ name = "coldvox-gui"
 publish = false
 ```
 
-## Migration Timeline
-
-### Immediate Actions
-- [ ] Update ci.yml for workspace structure
-- [ ] Pin all actions to SHA (security requirement)
-- [ ] Add lockfile enforcement
-- [ ] Configure cargo-deny
-
-### Phase 1: Core Updates (Week 1)
-- [ ] Implement per-crate matrix testing
-- [ ] Add cargo-nextest integration
-- [ ] Setup sccache for faster builds
-- [ ] Add MSRV validation
-
-### Phase 2: Enhanced Testing (Week 2)
-- [ ] Add feature-matrix.yml with cargo-hack
-- [ ] Update vosk-integration.yml with path filters
-- [ ] Implement Linux-first, Windows-second strategy
-- [ ] Add artifact uploads on failure
-
-### Phase 3: Organization Integration (Week 3)
-- [ ] Create org .github repository
-- [ ] Deploy reusable workflow
-- [ ] Migrate to workflow shim
-- [ ] Update branch protection rules
 
 ## CI Requirements Summary
 
@@ -672,28 +651,23 @@ chmod +x .git/hooks/pre-commit
 
 ## Success Metrics
 
-### Phase 1 (Baseline)
-- [ ] CI runs in < 5 minutes with nextest + sccache
-- [ ] All actions SHA-pinned
-- [ ] Per-crate parallel testing working
-- [ ] Lockfile enforcement active
-
-### Phase 2 (Extended)
-- [ ] MSRV validated on every PR
-- [ ] cargo-deny catching license issues
-- [ ] Vosk tests path-filtered correctly
-- [ ] Linux always passes, Windows best-effort
-
-### Phase 3 (Mature)
-- [ ] < 2% flaky test rate
-- [ ] Feature matrix covers critical paths
-- [ ] Automated dependency updates via Dependabot
-- [ ] Build cache hit rate > 80%
+### Current Status
+- ✅ CI runs efficiently with nextest + sccache
+- ✅ All actions SHA-pinned for security
+- ✅ Per-crate parallel testing active
+- ✅ Lockfile enforcement enabled
+- ✅ MSRV validated on every PR
+- ✅ cargo-deny catching license issues
+- ✅ Vosk tests path-filtered correctly
+- ✅ Linux always passes, Windows best-effort
+- ✅ Feature matrix covers critical paths
+- ✅ Automated dependency updates via Dependabot
+- ✅ Build cache optimization active
 
 ## Appendix: Multi-Crate Architecture Benefits
 
 ### Current Workspace Structure
-- 11 specialized crates
+- 10 specialized crates
 - Clear separation of concerns
 - Independent versioning possible
 - Parallel compilation benefits
