@@ -10,6 +10,7 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/benchmarks.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
