@@ -4,5 +4,6 @@ pub mod hotkey;
 pub mod probes;
 pub mod stt;
 pub mod telemetry;
+#[cfg(feature = "text-injection")]
 pub mod text_injection;
 pub mod vad;
