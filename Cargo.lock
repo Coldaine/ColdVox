@@ -803,6 +803,7 @@ dependencies = [
  "async-trait",
  "atspi",
  "chrono",
+ "coldvox-stt",
  "device_query 2.1.0",
  "enigo",
  "mockall",

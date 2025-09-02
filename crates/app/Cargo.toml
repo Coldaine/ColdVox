@@ -75,7 +75,8 @@ coldvox-vad = { path = "../coldvox-vad" }
 coldvox-vad-silero = { path = "../coldvox-vad-silero", features = ["silero"] }
 coldvox-stt = { path = "../coldvox-stt" }
 coldvox-stt-vosk = { path = "../coldvox-stt-vosk", optional = true, features = ["vosk"] }
-coldvox-text-injection = { path = "../coldvox-text-injection", optional = true }
+# Note: coldvox-text-injection is now specified in target-specific sections below
+# to automatically enable platform-appropriate backends
 csv = "1.3"
 device_query = "4.0"
 cpal = "0.15.2"
@@ -91,11 +92,11 @@ criterion = "0.5"
 rand = "0.8"
 
 [features]
-default = ["silero"]
+default = ["silero", "text-injection"]
 live-hardware-tests = []
 vosk = ["dep:coldvox-stt-vosk"]
 examples = []
-text-injection = ["dep:coldvox-text-injection"]
+text-injection = ["dep:coldvox-text-injection"]  # Enables platform-specific dependency
 silero = ["coldvox-vad-silero/silero"]
 level3 = ["coldvox-vad/level3"]
 text-injection-atspi = ["text-injection", "coldvox-text-injection/atspi"]
@@ -105,3 +106,15 @@ text-injection-enigo = ["text-injection", "coldvox-text-injection/enigo"]
 text-injection-mki = ["text-injection", "coldvox-text-injection/mki"]
 text-injection-kdotool = ["text-injection", "coldvox-text-injection/xdg_kdotool"]
 text-injection-regex = ["text-injection", "dep:regex"]
+
+# Platform-specific dependencies for Linux
+[target.'cfg(target_os = "linux")'.dependencies]
+coldvox-text-injection = { path = "../coldvox-text-injection", features = ["atspi", "wl_clipboard", "ydotool"], optional = true }
+
+# Platform-specific dependencies for Windows  
+[target.'cfg(target_os = "windows")'.dependencies]
+coldvox-text-injection = { path = "../coldvox-text-injection", features = ["enigo"], optional = true }
+
+# Platform-specific dependencies for macOS
+[target.'cfg(target_os = "macos")'.dependencies]
+coldvox-text-injection = { path = "../coldvox-text-injection", features = ["enigo"], optional = true }

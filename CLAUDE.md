@@ -6,6 +6,12 @@ Guidance for Claude Code when working in this repository.
 
 ColdVox is a Rust-based voice AI project that implements a complete VAD-gated STT pipeline to capture audio, transcribe speech to text, and inject the transcribed text into the proper text field where the user is working. The text injection uses multiple backend methods (clipboard, AT-SPI, keyboard emulation) and is the critical final step that delivers the transcribed output to the user's active application.
 
+**Platform Detection Update (2025-09-02):** The build system now automatically detects the platform and enables appropriate text injection backends:
+- Linux: Automatically enables AT-SPI, Wayland clipboard, and ydotool backends
+- Windows/macOS: Automatically enables Enigo backend
+- Build.rs detects Wayland vs X11 at compile time for optimal backend selection
+- No need to manually specify text-injection feature flags on Linux anymore
+
 ## Architecture (multi-crate)
 
 - `crates/coldvox-foundation/` — App scaffolding and core types

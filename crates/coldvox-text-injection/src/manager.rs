@@ -73,13 +73,13 @@ impl InjectorRegistry {
 
         // Check backend availability
         let backends = backend_detector.detect_available_backends();
-        let _has_wayland = backends.iter().any(|b| {
+        let has_wayland = backends.iter().any(|b| {
             matches!(
                 b,
                 Backend::WaylandXdgDesktopPortal | Backend::WaylandVirtualKeyboard
             )
         });
-        let _has_x11 = backends
+        let has_x11 = backends
             .iter()
             .any(|b| matches!(b, Backend::X11Xdotool | Backend::X11Native));
 
