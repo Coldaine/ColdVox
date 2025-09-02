@@ -17,7 +17,7 @@ concurrency:
 jobs:
   # Core CI using org workflow with workspace support
   common-ci:
-    uses: coldaine/.github/.github/workflows/lang-ci.yml@v1.1.0
+    uses: coldaine/.github/.github/workflows/lang-ci.yml@main
     secrets: inherit
     with:
       run_rust: true
