@@ -12,3 +12,23 @@ members = [
     "crates/coldvox-gui",
 ]
 resolver = "2"
+
+[workspace.dependencies]
+tokio = "1.35"
+thiserror = "1.0"
+tracing = "0.1"
+parking_lot = "0.12"
+serde = "1.0"
+serde_json = "1.0"
+toml = "0.8"
+chrono = "0.4"
+cpal = "0.15.2"
+crossbeam-channel = "0.5"
+anyhow = "1.0"
+async-trait = "0.1"
+rubato = "0.16"
+regex = "1.10"
+rand = "0.8"
+tempfile = "3.8"
+mockall = "0.12"
+tokio-test = "0.4"

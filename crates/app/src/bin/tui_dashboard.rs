@@ -384,6 +384,7 @@ async fn run_app(
 }
 
 async fn run_audio_pipeline(tx: mpsc::Sender<AppEvent>, device: String) {
+    let start_time = Instant::now();
     let metrics = Arc::new(PipelineMetrics::default());
 
     // Convert "default" device to None for proper OS default selection
@@ -482,9 +483,11 @@ async fn run_audio_pipeline(tx: mpsc::Sender<AppEvent>, device: String) {
             let mut chunker_rx_for_stt = chunker_audio_tx.subscribe();
             tokio::spawn(async move {
                 while let Ok(frame) = chunker_rx_for_stt.recv().await {
+                    let timestamp_ms = frame.timestamp.duration_since(start_time).as_millis() as u64;
+                    let samples_i16 = frame.samples.iter().map(|&s| (s * 32767.0) as i16).collect();
                     let stt_frame = coldvox_stt::processor::AudioFrame {
-                        data: frame.samples,
-                        timestamp_ms: frame.timestamp,
+                        data: samples_i16,
+                        timestamp_ms,
                         sample_rate: frame.sample_rate,
                     };
                     let _ = stt_audio_tx.send(stt_frame);

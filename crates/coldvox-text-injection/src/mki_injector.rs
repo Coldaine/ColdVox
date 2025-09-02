@@ -1,6 +1,6 @@
 use crate::types::{InjectionConfig, InjectionError, InjectionMetrics, TextInjector};
 use async_trait::async_trait;
-use tracing::debug;
+use tracing::{debug, info};
 
 #[cfg(feature = "mki")]
 use mouse_keyboard_input::{Key, KeyboardControllable, VirtualDevice, VirtualKeyboard};

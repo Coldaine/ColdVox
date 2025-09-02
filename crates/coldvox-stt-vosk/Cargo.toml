@@ -7,7 +7,7 @@ description = "Vosk speech recognition implementation for ColdVox STT"
 [dependencies]
 coldvox-stt = { path = "../coldvox-stt" }
 vosk = { version = "0.3", optional = true }
-tracing = "0.1"
+tracing = { workspace = true }
 
 [features]
 default = []

@@ -40,14 +40,14 @@ impl KdotoolInjector {
     /// Get the currently active window ID
     async fn get_active_window(&self) -> Result<String, InjectionError> {
         let output = timeout(
-            Duration::from_millis(self.config.discovery_timeout_ms),
+            Duration::from_millis(self.config.per_method_timeout_ms),
             tokio::process::Command::new("kdotool")
                 .arg("getactivewindow")
                 .output(),
         )
         .await
-        .map_err(|_| InjectionError::Timeout(self.config.discovery_timeout_ms))?
-        .map_err(|e| InjectionError::Process(e))?;
+        .map_err(|_| InjectionError::Timeout(self.config.per_method_timeout_ms))?
+        .map_err(|e| InjectionError::Process(e.to_string()))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -73,7 +73,7 @@ impl KdotoolInjector {
         )
         .await
         .map_err(|_| InjectionError::Timeout(self.config.per_method_timeout_ms))?
-        .map_err(|e| InjectionError::Process(e))?;
+        .map_err(|e| InjectionError::Process(e.to_string()))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -102,7 +102,7 @@ impl KdotoolInjector {
         )
         .await
         .map_err(|_| InjectionError::Timeout(self.config.per_method_timeout_ms))?
-        .map_err(|e| InjectionError::Process(e))?;
+        .map_err(|e| InjectionError::Process(e.to_string()))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);

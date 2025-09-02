@@ -14,6 +14,10 @@ pub struct VoskTranscriber {
 impl VoskTranscriber {
     /// Create a new VoskTranscriber with the given configuration
     pub fn new(config: TranscriptionConfig, sample_rate: f32) -> Result<Self, String> {
+        if config.model_path.is_empty() {
+            return Err("Model path is required".to_string());
+        }
+
         // Validate sample rate - Vosk works best with 16kHz
         if (sample_rate - 16000.0).abs() > 0.1 {
             warn!(
@@ -23,12 +27,7 @@ impl VoskTranscriber {
             );
         }
 
-        // Use model path from config, or get default
-        let model_path = if config.model_path.is_empty() {
-            crate::default_model_path()
-        } else {
-            config.model_path.clone()
-        };
+        let model_path = config.model_path.clone();
 
         // Check if model path exists
         if !std::path::Path::new(&model_path).exists() {

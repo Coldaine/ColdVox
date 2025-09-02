@@ -2,7 +2,7 @@ use crate::types::{
     InjectionConfig, InjectionError, InjectionMethod, InjectionMetrics, TextInjector,
 };
 use async_trait::async_trait;
-use enigo::{Enigo, Key, KeyboardControllable};
+use enigo::{Enigo, Key, Settings, Direction, Keyboard};
 use std::time::Duration;
 use tokio::time::{error::Elapsed, timeout};
 use tracing::{debug, error, info, warn};
@@ -31,7 +31,7 @@ impl EnigoInjector {
     fn check_availability() -> bool {
         // Check if we can create an Enigo instance
         // This will fail if we don't have the necessary permissions
-        Enigo::new().is_ok()
+        Enigo::new(&Settings::default()).is_ok()
     }
 
     /// Type text using enigo
@@ -40,17 +40,17 @@ impl EnigoInjector {
         let text_clone = text.to_string();
 
         let result = tokio::task::spawn_blocking(move || {
-            let mut enigo = Enigo::new();
+            let mut enigo = Enigo::new(&Settings::default()).map_err(|e| InjectionError::MethodFailed(e.to_string()))?;
 
             // Type each character with a small delay
             for c in text_clone.chars() {
                 match c {
-                    ' ' => enigo.key_click(Key::Space),
-                    '\n' => enigo.key_click(Key::Return),
-                    '\t' => enigo.key_click(Key::Tab),
+                    ' ' => enigo.key(Key::Space, Direction::Click),
+                    '\n' => enigo.key(Key::Return, Direction::Click),
+                    '\t' => enigo.key(Key::Tab, Direction::Click),
                     _ => {
                         if c.is_ascii() {
-                            enigo.key_sequence(&c.to_string());
+                            enigo.text(&c.to_string());
                         } else {
                             // For non-ASCII characters, we might need to use clipboard
                             return Err(InjectionError::MethodFailed(
@@ -81,13 +81,13 @@ impl EnigoInjector {
     async fn trigger_paste(&mut self) -> Result<(), InjectionError> {
         let start = std::time::Instant::now();
 
-        let result = tokio::task::spawn_blocking(|| {
-            let mut enigo = Enigo::new();
+        let result = tokio::task::spawn_blocking(move || {
+            let mut enigo = Enigo::new(&Settings::default()).map_err(|e| InjectionError::MethodFailed(e.to_string()))?;
 
             // Press Ctrl+V
-            enigo.key_down(Key::Control);
-            enigo.key_click(Key::Layout('v'));
-            enigo.key_up(Key::Control);
+            enigo.key(Key::Control, Direction::Press);
+            enigo.key(Key::Unicode('v'), Direction::Click);
+            enigo.key(Key::Control, Direction::Release);
 
             Ok(())
         })

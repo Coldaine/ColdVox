@@ -47,6 +47,7 @@ pub mod enigo_injector;
 #[cfg(feature = "xdg_kdotool")]
 pub mod kdotool_injector;
 
+#[cfg(feature = "mki")]
 pub mod mki_injector;
 pub mod ydotool_injector;
 

@@ -160,6 +160,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "{ application.name=ColdVox media.role=capture }",
     );
     let _log_guard = init_logging()?;
+    let start_time = std::time::Instant::now();
     tracing::info!("Starting ColdVox application");
 
     let cli = Cli::parse();
@@ -316,11 +317,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let (stt_audio_tx, stt_audio_rx) =
             broadcast::channel::<coldvox_stt::processor::AudioFrame>(200);
         let mut chunker_rx = audio_tx.subscribe();
+        let start_time_clone = start_time;
         tokio::spawn(async move {
             while let Ok(frame) = chunker_rx.recv().await {
+                let timestamp_ms = frame.timestamp.duration_since(start_time_clone).as_millis() as u64;
+                let samples_i16 = frame.samples.iter().map(|&s| (s * 32767.0) as i16).collect();
                 let stt_frame = coldvox_stt::processor::AudioFrame {
-                    data: frame.samples,
-                    timestamp_ms: frame.timestamp,
+                    data: samples_i16,
+                    timestamp_ms,
                     sample_rate: frame.sample_rate,
                 };
                 let _ = stt_audio_tx.send(stt_frame);
@@ -348,7 +352,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
 
-        let (stt_transcription_tx, stt_transcription_rx) = mpsc::channel::<TranscriptionEvent>(100);
+        let (stt_transcription_tx, mut stt_transcription_rx) = mpsc::channel::<TranscriptionEvent>(100);
 
         let transcriber = VoskTranscriber::new(stt_config.clone(), SAMPLE_RATE_HZ as f32)?;
         let stt_processor = SttProcessor::new(
@@ -359,7 +363,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             stt_config.clone(),
         );
 
-        // ... (rest of the logic)
+        let stt_handle = tokio::spawn(async move {
+            stt_processor.run().await;
+        });
+
+        (
+            Some(stt_handle),
+            None::<tokio::task::JoinHandle<()>>,
+            None::<tokio::task::JoinHandle<()>>,
+        )
+    } else {
+        (
+            None::<tokio::task::JoinHandle<()>>,
+            None::<tokio::task::JoinHandle<()>>,
+            None::<tokio::task::JoinHandle<()>>,
+        )
     };
 
     #[cfg(not(feature = "vosk"))]

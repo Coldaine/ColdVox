@@ -9,15 +9,15 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 coldvox-foundation = { path = "../coldvox-foundation" }
 coldvox-telemetry = { path = "../coldvox-telemetry" }
-cpal = "0.15"
+cpal = { workspace = true }
 rtrb = "0.3"
 dasp = { version = "0.11", features = ["all"] }
-rubato = "0.16"
-parking_lot = "0.12"
-tokio = { version = "1.35", features = ["sync", "rt"] }
-tracing = "0.1"
-anyhow = "1.0"
-thiserror = "1.0"
+rubato = { workspace = true }
+parking_lot = { workspace = true }
+tokio = { workspace = true, features = ["sync", "rt"] }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
 
 [features]
 default = []

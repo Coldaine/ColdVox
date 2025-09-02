@@ -7,13 +7,13 @@ authors = ["ColdVox Contributors"]
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-thiserror = "1.0"
-tokio = { version = "1.35", features = ["sync", "time", "rt", "signal"] }
-tracing = "0.1"
-cpal = "0.15"
-serde = { version = "1.0", features = ["derive"] }
-parking_lot = "0.12"
-crossbeam-channel = "0.5"
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["sync", "time", "rt", "signal"] }
+tracing = { workspace = true }
+cpal = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+parking_lot = { workspace = true }
+crossbeam-channel = { workspace = true }
 
 [features]
 default = []
