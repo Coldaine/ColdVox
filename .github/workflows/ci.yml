@@ -17,16 +17,18 @@ concurrency:
 jobs:
   # Core CI using org workflow with workspace support
   common-ci:
-    uses: coldaine/.github/.github/workflows/lang-ci.yml@main
+    uses: coldaine/.github/.github/workflows/lang-ci.yml@v1
     secrets: inherit
     with:
-      # Auto-detected from Cargo.toml
-      # Auto-detected from Python files
-      rust-no-default-features: true   # Baseline without Vosk
-      rust-msrv: "1.70.0"             # Minimum supported version
-      rust-use-nextest: true                # Faster test execution
-      rust-use-sccache: true                # Build caching
-      rust-run-cargo-deny: true             # License/security checks
+      run_rust: true
+      run_python: false
+      rust_no_default_features: true   # Baseline without Vosk
+      rust_msrv: "1.70.0"             # Minimum supported version
+      use_nextest: true                # Faster test execution
+      use_sccache: true                # Build caching
+      run_cargo_deny: true             # License/security checks
+      test_timeout_minutes: 30
+      max_parallel: 4
       # Crate-specific system dependencies
       crate_system_deps: |
         {"coldvox-audio":"libasound2-dev","coldvox-text-injection":"libxdo-dev libxtst-dev","coldvox-gui":"libgl1-mesa-dev libxcursor-dev"}
