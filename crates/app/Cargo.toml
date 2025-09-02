@@ -47,8 +47,13 @@ path = "../../examples/test_hotkey_backend.rs"
 name = "test_kglobalaccel_hotkey"
 path = "../../examples/test_kglobalaccel_hotkey.rs"
 
+[[example]]
+name = "test_silero_wav"
+path = "../../examples/test_silero_wav.rs"
+required-features = ["examples"]
+
 [dependencies]
-zbus = { version = "3.10.0" }
+zbus = { version = "5.10.0" }
 tokio = { version = "1", features = ["full"] }
 anyhow = "1.0"
 thiserror = "1.0"

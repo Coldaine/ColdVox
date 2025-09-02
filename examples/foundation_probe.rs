@@ -1,5 +1,5 @@
 use clap::Parser;
-use coldvox_app::foundation::*;
+use coldvox_foundation::*;
 use std::time::Duration;
 
 #[derive(Parser)]

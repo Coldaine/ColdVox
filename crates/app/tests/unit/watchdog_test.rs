@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use coldvox_app::audio::watchdog::WatchdogTimer;
+    use coldvox_audio::watchdog::WatchdogTimer;
     use std::time::Duration;
     use std::thread;
     use std::sync::{Arc, Mutex};

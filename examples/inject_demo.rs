@@ -1,5 +1,5 @@
-use coldvox_app::stt::TranscriptionEvent;
-use coldvox_app::text_injection::{InjectionConfig, InjectionProcessor, StrategyManager};
+use coldvox_stt::TranscriptionEvent;
+use coldvox_text_injection::{InjectionConfig, InjectionProcessor, StrategyManager};
 use std::sync::{Arc, Mutex};
 use tokio::time::{sleep, Duration};
 use tracing::{error, info, warn};

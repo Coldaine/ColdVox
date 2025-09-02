@@ -1,4 +1,5 @@
-use coldvox_app::stt::{Transcriber, VoskTranscriber, TranscriptionConfig, TranscriptionEvent};
+use coldvox_stt::{Transcriber, TranscriptionConfig, TranscriptionEvent};
+use coldvox_stt_vosk::VoskTranscriber;
 use std::path::Path;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

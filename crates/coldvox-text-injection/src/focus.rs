@@ -1,4 +1,4 @@
-'''use crate::types::{InjectionConfig, InjectionError};
+use crate::types::{InjectionConfig, InjectionError};
 use std::time::{Duration, Instant};
 use tracing::debug;
 
@@ -41,15 +41,13 @@ impl FocusTracker {
         Ok(status)
     }
 
-    /// Check the actual focus status using AT-SPI
     async fn check_focus_status(&self) -> Result<FocusStatus, InjectionError> {
         #[cfg(feature = "atspi")]
         {
             use atspi::{
-                connection::AccessibilityConnection,
-                common::{Interface, MatchType, ObjectMatchRule, SortOrder, State, StateSet},
+                connection::AccessibilityConnection, proxy::collection::CollectionProxy, Interface,
+                MatchType, ObjectMatchRule, SortOrder, State,
             };
-            use atspi_proxies::{accessible::AccessibleProxy, collection::CollectionProxy};
 
             let conn = match AccessibilityConnection::new().await {
                 Ok(c) => c,
@@ -60,22 +58,22 @@ impl FocusTracker {
             };
             let zbus_conn = conn.connection();
 
-            let root = match AccessibleProxy::new(zbus_conn).await {
-                Ok(p) => p,
-                Err(err) => {
-                    debug!(error = ?err, "AT-SPI: failed to create root AccessibleProxy");
+            let builder = CollectionProxy::builder(zbus_conn);
+            let builder = match builder.destination("org.a11y.atspi.Registry") {
+                Ok(b) => b,
+                Err(e) => {
+                    debug!(error = ?e, "AT-SPI: failed to set destination");
                     return Ok(FocusStatus::Unknown);
                 }
             };
-
-            let root_dest = root.inner().destination().to_owned();
-            let root_path = root.inner().path().to_owned();
-            let collection = match CollectionProxy::builder(zbus_conn)
-                .destination(root_dest).map_err(|e| format!("Bad dest: {e}"))?
-                .path(root_path).map_err(|e| format!("Bad path: {e}"))?
-                .build()
-                .await
-            {
+            let builder = match builder.path("/org/a11y/atspi/accessible/root") {
+                Ok(b) => b,
+                Err(e) => {
+                    debug!(error = ?e, "AT-SPI: failed to set path");
+                    return Ok(FocusStatus::Unknown);
+                }
+            };
+            let collection = match builder.build().await {
                 Ok(p) => p,
                 Err(err) => {
                     debug!(error = ?err, "AT-SPI: failed to create CollectionProxy on root");
@@ -83,21 +81,14 @@ impl FocusTracker {
                 }
             };
 
-            let states = StateSet::new([State::Focused]);
-            let rule = ObjectMatchRule {
-                states: Some(states),
-                states_match_type: MatchType::All,
-                attributes: None,
-                attributes_match_type: MatchType::All,
-                roles: None,
-                roles_match_type: MatchType::All,
-                interfaces: Some(vec![Interface::EditableText]),
-                interfaces_match_type: MatchType::All,
-                invert: false,
-            };
+            let mut rule = ObjectMatchRule::default();
+            rule.states = State::Focused.into();
+            rule.states_mt = MatchType::All;
+            rule.ifaces = Interface::EditableText.into();
+            rule.ifaces_mt = MatchType::All;
 
             let matches = match collection
-                .get_matches(&rule, SortOrder::Canonical, 1, false)
+                .get_matches(rule, SortOrder::Canonical, 1, false)
                 .await
             {
                 Ok(v) => v,
@@ -121,4 +112,3 @@ impl FocusTracker {
         }
     }
 }
-''

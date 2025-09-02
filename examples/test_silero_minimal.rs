@@ -1,10 +1,10 @@
-use coldvox_app::vad::{
+use coldvox_vad::{
     config::{UnifiedVadConfig, VadMode},
     constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ},
     engine::VadEngine,
     silero_wrapper::SileroEngine,
 };
-use coldvox_app::audio::vad_adapter::VadAdapter;
+use coldvox_audio::vad_adapter::VadAdapter;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Testing Silero VAD with simple audio");

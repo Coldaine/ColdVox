@@ -14,14 +14,23 @@ impl AtspiInjector {
             metrics: InjectionMetrics::default(),
         }
     }
+}
 
-    /// Lightweight availability probe. Synchronously attempts an AT-SPI connection.
-    pub fn is_available(&self) -> bool {
+#[async_trait]
+impl TextInjector for AtspiInjector {
+    fn name(&self) -> &'static str {
+        "atspi-insert"
+    }
+
+    fn metrics(&self) -> &InjectionMetrics {
+        &self.metrics
+    }
+
+    fn is_available(&self) -> bool {
         #[cfg(feature = "atspi")]
         {
             use atspi::connection::AccessibilityConnection;
 
-            // Try on the current Tokio runtime if present; else spin a tiny current-thread RT.
             if let Ok(handle) = tokio::runtime::Handle::try_current() {
                 return handle.block_on(AccessibilityConnection::new()).is_ok();
             }
@@ -42,101 +51,83 @@ impl AtspiInjector {
             false
         }
     }
-}
-
-#[async_trait]
-impl TextInjector for AtspiInjector {
-    fn name(&self) -> &'static str {
-        "atspi-insert"
-    }
-
-    fn metrics(&self) -> &InjectionMetrics {
-        &self.metrics
-    }
 
     async fn inject(&mut self, text: &str) -> Result<(), InjectionError> {
         #[cfg(feature = "atspi")]
         {
             use atspi::{
-                connection::AccessibilityConnection,
-                proxy::{
-                    editable_text::EditableTextProxy,
-                    proxy_ext::ProxyExt,
-                    text::TextProxy,
-                    accessible::AccessibleProxy,
-                    collection::CollectionProxy,
-                },
-                Interface, MatchType, ObjectMatchRule, SortOrder, State, StateSet,
+                connection::AccessibilityConnection, proxy::collection::CollectionProxy,
+                proxy::editable_text::EditableTextProxy, proxy::text::TextProxy, Interface,
+                MatchType, ObjectMatchRule, SortOrder, State,
             };
 
-            // 1) Connect
             let conn = AccessibilityConnection::new()
                 .await
                 .map_err(|e| InjectionError::Other(format!("AT-SPI connect failed: {e}")))?;
+            let zbus_conn = conn.connection();
 
-            // 2) Bind root accessible + collection (same pattern as focus tracking)
-            let root = AccessibleProxy::new(&conn)
-                .await
-                .map_err(|e| InjectionError::Other(format!("root AccessibleProxy failed: {e}")))?;
-            let root_dest = root.inner().destination().to_owned();
-            let root_path = root.inner().path().to_owned();
-            let collection = CollectionProxy::builder(&conn)
-                .destination(root_dest)
-                .path(root_path)
+            let collection = CollectionProxy::builder(zbus_conn)
+                .destination("org.a11y.atspi.Registry")
+                .map_err(|e| {
+                    InjectionError::Other(format!("CollectionProxy destination failed: {e}"))
+                })?
+                .path("/org/a11y/atspi/accessible/root")
+                .map_err(|e| InjectionError::Other(format!("CollectionProxy path failed: {e}")))?
                 .build()
                 .await
-                .map_err(|e| InjectionError::Other(format!("CollectionProxy failed: {e}")))?;
+                .map_err(|e| InjectionError::Other(format!("CollectionProxy build failed: {e}")))?;
 
-            // 3) Find the *focused editable* object
-            let states = StateSet::from_iter([State::Focused]);
-            let rule = ObjectMatchRule {
-                states: Some(states),
-                states_match: MatchType::All,
-                attributes: None,
-                attributes_match: MatchType::None,
-                roles: None,
-                roles_match: MatchType::None,
-                interfaces: Some(vec![Interface::EditableText]),
-                interfaces_match: MatchType::All,
-                invert: false,
-            };
+            let mut rule = ObjectMatchRule::default();
+            rule.states = State::Focused.into();
+            rule.states_mt = MatchType::All;
+            rule.ifaces = Interface::EditableText.into();
+            rule.ifaces_mt = MatchType::All;
 
             let mut matches = collection
-                .get_matches(&(&rule).into(), SortOrder::Canonical, 1, false)
+                .get_matches(rule, SortOrder::Canonical, 1, false)
                 .await
-                .map_err(|e| InjectionError::Other(format!("Collection.get_matches failed: {e}")))?;
+                .map_err(|e| {
+                    InjectionError::Other(format!("Collection.get_matches failed: {e}"))
+                })?;
 
-            let Some(objref) = matches.pop() else {
+            let Some(obj_ref) = matches.pop() else {
                 debug!("No focused EditableText found");
                 return Err(InjectionError::NoEditableFocus);
             };
 
-            // 4) Proxies on the *same object* (destination + path from ObjectRef)
-            let editable = EditableTextProxy::builder(&conn)
-                .destination(objref.name().to_owned())
-                .path(objref.path().to_owned())
+            let editable = EditableTextProxy::builder(zbus_conn)
+                .destination(obj_ref.name.clone())
+                .map_err(|e| {
+                    InjectionError::Other(format!("EditableTextProxy destination failed: {e}"))
+                })?
+                .path(obj_ref.path.clone())
+                .map_err(|e| InjectionError::Other(format!("EditableTextProxy path failed: {e}")))?
                 .build()
                 .await
-                .map_err(|e| InjectionError::Other(format!("EditableTextProxy failed: {e}")))?;
+                .map_err(|e| {
+                    InjectionError::Other(format!("EditableTextProxy build failed: {e}"))
+                })?;
 
-            let text_iface = TextProxy::builder(&conn)
-                .destination(objref.name().to_owned())
-                .path(objref.path().to_owned())
+            let text_iface = TextProxy::builder(zbus_conn)
+                .destination(obj_ref.name.clone())
+                .map_err(|e| InjectionError::Other(format!("TextProxy destination failed: {e}")))?
+                .path(obj_ref.path.clone())
+                .map_err(|e| InjectionError::Other(format!("TextProxy path failed: {e}")))?
                 .build()
                 .await
-                .map_err(|e| InjectionError::Other(format!("TextProxy failed: {e}")))?;
+                .map_err(|e| InjectionError::Other(format!("TextProxy build failed: {e}")))?;
 
-            // 5) Insert at current caret
             let caret = text_iface
                 .caret_offset()
                 .await
                 .map_err(|e| InjectionError::Other(format!("Text.caret_offset failed: {e}")))?;
 
-            let len = text.chars().count() as i32;
             editable
-                .insert_text(caret, text, len)
+                .insert_text(caret, text, text.chars().count() as i32)
                 .await
-                .map_err(|e| InjectionError::Other(format!("EditableText.insert_text failed: {e}")))?;
+                .map_err(|e| {
+                    InjectionError::Other(format!("EditableText.insert_text failed: {e}"))
+                })?;
 
             Ok(())
         }

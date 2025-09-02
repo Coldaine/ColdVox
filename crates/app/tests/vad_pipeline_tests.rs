@@ -1,9 +1,9 @@
 #[cfg(feature = "level3")]
-use coldvox_app::audio::{AudioFrame as VadFrame, VadProcessor};
+use coldvox_audio::{AudioFrame as VadFrame, VadProcessor};
 #[cfg(feature = "level3")]
-use coldvox_app::telemetry::pipeline_metrics::PipelineMetrics;
+use coldvox_telemetry::pipeline_metrics::PipelineMetrics;
 #[cfg(feature = "level3")]
-use coldvox_app::vad::{UnifiedVadConfig, VadMode, FRAME_SIZE_SAMPLES};
+use coldvox_vad::{UnifiedVadConfig, VadMode, FRAME_SIZE_SAMPLES};
 #[cfg(feature = "level3")]
 use tokio::sync::{broadcast, mpsc};
 

@@ -1,10 +1,10 @@
-use coldvox_app::vad::{
+use coldvox_vad::{
     config::{UnifiedVadConfig, VadMode},
     constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ},
     silero_wrapper::SileroEngine,
     engine::VadEngine,
 };
-use coldvox_app::audio::vad_adapter::VadAdapter;
+use coldvox_audio::vad_adapter::VadAdapter;
 use hound::WavReader;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

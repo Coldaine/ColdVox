@@ -4,25 +4,22 @@
 // - The logs/ directory is created on startup if missing; file output uses a non-blocking writer.
 // - This ensures persistent logs for post-run analysis while keeping console output for live use.
 use anyhow::anyhow;
-#[cfg(feature = "vosk")]
-use coldvox_app::stt::persistence::{
-    AudioFormat, PersistenceConfig, SessionMetadata, TranscriptFormat,
-};
-use coldvox_app::stt::TranscriptionConfig;
-#[cfg(feature = "vosk")]
-use coldvox_app::stt::{processor::SttProcessor, TranscriptionEvent};
 use coldvox_audio::{
     AudioCaptureThread, AudioChunker, AudioRingBuffer, ChunkerConfig, FrameReader,
 };
 use coldvox_foundation::*;
+#[cfg(feature = "vosk")]
+use coldvox_stt::persistence::{AudioFormat, PersistenceConfig, SessionMetadata, TranscriptFormat};
+use coldvox_stt::TranscriptionConfig;
+use coldvox_stt::{processor::SttProcessor, TranscriptionEvent};
 
 #[cfg(feature = "text-injection")]
 use clap::Args;
 use clap::{Parser, ValueEnum};
 use coldvox_app::hotkey::spawn_hotkey_listener;
-#[cfg(feature = "text-injection")]
-use coldvox_app::text_injection::{AsyncInjectionProcessor, InjectionConfig};
 use coldvox_telemetry::PipelineMetrics;
+#[cfg(feature = "text-injection")]
+use coldvox_text_injection::{AsyncInjectionProcessor, InjectionConfig};
 use coldvox_vad::{UnifiedVadConfig, VadEvent, VadMode, FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};

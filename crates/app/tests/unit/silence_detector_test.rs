@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use coldvox_app::audio::detector::SilenceDetector;
-    use coldvox_app::vad::constants::FRAME_SIZE_SAMPLES;
+    use coldvox_audio::detector::SilenceDetector;
+    use coldvox_vad::constants::FRAME_SIZE_SAMPLES;
     use crate::common::test_utils::*;
     use std::time::Duration;
 

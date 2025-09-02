@@ -6,11 +6,11 @@
 // Original test kept for reference but commented out to fix compilation.
 
 /*
-use coldvox_app::audio::chunker::{AudioChunker, ChunkerConfig};
-use coldvox_app::audio::frame_reader::FrameReader;
-use coldvox_app::audio::ring_buffer::AudioRingBuffer;
-use coldvox_app::audio::vad_processor::AudioFrame as VadFrame;
-use coldvox_app::telemetry::pipeline_metrics::PipelineMetrics;
+use coldvox_audio::chunker::{AudioChunker, ChunkerConfig};
+use coldvox_audio::frame_reader::FrameReader;
+use coldvox_audio::ring_buffer::AudioRingBuffer;
+use coldvox_audio::vad_processor::AudioFrame as VadFrame;
+use coldvox_telemetry::pipeline_metrics::PipelineMetrics;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tokio::sync::broadcast;

@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use coldvox_app::audio::{AudioCapture, AudioConfig, AudioFrame};
-    use coldvox_app::foundation::error::AudioError;
-    use coldvox_app::vad::constants::FRAME_SIZE_SAMPLES;
+    use coldvox_audio::{AudioCapture, AudioConfig, AudioFrame};
+    use coldvox_foundation::error::AudioError;
+    use coldvox_vad::constants::FRAME_SIZE_SAMPLES;
     use std::time::Duration;
     use std::thread;
     use std::sync::Arc;

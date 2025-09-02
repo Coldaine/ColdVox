@@ -1,8 +1,8 @@
-use coldvox_app::audio::{
+use coldvox_audio::{
     AudioChunker, AudioFrame as VadFrame, AudioRingBuffer, ChunkerConfig, FrameReader,
     ResamplerQuality,
 };
-use coldvox_app::telemetry::pipeline_metrics::PipelineMetrics;
+use coldvox_telemetry::pipeline_metrics::PipelineMetrics;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 

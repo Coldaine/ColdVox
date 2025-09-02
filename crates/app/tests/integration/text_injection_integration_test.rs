@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use coldvox_app::text_injection::manager::StrategyManager;
-    use coldvox_app::text_injection::types::{InjectionConfig, InjectionMetrics};
+    use coldvox_text_injection::manager::StrategyManager;
+    use coldvox_text_injection::types::{InjectionConfig, InjectionMetrics};
     use std::sync::Arc;
     use std::time::Duration;
     use tokio::sync::Mutex;

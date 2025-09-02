@@ -5,14 +5,18 @@
 // - Useful for post-session analysis even when the TUI is active.
 use clap::Parser;
 use coldvox_app::audio::vad_processor::VadProcessor;
-#[cfg(feature = "vosk")]
-use coldvox_app::stt::{processor::SttProcessor, TranscriptionConfig, TranscriptionEvent};
 use coldvox_audio::capture::AudioCaptureThread;
 use coldvox_audio::chunker::AudioFrame as VadFrame;
 use coldvox_audio::chunker::{AudioChunker, ChunkerConfig};
 use coldvox_audio::frame_reader::FrameReader;
 use coldvox_audio::ring_buffer::AudioRingBuffer;
 use coldvox_foundation::error::AudioConfig;
+#[cfg(feature = "vosk")]
+use coldvox_stt::{
+    processor::SttProcessor, EventBasedTranscriber, TranscriptionConfig, TranscriptionEvent,
+};
+#[cfg(feature = "vosk")]
+use coldvox_stt_vosk::VoskTranscriber;
 use coldvox_telemetry::pipeline_metrics::{PipelineMetrics, PipelineStage};
 use coldvox_vad::config::{UnifiedVadConfig, VadMode};
 use coldvox_vad::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
@@ -477,7 +481,7 @@ async fn run_audio_pipeline(tx: mpsc::Sender<AppEvent>, device: String) {
         // Channels for STT events
         let (stt_transcription_tx, stt_transcription_rx) = mpsc::channel::<TranscriptionEvent>(100);
         // VAD relay channel for STT
-        let (stt_vad_tx, stt_vad_rx) = mpsc::channel::<VadEvent>(100);
+        let (stt_vad_tx, stt_vad_rx) = mpsc::channel::<coldvox_stt::processor::VadEvent>(100);
         // Subscribe to audio broadcast for STT
         let stt_audio_rx = audio_tx.subscribe();
         // STT config
@@ -491,23 +495,18 @@ async fn run_audio_pipeline(tx: mpsc::Sender<AppEvent>, device: String) {
             buffer_size_ms: 512,
         };
         // Spawn STT processor
-        match SttProcessor::new(stt_audio_rx, stt_vad_rx, stt_transcription_tx, stt_config) {
-            Ok(proc) => {
-                tokio::spawn(async move {
-                    let _ = proc.run().await;
-                });
-                (Some(stt_transcription_rx), Some(stt_vad_tx))
-            }
-            Err(e) => {
-                let _ = tx
-                    .send(AppEvent::Log(
-                        LogLevel::Error,
-                        format!("Failed to create STT processor: {}", e),
-                    ))
-                    .await;
-                (None, None)
-            }
-        }
+        let transcriber = VoskTranscriber::new(stt_config.clone(), SAMPLE_RATE_HZ as f32).unwrap();
+        let stt_processor = SttProcessor::new(
+            stt_audio_rx,
+            stt_vad_rx,
+            stt_transcription_tx,
+            transcriber,
+            stt_config,
+        );
+        tokio::spawn(async move {
+            stt_processor.run().await;
+        });
+        (Some(stt_transcription_rx), Some(stt_vad_tx))
     } else {
         (None, None)
     };
@@ -520,11 +519,24 @@ async fn run_audio_pipeline(tx: mpsc::Sender<AppEvent>, device: String) {
     tokio::spawn(async move {
         while let Some(ev) = raw_vad_rx_task.recv().await {
             // Send to UI
-            let _ = ui_vad_tx.send(ev).await;
+            let _ = ui_vad_tx.send(ev.clone()).await;
             // Send to STT if available
             #[cfg(feature = "vosk")]
             if let Some(stt_tx) = &stt_vad_tx_clone {
-                let _ = stt_tx.send(ev).await;
+                let stt_event = match ev {
+                    VadEvent::SpeechStart { timestamp_ms, .. } => {
+                        coldvox_stt::processor::VadEvent::SpeechStart { timestamp_ms }
+                    }
+                    VadEvent::SpeechEnd {
+                        timestamp_ms,
+                        duration_ms,
+                        ..
+                    } => coldvox_stt::processor::VadEvent::SpeechEnd {
+                        timestamp_ms,
+                        duration_ms,
+                    },
+                };
+                let _ = stt_tx.send(stt_event).await;
             }
         }
     });

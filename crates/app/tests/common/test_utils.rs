@@ -1,4 +1,4 @@
-use coldvox_app::audio::AudioProducer;
+use coldvox_audio::ring_buffer::AudioProducer;
 
 /// Write samples into the audio ring buffer producer in fixed-size chunks.
 /// Returns the total number of samples successfully written.
