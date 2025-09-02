@@ -1,5 +1,6 @@
-use super::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 use serde::{Deserialize, Serialize};
+
+use super::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum VadEvent {

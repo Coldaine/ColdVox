@@ -1,6 +1,7 @@
+use std::path::Path;
+
 #[cfg(feature = "vosk")]
 use coldvox_app::stt::{Transcriber, TranscriptionConfig, TranscriptionEvent, VoskTranscriber};
-use std::path::Path;
 
 #[cfg(feature = "vosk")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {

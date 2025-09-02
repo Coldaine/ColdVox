@@ -1,7 +1,9 @@
-use crate::types::InjectionError;
-use serde_json;
 use std::process::Command;
+
+use serde_json;
 use tracing::debug;
+
+use crate::types::InjectionError;
 
 /// Get the currently active window class name
 pub async fn get_active_window_class() -> Result<String, InjectionError> {

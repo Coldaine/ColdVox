@@ -308,7 +308,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Only spawn STT processor if enabled
-    let injection_shutdown_tx: Option<mpsc::Sender<()>> = None;
+    let mut injection_shutdown_tx: Option<mpsc::Sender<()>> = None;
     #[cfg(feature = "vosk")]
     let (stt_handle, _persistence_handle, injection_handle) = if stt_config.enabled {
         // Create mpsc channel for STT processor to send transcription events
@@ -327,7 +327,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
 
         // Create mpsc channel for injection processor
-        let (injection_tx, _injection_rx) = mpsc::channel::<TranscriptionEvent>(100);
+        let (injection_tx, injection_rx) = mpsc::channel::<TranscriptionEvent>(100);
         let mut injection_relay_rx = broadcast_tx.subscribe();
         tokio::spawn(async move {
             while let Ok(event) = injection_relay_rx.recv().await {
@@ -406,7 +406,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 injection_config,
                 injection_rx,
                 injection_shutdown_rx,
-                Some(metrics.clone()),
+                None,
             );
 
             // Spawn injection processor

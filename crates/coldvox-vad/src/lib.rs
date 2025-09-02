@@ -9,7 +9,7 @@ pub mod types;
 #[cfg(feature = "level3")]
 pub mod level3;
 
-// Core exports
+// Core exports - grouped and sorted alphabetically
 pub use config::{UnifiedVadConfig, VadMode};
 pub use constants::{FRAME_DURATION_MS, FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 pub use engine::VadEngine;

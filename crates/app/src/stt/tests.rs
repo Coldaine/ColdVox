@@ -70,6 +70,8 @@ mod vosk_tests {
 
     #[cfg(feature = "vosk")]
     mod vosk_integration_tests {
+        use coldvox_stt::EventBasedTranscriber;
+
         use super::super::super::vosk::VoskTranscriber;
         use super::super::super::TranscriptionConfig;
 
