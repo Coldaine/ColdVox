@@ -44,10 +44,10 @@ impl TextInjector for AtspiInjector {
         // TODO: Implement actual AT-SPI text injection when atspi 0.22 API is clarified
         // The atspi crate version 0.22 has a different API structure than expected
         // Need to investigate proper usage of AccessibilityConnection and proxies
-        
+
         warn!("AT-SPI text injection not yet implemented for atspi 0.22");
         Err(InjectionError::MethodUnavailable(
-            "AT-SPI implementation pending - atspi 0.22 API differs from expected".to_string()
+            "AT-SPI implementation pending - atspi 0.22 API differs from expected".to_string(),
         ))
     }
 

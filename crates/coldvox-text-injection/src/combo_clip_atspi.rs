@@ -56,7 +56,7 @@ impl TextInjector for ComboClipboardAtspi {
         // For now, we can only set clipboard and rely on manual paste
         warn!("AT-SPI paste action not yet implemented for atspi 0.22");
         warn!("Text is in clipboard but automatic paste is not available");
-        
+
         // Return success since clipboard was set successfully
         // User will need to manually paste (Ctrl+V) for now
         Ok(())

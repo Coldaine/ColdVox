@@ -2,11 +2,11 @@
 mod tests {
     use std::process::Command;
 
-    use crate::InjectionConfig;
     #[cfg(feature = "ydotool")]
     use crate::types::TextInjector;
     #[cfg(feature = "ydotool")]
     use crate::ydotool_injector::YdotoolInjector;
+    use crate::InjectionConfig;
 
     #[test]
     fn test_binary_existence_check() {
