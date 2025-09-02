@@ -39,10 +39,6 @@ name = "inject_demo"
 path = "../../examples/inject_demo.rs"
 required-features = ["text-injection"]
 
-[[bench]]
-name = "text_chunking_bench"
-harness = false
-
 [dependencies]
 tokio = { version = "1.35", features = ["full"] }
 anyhow = "1.0"
@@ -88,7 +84,6 @@ mockall = "0.12"
 tokio-test = "0.4"
 ctrlc = "3.4"
 proptest = "1.4"
-criterion = "0.5"
 rand = "0.8"
 
 [features]

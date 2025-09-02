@@ -6,9 +6,11 @@ mod integration_tests {
 
     #[tokio::test]
     async fn test_full_injection_flow() {
-        let mut config = InjectionConfig::default();
-        config.allow_ydotool = false; // Disable external dependencies for testing
-        config.restore_clipboard = true;
+        let config = InjectionConfig {
+            allow_ydotool: false, // Disable external dependencies for testing
+            restore_clipboard: true,
+            ..Default::default()
+        };
 
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
         let manager = StrategyManager::new(config, metrics.clone());
@@ -37,9 +39,11 @@ mod integration_tests {
 
     #[tokio::test]
     async fn test_app_allowlist_blocklist() {
-        let mut config = InjectionConfig::default();
-        config.allowlist = vec!["firefox".to_string(), "chrome".to_string()];
-        config.blocklist = vec!["terminal".to_string()];
+        let config = InjectionConfig {
+            allowlist: vec!["firefox".to_string(), "chrome".to_string()],
+            blocklist: vec!["terminal".to_string()],
+            ..Default::default()
+        };
 
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
         let manager = StrategyManager::new(config, metrics);
@@ -50,8 +54,10 @@ mod integration_tests {
         assert!(!manager.is_app_allowed("notepad"));
 
         // Clear allowlist and test blocklist
-        let mut config = InjectionConfig::default();
-        config.blocklist = vec!["terminal".to_string(), "console".to_string()];
+        let config = InjectionConfig {
+            blocklist: vec!["terminal".to_string(), "console".to_string()],
+            ..Default::default()
+        };
 
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
         let manager = StrategyManager::new(config, metrics);

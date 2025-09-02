@@ -1,0 +1,42 @@
+# YAML linting configuration for ColdVox
+extends: default
+
+rules:
+  # Allow longer lines for GitHub Actions workflows
+  line-length:
+    max: 120
+    level: warning
+    allow-non-breakable-words: true
+    allow-non-breakable-inline-mappings: true
+
+  # GitHub Actions uses on: syntax
+  truthy:
+    allowed-values: ['true', 'false', 'on']
+    check-keys: false
+
+  # Allow comments without space for directives
+  comments:
+    min-spaces-from-content: 1
+
+  # Indentation settings
+  indentation:
+    spaces: 2
+    indent-sequences: true
+
+  # Document start not required
+  document-start: disable
+
+  # Allow multiple spaces in brackets for alignment
+  brackets:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+
+  # Allow both quoted and unquoted strings
+  quoted-strings:
+    quote-type: any
+    required: false
+
+ignore: |
+  target/
+  .venv/
+  node_modules/
