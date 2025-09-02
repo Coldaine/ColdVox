@@ -79,12 +79,12 @@ All commands below assume working from `crates/app` unless noted.
 ```bash
 cd crates/app
 
-# App (no STT)
+# App (with STT by default - requires system libvosk)
 cargo build
+cargo build --release
 
-# App with STT (requires system libvosk)
-cargo build --features vosk
-cargo build --release --features vosk
+# App without STT (for CI or environments without Vosk)
+cargo build --no-default-features --features silero,text-injection
 
 # TUI Dashboard
 cargo build --bin tui_dashboard
@@ -99,11 +99,11 @@ cargo build --example record_10s
 ### Running
 
 ```bash
-# App
+# App (with STT by default)
 cargo run
 
-# App with STT (vosk)
-cargo run --features vosk
+# App without STT (for CI or environments without Vosk)
+cargo run --no-default-features --features silero,text-injection
 
 # TUI Dashboard (optionally select device)
 cargo run --bin tui_dashboard
@@ -160,7 +160,7 @@ cargo clippy -- -D warnings
   - Silero (`crates/coldvox-vad-silero/src/config.rs`): `threshold`, `min_speech_duration_ms`, `min_silence_duration_ms`, `window_size_samples`
   - Level3 (feature `level3`): `onset_threshold_db`, `offset_threshold_db`, `ema_alpha`, `speech_debounce_ms`, `silence_debounce_ms`, `initial_floor_db`
 
-- STT (`crates/app/src/stt/` wrappers; core in `crates/coldvox-stt/`) [feature `vosk`]
+- STT (`crates/app/src/stt/` wrappers; core in `crates/coldvox-stt/`) [enabled by default, disable with `--no-default-features`]
   - `TranscriptionConfig`: `model_path`, `partial_results`, `max_alternatives`, `include_words`, `buffer_size_ms`
 
 - Text Injection (`crates/coldvox-text-injection/`; app glue in `crates/app/src/text_injection/`)

@@ -92,9 +92,10 @@ criterion = "0.5"
 rand = "0.8"
 
 [features]
-default = ["silero", "text-injection"]
+default = ["silero", "text-injection", "vosk"]
 live-hardware-tests = []
 vosk = ["dep:coldvox-stt-vosk"]
+no-stt = []
 examples = []
 text-injection = ["dep:coldvox-text-injection"]  # Enables platform-specific dependency
 silero = ["coldvox-vad-silero/silero"]
