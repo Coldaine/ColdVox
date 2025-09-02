@@ -107,6 +107,7 @@ struct ChunkerWorker {
     current_input_rate: Option<u32>,
     current_input_channels: Option<u16>,
     device_cfg_rx: Option<broadcast::Receiver<DeviceConfig>>,
+    start_time: std::time::Instant,
 }
 
 impl ChunkerWorker {
@@ -131,6 +132,7 @@ impl ChunkerWorker {
             current_input_rate: None,
             current_input_channels: None,
             device_cfg_rx,
+            start_time: std::time::Instant::now(),
         }
     }
 
@@ -182,8 +184,10 @@ impl ChunkerWorker {
                 out.push(self.buffer.pop_front().unwrap());
             }
 
-            let _timestamp_ms =
+            // Calculate timestamp based on samples emitted
+            let timestamp_ms =
                 (self.samples_emitted as u128 * 1000 / self.cfg.sample_rate_hz as u128) as u64;
+            let timestamp = self.start_time + std::time::Duration::from_millis(timestamp_ms);
 
             let vf = AudioFrame {
                 samples: out
@@ -191,7 +195,7 @@ impl ChunkerWorker {
                     .map(|s| s as f32 / i16::MAX as f32)
                     .collect(),
                 sample_rate: self.cfg.sample_rate_hz,
-                timestamp: std::time::Instant::now(),
+                timestamp,
             };
 
             // A send on a broadcast channel can fail if there are no receivers.

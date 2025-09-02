@@ -4,7 +4,7 @@ Guidance for Claude Code when working in this repository.
 
 ## Project Overview
 
-ColdVox is a Rust-based voice AI project focused on real-time audio processing, reliability, and automatic recovery. It implements a VAD-gated STT (speech-to-text) pipeline with resilient audio capture using lock-free ring buffers and async tasks.
+ColdVox is a Rust-based voice AI project that implements a complete VAD-gated STT pipeline to capture audio, transcribe speech to text, and inject the transcribed text into the proper text field where the user is working. The text injection uses multiple backend methods (clipboard, AT-SPI, keyboard emulation) and is the critical final step that delivers the transcribed output to the user's active application.
 
 ## Architecture (multi-crate)
 

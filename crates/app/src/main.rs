@@ -327,7 +327,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
 
         // Create mpsc channel for injection processor
-        let (injection_tx, injection_rx) = mpsc::channel::<TranscriptionEvent>(100);
+        let (injection_tx, _injection_rx) = mpsc::channel::<TranscriptionEvent>(100);
         let mut injection_relay_rx = broadcast_tx.subscribe();
         tokio::spawn(async move {
             while let Ok(event) = injection_relay_rx.recv().await {

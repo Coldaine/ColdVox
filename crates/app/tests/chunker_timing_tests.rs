@@ -32,12 +32,12 @@ async fn chunker_timestamps_are_32ms_apart_at_16k() {
     feed_samples_to_ring_buffer(&mut prod, &input, 1024);
 
     // Collect a few frames and verify monotonic 32ms timestamps
-    let mut got = Vec::new();
+    let mut timestamps = Vec::new();
     let mut attempts = 0;
-    while got.len() < 5 && attempts < 50 {
+    while timestamps.len() < 5 && attempts < 50 {
         if let Ok(frame) = rx.try_recv() {
-            // Convert Instant to relative ms for comparison
-            got.push(frame.timestamp.elapsed().as_millis() as u64);
+            // Store the raw Instant for comparison
+            timestamps.push(frame.timestamp);
         } else {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
             attempts += 1;
@@ -46,16 +46,18 @@ async fn chunker_timestamps_are_32ms_apart_at_16k() {
 
     handle.abort();
     assert!(
-        got.len() >= 3,
+        timestamps.len() >= 3,
         "expected at least 3 frames, got {}",
-        got.len()
+        timestamps.len()
     );
-    for w in got.windows(2) {
-        let delta = w[1] - w[0];
+
+    // Calculate duration between consecutive timestamps
+    for w in timestamps.windows(2) {
+        let delta_ms = w[1].duration_since(w[0]).as_millis() as i64;
         assert!(
-            (delta as i64 - 32).abs() <= 5,
-            "timestamp delta ~32ms, got {}",
-            delta
+            (delta_ms - 32).abs() <= 5,
+            "timestamp delta ~32ms, got {}ms",
+            delta_ms
         );
     }
 }

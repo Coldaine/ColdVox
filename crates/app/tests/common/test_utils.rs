@@ -42,6 +42,7 @@ pub fn calculate_wer(reference: &str, hypothesis: &str) -> f32 {
 
     // dp[i][j]: min edits to transform first i ref words into first j hyp words
     let mut dp = vec![vec![0usize; m + 1]; n + 1];
+    #[allow(clippy::needless_range_loop)]
     for i in 0..=n {
         dp[i][0] = i;
     }

@@ -1,9 +1,14 @@
+#[cfg(feature = "level3")]
 use coldvox_app::audio::{AudioFrame as VadFrame, VadProcessor};
+#[cfg(feature = "level3")]
 use coldvox_app::telemetry::pipeline_metrics::PipelineMetrics;
+#[cfg(feature = "level3")]
 use coldvox_app::vad::{UnifiedVadConfig, VadMode, FRAME_SIZE_SAMPLES};
+#[cfg(feature = "level3")]
 use tokio::sync::{broadcast, mpsc};
 
 #[tokio::test]
+#[cfg(feature = "level3")]
 async fn vad_processor_silence_no_events_level3() {
     // Use Level3 to avoid ONNX model dependency in unit tests
     let mut cfg = UnifiedVadConfig::default();

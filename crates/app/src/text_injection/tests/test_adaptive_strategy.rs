@@ -35,9 +35,11 @@ mod tests {
 
     #[test]
     fn test_method_priority_ordering() {
-        let mut config = InjectionConfig::default();
-        config.allow_ydotool = true;
-        config.allow_enigo = false;
+        let config = InjectionConfig {
+            allow_ydotool: true,
+            allow_enigo: false,
+            ..Default::default()
+        };
 
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
         let mut manager = StrategyManager::new(config, metrics);

@@ -2,7 +2,7 @@ use coldvox_stt::{
     next_utterance_id, EventBasedTranscriber, Transcriber, TranscriptionConfig, TranscriptionEvent,
     WordInfo,
 };
-use tracing::{debug, warn};
+use tracing::warn;
 use vosk::{CompleteResult, DecodingState, Model, PartialResult, Recognizer};
 
 pub struct VoskTranscriber {
@@ -131,9 +131,9 @@ impl VoskTranscriber {
                                 .into_iter()
                                 .map(|w| WordInfo {
                                     text: w.word.to_string(),
-                                    start: w.start as f32,
-                                    end: w.end as f32,
-                                    conf: w.conf as f32,
+                                    start: w.start,
+                                    end: w.end,
+                                    conf: w.conf,
                                 })
                                 .collect(),
                         )
@@ -162,8 +162,8 @@ impl VoskTranscriber {
                                     .iter()
                                     .map(|w| WordInfo {
                                         text: w.word.to_string(),
-                                        start: w.start as f32,
-                                        end: w.end as f32,
+                                        start: w.start,
+                                        end: w.end,
                                         conf: 0.5, // Default confidence when not available from Vosk API
                                     })
                                     .collect(),

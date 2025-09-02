@@ -11,7 +11,6 @@ use crate::{
 // This energy-based VAD implementation is kept for:
 // 1. Fallback capability if Silero fails
 // 2. Testing and comparison purposes
-// 3. Potential future hybrid VAD approaches
 // To enable: Set config.level3.enabled = true (see vad/config.rs)
 pub struct Level3Vad {
     config: VadConfig,
