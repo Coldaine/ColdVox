@@ -20,15 +20,11 @@ jobs:
     uses: coldaine/.github/.github/workflows/lang-ci.yml@v1
     secrets: inherit
     with:
-      run_rust: true
-      run_python: false
-      rust_no_default_features: true  # Baseline without Vosk
-      rust_msrv: "1.70.0"             # Minimum supported version
-      use_nextest: true                # Faster test execution
-      use_sccache: true                # Build caching
-      run_cargo_deny: true             # License/security checks
-      test_timeout_minutes: 30
-      max_parallel: 4                  # Limit parallel crate builds
+  rust-no-default-features: true   # Baseline without Vosk
+  rust-msrv: "1.70.0"             # Minimum supported version
+  rust-use-nextest: true           # Faster test execution
+  rust-use-sccache: true           # Build caching
+  rust-run-cargo-deny: true        # License/security checks
       # Crate-specific system dependencies
       crate_system_deps: |
         {"coldvox-audio":"libasound2-dev","coldvox-text-injection":"libxdo-dev libxtst-dev","coldvox-gui":"libgl1-mesa-dev libxcursor-dev"}
@@ -67,5 +63,5 @@ jobs:
       - name: Check key features
         run: |
           cargo check --locked -p coldvox-text-injection
-          cargo check --locked -p app --features text-injection
-          cargo check --locked -p app --features examples
+          cargo check --locked -p coldvox-app --features text-injection
+          cargo check --locked -p coldvox-app --features examples

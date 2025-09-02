@@ -21,8 +21,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_focus_cache_expiry() {
-        let mut config = InjectionConfig::default();
-        config.focus_cache_duration_ms = 50; // Very short cache
+        let config = InjectionConfig {
+            focus_cache_duration_ms: 50, // Very short cache
+            ..Default::default()
+        };
         let mut tracker = FocusTracker::new(config);
 
         // Get initial status

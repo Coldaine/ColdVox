@@ -286,14 +286,14 @@ mod tests {
     }
 
     // Test that inject fails when clipboard is not available
-    #[test]
-    fn test_clipboard_inject_no_wayland() {
+    #[tokio::test]
+    async fn test_clipboard_inject_no_wayland() {
         // Don't set WAYLAND_DISPLAY to simulate non-Wayland environment
         let config = InjectionConfig::default();
         let mut injector = ClipboardInjector::new(config);
 
         // Availability depends on environment; just ensure calling inject doesn't panic
-        let _ = injector.inject("test");
+        injector.inject("test").await.ok();
     }
 
     // Test clipboard restoration
@@ -301,13 +301,15 @@ mod tests {
     fn test_clipboard_restore() {
         env::set_var("WAYLAND_DISPLAY", "wayland-0");
 
-        let mut config = InjectionConfig::default();
-        config.restore_clipboard = true;
+        let config = InjectionConfig {
+            restore_clipboard: true,
+            ..Default::default()
+        };
 
         let mut injector = ClipboardInjector::new(config);
 
         // Simulate previous clipboard content
-        injector.previous_clipboard = Some("previous content".to_string());
+        injector._previous_clipboard = Some("previous content".to_string());
 
         // Mock clipboard
         let clipboard = MockClipboard::new();
@@ -317,7 +319,6 @@ mod tests {
         let _ = clipboard.get();
 
         env::remove_var("WAYLAND_DISPLAY");
-        assert!(true);
     }
 
     // Test timeout handling
@@ -325,8 +326,10 @@ mod tests {
     fn test_clipboard_inject_timeout() {
         env::set_var("WAYLAND_DISPLAY", "wayland-0");
 
-        let mut config = InjectionConfig::default();
-        config.per_method_timeout_ms = 1; // Very short timeout
+        let config = InjectionConfig {
+            per_method_timeout_ms: 1, // Very short timeout
+            ..Default::default()
+        };
         let to_ms = config.per_method_timeout_ms;
 
         let mut injector = ClipboardInjector::new(config.clone());
