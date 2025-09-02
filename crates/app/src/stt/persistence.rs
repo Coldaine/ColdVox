@@ -261,7 +261,7 @@ impl TranscriptionWriter {
                             DateTime::parse_from_rfc3339(&self.current_session.lock().started_at)
                                 .map_err(|e| format!("Failed to parse session start time: {}", e))
                                 .ok()
-                                .and_then(|dt| Some(dt.with_timezone(&Local)));
+                                .map(|dt| dt.with_timezone(&Local));
 
                         if let Some(session_start) = session_start {
                             // VAD timestamps are relative to session start
@@ -399,7 +399,7 @@ impl TranscriptionWriter {
 
                     // Write header if file is new
                     if needs_header {
-                        wtr.write_record(&[
+                        wtr.write_record([
                             "utterance_id",
                             "timestamp",
                             "duration_ms",
@@ -430,7 +430,7 @@ impl TranscriptionWriter {
                 })
                 .await
                 .map_err(|e| format!("CSV writing task panicked: {}", e))?;
-                csv_join.map_err(|e| e)?;
+                csv_join?;
             }
         }
 
@@ -511,7 +511,7 @@ impl TranscriptionWriter {
             .as_ref()
             .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
             .map(|dt| dt.with_timezone(&Local))
-            .unwrap_or_else(|| Local::now());
+            .unwrap_or_else(Local::now);
 
         let duration = end_time.signed_duration_since(start_time);
 

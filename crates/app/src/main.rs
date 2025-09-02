@@ -358,7 +358,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Relay VAD events to both STT and persistence
         tokio::spawn(async move {
             while let Some(event) = event_rx.recv().await {
-                let _ = vad_relay_tx.send(event.clone()).await;
+                let _ = vad_relay_tx.send(event).await;
                 if cli.save_transcriptions {
                     let _ = persist_vad_tx.send(event).await;
                 }

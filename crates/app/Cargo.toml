@@ -40,7 +40,8 @@ path = "../../examples/inject_demo.rs"
 required-features = ["text-injection"]
 
 [dependencies]
-tokio = { version = "1.35", features = ["full"] }
+zbus = { version = "3.10.0" }
+tokio = { version = "1", features = ["full"] }
 anyhow = "1.0"
 thiserror = "1.0"
 tracing = "0.1"
@@ -102,6 +103,7 @@ text-injection-enigo = ["text-injection", "coldvox-text-injection/enigo"]
 text-injection-mki = ["text-injection", "coldvox-text-injection/mki"]
 text-injection-kdotool = ["text-injection", "coldvox-text-injection/xdg_kdotool"]
 text-injection-regex = ["text-injection", "dep:regex"]
+# plasma-hotkey = ["kglobalaccel"]  # TODO: Disabled until kglobalaccel dependency is resolved
 
 # Platform-specific dependencies for Linux
 [target.'cfg(target_os = "linux")'.dependencies]

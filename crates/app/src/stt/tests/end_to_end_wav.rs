@@ -8,10 +8,10 @@ use tokio::sync::{broadcast, mpsc};
 use tracing::info;
 
 use crate::stt::{processor::SttProcessor, TranscriptionConfig, TranscriptionEvent};
+use crate::text_injection::{AsyncInjectionProcessor, InjectionConfig};
 use coldvox_audio::chunker::AudioFrame;
 use coldvox_audio::chunker::{AudioChunker, ChunkerConfig};
 use coldvox_audio::ring_buffer::{AudioProducer, AudioRingBuffer};
-// use crate::text_injection::{AsyncInjectionProcessor, InjectionProcessorConfig};
 use coldvox_vad::config::{UnifiedVadConfig, VadMode};
 use coldvox_vad::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 use coldvox_vad::types::VadEvent;
@@ -341,7 +341,7 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
     for expected in &expected_text_fragments {
         if all_text.contains(&expected.to_lowercase()) {
             found_any = true;
-            found_fragments.push(expected.clone());
+            found_fragments.push(expected.to_string());
         }
     }
 
@@ -476,5 +476,148 @@ mod tests {
             injector.inject("test").await.unwrap();
             assert_eq!(injector.get_injections(), vec!["test"]);
         });
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires WAV files, Vosk model, and text injection backend
+    async fn test_end_to_end_with_real_injection() {
+        // This test uses the real AsyncInjectionProcessor for comprehensive testing
+        // It requires:
+        // 1. A WAV file with known speech content
+        // 2. Vosk model downloaded and configured
+        // 3. A working text injection backend (e.g., clipboard, AT-SPI)
+
+        let test_wav =
+            std::env::var("TEST_WAV").unwrap_or_else(|_| "test_data/sample.wav".to_string());
+
+        if !std::path::Path::new(&test_wav).exists() {
+            eprintln!("Skipping test: WAV file '{}' not found", test_wav);
+            return;
+        }
+
+        info!("Starting comprehensive end-to-end test with real injection");
+
+        // Set up components
+        let ring_buffer = AudioRingBuffer::new(16384 * 4);
+        let (audio_producer, audio_consumer) = ring_buffer.split();
+
+        // Load WAV file
+        let mut wav_loader = WavFileLoader::new(&test_wav, SAMPLE_RATE_HZ).unwrap();
+        let test_duration = Duration::from_millis(wav_loader.duration_ms() + 2000);
+
+        // Set up audio chunker
+        let (audio_tx, _) = broadcast::channel::<AudioFrame>(200);
+        let frame_reader = coldvox_audio::frame_reader::FrameReader::new(
+            audio_consumer,
+            SAMPLE_RATE_HZ,
+            1, // mono
+            16384 * 4,
+            None,
+        );
+
+        let chunker_cfg = ChunkerConfig {
+            frame_size_samples: FRAME_SIZE_SAMPLES,
+            sample_rate_hz: SAMPLE_RATE_HZ,
+            resampler_quality: coldvox_audio::chunker::ResamplerQuality::Balanced,
+        };
+
+        let chunker = AudioChunker::new(frame_reader, audio_tx.clone(), chunker_cfg);
+        let chunker_handle = chunker.spawn();
+
+        // Set up VAD processor
+        let vad_cfg = UnifiedVadConfig {
+            mode: VadMode::Silero,
+            frame_size_samples: FRAME_SIZE_SAMPLES,
+            sample_rate_hz: SAMPLE_RATE_HZ,
+            ..Default::default()
+        };
+
+        let (vad_event_tx, vad_event_rx) = mpsc::channel::<VadEvent>(100);
+        let vad_audio_rx = audio_tx.subscribe();
+        let vad_handle = match crate::audio::vad_processor::VadProcessor::spawn(
+            vad_cfg,
+            vad_audio_rx,
+            vad_event_tx,
+            None,
+        ) {
+            Ok(handle) => handle,
+            Err(e) => {
+                eprintln!("Failed to spawn VAD processor: {}", e);
+                return;
+            }
+        };
+
+        // Set up STT processor
+        let (stt_transcription_tx, stt_transcription_rx) = mpsc::channel::<TranscriptionEvent>(100);
+        let stt_config = TranscriptionConfig {
+            enabled: true,
+            model_path: std::env::var("VOSK_MODEL_PATH")
+                .unwrap_or_else(|_| "models/vosk-model-small-en-us-0.15".to_string()),
+            partial_results: true,
+            max_alternatives: 1,
+            include_words: false,
+            buffer_size_ms: 512,
+        };
+
+        // Check if STT model exists
+        if !std::path::Path::new(&stt_config.model_path).exists() {
+            eprintln!(
+                "Vosk model not found at '{}'. Skipping test.",
+                stt_config.model_path
+            );
+            return;
+        }
+
+        let stt_audio_rx = audio_tx.subscribe();
+        let stt_processor =
+            match SttProcessor::new(stt_audio_rx, vad_event_rx, stt_transcription_tx, stt_config) {
+                Ok(processor) => processor,
+                Err(e) => {
+                    eprintln!("Failed to create STT processor: {}", e);
+                    return;
+                }
+            };
+        let stt_handle = tokio::spawn(async move {
+            stt_processor.run().await;
+        });
+
+        // Set up real injection processor
+        let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>(1);
+        let injection_config = InjectionConfig {
+            allow_ydotool: cfg!(feature = "text-injection-ydotool"),
+            allow_kdotool: cfg!(feature = "text-injection-kdotool"),
+            allow_enigo: cfg!(feature = "text-injection-enigo"),
+            allow_mki: cfg!(feature = "text-injection-mki"),
+            restore_clipboard: false,
+            inject_on_unknown_focus: true,
+            require_focus: false,
+            ..Default::default()
+        };
+
+        let injection_processor =
+            AsyncInjectionProcessor::new(injection_config, stt_transcription_rx, shutdown_rx, None);
+
+        let injection_handle = tokio::spawn(async move { injection_processor.run().await });
+
+        // Start streaming WAV data
+        let streaming_handle =
+            tokio::spawn(async move { wav_loader.stream_to_ring_buffer(audio_producer).await });
+
+        info!("Pipeline started, running for {:?}", test_duration);
+
+        // Wait for test duration
+        tokio::time::sleep(test_duration).await;
+
+        // Shutdown
+        let _ = shutdown_tx.send(()).await;
+        chunker_handle.abort();
+        vad_handle.abort();
+        stt_handle.abort();
+        injection_handle.abort();
+        streaming_handle.abort();
+
+        info!("Comprehensive end-to-end test completed");
+        // Note: With real injection, we can't easily verify the output
+        // This test mainly ensures the pipeline runs without errors
     }
 }

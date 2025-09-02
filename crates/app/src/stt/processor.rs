@@ -232,7 +232,7 @@ impl SttProcessor {
                 // Send the entire buffer to the transcriber at once
                 match coldvox_stt::EventBasedTranscriber::accept_frame(
                     &mut self.transcriber,
-                    &audio_buffer,
+                    audio_buffer,
                 ) {
                     Ok(Some(event)) => {
                         self.send_event(event).await;
