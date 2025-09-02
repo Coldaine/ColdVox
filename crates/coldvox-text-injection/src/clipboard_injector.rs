@@ -64,7 +64,6 @@ impl TextInjector for ClipboardInjector {
 
         match result {
             Ok(Ok(_)) => {
-                let _duration = start.elapsed().as_millis() as u64;
                 // TODO: Fix metrics - self.metrics.record_success requires &mut self
                 info!("Clipboard set successfully ({} chars)", text.len());
                 Ok(())

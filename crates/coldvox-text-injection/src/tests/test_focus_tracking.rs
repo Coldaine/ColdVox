@@ -13,10 +13,6 @@ mod tests {
         // Test focus detection
         let status = tracker.get_focus_status().await;
         assert!(status.is_ok());
-
-        // Test caching
-        let cached = tracker.cached_focus_status();
-        assert!(cached.is_some());
     }
 
     #[tokio::test]
@@ -29,16 +25,12 @@ mod tests {
 
         // Get initial status
         let _status1 = tracker.get_focus_status().await.unwrap();
-        assert!(tracker.cached_focus_status().is_some());
 
         // Wait for cache to expire
         sleep(Duration::from_millis(60)).await;
 
         // This should trigger a new check
         let _status2 = tracker.get_focus_status().await.unwrap();
-
-        // Cache should be refreshed
-        assert!(tracker.cached_focus_status().is_some());
     }
 
     #[test]

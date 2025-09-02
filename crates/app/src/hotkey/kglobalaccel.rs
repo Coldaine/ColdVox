@@ -87,30 +87,67 @@ impl HotkeyBackend for KGlobalAccelBackend {
             conn,
             "org.kde.kglobalaccel",
             "/kglobalaccel",
-            "org.kde.kglobalaccel.KGlobalAccel",
+            "org.kde.KGlobalAccel",
         )
         .await?;
 
-        // Try to set the shortcut keys
-        // The setShortcutKeys method signature is typically:
-        // (objectPath, shortcutId, keys, globalShortcutContext)
-        let component_path = format!("/component/{}", self.component_name);
-        let action_id = format!("{}|{}", self.component_name, self.action_name);
+        // First, register the component and action using doRegister
+        // doRegister signature: as (array of strings)
+        let action_id = vec![
+            self.component_name.clone(),
+            self.action_name.clone(),
+            "ColdVox Push-to-Talk".to_string(),
+            "ColdVox".to_string(),
+        ];
 
-        // Try to call setShortcutKeys method
+        match proxy.call_method("doRegister", &(action_id.clone(),)).await {
+            Ok(_) => {
+                tracing::debug!("Component/action registered with KGlobalAccel");
+            }
+            Err(e) => {
+                tracing::debug!("Could not register component (may already exist): {}", e);
+            }
+        }
+
+        // Now try to set default shortcut
+        // setShortcut signature: asaiu -> ai
+        // Parameters: action_list, key_codes, flags
+
+        // Qt key codes for Meta+Ctrl
+        // Meta modifier = 0x08000000
+        // Ctrl modifier = 0x04000000
+        // Combined: Meta+Ctrl (without Space)
+        let key_code = vec![
+            0x08000000_i32 | 0x04000000_i32, // Meta+Ctrl
+        ];
+
+        // Build the action specifier
+        let action_spec = vec![
+            self.component_name.clone(),
+            self.action_name.clone(),
+            "Push-to-Talk".to_string(),
+            "ColdVox".to_string(),
+        ];
+
         match proxy
             .call_method(
-                "setShortcutKeys",
+                "setShortcut",
                 &(
-                    &action_id,             // action identifier
-                    vec![default_shortcut], // list of shortcuts
-                    0u32,                   // global context (0 = default)
+                    action_spec, // as: action specifier
+                    key_code,    // ai: key codes
+                    0x3u32,      // u: flags (3 = present | active | default)
                 ),
             )
             .await
         {
             Ok(_) => {
-                tracing::info!("Successfully registered shortcut: {}", default_shortcut);
+                tracing::info!(
+                    "Successfully registered shortcut: {} (Left Super + Left Ctrl)",
+                    default_shortcut
+                );
+                tracing::info!(
+                    "The shortcut should now be active. Press Meta+Ctrl to activate push-to-talk."
+                );
             }
             Err(e) => {
                 tracing::warn!("Could not programmatically set shortcut: {}", e);
@@ -242,6 +279,7 @@ impl KGlobalAccelBackend {
 
         // Track pressed state for debouncing
         let mut is_pressed = false;
+        let mut press_timestamp_ms = 0u64;
 
         loop {
             // Check if we should warn about no events
@@ -266,6 +304,7 @@ impl KGlobalAccelBackend {
                             // Debounce: only send if not already pressed
                             if !is_pressed {
                                 is_pressed = true;
+                                press_timestamp_ms = ts_ms;  // Store press timestamp
 
                                 tracing::debug!("Hotkey pressed: {} / {}", component, action);
 
@@ -312,7 +351,7 @@ impl KGlobalAccelBackend {
                                 let _ = event_tx
                                     .send(VadEvent::SpeechEnd {
                                         timestamp_ms: ts_ms,
-                                        duration_ms: 0,
+                                        duration_ms: ts_ms - press_timestamp_ms,  // Calculate actual duration
                                         energy_db: 0.0,
                                     })
                                     .await;

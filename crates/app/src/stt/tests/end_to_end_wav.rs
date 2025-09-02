@@ -12,6 +12,7 @@ use crate::text_injection::{AsyncInjectionProcessor, InjectionConfig};
 use coldvox_audio::chunker::AudioFrame;
 use coldvox_audio::chunker::{AudioChunker, ChunkerConfig};
 use coldvox_audio::ring_buffer::{AudioProducer, AudioRingBuffer};
+use coldvox_audio::DeviceConfig;
 use coldvox_vad::config::{UnifiedVadConfig, VadMode};
 use coldvox_vad::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 use coldvox_vad::types::VadEvent;
@@ -56,13 +57,15 @@ impl MockTextInjector {
 pub struct WavFileLoader {
     samples: Vec<i16>,
     sample_rate: u32,
+    channels: u16,
     current_pos: usize,
-    frame_size: usize,
+    frame_size_total: usize,
 }
 
 impl WavFileLoader {
-    /// Load WAV file and prepare for streaming
-    pub fn new<P: AsRef<Path>>(wav_path: P, target_sample_rate: u32) -> Result<Self> {
+    /// Load WAV file and prepare for streaming (no resample/mono conversion)
+    /// This mirrors live capture: raw device rate/channels into ring buffer.
+    pub fn new<P: AsRef<Path>>(wav_path: P) -> Result<Self> {
         let mut reader = WavReader::open(wav_path)?;
         let spec = reader.spec();
 
@@ -71,58 +74,38 @@ impl WavFileLoader {
             spec.sample_rate, spec.channels, spec.bits_per_sample
         );
 
-        // Read all samples
+        // Read all samples as interleaved i16
         let samples: Vec<i16> = reader.samples::<i16>().collect::<Result<Vec<_>, _>>()?;
 
-        // Convert to mono if stereo
-        let mono_samples = if spec.channels == 2 {
-            samples
-                .chunks(2)
-                .map(|chunk| ((chunk[0] as i32 + chunk[1] as i32) / 2) as i16)
-                .collect()
-        } else {
-            samples
-        };
-
-        // Resample if necessary (simple linear interpolation)
-        let final_samples = if spec.sample_rate != target_sample_rate {
-            let ratio = target_sample_rate as f32 / spec.sample_rate as f32;
-            let new_len = (mono_samples.len() as f32 * ratio) as usize;
-            let mut resampled = Vec::with_capacity(new_len);
-
-            for i in 0..new_len {
-                let src_idx = i as f32 / ratio;
-                let idx = src_idx as usize;
-                if idx < mono_samples.len() {
-                    resampled.push(mono_samples[idx]);
-                }
-            }
-            resampled
-        } else {
-            mono_samples
-        };
-
         info!(
-            "WAV loaded: {} samples at {} Hz",
-            final_samples.len(),
-            target_sample_rate
+            "WAV loaded: {} samples (interleaved) at {} Hz, {} channels",
+            samples.len(),
+            spec.sample_rate,
+            spec.channels
         );
 
+        // Choose a chunk size close to ~32ms per channel to emulate callback pacing
+        // FRAME_SIZE_SAMPLES is per mono channel; scale by channel count for total i16 samples
+        let frame_size_total = FRAME_SIZE_SAMPLES * spec.channels as usize;
+
         Ok(Self {
-            samples: final_samples,
-            sample_rate: target_sample_rate,
+            samples,
+            sample_rate: spec.sample_rate,
+            channels: spec.channels,
             current_pos: 0,
-            frame_size: FRAME_SIZE_SAMPLES,
+            frame_size_total,
         })
     }
 
     /// Stream audio data to ring buffer with realistic timing
     pub async fn stream_to_ring_buffer(&mut self, mut producer: AudioProducer) -> Result<()> {
-        let frame_duration =
-            Duration::from_millis((self.frame_size * 1000) as u64 / self.sample_rate as u64);
+        // Duration for one chunk of size `frame_size_total` (interleaved across channels)
+        // time = samples_total / (sample_rate * channels)
+        let nanos_per_sample_total =
+            1_000_000_000u64 / (self.sample_rate as u64 * self.channels as u64);
 
         while self.current_pos < self.samples.len() {
-            let end_pos = (self.current_pos + self.frame_size).min(self.samples.len());
+            let end_pos = (self.current_pos + self.frame_size_total).min(self.samples.len());
             let chunk = &self.samples[self.current_pos..end_pos];
 
             // Try to write chunk to ring buffer
@@ -139,8 +122,10 @@ impl WavFileLoader {
 
             self.current_pos = end_pos;
 
-            // Maintain realistic timing
-            tokio::time::sleep(frame_duration).await;
+            // Maintain realistic timing for the total interleaved samples written
+            let written_total = chunk.len() as u64;
+            let sleep_nanos = written_total * nanos_per_sample_total;
+            tokio::time::sleep(Duration::from_nanos(sleep_nanos)).await;
         }
 
         info!(
@@ -151,7 +136,15 @@ impl WavFileLoader {
     }
 
     pub fn duration_ms(&self) -> u64 {
-        (self.samples.len() * 1000) as u64 / self.sample_rate as u64
+        // Total interleaved samples divided by (rate * channels)
+        ((self.samples.len() as u64) * 1000) / (self.sample_rate as u64 * self.channels as u64)
+    }
+
+    pub fn sample_rate(&self) -> u32 {
+        self.sample_rate
+    }
+    pub fn channels(&self) -> u16 {
+        self.channels
     }
 }
 
@@ -247,16 +240,23 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
     let ring_buffer = AudioRingBuffer::new(16384 * 4);
     let (audio_producer, audio_consumer) = ring_buffer.split();
 
-    // Load WAV file
-    let mut wav_loader = WavFileLoader::new(wav_path, SAMPLE_RATE_HZ)?;
+    // Load WAV file (keep native rate/channels)
+    let mut wav_loader = WavFileLoader::new(wav_path.as_ref())?;
     let test_duration = Duration::from_millis(wav_loader.duration_ms() + 2000); // Add buffer time
 
     // Set up audio chunker
     let (audio_tx, _) = broadcast::channel::<AudioFrame>(200);
+    // Emulate device config broadcast like live capture
+    let (cfg_tx, cfg_rx) = broadcast::channel::<DeviceConfig>(8);
+    let _ = cfg_tx.send(DeviceConfig {
+        sample_rate: wav_loader.sample_rate(),
+        channels: wav_loader.channels(),
+    });
+
     let frame_reader = coldvox_audio::frame_reader::FrameReader::new(
         audio_consumer,
-        SAMPLE_RATE_HZ,
-        1, // mono
+        wav_loader.sample_rate(),
+        wav_loader.channels(),
         16384 * 4,
         None,
     );
@@ -267,7 +267,8 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
         resampler_quality: coldvox_audio::chunker::ResamplerQuality::Balanced,
     };
 
-    let chunker = AudioChunker::new(frame_reader, audio_tx.clone(), chunker_cfg);
+    let chunker =
+        AudioChunker::new(frame_reader, audio_tx.clone(), chunker_cfg).with_device_config(cfg_rx);
     let chunker_handle = chunker.spawn();
 
     // Set up VAD processor
@@ -522,16 +523,23 @@ mod tests {
         let ring_buffer = AudioRingBuffer::new(16384 * 4);
         let (audio_producer, audio_consumer) = ring_buffer.split();
 
-        // Load WAV file
-        let mut wav_loader = WavFileLoader::new(&test_wav, SAMPLE_RATE_HZ).unwrap();
+        // Load WAV file (native rate/channels)
+        let mut wav_loader = WavFileLoader::new(&test_wav).unwrap();
         let test_duration = Duration::from_millis(wav_loader.duration_ms() + 2000);
 
         // Set up audio chunker
         let (audio_tx, _) = broadcast::channel::<AudioFrame>(200);
+        // Emulate device config broadcast like live capture
+        let (cfg_tx, cfg_rx) = broadcast::channel::<DeviceConfig>(8);
+        let _ = cfg_tx.send(DeviceConfig {
+            sample_rate: wav_loader.sample_rate(),
+            channels: wav_loader.channels(),
+        });
+
         let frame_reader = coldvox_audio::frame_reader::FrameReader::new(
             audio_consumer,
-            SAMPLE_RATE_HZ,
-            1, // mono
+            wav_loader.sample_rate(),
+            wav_loader.channels(),
             16384 * 4,
             None,
         );
@@ -542,7 +550,8 @@ mod tests {
             resampler_quality: coldvox_audio::chunker::ResamplerQuality::Balanced,
         };
 
-        let chunker = AudioChunker::new(frame_reader, audio_tx.clone(), chunker_cfg);
+        let chunker = AudioChunker::new(frame_reader, audio_tx.clone(), chunker_cfg)
+            .with_device_config(cfg_rx);
         let chunker_handle = chunker.spawn();
 
         // Set up VAD processor

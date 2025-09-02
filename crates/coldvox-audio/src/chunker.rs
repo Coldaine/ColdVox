@@ -169,7 +169,11 @@ impl ChunkerWorker {
                 self.buffer.extend(processed_samples);
                 self.flush_ready_frames().await;
             } else {
-                time::sleep(Duration::from_millis(1)).await;
+                // Sleep for 25ms when no data available. At 16kHz with 512-sample chunks,
+                // new chunks arrive every 32ms. Polling at 40Hz (25ms) ensures we check
+                // at least once per chunk period while reducing CPU usage by ~96% compared
+                // to 1ms polling. Could use event-driven design in future, but this works well.
+                time::sleep(Duration::from_millis(25)).await;
             }
         }
 

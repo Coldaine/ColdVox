@@ -21,7 +21,7 @@ chrono = { version = "0.4", features = ["serde"] }
 coldvox-stt = { path = "../coldvox-stt" }
 
 # Backend dependencies (all optional)
-atspi = { version = "0.22", optional = true }
+atspi = { version = "0.28", optional = true }
 wl-clipboard-rs = { version = "0.8", optional = true }  
 enigo = { version = "0.2", optional = true }
 device_query = { version = "2.1", optional = true }

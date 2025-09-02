@@ -120,7 +120,7 @@ impl YdotoolInjector {
 
     /// Trigger paste action using ydotool (Ctrl+V)
     async fn trigger_paste(&self) -> Result<(), InjectionError> {
-        let start = std::time::Instant::now();
+        let _start = std::time::Instant::now();
 
         // Use tokio to run the command with timeout
         let output = timeout(
@@ -141,8 +141,6 @@ impl YdotoolInjector {
             )));
         }
 
-        let _duration = start.elapsed().as_millis() as u64;
-        // TODO: Fix metrics - self.metrics.record_success requires &mut self
         info!("Successfully triggered paste action via ydotool");
 
         Ok(())
@@ -150,7 +148,7 @@ impl YdotoolInjector {
 
     /// Type text directly using ydotool
     async fn _type_text(&self, text: &str) -> Result<(), InjectionError> {
-        let start = std::time::Instant::now();
+        let _start = std::time::Instant::now();
 
         // Use tokio to run the command with timeout
         let output = timeout(
@@ -171,8 +169,6 @@ impl YdotoolInjector {
             )));
         }
 
-        let _duration = start.elapsed().as_millis() as u64;
-        // TODO: Fix metrics - self.metrics.record_success requires &mut self
         info!("Successfully typed text via ydotool ({} chars)", text.len());
 
         Ok(())

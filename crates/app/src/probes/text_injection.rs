@@ -1,7 +1,6 @@
 use crate::probes::common::{LiveTestResult, TestContext, TestError};
 use crate::text_injection::manager::StrategyManager;
 use crate::text_injection::types::{InjectionConfig, InjectionMetrics};
-use coldvox_telemetry::pipeline_metrics::PipelineMetrics;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -13,8 +12,6 @@ impl TextInjectionProbe {
     pub async fn run(_ctx: &TestContext) -> Result<LiveTestResult, TestError> {
         let config = InjectionConfig::default();
 
-        // Create shared metrics
-        let _metrics = Arc::new(PipelineMetrics::default());
         let injection_metrics = Arc::new(std::sync::Mutex::new(InjectionMetrics::default()));
 
         // Create strategy manager
