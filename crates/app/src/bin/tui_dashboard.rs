@@ -11,9 +11,7 @@ use coldvox_audio::frame_reader::FrameReader;
 use coldvox_audio::ring_buffer::AudioRingBuffer;
 use coldvox_foundation::error::AudioConfig;
 #[cfg(feature = "vosk")]
-use coldvox_stt::{
-    processor::SttProcessor, TranscriptionConfig, TranscriptionEvent,
-};
+use coldvox_stt::{processor::SttProcessor, TranscriptionConfig, TranscriptionEvent};
 #[cfg(feature = "vosk")]
 use coldvox_stt_vosk::VoskTranscriber;
 use coldvox_telemetry::pipeline_metrics::{PipelineMetrics, PipelineStage};

@@ -104,8 +104,7 @@ async fn run_processor_demo() -> Result<(), Box<dyn std::error::Error>> {
         // In a real scenario, this would be handled by the async processor
         // For demo purposes, we'll create a temporary strategy manager
         let config_clone = config.clone();
-        let mut temp_manager =
-            StrategyManager::new(config_clone, injection_metrics.clone()).await;
+        let mut temp_manager = StrategyManager::new(config_clone, injection_metrics.clone()).await;
         match temp_manager.inject(&text).await {
             Ok(()) => {
                 info!("✅ Injection successful!");

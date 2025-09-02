@@ -9,7 +9,6 @@ use coldvox_audio::{
 };
 use coldvox_foundation::*;
 use coldvox_stt::TranscriptionConfig;
-use coldvox_stt::{processor::SttProcessor, TranscriptionEvent};
 #[cfg(feature = "vosk")]
 use coldvox_stt_vosk::VoskTranscriber;
 
