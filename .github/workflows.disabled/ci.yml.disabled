@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+  workflow_dispatch:  # Allow manual triggering for agents
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Core CI using org workflow with workspace support
+  common-ci:
+    uses: coldaine/.github/.github/workflows/lang-ci.yml@v1
+    secrets: inherit
+    with:
+      run_rust: true
+      run_python: false
+      rust_no_default_features: true   # Baseline without Vosk
+      rust_msrv: "1.70.0"             # Minimum supported version
+      use_nextest: true                # Faster test execution
+      use_sccache: true                # Build caching
+      run_cargo_deny: true             # License/security checks
+      test_timeout_minutes: 30
+      max_parallel: 4
+      # Crate-specific system dependencies
+      crate_system_deps: |
+        {"coldvox-audio":"libasound2-dev","coldvox-text-injection":"libxdo-dev libxtst-dev","coldvox-gui":"libgl1-mesa-dev libxcursor-dev"}
+
+  # Validate lockfile is committed and up-to-date
+  lockfile-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3df4ab11eba7bda6032a0b82a6bb43b11571feac # v4.1.7
+      - uses: dtolnay/rust-toolchain@1482605bfc5719782e1267fd0c0cc350fe7646b8 # v1
+        with:
+          toolchain: stable
+      - name: Validate lockfile
+        run: |
+          cargo check --locked --workspace
+          if git diff --exit-code Cargo.lock; then
+            echo "✅ Lockfile is up to date"
+          else
+            echo "❌ Cargo.lock is out of date"
+            exit 1
+          fi
+
+  # Quick validation of key features
+  feature-smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3df4ab11eba7bda6032a0b82a6bb43b11571feac # v4.1.7
+      - uses: dtolnay/rust-toolchain@1482605bfc5719782e1267fd0c0cc350fe7646b8 # v1
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84 # v2.7.3
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libxdo-dev libxtst-dev
+      - name: Check key features
+        run: |
+          cargo check --locked -p coldvox-text-injection
+          cargo check --locked -p coldvox-app --features text-injection
+          cargo check --locked -p coldvox-app --features examples
