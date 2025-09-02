@@ -4,12 +4,12 @@
 // for the speech recognition model, leading to more accurate transcriptions.
 // Text injection happens immediately (0ms timeout) after transcription completes.
 
-use tokio::sync::{broadcast, mpsc};
+use crate::stt::{TranscriptionConfig, TranscriptionEvent};
 use coldvox_audio::chunker::AudioFrame;
-use crate::stt::{TranscriptionEvent, TranscriptionConfig};
 use coldvox_vad::types::VadEvent;
 use std::sync::Arc;
 use std::time::Instant;
+use tokio::sync::{broadcast, mpsc};
 
 #[cfg(feature = "vosk")]
 use crate::stt::VoskTranscriber;
@@ -82,10 +82,10 @@ impl SttProcessor {
         if !config.enabled {
             tracing::info!("STT processor disabled in configuration");
         }
-        
+
         // Create Vosk transcriber with configuration
         let transcriber = VoskTranscriber::new(config.clone(), 16000.0)?;
-        
+
         Ok(Self {
             audio_rx,
             vad_event_rx,
@@ -96,7 +96,7 @@ impl SttProcessor {
             config,
         })
     }
-    
+
     /// Create with default configuration (backward compatibility)
     pub fn new_with_default(
         audio_rx: broadcast::Receiver<AudioFrame>,
@@ -104,7 +104,7 @@ impl SttProcessor {
     ) -> Result<Self, String> {
         // Create a simple event channel for compatibility
         let (event_tx, _event_rx) = mpsc::channel(100);
-        
+
         // Use default config with the default model path
         let config = TranscriptionConfig {
             enabled: true,
@@ -114,15 +114,15 @@ impl SttProcessor {
             include_words: false,
             buffer_size_ms: 512,
         };
-        
+
         Self::new(audio_rx, vad_event_rx, event_tx, config)
     }
-    
+
     /// Get current metrics
     pub fn metrics(&self) -> SttMetrics {
         self.metrics.read().clone()
     }
-    
+
     /// Run the STT processor loop
     pub async fn run(mut self) {
         // Exit early if STT is disabled
@@ -133,7 +133,7 @@ impl SttProcessor {
             );
             return;
         }
-        
+
         tracing::info!(
             target: "stt",
             "STT processor starting (model: {}, partials: {}, words: {})",
@@ -141,7 +141,7 @@ impl SttProcessor {
             self.config.partial_results,
             self.config.include_words
         );
-        
+
         loop {
             tokio::select! {
                 // Listen for VAD events
@@ -155,19 +155,19 @@ impl SttProcessor {
                         }
                     }
                 }
-                
+
                 // Listen for audio frames
                 Ok(frame) = self.audio_rx.recv() => {
                     self.handle_audio_frame(frame).await;
                 }
-                
+
                 else => {
                     tracing::info!(target: "stt", "STT processor shutting down: all channels closed");
                     break;
                 }
             }
         }
-        
+
         // Log final metrics
         let metrics = self.metrics.read();
         tracing::info!(
@@ -181,28 +181,28 @@ impl SttProcessor {
             metrics.error_count
         );
     }
-    
+
     /// Handle speech start event
     async fn handle_speech_start(&mut self, timestamp_ms: u64) {
         tracing::debug!(target: "stt", "STT processor received SpeechStart at {}ms", timestamp_ms);
-        
+
         // Store the start time as Instant for duration calculations
         let start_instant = Instant::now();
-        
+
         self.state = UtteranceState::SpeechActive {
             started_at: start_instant,
             audio_buffer: Vec::with_capacity(16000 * 10), // Pre-allocate for up to 10 seconds
             frames_buffered: 0,
         };
-        
+
         // Reset transcriber for new utterance
         if let Err(e) = coldvox_stt::EventBasedTranscriber::reset(&mut self.transcriber) {
             tracing::warn!(target: "stt", "Failed to reset transcriber: {}", e);
         }
-        
+
         tracing::info!(target: "stt", "Started buffering audio for new utterance");
     }
-    
+
     /// Handle speech end event
     async fn handle_speech_end(&mut self, timestamp_ms: u64, duration_ms: Option<u64>) {
         tracing::debug!(
@@ -211,24 +211,32 @@ impl SttProcessor {
             timestamp_ms,
             duration_ms
         );
-        
+
         // Process the buffered audio all at once
-        if let UtteranceState::SpeechActive { audio_buffer, frames_buffered, .. } = &self.state {
+        if let UtteranceState::SpeechActive {
+            audio_buffer,
+            frames_buffered,
+            ..
+        } = &self.state
+        {
             let buffer_size = audio_buffer.len();
             tracing::info!(
-                target: "stt", 
+                target: "stt",
                 "Processing buffered audio: {} samples ({:.2}s), {} frames",
                 buffer_size,
                 buffer_size as f32 / 16000.0,
                 frames_buffered
             );
-            
+
             if !audio_buffer.is_empty() {
                 // Send the entire buffer to the transcriber at once
-                match coldvox_stt::EventBasedTranscriber::accept_frame(&mut self.transcriber, &audio_buffer) {
+                match coldvox_stt::EventBasedTranscriber::accept_frame(
+                    &mut self.transcriber,
+                    &audio_buffer,
+                ) {
                     Ok(Some(event)) => {
                         self.send_event(event).await;
-                        
+
                         // Update metrics
                         let mut metrics = self.metrics.write();
                         metrics.frames_out += frames_buffered;
@@ -239,25 +247,25 @@ impl SttProcessor {
                     }
                     Err(e) => {
                         tracing::error!(target: "stt", "Failed to process buffered audio: {}", e);
-                        
+
                         // Send error event
                         let error_event = TranscriptionEvent::Error {
                             code: "BUFFER_PROCESS_ERROR".to_string(),
                             message: e,
                         };
                         self.send_event(error_event).await;
-                        
+
                         // Update metrics
                         self.metrics.write().error_count += 1;
                     }
                 }
             }
-            
+
             // Finalize to get any remaining transcription
             match coldvox_stt::EventBasedTranscriber::finalize_utterance(&mut self.transcriber) {
                 Ok(Some(event)) => {
                     self.send_event(event).await;
-                    
+
                     // Update metrics
                     let mut metrics = self.metrics.write();
                     metrics.final_count += 1;
@@ -268,40 +276,46 @@ impl SttProcessor {
                 }
                 Err(e) => {
                     tracing::error!(target: "stt", "Failed to finalize transcription: {}", e);
-                    
+
                     // Send error event
                     let error_event = TranscriptionEvent::Error {
                         code: "FINALIZE_ERROR".to_string(),
                         message: e,
                     };
                     self.send_event(error_event).await;
-                    
+
                     // Update metrics
                     self.metrics.write().error_count += 1;
                 }
             }
         }
-        
+
         self.state = UtteranceState::Idle;
     }
-    
+
     /// Handle incoming audio frame
     async fn handle_audio_frame(&mut self, frame: AudioFrame) {
         // Update metrics
         self.metrics.write().frames_in += 1;
-        
+
         // Only buffer if speech is active
-        if let UtteranceState::SpeechActive { ref mut audio_buffer, ref mut frames_buffered, .. } = &mut self.state {
+        if let UtteranceState::SpeechActive {
+            ref mut audio_buffer,
+            ref mut frames_buffered,
+            ..
+        } = &mut self.state
+        {
             // Convert f32 samples back to i16
-            let i16_samples: Vec<i16> = frame.samples
+            let i16_samples: Vec<i16> = frame
+                .samples
                 .iter()
                 .map(|&s| (s * i16::MAX as f32) as i16)
                 .collect();
-            
+
             // Buffer the audio frame
             audio_buffer.extend_from_slice(&i16_samples);
             *frames_buffered += 1;
-            
+
             // Log periodically to show we're buffering
             if *frames_buffered % 100 == 0 {
                 tracing::debug!(
@@ -314,7 +328,7 @@ impl SttProcessor {
             }
         }
     }
-    
+
     /// Send transcription event
     async fn send_event(&self, event: TranscriptionEvent) {
         // Log the event
@@ -330,13 +344,12 @@ impl SttProcessor {
                 tracing::error!(target: "stt", "Error [{}]: {}", code, message);
             }
         }
-        
+
         // Send to channel with backpressure - wait if channel is full
         // Use timeout to prevent indefinite blocking
-        match tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            self.event_tx.send(event)
-        ).await {
+        match tokio::time::timeout(std::time::Duration::from_secs(5), self.event_tx.send(event))
+            .await
+        {
             Ok(Ok(())) => {
                 // Successfully sent
             }
@@ -368,20 +381,25 @@ impl SttProcessor {
         tracing::info!("STT processor disabled - Vosk feature not enabled");
         Ok(Self)
     }
-    
+
     /// Stub method for backward compatibility
     pub fn new_with_default(
         _audio_rx: broadcast::Receiver<AudioFrame>,
         _vad_event_rx: mpsc::Receiver<VadEvent>,
     ) -> Result<Self, String> {
-        Self::new(_audio_rx, _vad_event_rx, mpsc::channel(1).0, TranscriptionConfig::default())
+        Self::new(
+            _audio_rx,
+            _vad_event_rx,
+            mpsc::channel(1).0,
+            TranscriptionConfig::default(),
+        )
     }
-    
+
     /// Get stub metrics
     pub fn metrics(&self) -> SttMetrics {
         SttMetrics::default()
     }
-    
+
     /// Run stub processor
     pub async fn run(self) {
         tracing::info!("STT processor stub running - no actual processing (Vosk feature disabled)");

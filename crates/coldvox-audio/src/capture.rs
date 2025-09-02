@@ -1,7 +1,7 @@
 use cpal::traits::{DeviceTrait, StreamTrait};
 use cpal::{SampleFormat, Stream, StreamConfig};
 
-use parking_lot::{RwLock, Mutex};
+use parking_lot::{Mutex, RwLock};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
@@ -11,7 +11,7 @@ use super::detector::SilenceDetector;
 use super::device::DeviceManager;
 // Test hook output
 
-use super::ring_buffer::{AudioProducer};
+use super::ring_buffer::AudioProducer;
 use super::watchdog::WatchdogTimer;
 use coldvox_foundation::{AudioConfig, AudioError};
 
@@ -46,7 +46,14 @@ impl AudioCaptureThread {
         config: AudioConfig,
         audio_producer: AudioProducer,
         device_name: Option<String>,
-    ) -> Result<(Self, DeviceConfig, tokio::sync::broadcast::Receiver<DeviceConfig>), AudioError> {
+    ) -> Result<
+        (
+            Self,
+            DeviceConfig,
+            tokio::sync::broadcast::Receiver<DeviceConfig>,
+        ),
+        AudioError,
+    > {
         let running = Arc::new(AtomicBool::new(false));
         let shutdown = running.clone();
         let device_config = Arc::new(RwLock::new(None::<DeviceConfig>));
@@ -111,7 +118,7 @@ impl AudioCaptureThread {
                     tracing::error!("All device candidates failed to produce audio; capture not started");
                     return;
                 };
-                
+
                 *device_config_clone.write() = Some(dev_cfg);
 
                 // Monitor for watchdog or error-triggered restarts
@@ -162,8 +169,10 @@ impl AudioCaptureThread {
             }
             thread::sleep(Duration::from_millis(50));
         }
-        
-        let cfg = cfg.ok_or_else(|| AudioError::Fatal("Failed to get device configuration within timeout".to_string()))?;
+
+        let cfg = cfg.ok_or_else(|| {
+            AudioError::Fatal("Failed to get device configuration within timeout".to_string())
+        })?;
 
         Ok((Self { handle, shutdown }, cfg, config_rx))
     }
@@ -211,8 +220,11 @@ impl AudioCapture {
             config_tx: None,
         })
     }
-    
-    pub fn with_config_channel(mut self, config_tx: tokio::sync::broadcast::Sender<DeviceConfig>) -> Self {
+
+    pub fn with_config_channel(
+        mut self,
+        config_tx: tokio::sync::broadcast::Sender<DeviceConfig>,
+    ) -> Self {
         self.config_tx = Some(config_tx);
         self
     }
@@ -221,9 +233,15 @@ impl AudioCapture {
         self.running.store(true, Ordering::SeqCst);
 
         let device = self.device_manager.open_device(device_name)?;
-    if let Ok(n) = device.name() { tracing::info!("Selected input device: {} (host: {:?})", n, self.device_manager.host_id()); }
+        if let Ok(n) = device.name() {
+            tracing::info!(
+                "Selected input device: {} (host: {:?})",
+                n,
+                self.device_manager.host_id()
+            );
+        }
         let (config, sample_format) = self.negotiate_config(&device)?;
-        
+
         let device_config = DeviceConfig {
             sample_rate: config.sample_rate.0,
             channels: config.channels,
@@ -273,7 +291,7 @@ impl AudioCapture {
             } else {
                 stats.active_frames.fetch_add(1, Ordering::Relaxed);
             }
-            
+
             // Use the shared producer
             if let Ok(written) = audio_producer.lock().write(i16_data) {
                 if written == i16_data.len() {
@@ -290,20 +308,18 @@ impl AudioCapture {
         // Build the CPAL input stream with proper conversion to i16
         // Use thread-local buffers to avoid allocations in the audio callback
         thread_local! {
-            static CONVERT_BUFFER: std::cell::RefCell<Vec<i16>> = std::cell::RefCell::new(Vec::new());
+            static CONVERT_BUFFER: std::cell::RefCell<Vec<i16>> = const { std::cell::RefCell::new(Vec::new()) };
         }
-        
+
         let stream = match sample_format {
-            SampleFormat::I16 => {
-                device.build_input_stream(
-                    &config,
-                    move |data: &[i16], _: &_| {
-                        handle_i16(data);
-                    },
-                    err_fn,
-                    None,
-                )?
-            }
+            SampleFormat::I16 => device.build_input_stream(
+                &config,
+                move |data: &[i16], _: &_| {
+                    handle_i16(data);
+                },
+                err_fn,
+                None,
+            )?,
             SampleFormat::F32 => {
                 device.build_input_stream(
                     &config,
@@ -376,7 +392,7 @@ impl AudioCapture {
                             converted.reserve(data.len());
                             for &s in data {
                                 let clamped = s.clamp(-1.0, 1.0);
-                                let v = (clamped * 32767.0).round() as i16;  // Now uses .round() like F32
+                                let v = (clamped * 32767.0).round() as i16; // Now uses .round() like F32
                                 converted.push(v);
                             }
                             handle_i16(&converted);
@@ -387,7 +403,9 @@ impl AudioCapture {
                 )?
             }
             other => {
-                return Err(AudioError::FormatNotSupported { format: format!("{:?}", other) });
+                return Err(AudioError::FormatNotSupported {
+                    format: format!("{:?}", other),
+                });
             }
         };
 
@@ -409,17 +427,14 @@ impl AudioCapture {
                 default_config.sample_format(),
             ));
         }
-        
+
         // Fallback to first available config
         if let Ok(configs) = device.supported_input_configs() {
             if let Some(config) = configs.into_iter().next() {
-                return Ok((
-                    config.with_max_sample_rate().into(),
-                    config.sample_format(),
-                ));
+                return Ok((config.with_max_sample_rate().into(), config.sample_format()));
             }
         }
-        
+
         Err(AudioError::FormatNotSupported {
             format: "No supported audio formats".to_string(),
         })
@@ -443,7 +458,9 @@ mod convert_tests {
         let src = [-1.0f32, -0.5, 0.0, 0.5, 1.0];
         let expected = [-32767i16, -16384, 0, 16384, 32767];
         let mut out = Vec::new();
-        for &s in &src { out.push((s.clamp(-1.0,1.0)*32767.0).round() as i16); }
+        for &s in &src {
+            out.push((s.clamp(-1.0, 1.0) * 32767.0).round() as i16);
+        }
         assert_eq!(&out[..], &expected);
     }
 
@@ -458,7 +475,8 @@ mod convert_tests {
     #[test]
     fn u32_to_i16_scaling() {
         let src = [0u32, 2_147_483_648u32, 4_294_967_295u32];
-        let out: Vec<i16> = src.iter()
+        let out: Vec<i16> = src
+            .iter()
             .map(|&s| ((s as i64 - 2_147_483_648i64) >> 16) as i16)
             .collect();
         assert_eq!(out[1], 0);
@@ -468,7 +486,10 @@ mod convert_tests {
     #[test]
     fn f64_to_i16_basic() {
         let src = [-1.0f64, -0.25, 0.25, 1.0];
-        let out: Vec<i16> = src.iter().map(|&s| (s.clamp(-1.0,1.0)*32767.0) as i16).collect();
+        let out: Vec<i16> = src
+            .iter()
+            .map(|&s| (s.clamp(-1.0, 1.0) * 32767.0) as i16)
+            .collect();
         assert_eq!(out.len(), 4);
         assert!(out[0] <= -32767 && out[3] >= 32766);
     }

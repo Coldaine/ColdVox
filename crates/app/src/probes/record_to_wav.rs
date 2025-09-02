@@ -1,5 +1,3 @@
-
-
 pub struct RecordToWav;
 
 // TODO: Implement proper LiveTest trait when available

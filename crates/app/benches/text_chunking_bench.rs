@@ -1,4 +1,6 @@
-use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput, black_box};
+use criterion::{
+    black_box, criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput,
+};
 
 // Old approach: allocate Vec<char> and chunk by character count
 fn chunk_old_collect(text: &str, chunk_chars: usize) -> usize {
@@ -19,10 +21,9 @@ fn chunk_new_iter(text: &str, chunk_chars: usize) -> usize {
     let mut count = 0usize;
     let mut chars_seen = 0usize;
     let mut start = 0usize;
-    let mut end_byte = 0usize;
     for (i, ch) in text.char_indices() {
         // end_byte should point after the current char
-        end_byte = i + ch.len_utf8();
+        let end_byte = i + ch.len_utf8();
         chars_seen += 1;
         if chars_seen == chunk_chars {
             let _chunk = &text[start..end_byte];

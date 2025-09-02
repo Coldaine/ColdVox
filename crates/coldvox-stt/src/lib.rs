@@ -19,7 +19,7 @@ pub fn next_utterance_id() -> u64 {
 }
 
 /// Core transcription interface
-/// 
+///
 /// This trait defines the minimal interface for streaming transcription.
 /// It's kept for backward compatibility - new implementations should use
 /// the event-based interface with TranscriptionEvent.
@@ -38,13 +38,13 @@ pub trait Transcriber {
 pub trait EventBasedTranscriber {
     /// Accept PCM16 audio and return transcription events
     fn accept_frame(&mut self, pcm: &[i16]) -> Result<Option<TranscriptionEvent>, String>;
-    
+
     /// Finalize current utterance and return final result
     fn finalize_utterance(&mut self) -> Result<Option<TranscriptionEvent>, String>;
-    
+
     /// Reset transcriber state for new utterance
     fn reset(&mut self) -> Result<(), String>;
-    
+
     /// Get current configuration
     fn config(&self) -> &TranscriptionConfig;
 }

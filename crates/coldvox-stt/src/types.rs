@@ -20,10 +20,7 @@ pub enum TranscriptionEvent {
         words: Option<Vec<WordInfo>>,
     },
     /// Transcription error
-    Error {
-        code: String,
-        message: String,
-    },
+    Error { code: String, message: String },
 }
 
 /// Word-level timing and confidence information

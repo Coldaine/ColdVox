@@ -4,19 +4,19 @@
 // - File output uses a non-blocking writer; logs/ is created if missing.
 // - Useful for post-session analysis even when the TUI is active.
 use clap::Parser;
+use coldvox_app::audio::vad_processor::VadProcessor;
+#[cfg(feature = "vosk")]
+use coldvox_app::stt::{processor::SttProcessor, TranscriptionConfig, TranscriptionEvent};
 use coldvox_audio::capture::AudioCaptureThread;
+use coldvox_audio::chunker::AudioFrame as VadFrame;
 use coldvox_audio::chunker::{AudioChunker, ChunkerConfig};
 use coldvox_audio::frame_reader::FrameReader;
 use coldvox_audio::ring_buffer::AudioRingBuffer;
-use coldvox_audio::chunker::AudioFrame as VadFrame;
-use coldvox_app::audio::vad_processor::VadProcessor;
 use coldvox_foundation::error::AudioConfig;
 use coldvox_telemetry::pipeline_metrics::{PipelineMetrics, PipelineStage};
 use coldvox_vad::config::{UnifiedVadConfig, VadMode};
 use coldvox_vad::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 use coldvox_vad::types::VadEvent;
-#[cfg(feature = "vosk")]
-use coldvox_app::stt::{processor::SttProcessor, TranscriptionConfig, TranscriptionEvent};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
@@ -50,7 +50,8 @@ fn init_logging(cli_level: &str) -> Result<(), Box<dyn std::error::Error>> {
     } else {
         std::env::var("RUST_LOG").unwrap_or_else(|_| "debug".to_string())
     };
-    let env_filter = EnvFilter::try_new(effective_level).unwrap_or_else(|_| EnvFilter::new("debug"));
+    let env_filter =
+        EnvFilter::try_new(effective_level).unwrap_or_else(|_| EnvFilter::new("debug"));
 
     // Only use file logging for TUI mode to avoid corrupting the display
     let file_layer = fmt::layer()
@@ -71,7 +72,11 @@ fn init_logging(cli_level: &str) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[derive(Parser)]
-#[command(author, version, about = "TUI Dashboard with real-time audio monitoring")]
+#[command(
+    author,
+    version,
+    about = "TUI Dashboard with real-time audio monitoring"
+)]
 struct Cli {
     /// Audio device name
     #[arg(short = 'D', long)]
@@ -176,7 +181,7 @@ impl Default for DashboardState {
             metrics: PipelineMetricsSnapshot {
                 current_rms: 0,
                 current_peak: 0,
-                audio_level_db: -900,  // -90.0 dB * 10
+                audio_level_db: -900, // -90.0 dB * 10
                 capture_fps: 0,
                 chunker_fps: 0,
                 vad_fps: 0,
@@ -388,16 +393,27 @@ async fn run_audio_pipeline(tx: mpsc::Sender<AppEvent>, device: String) {
     let rb_capacity = 16_384;
     let rb = AudioRingBuffer::new(rb_capacity);
     let (audio_producer, audio_consumer) = rb.split();
-    let (audio_thread, device_cfg, _config_rx) = match AudioCaptureThread::spawn(audio_config, audio_producer, device_option) {
-        Ok(thread_tuple) => thread_tuple,
-        Err(e) => {
-            let _ = tx.send(AppEvent::Log(LogLevel::Error, format!("Failed to create audio thread: {}", e))).await;
-            let _ = tx.send(AppEvent::PipelineStopped).await;
-            return;
-        }
-    };
+    let (audio_thread, device_cfg, _config_rx) =
+        match AudioCaptureThread::spawn(audio_config, audio_producer, device_option) {
+            Ok(thread_tuple) => thread_tuple,
+            Err(e) => {
+                let _ = tx
+                    .send(AppEvent::Log(
+                        LogLevel::Error,
+                        format!("Failed to create audio thread: {}", e),
+                    ))
+                    .await;
+                let _ = tx.send(AppEvent::PipelineStopped).await;
+                return;
+            }
+        };
 
-    let _ = tx.send(AppEvent::Log(LogLevel::Success, "Audio capture started".to_string())).await;
+    let _ = tx
+        .send(AppEvent::Log(
+            LogLevel::Success,
+            "Audio capture started".to_string(),
+        ))
+        .await;
 
     // Broadcast channel for audio frames
     let (audio_tx, _) = broadcast::channel::<VadFrame>(200);
@@ -416,25 +432,32 @@ async fn run_audio_pipeline(tx: mpsc::Sender<AppEvent>, device: String) {
         rb_capacity,
         Some(metrics.clone()),
     );
-    let chunker = AudioChunker::new(frame_reader, audio_tx.clone(), chunker_cfg).with_metrics(metrics.clone());
+    let chunker = AudioChunker::new(frame_reader, audio_tx.clone(), chunker_cfg)
+        .with_metrics(metrics.clone());
     let _chunker_handle = chunker.spawn();
 
     let vad_cfg = UnifiedVadConfig {
         mode: VadMode::Silero,
         frame_size_samples: FRAME_SIZE_SAMPLES,
-        sample_rate_hz: SAMPLE_RATE_HZ,  // Standard 16kHz - resampler will handle conversion
+        sample_rate_hz: SAMPLE_RATE_HZ, // Standard 16kHz - resampler will handle conversion
         ..Default::default()
     };
 
     let vad_audio_rx = audio_tx.subscribe();
-    let _vad_thread = match VadProcessor::spawn(vad_cfg, vad_audio_rx, event_tx, Some(metrics.clone())) {
-        Ok(h) => h,
-        Err(e) => {
-            let _ = tx.send(AppEvent::Log(LogLevel::Error, format!("Failed to spawn VAD: {}", e))).await;
-            let _ = tx.send(AppEvent::PipelineStopped).await;
-            return;
-        }
-    };
+    let _vad_thread =
+        match VadProcessor::spawn(vad_cfg, vad_audio_rx, event_tx, Some(metrics.clone())) {
+            Ok(h) => h,
+            Err(e) => {
+                let _ = tx
+                    .send(AppEvent::Log(
+                        LogLevel::Error,
+                        format!("Failed to spawn VAD: {}", e),
+                    ))
+                    .await;
+                let _ = tx.send(AppEvent::PipelineStopped).await;
+                return;
+            }
+        };
 
     let _ = tx.send(AppEvent::PipelineStarted).await;
 
@@ -460,7 +483,8 @@ async fn run_audio_pipeline(tx: mpsc::Sender<AppEvent>, device: String) {
         // STT config
         let stt_config = TranscriptionConfig {
             enabled: true,
-            model_path: std::env::var("VOSK_MODEL_PATH").unwrap_or_else(|_| "models/vosk-model-small-en-us-0.15".to_string()),
+            model_path: std::env::var("VOSK_MODEL_PATH")
+                .unwrap_or_else(|_| "models/vosk-model-small-en-us-0.15".to_string()),
             partial_results: true,
             max_alternatives: 1,
             include_words: false,
@@ -475,11 +499,18 @@ async fn run_audio_pipeline(tx: mpsc::Sender<AppEvent>, device: String) {
                 (Some(stt_transcription_rx), Some(stt_vad_tx))
             }
             Err(e) => {
-                let _ = tx.send(AppEvent::Log(LogLevel::Error, format!("Failed to create STT processor: {}", e))).await;
+                let _ = tx
+                    .send(AppEvent::Log(
+                        LogLevel::Error,
+                        format!("Failed to create STT processor: {}", e),
+                    ))
+                    .await;
                 (None, None)
             }
         }
-    } else { (None, None) };
+    } else {
+        (None, None)
+    };
 
     // Relay VAD events: to UI and to STT (if enabled)
     let (ui_vad_tx, mut ui_vad_rx) = mpsc::channel::<VadEvent>(200);
@@ -542,7 +573,12 @@ async fn run_audio_pipeline(tx: mpsc::Sender<AppEvent>, device: String) {
         }
     }
 
-    let _ = tx.send(AppEvent::Log(LogLevel::Info, "Stopping pipeline...".to_string())).await;
+    let _ = tx
+        .send(AppEvent::Log(
+            LogLevel::Info,
+            "Stopping pipeline...".to_string(),
+        ))
+        .await;
     // Stop audio thread
     audio_thread.stop();
 
@@ -561,10 +597,7 @@ fn draw_ui(f: &mut Frame, state: &DashboardState) {
 
     let top_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(60),
-            Constraint::Percentage(40),
-        ])
+        .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
         .split(main_chunks[0]);
 
     draw_audio_levels(f, top_chunks[0], state);
@@ -572,10 +605,7 @@ fn draw_ui(f: &mut Frame, state: &DashboardState) {
 
     let middle_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(50),
-            Constraint::Percentage(50),
-        ])
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
         .split(main_chunks[1]);
 
     draw_metrics(f, middle_chunks[0], state);
@@ -585,9 +615,7 @@ fn draw_ui(f: &mut Frame, state: &DashboardState) {
 }
 
 fn draw_audio_levels(f: &mut Frame, area: Rect, state: &DashboardState) {
-    let block = Block::default()
-        .title("Audio Levels")
-        .borders(Borders::ALL);
+    let block = Block::default().title("Audio Levels").borders(Borders::ALL);
 
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -606,15 +634,13 @@ fn draw_audio_levels(f: &mut Frame, area: Rect, state: &DashboardState) {
 
     let gauge = Gauge::default()
         .block(Block::default().title("Level"))
-        .gauge_style(
-            if level_percent > 80 {
-                Style::default().fg(Color::Red)
-            } else if level_percent > 60 {
-                Style::default().fg(Color::Yellow)
-            } else {
-                Style::default().fg(Color::Green)
-            }
-        )
+        .gauge_style(if level_percent > 80 {
+            Style::default().fg(Color::Red)
+        } else if level_percent > 60 {
+            Style::default().fg(Color::Yellow)
+        } else {
+            Style::default().fg(Color::Green)
+        })
         .percent(level_percent)
         .label(format!("{:.1} dB", db));
     f.render_widget(gauge, chunks[0]);
@@ -622,19 +648,21 @@ fn draw_audio_levels(f: &mut Frame, area: Rect, state: &DashboardState) {
     let rms_scaled = state.metrics.current_rms as f64 / 1000.0; // stored as RMS*1000
     let rms_db = if rms_scaled > 0.0 {
         20.0 * (rms_scaled / 32767.0).log10()
-    } else { -90.0 };
+    } else {
+        -90.0
+    };
     let peak = state.metrics.current_peak as f64;
     let peak_db = if peak > 0.0 {
         20.0 * (peak / 32767.0).log10()
-    } else { -90.0 };
-    
+    } else {
+        -90.0
+    };
+
     let db_text = Paragraph::new(format!("Peak: {:.1} dB | RMS: {:.1} dB", peak_db, rms_db))
         .alignment(Alignment::Center);
     f.render_widget(db_text, chunks[1]);
 
-    let sparkline_data: Vec<u64> = state.level_history.iter()
-        .map(|&v| v as u64)
-        .collect();
+    let sparkline_data: Vec<u64> = state.level_history.iter().map(|&v| v as u64).collect();
 
     let sparkline = Sparkline::default()
         .block(Block::default().title("History (60 samples)"))
@@ -679,29 +707,34 @@ fn draw_pipeline_flow(f: &mut Frame, area: Rect, state: &DashboardState) {
         };
 
         let indicator = if *active { "●" } else { "○" };
-    let count_text = match i {
+        let count_text = match i {
             0 => {
-                if state.has_metrics_snapshot { format!("{} events", state.metrics.capture_frames) } else { "N/A".to_string() }
-            },
+                if state.has_metrics_snapshot {
+                    format!("{} events", state.metrics.capture_frames)
+                } else {
+                    "N/A".to_string()
+                }
+            }
             1 => {
-                if state.has_metrics_snapshot { format!("{} events", state.metrics.chunker_frames) } else { "N/A".to_string() }
-            },
+                if state.has_metrics_snapshot {
+                    format!("{} events", state.metrics.chunker_frames)
+                } else {
+                    "N/A".to_string()
+                }
+            }
             2 => format!("{} events", state.vad_frames),
             3 => format!("{} events", state.speech_segments),
             _ => "".to_string(),
         };
         let text = format!("{} {} [{}]", indicator, name, count_text);
 
-        let paragraph = Paragraph::new(text)
-            .style(Style::default().fg(color));
+        let paragraph = Paragraph::new(text).style(Style::default().fg(color));
         f.render_widget(paragraph, chunks[i]);
     }
 }
 
 fn draw_metrics(f: &mut Frame, area: Rect, state: &DashboardState) {
-    let block = Block::default()
-        .title("Metrics")
-        .borders(Borders::ALL);
+    let block = Block::default().title("Metrics").borders(Borders::ALL);
 
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -710,9 +743,18 @@ fn draw_metrics(f: &mut Frame, area: Rect, state: &DashboardState) {
     let metrics_text = vec![
         Line::from(format!("Runtime: {}s", elapsed)),
         Line::from(""),
-        Line::from(format!("Capture FPS: {:.1}", state.metrics.capture_fps as f64 / 10.0)),
-        Line::from(format!("Chunker FPS: {:.1}", state.metrics.chunker_fps as f64 / 10.0)),
-        Line::from(format!("VAD FPS: {:.1}", state.metrics.vad_fps as f64 / 10.0)),
+        Line::from(format!(
+            "Capture FPS: {:.1}",
+            state.metrics.capture_fps as f64 / 10.0
+        )),
+        Line::from(format!(
+            "Chunker FPS: {:.1}",
+            state.metrics.chunker_fps as f64 / 10.0
+        )),
+        Line::from(format!(
+            "VAD FPS: {:.1}",
+            state.metrics.vad_fps as f64 / 10.0
+        )),
         Line::from(""),
         Line::from("Buffer Fill:"),
         Line::from(format!("  Capture: {}%", state.metrics.capture_buffer_fill)),
@@ -725,9 +767,7 @@ fn draw_metrics(f: &mut Frame, area: Rect, state: &DashboardState) {
 }
 
 fn draw_status(f: &mut Frame, area: Rect, state: &DashboardState) {
-    let block = Block::default()
-    .title("Status & VAD")
-        .borders(Borders::ALL);
+    let block = Block::default().title("Status & VAD").borders(Borders::ALL);
 
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -746,8 +786,14 @@ fn draw_status(f: &mut Frame, area: Rect, state: &DashboardState) {
     status_text.push(Line::from(vec![
         Span::raw("Pipeline: "),
         Span::styled(
-            if state.is_running { "RUNNING" } else { "STOPPED" },
-            Style::default().fg(status_color).add_modifier(Modifier::BOLD),
+            if state.is_running {
+                "RUNNING"
+            } else {
+                "STOPPED"
+            },
+            Style::default()
+                .fg(status_color)
+                .add_modifier(Modifier::BOLD),
         ),
     ]));
     status_text.push(Line::from(format!("Device: {}", state.selected_device)));
@@ -756,19 +802,32 @@ fn draw_status(f: &mut Frame, area: Rect, state: &DashboardState) {
         Span::raw("Speaking: "),
         Span::styled(
             if state.is_speaking { "YES" } else { "NO" },
-            Style::default().fg(if state.is_speaking { Color::Green } else { Color::Gray }),
+            Style::default().fg(if state.is_speaking {
+                Color::Green
+            } else {
+                Color::Gray
+            }),
         ),
     ]));
-    status_text.push(Line::from(format!("Speech Segments: {}", state.speech_segments)));
+    status_text.push(Line::from(format!(
+        "Speech Segments: {}",
+        state.speech_segments
+    )));
     status_text.push(Line::from(""));
     status_text.push(Line::from("Last VAD Event:"));
-    status_text.push(Line::from(state.last_vad_event.as_deref().unwrap_or("None")));
+    status_text.push(Line::from(
+        state.last_vad_event.as_deref().unwrap_or("None"),
+    ));
     #[cfg(feature = "vosk")]
     {
         status_text.push(Line::from(""));
         status_text.push(Line::from("Last Transcript (final):"));
         let txt = state.last_transcript.as_deref().unwrap_or("None");
-        let trunc = if txt.len() > 80 { format!("{}…", &txt[..80]) } else { txt.to_string() };
+        let trunc = if txt.len() > 80 {
+            format!("{}…", &txt[..80])
+        } else {
+            txt.to_string()
+        };
         status_text.push(Line::from(trunc));
     }
     status_text.push(Line::from(""));
@@ -780,18 +839,20 @@ fn draw_status(f: &mut Frame, area: Rect, state: &DashboardState) {
 }
 
 fn draw_logs(f: &mut Frame, area: Rect, state: &DashboardState) {
-    let block = Block::default()
-        .title("Logs")
-        .borders(Borders::ALL);
+    let block = Block::default().title("Logs").borders(Borders::ALL);
 
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    let start_time = state.logs.front()
+    let start_time = state
+        .logs
+        .front()
         .map(|e| e.timestamp)
         .unwrap_or_else(Instant::now);
 
-    let log_lines: Vec<Line> = state.logs.iter()
+    let log_lines: Vec<Line> = state
+        .logs
+        .iter()
         .rev()
         .take(inner.height as usize)
         .rev()
@@ -810,10 +871,7 @@ fn draw_logs(f: &mut Frame, area: Rect, state: &DashboardState) {
                     format!("[{:7.2}s] ", elapsed),
                     Style::default().fg(Color::Gray),
                 ),
-                Span::styled(
-                    &entry.message,
-                    Style::default().fg(color),
-                ),
+                Span::styled(&entry.message, Style::default().fg(color)),
             ])
         })
         .collect();

@@ -1,0 +1,76 @@
+name: Cross-Platform Tests
+
+on:
+  # Only on release preparation
+  pull_request:
+    branches: [main]
+    types: [labeled]
+  # Manual trigger
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: cross-platform-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Linux is primary platform - MUST pass
+  linux-test:
+    if: contains(github.event.label.name, 'release') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3df4ab11eba7bda6032a0b82a6bb43b11571feac # v4.1.7
+      - uses: dtolnay/rust-toolchain@1482605bfc5719782e1267fd0c0cc350fe7646b8 # v1
+        with:
+          toolchain: stable
+      - name: Install cargo-nextest
+        run: cargo install cargo-nextest --locked
+      - uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84 # v2.7.3
+      
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libxdo-dev libxtst-dev
+      
+      - name: Build
+        run: cargo build --workspace --locked --no-default-features
+      
+      - name: Test
+        run: cargo nextest run --workspace --locked --no-default-features
+  
+  # Windows is secondary platform - best effort
+  windows-test:
+    if: contains(github.event.label.name, 'release') || github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    continue-on-error: true  # Don't block releases on Windows issues
+    
+    steps:
+      - uses: actions/checkout@3df4ab11eba7bda6032a0b82a6bb43b11571feac # v4.1.7
+      - uses: dtolnay/rust-toolchain@1482605bfc5719782e1267fd0c0cc350fe7646b8 # v1
+        with:
+          toolchain: stable
+      - name: Install cargo-nextest (Windows)
+        run: cargo install cargo-nextest --locked
+      - uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84 # v2.7.3
+        with:
+          key: windows
+      
+      - name: Build (Windows)
+        run: cargo build --workspace --locked --no-default-features
+      
+      - name: Test (Windows)
+        run: cargo nextest run --workspace --locked --no-default-features
+      
+      - name: Upload Windows artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0
+        with:
+          name: windows-failure-artifacts
+          path: |
+            target/debug/**/*.log
+          retention-days: 3

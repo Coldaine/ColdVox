@@ -1,6 +1,6 @@
 use crate::{
-    engine::VadEngine,
     energy::EnergyCalculator,
+    engine::VadEngine,
     state::VadStateMachine,
     threshold::AdaptiveThreshold,
     types::{VadConfig, VadEvent, VadMetrics, VadState},
@@ -11,7 +11,6 @@ use crate::{
 // This energy-based VAD implementation is kept for:
 // 1. Fallback capability if Silero fails
 // 2. Testing and comparison purposes
-// 3. Potential future hybrid VAD approaches
 // To enable: Set config.level3.enabled = true (see vad/config.rs)
 pub struct Level3Vad {
     config: VadConfig,
@@ -80,7 +79,8 @@ impl VadProcessor for Level3Vad {
             VadState::Speech => !self.threshold.should_deactivate(energy_db),
         };
 
-        self.threshold.update(energy_db, current_state == VadState::Speech);
+        self.threshold
+            .update(energy_db, current_state == VadState::Speech);
 
         let event = self.state_machine.process(is_speech_candidate, energy_db);
 
@@ -104,19 +104,19 @@ impl VadEngine for Level3Vad {
     fn process(&mut self, frame: &[i16]) -> Result<Option<VadEvent>, String> {
         VadProcessor::process(self, frame)
     }
-    
+
     fn reset(&mut self) {
         VadProcessor::reset(self)
     }
-    
+
     fn current_state(&self) -> VadState {
         VadProcessor::current_state(self)
     }
-    
+
     fn required_sample_rate(&self) -> u32 {
         self.config.sample_rate_hz
     }
-    
+
     fn required_frame_size_samples(&self) -> usize {
         self.config.frame_size_samples
     }

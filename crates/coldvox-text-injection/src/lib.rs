@@ -57,43 +57,43 @@ pub mod noop_injector;
 mod tests;
 
 // Re-export key components for easy access
-pub use processor::{AsyncInjectionProcessor, ProcessorMetrics, InjectionProcessor};
-pub use session::{InjectionSession, SessionConfig, SessionState};
-pub use types::{InjectionConfig, InjectionError, InjectionMethod, InjectionResult};
 pub use backend::Backend;
 pub use manager::StrategyManager;
+pub use processor::{AsyncInjectionProcessor, InjectionProcessor, ProcessorMetrics};
+pub use session::{InjectionSession, SessionConfig, SessionState};
+pub use types::{InjectionConfig, InjectionError, InjectionMethod, InjectionResult};
 
 /// Trait defining the core text injection interface
 #[async_trait::async_trait]
 pub trait TextInjector: Send + Sync {
     /// Inject text into the currently focused application
     async fn inject_text(&self, text: &str) -> InjectionResult<()>;
-    
+
     /// Check if the injector is available and functional
     async fn is_available(&self) -> bool;
-    
+
     /// Get the backend name for this injector
     fn backend_name(&self) -> &'static str;
-    
+
     /// Get backend-specific configuration information
     fn backend_info(&self) -> Vec<(&'static str, String)>;
 }
 
 /// Trait defining text injection session management
-#[async_trait::async_trait]  
+#[async_trait::async_trait]
 pub trait TextInjectionSession: Send + Sync {
     type Config;
     type Error;
-    
+
     /// Start a new injection session
     async fn start(&mut self, config: Self::Config) -> Result<(), Self::Error>;
-    
+
     /// Stop the current injection session
     async fn stop(&mut self) -> Result<(), Self::Error>;
-    
+
     /// Check if session is currently active
     fn is_active(&self) -> bool;
-    
+
     /// Get session statistics
     fn get_stats(&self) -> SessionStats;
 }

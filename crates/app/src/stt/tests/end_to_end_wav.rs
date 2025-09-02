@@ -7,10 +7,10 @@ use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, mpsc};
 use tracing::info;
 
-use coldvox_audio::chunker::{AudioChunker, ChunkerConfig};
-use coldvox_audio::ring_buffer::{AudioRingBuffer, AudioProducer};
-use coldvox_audio::chunker::AudioFrame;
 use crate::stt::{processor::SttProcessor, TranscriptionConfig, TranscriptionEvent};
+use coldvox_audio::chunker::AudioFrame;
+use coldvox_audio::chunker::{AudioChunker, ChunkerConfig};
+use coldvox_audio::ring_buffer::{AudioProducer, AudioRingBuffer};
 // use crate::text_injection::{AsyncInjectionProcessor, InjectionProcessorConfig};
 use coldvox_vad::config::{UnifiedVadConfig, VadMode};
 use coldvox_vad::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
@@ -52,17 +52,19 @@ impl WavFileLoader {
     pub fn new<P: AsRef<Path>>(wav_path: P, target_sample_rate: u32) -> Result<Self> {
         let mut reader = WavReader::open(wav_path)?;
         let spec = reader.spec();
-        
-        info!("Loading WAV: {} Hz, {} channels, {} bits", 
-              spec.sample_rate, spec.channels, spec.bits_per_sample);
+
+        info!(
+            "Loading WAV: {} Hz, {} channels, {} bits",
+            spec.sample_rate, spec.channels, spec.bits_per_sample
+        );
 
         // Read all samples
-        let samples: Vec<i16> = reader.samples::<i16>()
-            .collect::<Result<Vec<_>, _>>()?;
+        let samples: Vec<i16> = reader.samples::<i16>().collect::<Result<Vec<_>, _>>()?;
 
         // Convert to mono if stereo
         let mono_samples = if spec.channels == 2 {
-            samples.chunks(2)
+            samples
+                .chunks(2)
                 .map(|chunk| ((chunk[0] as i32 + chunk[1] as i32) / 2) as i16)
                 .collect()
         } else {
@@ -74,7 +76,7 @@ impl WavFileLoader {
             let ratio = target_sample_rate as f32 / spec.sample_rate as f32;
             let new_len = (mono_samples.len() as f32 * ratio) as usize;
             let mut resampled = Vec::with_capacity(new_len);
-            
+
             for i in 0..new_len {
                 let src_idx = i as f32 / ratio;
                 let idx = src_idx as usize;
@@ -87,7 +89,11 @@ impl WavFileLoader {
             mono_samples
         };
 
-        info!("WAV loaded: {} samples at {} Hz", final_samples.len(), target_sample_rate);
+        info!(
+            "WAV loaded: {} samples at {} Hz",
+            final_samples.len(),
+            target_sample_rate
+        );
 
         Ok(Self {
             samples: final_samples,
@@ -99,12 +105,13 @@ impl WavFileLoader {
 
     /// Stream audio data to ring buffer with realistic timing
     pub async fn stream_to_ring_buffer(&mut self, mut producer: AudioProducer) -> Result<()> {
-        let frame_duration = Duration::from_millis((self.frame_size * 1000) as u64 / self.sample_rate as u64);
-        
+        let frame_duration =
+            Duration::from_millis((self.frame_size * 1000) as u64 / self.sample_rate as u64);
+
         while self.current_pos < self.samples.len() {
             let end_pos = (self.current_pos + self.frame_size).min(self.samples.len());
             let chunk = &self.samples[self.current_pos..end_pos];
-            
+
             // Try to write chunk to ring buffer
             let mut written = 0;
             while written < chunk.len() {
@@ -116,13 +123,13 @@ impl WavFileLoader {
                     }
                 }
             }
-            
+
             self.current_pos = end_pos;
-            
+
             // Maintain realistic timing
             tokio::time::sleep(frame_duration).await;
         }
-        
+
         info!("WAV streaming completed");
         Ok(())
     }
@@ -220,11 +227,11 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
     let mock_injector = MockTextInjector::new();
     let ring_buffer = AudioRingBuffer::new(16384 * 4);
     let (audio_producer, audio_consumer) = ring_buffer.split();
-    
+
     // Load WAV file
     let mut wav_loader = WavFileLoader::new(wav_path, SAMPLE_RATE_HZ)?;
     let test_duration = Duration::from_millis(wav_loader.duration_ms() + 2000); // Add buffer time
-    
+
     // Set up audio chunker
     let (audio_tx, _) = broadcast::channel::<AudioFrame>(200);
     let frame_reader = coldvox_audio::frame_reader::FrameReader::new(
@@ -234,13 +241,13 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
         16384 * 4,
         None,
     );
-    
+
     let chunker_cfg = ChunkerConfig {
         frame_size_samples: FRAME_SIZE_SAMPLES,
         sample_rate_hz: SAMPLE_RATE_HZ,
         resampler_quality: coldvox_audio::chunker::ResamplerQuality::Balanced,
     };
-    
+
     let chunker = AudioChunker::new(frame_reader, audio_tx.clone(), chunker_cfg);
     let chunker_handle = chunker.spawn();
 
@@ -285,10 +292,11 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
     }
 
     let stt_audio_rx = audio_tx.subscribe();
-    let stt_processor = match SttProcessor::new(stt_audio_rx, vad_event_rx, stt_transcription_tx, stt_config) {
-        Ok(processor) => processor,
-        Err(e) => anyhow::bail!("Failed to create STT processor: {}", e),
-    };
+    let stt_processor =
+        match SttProcessor::new(stt_audio_rx, vad_event_rx, stt_transcription_tx, stt_config) {
+            Ok(processor) => processor,
+            Err(e) => anyhow::bail!("Failed to create STT processor: {}", e),
+        };
     let stt_handle = tokio::spawn(async move {
         stt_processor.run().await;
     });
@@ -298,20 +306,14 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
     let mock_injector_clone = MockTextInjector {
         injections: Arc::clone(&mock_injector.injections),
     };
-    
-    let injection_processor = MockInjectionProcessor::new(
-        mock_injector_clone,
-        stt_transcription_rx,
-        shutdown_rx,
-    );
-    let _injection_handle = tokio::spawn(async move {
-        injection_processor.run().await
-    });
+
+    let injection_processor =
+        MockInjectionProcessor::new(mock_injector_clone, stt_transcription_rx, shutdown_rx);
+    let _injection_handle = tokio::spawn(async move { injection_processor.run().await });
 
     // Start streaming WAV data
-    let streaming_handle = tokio::spawn(async move {
-        wav_loader.stream_to_ring_buffer(audio_producer).await
-    });
+    let streaming_handle =
+        tokio::spawn(async move { wav_loader.stream_to_ring_buffer(audio_producer).await });
 
     info!("Pipeline started, running for {:?}", test_duration);
 
@@ -335,14 +337,14 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
     let all_text = injections.join(" ").to_lowercase();
     let mut found_any = false;
     let mut found_fragments = Vec::new();
-    
+
     for expected in &expected_text_fragments {
         if all_text.contains(&expected.to_lowercase()) {
             found_any = true;
             found_fragments.push(expected.clone());
         }
     }
-    
+
     if !found_any && !expected_text_fragments.is_empty() {
         anyhow::bail!(
             "None of the expected text fragments {:?} were found in injections: {:?}",
@@ -350,7 +352,7 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
             injections
         );
     }
-    
+
     info!("Found expected fragments: {:?}", found_fragments);
 
     Ok(injections)
@@ -363,16 +365,16 @@ mod tests {
     #[tokio::test]
     #[ignore] // Requires WAV files and Vosk model
     async fn test_end_to_end_wav_pipeline() {
-        use std::fs;
         use rand::seq::SliceRandom;
-        
+        use std::fs;
+
         // This test requires:
         // 1. A WAV file with known speech content
         // 2. Vosk model downloaded and configured
-        
+
         // Look for test WAV files in test_data directory
         let test_data_dir = "test_data";
-        
+
         // If TEST_WAV is set, use that specific file
         let (wav_path, expected_fragments) = if let Ok(specific_wav) = std::env::var("TEST_WAV") {
             if !std::path::Path::new(&specific_wav).exists() {
@@ -391,7 +393,7 @@ mod tests {
                     return;
                 }
             };
-            
+
             let mut wav_files = Vec::new();
             for entry in entries.flatten() {
                 let path = entry.path();
@@ -402,21 +404,22 @@ mod tests {
                     }
                 }
             }
-            
+
             if wav_files.is_empty() {
                 eprintln!("Skipping test: No WAV files with transcripts found in test_data/");
                 return;
             }
-            
+
             // Randomly select a test file
             let mut rng = rand::thread_rng();
             let selected_wav = wav_files.choose(&mut rng).unwrap().clone();
-            
+
             // Load the corresponding transcript
             let txt_path = std::path::Path::new(&selected_wav).with_extension("txt");
-            let transcript = fs::read_to_string(&txt_path)
-                .unwrap_or_else(|e| panic!("Failed to read transcript {}: {}", txt_path.display(), e));
-            
+            let transcript = fs::read_to_string(&txt_path).unwrap_or_else(|e| {
+                panic!("Failed to read transcript {}: {}", txt_path.display(), e)
+            });
+
             // Extract key words from transcript (longer words are more distinctive)
             let words: Vec<String> = transcript
                 .to_lowercase()
@@ -425,7 +428,7 @@ mod tests {
                 .take(3) // Take up to 3 key words
                 .map(|s| s.to_string())
                 .collect();
-            
+
             let expected = if words.is_empty() {
                 // Fallback to any word if no long words found
                 transcript
@@ -437,16 +440,16 @@ mod tests {
             } else {
                 words
             };
-            
+
             (selected_wav, expected)
         };
-        
+
         println!("Testing with WAV file: {}", wav_path);
         println!("Expected keywords: {:?}", expected_fragments);
-        
+
         // Convert Vec<String> to Vec<&str> for the test function
         let expected_refs: Vec<&str> = expected_fragments.iter().map(|s| s.as_str()).collect();
-        
+
         match test_wav_pipeline(wav_path, expected_refs).await {
             Ok(injections) => {
                 println!("✅ Test passed! Injections: {:?}", injections);
@@ -463,11 +466,11 @@ mod tests {
     fn test_wav_file_loader() {
         // Test WAV file loading with a simple synthetic file
         // This could be expanded to create a simple test WAV file
-        
+
         // For now, just test the struct creation
         let injector = MockTextInjector::new();
         assert_eq!(injector.get_injections().len(), 0);
-        
+
         // Test injection
         tokio_test::block_on(async {
             injector.inject("test").await.unwrap();

@@ -1,5 +1,9 @@
+use crossterm::{
+    cursor::MoveTo,
+    style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor},
+    terminal, QueueableCommand,
+};
 use std::io::{stdout, Write};
-use crossterm::{cursor::MoveTo, style::{Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor}, terminal, QueueableCommand};
 
 /// Simple terminal indicator shown while recording is active.
 /// Draws a small bar centered horizontally about one-third from the bottom

@@ -1,28 +1,4 @@
-use serde::{Deserialize, Serialize};
-
-/// Transcription event that can be processed by the injection system
-/// This is a simplified version that can be implemented by the main app
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum TranscriptionEvent {
-    /// Partial (interim) transcription result
-    Partial {
-        utterance_id: u64,
-        text: String,
-        confidence: Option<f32>,
-    },
-    /// Final transcription result
-    Final {
-        utterance_id: u64,
-        text: String,
-        words: Option<Vec<String>>,
-        confidence: Option<f32>,
-    },
-    /// Error during transcription
-    Error {
-        code: String,
-        message: String,
-    },
-}
+use coldvox_stt::TranscriptionEvent;
 
 /// Placeholder for pipeline metrics - to be provided by the main app
 #[derive(Debug, Clone, Default)]
@@ -35,9 +11,9 @@ use tokio::sync::mpsc;
 use tokio::time::{self, Duration, Instant};
 use tracing::{debug, error, info, warn};
 
-use super::session::{InjectionSession, SessionConfig, SessionState};
-use super::{InjectionConfig};
 use super::manager::StrategyManager;
+use super::session::{InjectionSession, SessionConfig, SessionState};
+use super::InjectionConfig;
 use crate::types::InjectionMetrics;
 
 /// Local metrics for the injection processor (UI/state), distinct from types::InjectionMetrics
@@ -96,11 +72,11 @@ impl InjectionProcessor {
     ) -> Self {
         // Create session with shared metrics
         let session_config = SessionConfig::default(); // TODO: Expose this if needed
-    let session = InjectionSession::new(session_config, injection_metrics.clone());
-        
+        let session = InjectionSession::new(session_config, injection_metrics.clone());
+
         let injector = StrategyManager::new(config.clone(), injection_metrics.clone());
 
-    let metrics = Arc::new(Mutex::new(ProcessorMetrics {
+        let metrics = Arc::new(Mutex::new(ProcessorMetrics {
             session_state: SessionState::Idle,
             ..Default::default()
         }));
@@ -147,11 +123,18 @@ impl InjectionProcessor {
     /// Handle a transcription event from the STT processor
     pub fn handle_transcription(&mut self, event: TranscriptionEvent) {
         match event {
-            TranscriptionEvent::Partial { text, utterance_id, .. } => {
-                debug!("Received partial transcription [{}]: {}", utterance_id, text);
+            TranscriptionEvent::Partial {
+                text, utterance_id, ..
+            } => {
+                debug!(
+                    "Received partial transcription [{}]: {}",
+                    utterance_id, text
+                );
                 self.update_metrics();
             }
-            TranscriptionEvent::Final { text, utterance_id, .. } => {
+            TranscriptionEvent::Final {
+                text, utterance_id, ..
+            } => {
                 let text_len = text.len();
                 info!("Received final transcription [{}]: {}", utterance_id, text);
                 self.session.add_transcription(text);
@@ -183,7 +166,7 @@ impl InjectionProcessor {
                     buffer_text.len() > self.config.paste_chunk_chars as usize
                 }
             };
-            
+
             // Record the operation type
             if let Ok(mut metrics) = self.injection_metrics.lock() {
                 if use_paste {
@@ -192,7 +175,7 @@ impl InjectionProcessor {
                     metrics.record_keystroke();
                 }
             }
-            
+
             self.perform_injection().await?;
         }
         Ok(())
@@ -214,7 +197,7 @@ impl InjectionProcessor {
                     buffer_text.len() > self.config.paste_chunk_chars as usize
                 }
             };
-            
+
             // Record the operation type
             if let Ok(mut metrics) = self.injection_metrics.lock() {
                 if use_paste {
@@ -223,7 +206,7 @@ impl InjectionProcessor {
                     metrics.record_keystroke();
                 }
             }
-            
+
             self.session.force_inject();
             self.perform_injection().await?;
         }
@@ -245,11 +228,17 @@ impl InjectionProcessor {
         }
 
         // Record the time from final transcription to injection
-        let latency = self.session.time_since_last_transcription()
+        let latency = self
+            .session
+            .time_since_last_transcription()
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
-            
-        info!("Injecting {} characters from session (latency: {}ms)", text.len(), latency);
+
+        info!(
+            "Injecting {} characters from session (latency: {}ms)",
+            text.len(),
+            latency
+        );
 
         // Record the latency in metrics
         if let Ok(mut metrics) = self.injection_metrics.lock() {
@@ -321,14 +310,18 @@ impl AsyncInjectionProcessor {
         pipeline_metrics: Option<Arc<PipelineMetrics>>,
     ) -> Self {
         // Create shared injection metrics
-    let injection_metrics = Arc::new(Mutex::new(crate::types::InjectionMetrics::default()));
-        
+        let injection_metrics = Arc::new(Mutex::new(crate::types::InjectionMetrics::default()));
+
         // Create processor with shared metrics
-        let processor = Arc::new(tokio::sync::Mutex::new(InjectionProcessor::new(config.clone(), pipeline_metrics, injection_metrics.clone())));
-        
+        let processor = Arc::new(tokio::sync::Mutex::new(InjectionProcessor::new(
+            config.clone(),
+            pipeline_metrics,
+            injection_metrics.clone(),
+        )));
+
         // Create injector with shared metrics
         let injector = StrategyManager::new(config, injection_metrics.clone());
-        
+
         Self {
             processor,
             transcription_rx,
@@ -417,7 +410,7 @@ mod tests {
     fn test_injection_processor_basic_flow() {
         let config = InjectionConfig::default();
 
-    let injection_metrics = Arc::new(Mutex::new(crate::types::InjectionMetrics::default()));
+        let injection_metrics = Arc::new(Mutex::new(crate::types::InjectionMetrics::default()));
         let mut processor = InjectionProcessor::new(config, None, injection_metrics);
 
         // Start with idle state
@@ -428,7 +421,6 @@ mod tests {
             utterance_id: 1,
             text: "Hello world".to_string(),
             words: None,
-            confidence: None,
         });
 
         assert_eq!(processor.session_state(), SessionState::Buffering);
@@ -438,15 +430,15 @@ mod tests {
 
         // Check for silence transition (this would normally be called periodically)
         processor.session.check_for_silence_transition();
-        
+
         // Should be in WaitingForSilence state now
         assert_eq!(processor.session_state(), SessionState::WaitingForSilence);
 
         // This should trigger injection check
         let should_inject = processor.session.should_inject();
         assert!(should_inject, "Session should be ready to inject");
-        
-        // Instead of actually injecting (which requires ydotool), 
+
+        // Instead of actually injecting (which requires ydotool),
         // we'll manually clear the buffer to simulate successful injection
         let buffer_content = processor.session.take_buffer();
         assert_eq!(buffer_content, "Hello world");
@@ -458,7 +450,7 @@ mod tests {
     #[test]
     fn test_metrics_update() {
         let config = InjectionConfig::default();
-    let injection_metrics = Arc::new(Mutex::new(crate::types::InjectionMetrics::default()));
+        let injection_metrics = Arc::new(Mutex::new(crate::types::InjectionMetrics::default()));
         let mut processor = InjectionProcessor::new(config, None, injection_metrics);
 
         // Add transcription
@@ -466,7 +458,6 @@ mod tests {
             utterance_id: 1,
             text: "Test transcription".to_string(),
             words: None,
-            confidence: None,
         });
 
         let metrics = processor.metrics();
@@ -478,7 +469,7 @@ mod tests {
     #[test]
     fn test_partial_transcription_handling() {
         let config = InjectionConfig::default();
-    let injection_metrics = Arc::new(Mutex::new(crate::types::InjectionMetrics::default()));
+        let injection_metrics = Arc::new(Mutex::new(crate::types::InjectionMetrics::default()));
         let mut processor = InjectionProcessor::new(config, None, injection_metrics);
 
         // Start with idle state
@@ -488,7 +479,8 @@ mod tests {
         processor.handle_transcription(TranscriptionEvent::Partial {
             utterance_id: 1,
             text: "Hello".to_string(),
-            confidence: None,
+            t0: None,
+            t1: None,
         });
 
         // Should still be idle since partial events don't change session state
@@ -499,7 +491,6 @@ mod tests {
             utterance_id: 1,
             text: "Hello world".to_string(),
             words: None,
-            confidence: None,
         });
 
         // Now should be buffering

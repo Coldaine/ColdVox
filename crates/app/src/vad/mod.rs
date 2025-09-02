@@ -5,9 +5,9 @@
 
 pub use coldvox_vad::{
     config::{UnifiedVadConfig, VadMode},
-    constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ, FRAME_DURATION_MS},
-    types::{VadEvent, VadState, VadMetrics},
+    constants::{FRAME_DURATION_MS, FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ},
     engine::VadEngine,
+    types::{VadEvent, VadMetrics, VadState},
     VadProcessor,
 };
 

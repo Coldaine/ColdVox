@@ -1,10 +1,11 @@
 use serde::{Deserialize, Serialize};
+
 use super::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum VadMode {
-    Level3,  // Energy-based VAD - INTENTIONALLY DISABLED (see Level3Config.enabled)
-    Silero,  // ML-based VAD using ONNX - DEFAULT ACTIVE VAD
+    Level3, // Energy-based VAD - INTENTIONALLY DISABLED (see Level3Config.enabled)
+    Silero, // ML-based VAD using ONNX - DEFAULT ACTIVE VAD
 }
 
 impl Default for VadMode {
@@ -74,7 +75,7 @@ pub struct UnifiedVadConfig {
 impl Default for UnifiedVadConfig {
     fn default() -> Self {
         Self {
-            mode: VadMode::default(),  // Uses Silero by default now
+            mode: VadMode::default(), // Uses Silero by default now
             level3: Level3Config::default(),
             silero: SileroConfig::default(),
             // Align default frame size with default engine (Silero) requirement
