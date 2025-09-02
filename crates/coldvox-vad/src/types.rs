@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+
 use super::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -29,19 +30,19 @@ impl Default for VadState {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VadConfig {
     pub onset_threshold_db: f32,
-    
+
     pub offset_threshold_db: f32,
-    
+
     pub ema_alpha: f32,
-    
+
     pub speech_debounce_ms: u32,
-    
+
     pub silence_debounce_ms: u32,
-    
+
     pub initial_floor_db: f32,
-    
+
     pub frame_size_samples: usize,
-    
+
     pub sample_rate_hz: u32,
 }
 
@@ -64,11 +65,11 @@ impl VadConfig {
     pub fn frame_duration_ms(&self) -> f32 {
         (self.frame_size_samples as f32 * 1000.0) / self.sample_rate_hz as f32
     }
-    
+
     pub fn speech_debounce_frames(&self) -> u32 {
         (self.speech_debounce_ms as f32 / self.frame_duration_ms()).ceil() as u32
     }
-    
+
     pub fn silence_debounce_frames(&self) -> u32 {
         (self.silence_debounce_ms as f32 / self.frame_duration_ms()).ceil() as u32
     }
@@ -77,14 +78,14 @@ impl VadConfig {
 #[derive(Debug, Clone, Default)]
 pub struct VadMetrics {
     pub frames_processed: u64,
-    
+
     pub speech_segments: u64,
-    
+
     pub total_speech_ms: u64,
-    
+
     pub total_silence_ms: u64,
-    
+
     pub current_noise_floor_db: f32,
-    
+
     pub last_energy_db: f32,
 }

@@ -45,11 +45,11 @@ impl FocusTracker {
 
         // Get fresh focus status
         let status = self.check_focus_status().await?;
-        
+
         // Cache the result
         self.last_check = Some(Instant::now());
         self.cached_status = Some(status);
-        
+
         debug!("Focus status determined: {:?}", status);
         Ok(status)
     }
@@ -61,9 +61,9 @@ impl FocusTracker {
             // TODO: Implement real AT-SPI focus detection once API is stable
             // For now, return a reasonable default
             debug!("AT-SPI focus detection placeholder - returning Unknown");
-            return Ok(FocusStatus::Unknown);
+            Ok(FocusStatus::Unknown)
         }
-        
+
         #[cfg(not(feature = "atspi"))]
         {
             // Fallback: Without AT-SPI, we can't reliably determine focus
@@ -93,7 +93,7 @@ mod tests {
     async fn test_focus_tracker_creation() {
         let config = InjectionConfig::default();
         let tracker = FocusTracker::new(config);
-        
+
         assert!(tracker.cached_focus_status().is_none());
     }
 
@@ -101,11 +101,11 @@ mod tests {
     async fn test_focus_status_caching() {
         let config = InjectionConfig::default();
         let mut tracker = FocusTracker::new(config);
-        
+
         // First check should not use cache
         let status1 = tracker.get_focus_status().await.unwrap();
         assert!(tracker.cached_focus_status().is_some());
-        
+
         // Second check should use cache
         let status2 = tracker.get_focus_status().await.unwrap();
         assert_eq!(status1, status2);
@@ -115,13 +115,13 @@ mod tests {
     fn test_cache_clearing() {
         let config = InjectionConfig::default();
         let mut tracker = FocusTracker::new(config);
-        
+
         // Manually set cache
         tracker.cached_status = Some(FocusStatus::EditableText);
         tracker.last_check = Some(Instant::now());
-        
+
         assert!(tracker.cached_focus_status().is_some());
-        
+
         // Clear cache
         tracker.clear_cache();
         assert!(tracker.cached_focus_status().is_none());

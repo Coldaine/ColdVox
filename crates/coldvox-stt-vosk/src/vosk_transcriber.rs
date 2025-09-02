@@ -1,8 +1,9 @@
-use vosk::{Model, Recognizer, DecodingState, CompleteResult, PartialResult};
 use coldvox_stt::{
-    EventBasedTranscriber, Transcriber, TranscriptionEvent, WordInfo, TranscriptionConfig, next_utterance_id
+    next_utterance_id, EventBasedTranscriber, Transcriber, TranscriptionConfig, TranscriptionEvent,
+    WordInfo,
 };
-use tracing::{debug, warn};
+use tracing::warn;
+use vosk::{CompleteResult, DecodingState, Model, PartialResult, Recognizer};
 
 pub struct VoskTranscriber {
     recognizer: Recognizer,
@@ -17,47 +18,51 @@ impl VoskTranscriber {
         if (sample_rate - 16000.0).abs() > 0.1 {
             warn!(
                 "VoskTranscriber: Sample rate {}Hz differs from expected 16000Hz. \
-                This may affect transcription quality.", 
+                This may affect transcription quality.",
                 sample_rate
             );
         }
-        
+
         // Use model path from config, or get default
         let model_path = if config.model_path.is_empty() {
             crate::default_model_path()
         } else {
             config.model_path.clone()
         };
-        
+
         // Check if model path exists
         if !std::path::Path::new(&model_path).exists() {
             return Err(format!("Vosk model not found at: {}", model_path));
         }
-        
+
         // Load the model
         let model = Model::new(&model_path)
             .ok_or_else(|| format!("Failed to load Vosk model from: {}", model_path))?;
-            
+
         // Create recognizer with configuration
-        let mut recognizer = Recognizer::new(&model, sample_rate)
-            .ok_or_else(|| format!("Failed to create Vosk recognizer with sample rate: {}", sample_rate))?;
-            
+        let mut recognizer = Recognizer::new(&model, sample_rate).ok_or_else(|| {
+            format!(
+                "Failed to create Vosk recognizer with sample rate: {}",
+                sample_rate
+            )
+        })?;
+
         // Configure recognizer based on config
         recognizer.set_max_alternatives(config.max_alternatives as u16);
         recognizer.set_words(config.include_words);
         recognizer.set_partial_words(config.partial_results && config.include_words);
-        
+
         // Update the config to use the resolved model path
         let mut final_config = config;
         final_config.model_path = model_path;
-        
+
         Ok(Self {
             recognizer,
             config: final_config,
             current_utterance_id: next_utterance_id(),
         })
     }
-    
+
     /// Create a new VoskTranscriber with default model path (backward compatibility)
     pub fn new_with_default(model_path: &str, sample_rate: f32) -> Result<Self, String> {
         let config = TranscriptionConfig {
@@ -70,37 +75,49 @@ impl VoskTranscriber {
         };
         Self::new(config, sample_rate)
     }
-    
+
     /// Update configuration (requires recreating recognizer)
-    pub fn update_config(&mut self, config: TranscriptionConfig, sample_rate: f32) -> Result<(), String> {
+    pub fn update_config(
+        &mut self,
+        config: TranscriptionConfig,
+        sample_rate: f32,
+    ) -> Result<(), String> {
         // Use model path from config, or get default
         let model_path = if config.model_path.is_empty() {
             crate::default_model_path()
         } else {
             config.model_path.clone()
         };
-        
+
         // Recreate recognizer with new config
         let model = Model::new(&model_path)
             .ok_or_else(|| format!("Failed to load Vosk model from: {}", model_path))?;
-            
-        let mut recognizer = Recognizer::new(&model, sample_rate)
-            .ok_or_else(|| format!("Failed to create Vosk recognizer with sample rate: {}", sample_rate))?;
-            
+
+        let mut recognizer = Recognizer::new(&model, sample_rate).ok_or_else(|| {
+            format!(
+                "Failed to create Vosk recognizer with sample rate: {}",
+                sample_rate
+            )
+        })?;
+
         recognizer.set_max_alternatives(config.max_alternatives as u16);
         recognizer.set_words(config.include_words);
         recognizer.set_partial_words(config.partial_results && config.include_words);
-        
+
         self.recognizer = recognizer;
         let mut final_config = config;
         final_config.model_path = model_path;
         self.config = final_config;
         Ok(())
     }
-    
+
     // Private helper methods
-    
-    fn parse_complete_result_static(result: CompleteResult, utterance_id: u64, include_words: bool) -> Option<TranscriptionEvent> {
+
+    fn parse_complete_result_static(
+        result: CompleteResult,
+        utterance_id: u64,
+        include_words: bool,
+    ) -> Option<TranscriptionEvent> {
         match result {
             CompleteResult::Single(single) => {
                 let text = single.text;
@@ -108,16 +125,22 @@ impl VoskTranscriber {
                     None
                 } else {
                     let words = if include_words && !single.result.is_empty() {
-                        Some(single.result.into_iter().map(|w| WordInfo {
-                            text: w.word.to_string(),
-                            start: w.start as f32,
-                            end: w.end as f32,
-                            conf: w.conf as f32,
-                        }).collect())
+                        Some(
+                            single
+                                .result
+                                .into_iter()
+                                .map(|w| WordInfo {
+                                    text: w.word.to_string(),
+                                    start: w.start,
+                                    end: w.end,
+                                    conf: w.conf,
+                                })
+                                .collect(),
+                        )
                     } else {
                         None
                     };
-                    
+
                     Some(TranscriptionEvent::Final {
                         utterance_id,
                         text: text.to_string(),
@@ -133,16 +156,22 @@ impl VoskTranscriber {
                         None
                     } else {
                         let words = if include_words && !first.result.is_empty() {
-                            Some(first.result.iter().map(|w| WordInfo {
-                                text: w.word.to_string(),
-                                start: w.start as f32,
-                                end: w.end as f32,
-                                conf: 0.5,  // Default confidence when not available from Vosk API
-                            }).collect())
+                            Some(
+                                first
+                                    .result
+                                    .iter()
+                                    .map(|w| WordInfo {
+                                        text: w.word.to_string(),
+                                        start: w.start,
+                                        end: w.end,
+                                        conf: 0.5, // Default confidence when not available from Vosk API
+                                    })
+                                    .collect(),
+                            )
                         } else {
                             None
                         };
-                        
+
                         Some(TranscriptionEvent::Final {
                             utterance_id,
                             text: text.to_string(),
@@ -155,8 +184,11 @@ impl VoskTranscriber {
             }
         }
     }
-    
-    fn parse_partial_result_static(partial: PartialResult, utterance_id: u64) -> Option<TranscriptionEvent> {
+
+    fn parse_partial_result_static(
+        partial: PartialResult,
+        utterance_id: u64,
+    ) -> Option<TranscriptionEvent> {
         let text = partial.partial;
         if text.trim().is_empty() {
             None
@@ -179,23 +211,30 @@ impl EventBasedTranscriber for VoskTranscriber {
         if !self.config.enabled {
             return Ok(None);
         }
-        
+
         // Pass the i16 samples directly - vosk expects i16
-        let state = self.recognizer.accept_waveform(pcm)
+        let state = self
+            .recognizer
+            .accept_waveform(pcm)
             .map_err(|e| format!("Vosk waveform acceptance failed: {:?}", e))?;
-            
+
         match state {
             DecodingState::Finalized => {
                 // Get final result when speech segment is complete
                 let result = self.recognizer.result();
-                let event = Self::parse_complete_result_static(result, self.current_utterance_id, self.config.include_words);
+                let event = Self::parse_complete_result_static(
+                    result,
+                    self.current_utterance_id,
+                    self.config.include_words,
+                );
                 Ok(event)
             }
             DecodingState::Running => {
                 // Get partial result for ongoing speech if enabled
                 if self.config.partial_results {
                     let partial = self.recognizer.partial_result();
-                    let event = Self::parse_partial_result_static(partial, self.current_utterance_id);
+                    let event =
+                        Self::parse_partial_result_static(partial, self.current_utterance_id);
                     Ok(event)
                 } else {
                     Ok(None)
@@ -210,18 +249,22 @@ impl EventBasedTranscriber for VoskTranscriber {
             }
         }
     }
-    
+
     /// Finalize current utterance and return final result
     fn finalize_utterance(&mut self) -> Result<Option<TranscriptionEvent>, String> {
         let final_result = self.recognizer.final_result();
-        let event = Self::parse_complete_result_static(final_result, self.current_utterance_id, self.config.include_words);
-        
+        let event = Self::parse_complete_result_static(
+            final_result,
+            self.current_utterance_id,
+            self.config.include_words,
+        );
+
         // Start new utterance for next speech segment
         self.current_utterance_id = next_utterance_id();
-        
+
         Ok(event)
     }
-    
+
     /// Reset recognizer state for new utterance
     fn reset(&mut self) -> Result<(), String> {
         // Vosk doesn't have an explicit reset, but finalizing clears state
@@ -229,7 +272,7 @@ impl EventBasedTranscriber for VoskTranscriber {
         self.current_utterance_id = next_utterance_id();
         Ok(())
     }
-    
+
     /// Get current configuration
     fn config(&self) -> &TranscriptionConfig {
         &self.config
@@ -241,7 +284,9 @@ impl Transcriber for VoskTranscriber {
     fn accept_pcm16(&mut self, pcm: &[i16]) -> Result<Option<String>, String> {
         match self.accept_frame(pcm)? {
             Some(TranscriptionEvent::Final { text, .. }) => Ok(Some(text)),
-            Some(TranscriptionEvent::Partial { text, .. }) => Ok(Some(format!("[partial] {}", text))),
+            Some(TranscriptionEvent::Partial { text, .. }) => {
+                Ok(Some(format!("[partial] {}", text)))
+            }
             Some(TranscriptionEvent::Error { message, .. }) => Err(message),
             None => Ok(None),
         }

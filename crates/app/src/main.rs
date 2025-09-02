@@ -4,28 +4,33 @@
 // - The logs/ directory is created on startup if missing; file output uses a non-blocking writer.
 // - This ensures persistent logs for post-run analysis while keeping console output for live use.
 use anyhow::anyhow;
-use coldvox_audio::{AudioChunker, ChunkerConfig, AudioRingBuffer, AudioCaptureThread, FrameReader};
-use coldvox_foundation::*;
+#[cfg(feature = "vosk")]
+use coldvox_app::stt::persistence::{
+    AudioFormat, PersistenceConfig, SessionMetadata, TranscriptFormat,
+};
 use coldvox_app::stt::TranscriptionConfig;
 #[cfg(feature = "vosk")]
 use coldvox_app::stt::{processor::SttProcessor, TranscriptionEvent};
-#[cfg(feature = "vosk")]
-use coldvox_app::stt::persistence::{PersistenceConfig, TranscriptFormat, AudioFormat, SessionMetadata};
+use coldvox_audio::{
+    AudioCaptureThread, AudioChunker, AudioRingBuffer, ChunkerConfig, FrameReader,
+};
+use coldvox_foundation::*;
 
-use coldvox_vad::{UnifiedVadConfig, VadMode, FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ, VadEvent};
-use coldvox_telemetry::PipelineMetrics;
+#[cfg(feature = "text-injection")]
+use clap::Args;
+use clap::{Parser, ValueEnum};
 use coldvox_app::hotkey::spawn_hotkey_listener;
 #[cfg(feature = "text-injection")]
 use coldvox_app::text_injection::{AsyncInjectionProcessor, InjectionConfig};
+use coldvox_telemetry::PipelineMetrics;
+use coldvox_vad::{UnifiedVadConfig, VadEvent, VadMode, FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 use std::time::Duration;
-use clap::{Parser, ValueEnum};
-#[cfg(feature = "text-injection")]
-use clap::Args;
 use tokio::sync::{broadcast, mpsc};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
-fn init_logging() -> Result<tracing_appender::non_blocking::WorkerGuard, Box<dyn std::error::Error>> {
+fn init_logging() -> Result<tracing_appender::non_blocking::WorkerGuard, Box<dyn std::error::Error>>
+{
     std::fs::create_dir_all("logs")?;
     let file_appender = RollingFileAppender::new(Rotation::DAILY, "logs", "coldvox.log");
     let (non_blocking_file, guard) = tracing_appender::non_blocking(file_appender);
@@ -123,7 +128,10 @@ struct InjectionArgs {
     allow_mki: bool,
 
     /// Attempt injection even if the focused application is unknown
-    #[arg(long = "inject-on-unknown-focus", env = "COLDVOX_INJECT_ON_UNKNOWN_FOCUS")]
+    #[arg(
+        long = "inject-on-unknown-focus",
+        env = "COLDVOX_INJECT_ON_UNKNOWN_FOCUS"
+    )]
     inject_on_unknown_focus: bool,
 
     /// Restore clipboard contents after injection
@@ -156,8 +164,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
     // Apply environment variable overrides
-    let device = cli.device.clone().or_else(|| std::env::var("COLDVOX_DEVICE").ok());
-    let resampler_quality = std::env::var("COLDVOX_RESAMPLER_QUALITY").unwrap_or(cli.resampler_quality.clone());
+    let device = cli
+        .device
+        .clone()
+        .or_else(|| std::env::var("COLDVOX_DEVICE").ok());
+    let resampler_quality =
+        std::env::var("COLDVOX_RESAMPLER_QUALITY").unwrap_or(cli.resampler_quality.clone());
 
     if cli.list_devices {
         let dm = coldvox_audio::DeviceManager::new()?;
@@ -210,14 +222,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // --- 3. VAD Processor ---
     let vad_cfg = UnifiedVadConfig {
         mode: VadMode::Silero,
-        frame_size_samples: FRAME_SIZE_SAMPLES,  // Both Silero and Level3 use 512 samples
-        sample_rate_hz: SAMPLE_RATE_HZ,    // Standard 16kHz - resampler will handle conversion
+        frame_size_samples: FRAME_SIZE_SAMPLES, // Both Silero and Level3 use 512 samples
+        sample_rate_hz: SAMPLE_RATE_HZ,         // Standard 16kHz - resampler will handle conversion
         ..Default::default()
     };
 
     // This broadcast channel will distribute audio frames to all interested components.
-    let (audio_tx, _) =
-        broadcast::channel::<coldvox_audio::chunker::AudioFrame>(200);
+    let (audio_tx, _) = broadcast::channel::<coldvox_audio::chunker::AudioFrame>(200);
     let chunker = AudioChunker::new(frame_reader, audio_tx.clone(), chunker_cfg)
         .with_metrics(metrics.clone())
         .with_device_config(device_config_rx.resubscribe());
@@ -301,11 +312,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "vosk")]
     let (stt_handle, _persistence_handle, injection_handle) = if stt_config.enabled {
         // Create mpsc channel for STT processor to send transcription events
-        let (stt_transcription_tx, mut stt_transcription_rx) = mpsc::channel::<TranscriptionEvent>(100);
-        
+        let (stt_transcription_tx, mut stt_transcription_rx) =
+            mpsc::channel::<TranscriptionEvent>(100);
+
         // Create broadcast channel for distributing transcription events to multiple consumers
         let (broadcast_tx, _) = broadcast::channel::<TranscriptionEvent>(100);
-        
+
         // Relay from STT processor to broadcast channel
         let broadcast_tx_clone = broadcast_tx.clone();
         tokio::spawn(async move {
@@ -313,7 +325,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let _ = broadcast_tx_clone.send(event);
             }
         });
-        
+
         // Create mpsc channel for injection processor
         let (injection_tx, injection_rx) = mpsc::channel::<TranscriptionEvent>(100);
         let mut injection_relay_rx = broadcast_tx.subscribe();
@@ -322,7 +334,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let _ = injection_tx.send(event).await;
             }
         });
-        
+
         // Create mpsc channel for persistence if needed
         let persistence_rx = if cli.save_transcriptions {
             let (persist_tx, persist_rx) = mpsc::channel::<TranscriptionEvent>(100);
@@ -354,8 +366,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
 
         let stt_audio_rx = audio_tx.subscribe();
-        let stt_processor = SttProcessor::new(stt_audio_rx, stt_event_rx, stt_transcription_tx, stt_config.clone())
-            .map_err(|e| anyhow!("Failed to create STT processor: {}", e))?;
+        let stt_processor = SttProcessor::new(
+            stt_audio_rx,
+            stt_event_rx,
+            stt_transcription_tx,
+            stt_config.clone(),
+        )
+        .map_err(|e| anyhow!("Failed to create STT processor: {}", e))?;
 
         // --- 5. Text Injection Processor ---
         #[cfg(feature = "text-injection")]
@@ -368,9 +385,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 allow_mki: cli.injection.allow_mki,
                 restore_clipboard: cli.injection.restore_clipboard,
                 inject_on_unknown_focus: cli.injection.inject_on_unknown_focus,
-                max_total_latency_ms: cli.injection.max_total_latency_ms.unwrap_or(InjectionConfig::default().max_total_latency_ms),
-                per_method_timeout_ms: cli.injection.per_method_timeout_ms.unwrap_or(InjectionConfig::default().per_method_timeout_ms),
-                cooldown_initial_ms: cli.injection.cooldown_initial_ms.unwrap_or(InjectionConfig::default().cooldown_initial_ms),
+                max_total_latency_ms: cli
+                    .injection
+                    .max_total_latency_ms
+                    .unwrap_or(InjectionConfig::default().max_total_latency_ms),
+                per_method_timeout_ms: cli
+                    .injection
+                    .per_method_timeout_ms
+                    .unwrap_or(InjectionConfig::default().per_method_timeout_ms),
+                cooldown_initial_ms: cli
+                    .injection
+                    .cooldown_initial_ms
+                    .unwrap_or(InjectionConfig::default().cooldown_initial_ms),
                 ..Default::default()
             };
 
@@ -380,7 +406,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 injection_config,
                 injection_rx,
                 injection_shutdown_rx,
-                Some(metrics.clone()),
+                None,
             );
 
             // Spawn injection processor
@@ -394,7 +420,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             tracing::info!("Text injection disabled.");
             None
         };
-        
+
         #[cfg(not(feature = "text-injection"))]
         let injection_handle: Option<tokio::task::JoinHandle<()>> = None;
 
@@ -453,8 +479,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         #[cfg(not(feature = "vosk"))]
         let persistence_handle = None;
 
-        tracing::info!("STT processor task started with model: {}", stt_config.model_path);
-        (Some(tokio::spawn(stt_processor.run())), persistence_handle, injection_handle)
+        tracing::info!(
+            "STT processor task started with model: {}",
+            stt_config.model_path
+        );
+        (
+            Some(tokio::spawn(stt_processor.run())),
+            persistence_handle,
+            injection_handle,
+        )
     } else {
         tracing::info!("STT processor disabled - no model available");
         (None, None, None)
@@ -463,15 +496,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(not(feature = "vosk"))]
     let (stt_handle, _persistence_handle, injection_handle) = {
         tracing::info!("STT processor disabled - no vosk feature");
-        
+
         // Consume VAD events even when STT is disabled to prevent channel backpressure
         tokio::spawn(async move {
             while let Some(_event) = event_rx.recv().await {
                 // Just consume the events - no STT processing when vosk is disabled
             }
         });
-        
-        (None::<tokio::task::JoinHandle<()>>, None::<tokio::task::JoinHandle<()>>, None::<tokio::task::JoinHandle<()>>)
+
+        (
+            None::<tokio::task::JoinHandle<()>>,
+            None::<tokio::task::JoinHandle<()>>,
+            None::<tokio::task::JoinHandle<()>>,
+        )
     };
 
     // --- Main Application Loop ---
@@ -512,7 +549,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(tx) = injection_shutdown_tx {
         let _ = tx.send(()).await;
     }
-    
+
     // 3. Abort the tasks. This will drop their channel senders, causing downstream
     //    tasks with `recv()` loops to terminate gracefully.
     chunker_handle.abort();

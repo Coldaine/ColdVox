@@ -1,5 +1,3 @@
-
-
 #[derive(Default)]
 pub struct FoundationHealth;
 

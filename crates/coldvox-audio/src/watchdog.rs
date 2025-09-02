@@ -58,7 +58,7 @@ impl WatchdogTimer {
             }
         });
 
-    *self.handle.write() = Some(handle);
+        *self.handle.write() = Some(handle);
     }
 
     pub fn feed(&self) {

@@ -9,7 +9,7 @@ pub mod watchdog;
 
 // Public API
 pub use capture::{AudioCaptureThread, DeviceConfig};
-pub use chunker::{AudioChunker, ChunkerConfig, ResamplerQuality, AudioFrame};
+pub use chunker::{AudioChunker, AudioFrame, ChunkerConfig, ResamplerQuality};
 pub use device::{DeviceInfo, DeviceManager};
 pub use frame_reader::FrameReader;
 pub use ring_buffer::AudioRingBuffer;

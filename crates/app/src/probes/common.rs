@@ -39,7 +39,10 @@ pub struct TestContext {
 
 impl TestContext {
     pub fn new_seconds(duration_secs: u64) -> Self {
-        Self { duration: Duration::from_secs(duration_secs), ..Default::default() }
+        Self {
+            duration: Duration::from_secs(duration_secs),
+            ..Default::default()
+        }
     }
 }
 

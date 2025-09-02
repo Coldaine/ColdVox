@@ -8,11 +8,11 @@ mod vosk_tests {
     #[test]
     fn test_transcription_config_default() {
         let config = TranscriptionConfig::default();
-        assert_eq!(config.enabled, false);
+        assert!(!config.enabled);
         assert_eq!(config.model_path, "models/vosk-model-small-en-us-0.15");
-        assert_eq!(config.partial_results, true);
+        assert!(config.partial_results);
         assert_eq!(config.max_alternatives, 1);
-        assert_eq!(config.include_words, false);
+        assert!(!config.include_words);
         assert_eq!(config.buffer_size_ms, 512);
     }
 
@@ -24,7 +24,7 @@ mod vosk_tests {
         assert_eq!(id2, id1 + 1);
     }
 
-    #[test] 
+    #[test]
     fn test_word_info_creation() {
         let word = WordInfo {
             text: "hello".to_string(),
@@ -46,7 +46,7 @@ mod vosk_tests {
             t0: Some(0.0),
             t1: Some(1.0),
         };
-        
+
         match partial {
             TranscriptionEvent::Partial { text, .. } => {
                 assert_eq!(text, "partial text");
@@ -58,7 +58,7 @@ mod vosk_tests {
             code: "TEST_ERROR".to_string(),
             message: "Test error message".to_string(),
         };
-        
+
         match error {
             TranscriptionEvent::Error { code, message } => {
                 assert_eq!(code, "TEST_ERROR");
@@ -70,9 +70,11 @@ mod vosk_tests {
 
     #[cfg(feature = "vosk")]
     mod vosk_integration_tests {
+        use coldvox_stt::EventBasedTranscriber;
+
         use super::super::super::vosk::VoskTranscriber;
         use super::super::super::TranscriptionConfig;
-        
+
         #[test]
         fn test_vosk_transcriber_missing_model() {
             let config = TranscriptionConfig {
@@ -83,7 +85,7 @@ mod vosk_tests {
                 include_words: false,
                 buffer_size_ms: 512,
             };
-            
+
             let result = VoskTranscriber::new(config, 16000.0);
             assert!(result.is_err());
             if let Err(e) = result {
@@ -101,7 +103,7 @@ mod vosk_tests {
                 include_words: false,
                 buffer_size_ms: 512,
             };
-            
+
             let result = VoskTranscriber::new(config, 16000.0);
             assert!(result.is_err());
             if let Err(e) = result {
@@ -127,17 +129,17 @@ mod vosk_tests {
                 include_words: false,
                 buffer_size_ms: 512,
             };
-            
+
             let result = VoskTranscriber::new(config.clone(), 16000.0);
             assert!(result.is_ok());
-            
+
             let mut transcriber = result.unwrap();
-            
+
             // Test with silence (should not produce transcription)
             let silence = vec![0i16; 512];
             let event = transcriber.accept_frame(&silence);
             assert!(event.is_ok());
-            
+
             // Test finalization
             let final_result = transcriber.finalize_utterance();
             assert!(final_result.is_ok());
@@ -154,15 +156,17 @@ mod processor_tests {
     fn test_utterance_state_transitions() {
         let idle = UtteranceState::Idle;
         matches!(idle, UtteranceState::Idle);
-        
+
         let active = UtteranceState::SpeechActive {
             started_at: Instant::now(),
             audio_buffer: Vec::new(),
             frames_buffered: 0,
         };
-        
+
         match active {
-            UtteranceState::SpeechActive { frames_buffered, .. } => {
+            UtteranceState::SpeechActive {
+                frames_buffered, ..
+            } => {
                 assert_eq!(frames_buffered, 0);
             }
             _ => panic!("Expected SpeechActive state"),

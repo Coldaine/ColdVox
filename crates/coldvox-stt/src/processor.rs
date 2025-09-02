@@ -9,7 +9,7 @@ use std::time::Instant;
 use tokio::sync::{broadcast, mpsc};
 use tracing::{debug, error, info, warn};
 
-use crate::types::{TranscriptionEvent, TranscriptionConfig};
+use crate::types::{TranscriptionConfig, TranscriptionEvent};
 use crate::EventBasedTranscriber;
 
 /// Audio frame type (generic over audio formats)
@@ -27,14 +27,9 @@ pub struct AudioFrame {
 #[derive(Debug, Clone)]
 pub enum VadEvent {
     /// Speech started
-    SpeechStart {
-        timestamp_ms: u64,
-    },
+    SpeechStart { timestamp_ms: u64 },
     /// Speech ended
-    SpeechEnd {
-        timestamp_ms: u64,
-        duration_ms: u64,
-    },
+    SpeechEnd { timestamp_ms: u64, duration_ms: u64 },
 }
 
 /// STT processor state
@@ -212,10 +207,15 @@ impl<T: EventBasedTranscriber + Send> SttProcessor<T> {
         );
 
         // Process the buffered audio all at once
-        if let UtteranceState::SpeechActive { audio_buffer, frames_buffered, .. } = &self.state {
+        if let UtteranceState::SpeechActive {
+            audio_buffer,
+            frames_buffered,
+            ..
+        } = &self.state
+        {
             let buffer_size = audio_buffer.len();
             info!(
-                target: "stt", 
+                target: "stt",
                 "Processing buffered audio: {} samples ({:.2}s), {} frames",
                 buffer_size,
                 buffer_size as f32 / 16000.0,
@@ -290,7 +290,12 @@ impl<T: EventBasedTranscriber + Send> SttProcessor<T> {
         self.metrics.write().frames_in += 1;
 
         // Only buffer if speech is active
-        if let UtteranceState::SpeechActive { ref mut audio_buffer, ref mut frames_buffered, .. } = &mut self.state {
+        if let UtteranceState::SpeechActive {
+            ref mut audio_buffer,
+            ref mut frames_buffered,
+            ..
+        } = &mut self.state
+        {
             // Buffer the audio frame
             audio_buffer.extend_from_slice(&frame.data);
             *frames_buffered += 1;
@@ -329,10 +334,9 @@ impl<T: EventBasedTranscriber + Send> SttProcessor<T> {
 
         // Send to channel with backpressure - wait if channel is full
         // Use timeout to prevent indefinite blocking
-        match tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            self.event_tx.send(event)
-        ).await {
+        match tokio::time::timeout(std::time::Duration::from_secs(5), self.event_tx.send(event))
+            .await
+        {
             Ok(Ok(())) => {
                 // Successfully sent
             }
