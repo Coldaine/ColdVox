@@ -710,7 +710,7 @@ dependencies = [
  "crossterm",
  "csv",
  "ctrlc",
- "device_query 4.0.1",
+ "device_query",
  "env_logger",
  "futures",
  "hound",
@@ -804,7 +804,7 @@ dependencies = [
  "atspi",
  "chrono",
  "coldvox-stt",
- "device_query 2.1.0",
+ "device_query",
  "enigo",
  "mockall",
  "mouse-keyboard-input",
@@ -1267,21 +1267,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "device_query"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bafa241a89a5edccff5057d0b85fbc083a781bd03d766c11a688331604980985"
-dependencies = [
- "lazy_static",
- "macos-accessibility-client",
- "pkg-config",
- "readkey",
- "readmouse",
- "windows 0.48.0",
- "x11",
 ]
 
 [[package]]

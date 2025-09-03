@@ -24,7 +24,7 @@ coldvox-stt = { path = "../coldvox-stt" }
 atspi = { version = "0.22", optional = true }
 wl-clipboard-rs = { version = "0.8", optional = true }  
 enigo = { version = "0.2", optional = true }
-device_query = { version = "2.1", optional = true }
+device_query = { version = "4.0", optional = true }
 
 # Additional backend dependencies used by injectors
 x11 = { version = "2.21", optional = true }
