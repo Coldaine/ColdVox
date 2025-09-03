@@ -89,7 +89,7 @@ tokio-test = "0.4"
 ctrlc = "3.4"
 proptest = "1.4"
 criterion = "0.5"
-rand = "0.8"
+rand = "0.9"
 
 [features]
 default = ["silero", "text-injection", "vosk"]

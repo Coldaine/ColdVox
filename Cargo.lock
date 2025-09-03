@@ -718,7 +718,7 @@ dependencies = [
  "once_cell",
  "parking_lot",
  "proptest",
- "rand 0.8.5",
+ "rand 0.9.2",
  "ratatui",
  "regex",
  "rubato",
@@ -826,7 +826,7 @@ dependencies = [
 name = "coldvox-vad"
 version = "0.1.0"
 dependencies = [
- "rand 0.8.5",
+ "rand 0.9.2",
  "serde",
 ]
 
