@@ -1,8 +1,9 @@
 #[cfg(test)]
 mod tests {
-    use crate::InjectionConfig;
     use std::process::Command;
 
+    #[cfg(feature = "ydotool")]
+    use crate::types::InjectionConfig;
     #[cfg(feature = "ydotool")]
     use crate::ydotool_injector::YdotoolInjector;
     #[cfg(feature = "ydotool")]

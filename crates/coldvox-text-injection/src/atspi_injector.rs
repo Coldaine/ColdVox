@@ -1,7 +1,7 @@
 use crate::types::{InjectionConfig, InjectionResult};
 use crate::TextInjector;
 use async_trait::async_trait;
-use tracing::{debug, warn};
+use tracing::debug;
 
 pub struct AtspiInjector {
     _config: InjectionConfig,
@@ -36,19 +36,9 @@ impl TextInjector for AtspiInjector {
         {
             use atspi::connection::AccessibilityConnection;
 
-            if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                return handle.block_on(AccessibilityConnection::new()).is_ok();
-            }
-            match tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-            {
-                Ok(rt) => rt.block_on(AccessibilityConnection::new()).is_ok(),
-                Err(_) => {
-                    warn!("AT-SPI availability check: failed to create a runtime");
-                    false
-                }
-            }
+            // In async context (like #[tokio::test]), just await directly
+            // instead of trying to block_on the current runtime
+            AccessibilityConnection::new().await.is_ok()
         }
         #[cfg(not(feature = "atspi"))]
         {
