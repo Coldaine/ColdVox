@@ -624,8 +624,13 @@ mod tests {
             ..Default::default()
         };
 
-        let injection_processor =
-            AsyncInjectionProcessor::new(injection_config, stt_transcription_rx, shutdown_rx, None);
+        let injection_processor = AsyncInjectionProcessor::new(
+            injection_config,
+            stt_transcription_rx,
+            shutdown_rx,
+            None,
+        )
+        .await;
 
         let injection_handle = tokio::spawn(async move { injection_processor.run().await });
 

@@ -58,7 +58,8 @@ async fn run_processor_demo() -> Result<(), Box<dyn std::error::Error>> {
     let injection_metrics = Arc::new(Mutex::new(
         coldvox_app::text_injection::types::InjectionMetrics::default(),
     ));
-    let mut processor = InjectionProcessor::new(config.clone(), None, injection_metrics.clone());
+    let mut processor =
+        InjectionProcessor::new(config.clone(), None, injection_metrics.clone()).await;
 
     info!(
         "Processor created. Current state: {:?}",
@@ -103,7 +104,8 @@ async fn run_processor_demo() -> Result<(), Box<dyn std::error::Error>> {
         // In a real scenario, this would be handled by the async processor
         // For demo purposes, we'll create a temporary strategy manager
         let config_clone = config.clone();
-        let mut temp_manager = StrategyManager::new(config_clone, injection_metrics.clone());
+        let mut temp_manager =
+            StrategyManager::new(config_clone, injection_metrics.clone()).await;
         match temp_manager.inject(&text).await {
             Ok(()) => {
                 info!("✅ Injection successful!");
@@ -150,7 +152,7 @@ async fn run_direct_injection_demo() -> Result<(), Box<dyn std::error::Error>> {
     let injection_metrics = Arc::new(Mutex::new(
         coldvox_app::text_injection::types::InjectionMetrics::default(),
     ));
-    let mut manager = StrategyManager::new(config, injection_metrics);
+    let mut manager = StrategyManager::new(config, injection_metrics).await;
 
     info!("StrategyManager created");
 
