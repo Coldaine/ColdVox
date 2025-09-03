@@ -29,7 +29,7 @@ device_query = { version = "2.1", optional = true }
 # Additional backend dependencies used by injectors
 x11 = { version = "2.21", optional = true }
 arboard = { version = "3.2", optional = true }
-mouse-keyboard-input = { version = "0.7", optional = true }
+mouse-keyboard-input = { version = "0.9", optional = true }
 regex = { version = "1.10", optional = true }
 
 [dev-dependencies]

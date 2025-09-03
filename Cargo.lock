@@ -2158,9 +2158,9 @@ dependencies = [
 
 [[package]]
 name = "mouse-keyboard-input"
-version = "0.7.3"
+version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dbf79b18a72442f15c270d0c97a98a4afb2e0b31fa8423e1301c724f1832bcea"
+checksum = "190a10d6261b87ec8a53efd81d889349793d6fdb2d83969ffadd34839c60c0df"
 dependencies = [
  "crossbeam-channel",
  "ioctl-sys",
