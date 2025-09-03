@@ -2,13 +2,14 @@
 //! 
 //! This module manages STT plugin selection and fallback logic
 
+use std::sync::Arc;
+
 use coldvox_stt::plugin::{
     SttPlugin, SttPluginRegistry, PluginSelectionConfig, SttPluginError
 };
 use coldvox_stt::plugins::{NoOpPlugin, MockPlugin};
-use tracing::{info, warn, error};
-use std::sync::Arc;
 use tokio::sync::RwLock;
+use tracing::{info, warn, error};
 
 /// Manages STT plugin lifecycle and selection
 pub struct SttPluginManager {

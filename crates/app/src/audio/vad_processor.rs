@@ -1,7 +1,8 @@
+use std::sync::Arc;
+
 use coldvox_audio::AudioFrame;
 use coldvox_telemetry::{FpsTracker, PipelineMetrics};
 use coldvox_vad::{UnifiedVadConfig, VadEvent};
-use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;

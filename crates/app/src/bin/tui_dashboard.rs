@@ -533,7 +533,7 @@ async fn run_audio_pipeline(tx: mpsc::Sender<AppEvent>, device: String) {
     let stt_vad_tx_clone = stt_vad_tx_opt.clone();
     tokio::spawn(async move {
         while let Some(ev) = raw_vad_rx_task.recv().await {
-            let _ = ui_vad_tx.send(ev.clone()).await;
+            let _ = ui_vad_tx.send(ev).await;
             #[cfg(feature = "vosk")]
             if let Some(stt_tx) = &stt_vad_tx_clone {
                 let stt_event = match ev {

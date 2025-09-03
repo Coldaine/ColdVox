@@ -124,11 +124,7 @@ impl SttPlugin for MockPlugin {
             state.calls_made += 1;
             
             if let Some(fail_after) = self.config.fail_after_calls {
-                if state.calls_made > fail_after {
-                    true
-                } else {
-                    false
-                }
+                state.calls_made > fail_after
             } else {
                 false
             }

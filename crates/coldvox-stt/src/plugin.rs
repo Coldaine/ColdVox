@@ -130,6 +130,7 @@ pub trait SttPluginFactory: Send + Sync {
 }
 
 /// Registry for managing multiple STT plugins
+#[derive(Default)]
 pub struct SttPluginRegistry {
     factories: Vec<Box<dyn SttPluginFactory>>,
     preferred_order: Vec<String>,
@@ -137,10 +138,7 @@ pub struct SttPluginRegistry {
 
 impl SttPluginRegistry {
     pub fn new() -> Self {
-        Self {
-            factories: Vec::new(),
-            preferred_order: Vec::new(),
-        }
+        Self::default()
     }
     
     /// Register a new plugin factory
@@ -157,19 +155,10 @@ impl SttPluginRegistry {
     pub fn available_plugins(&self) -> Vec<PluginInfo> {
         self.factories
             .iter()
-            .filter_map(|f| {
-                match f.check_requirements() {
-                    Ok(_) => {
-                        let mut info = f.plugin_info();
-                        info.is_available = true;
-                        Some(info)
-                    }
-                    Err(_) => {
-                        let mut info = f.plugin_info();
-                        info.is_available = false;
-                        Some(info)
-                    }
-                }
+            .map(|f| {
+                let mut info = f.plugin_info();
+                info.is_available = f.check_requirements().is_ok();
+                info
             })
             .collect()
     }

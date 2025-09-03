@@ -3,7 +3,17 @@
 // - Log level is controlled via the RUST_LOG environment variable (e.g., "info", "debug").
 // - The logs/ directory is created on startup if missing; file output uses a non-blocking writer.
 // - This ensures persistent logs for post-run analysis while keeping console output for live use.
+use std::time::Duration;
+
 use anyhow::anyhow;
+#[cfg(feature = "text-injection")]
+use clap::Args;
+use clap::{Parser, ValueEnum};
+use tokio::sync::{broadcast, mpsc};
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+
+use coldvox_app::hotkey::spawn_hotkey_listener;
 use coldvox_audio::{
     AudioCaptureThread, AudioChunker, AudioRingBuffer, ChunkerConfig, FrameReader,
 };
@@ -11,17 +21,8 @@ use coldvox_foundation::*;
 use coldvox_stt::TranscriptionConfig;
 #[cfg(feature = "vosk")]
 use coldvox_stt_vosk::VoskTranscriber;
-
-#[cfg(feature = "text-injection")]
-use clap::Args;
-use clap::{Parser, ValueEnum};
-use coldvox_app::hotkey::spawn_hotkey_listener;
 use coldvox_telemetry::PipelineMetrics;
 use coldvox_vad::{UnifiedVadConfig, VadEvent, VadMode, FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
-use std::time::Duration;
-use tokio::sync::{broadcast, mpsc};
-use tracing_appender::rolling::{RollingFileAppender, Rotation};
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 fn init_logging() -> Result<tracing_appender::non_blocking::WorkerGuard, Box<dyn std::error::Error>>
 {
@@ -301,14 +302,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
+    // Type alias for the complex tuple type
+    type ProcessorHandles = (
+        Option<tokio::task::JoinHandle<()>>,
+        Option<tokio::task::JoinHandle<()>>,
+        Option<tokio::task::JoinHandle<()>>,
+    );
+
     // Only spawn STT processor if enabled
     let injection_shutdown_tx: Option<mpsc::Sender<()>> = None;
     #[cfg(feature = "vosk")]
-    let (stt_handle, _persistence_handle, injection_handle): (
-        Option<tokio::task::JoinHandle<()>>,
-        Option<tokio::task::JoinHandle<()>>,
-        Option<tokio::task::JoinHandle<()>>,
-    ) = if stt_config.enabled {
+    let (stt_handle, _persistence_handle, injection_handle): ProcessorHandles = if stt_config
+        .enabled
+    {
         // --- Conversion Layer for Audio Frames ---
         let (stt_audio_tx, stt_audio_rx) =
             broadcast::channel::<coldvox_stt::processor::AudioFrame>(200);
@@ -387,11 +393,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     #[cfg(not(feature = "vosk"))]
-    let (stt_handle, _persistence_handle, injection_handle): (
-        Option<tokio::task::JoinHandle<()>>,
-        Option<tokio::task::JoinHandle<()>>,
-        Option<tokio::task::JoinHandle<()>>,
-    ) = {
+    let (stt_handle, _persistence_handle, injection_handle): ProcessorHandles = {
         tracing::info!("STT processor disabled - no vosk feature");
 
         // Consume VAD events even when STT is disabled to prevent channel backpressure
