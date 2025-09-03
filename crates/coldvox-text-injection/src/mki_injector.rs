@@ -1,16 +1,14 @@
-use crate::types::{InjectionConfig, InjectionError, InjectionMetrics, TextInjector};
+use crate::types::{InjectionConfig, InjectionError, InjectionResult};
+use crate::TextInjector;
 use async_trait::async_trait;
-use tracing::debug;
+// Note: debug was used for MKI logging but since MKI is disabled, removing unused import
 
-#[cfg(feature = "mki")]
-use mouse_keyboard_input::{Key, KeyboardControllable, VirtualDevice, VirtualKeyboard};
-#[cfg(feature = "mki")]
-use std::os::unix::fs::PermissionsExt;
+// Note: mouse_keyboard_input::VirtualKeyboard doesn't exist in the current version
+// Disabling MKI functionality until we can find a working alternative
 
 /// Mouse-keyboard-input (MKI) injector for synthetic key events
 pub struct MkiInjector {
     config: InjectionConfig,
-    metrics: InjectionMetrics,
     /// Whether MKI is available and can be used
     is_available: bool,
 }
@@ -22,7 +20,6 @@ impl MkiInjector {
 
         Self {
             config,
-            metrics: InjectionMetrics::default(),
             is_available,
         }
     }
@@ -52,80 +49,18 @@ impl MkiInjector {
         in_input_group && uinput_accessible
     }
 
-    /// Type text using MKI  
-    #[cfg(feature = "mki")]
-    async fn type_text(&mut self, text: &str) -> Result<(), InjectionError> {
-        let start = std::time::Instant::now();
-        let text_clone = text.to_string();
-
-        let result = tokio::task::spawn_blocking(move || {
-            let mut keyboard = VirtualKeyboard::default().map_err(|e| {
-                InjectionError::MethodFailed(format!("Failed to create keyboard: {}", e))
-            })?;
-
-            // Simple implementation - just send the text
-            keyboard
-                .key_sequence(&text_clone)
-                .map_err(|e| InjectionError::MethodFailed(e.to_string()))?;
-
-            Ok(())
-        })
-        .await;
-
-        match result {
-            Ok(Ok(())) => {
-                let duration = start.elapsed().as_millis() as u64;
-                // TODO: Fix metrics - self.metrics.record_success requires &mut self
-                info!("Successfully typed text via MKI ({} chars)", text.len());
-                Ok(())
-            }
-            Ok(Err(e)) => Err(e),
-            Err(_) => Err(InjectionError::Timeout(0)), // Spawn failed
-        }
-    }
-
-    /// Type text using MKI (feature disabled stub)
-    #[cfg(not(feature = "mki"))]
-    async fn type_text(&mut self, _text: &str) -> Result<(), InjectionError> {
-        Err(InjectionError::MethodUnavailable(
-            "MKI feature not enabled".to_string(),
-        ))
-    }
-
     /// Trigger paste action using MKI (Ctrl+V)
     #[cfg(feature = "mki")]
-    async fn trigger_paste(&mut self) -> Result<(), InjectionError> {
-        let start = std::time::Instant::now();
-
-        let result = tokio::task::spawn_blocking(|| {
-            let mut keyboard = VirtualKeyboard::default().map_err(|e| {
-                InjectionError::MethodFailed(format!("Failed to create keyboard: {}", e))
-            })?;
-
-            // Press Ctrl+V - simplified for now
-            keyboard
-                .key_sequence("ctrl+v")
-                .map_err(|e| InjectionError::MethodFailed(e.to_string()))?;
-
-            Ok(())
-        })
-        .await;
-
-        match result {
-            Ok(Ok(())) => {
-                let duration = start.elapsed().as_millis() as u64;
-                // TODO: Fix metrics - self.metrics.record_success requires &mut self
-                info!("Successfully triggered paste action via MKI");
-                Ok(())
-            }
-            Ok(Err(e)) => Err(e),
-            Err(_) => Err(InjectionError::Timeout(0)), // Spawn failed
-        }
+    pub async fn trigger_paste(&self) -> Result<(), InjectionError> {
+        // MKI functionality disabled due to missing VirtualKeyboard in mouse_keyboard_input crate
+        Err(InjectionError::MethodUnavailable(
+            "MKI VirtualKeyboard not available in current mouse-keyboard-input version".to_string(),
+        ))
     }
 
     /// Trigger paste action using MKI (feature disabled stub)
     #[cfg(not(feature = "mki"))]
-    async fn trigger_paste(&mut self) -> Result<(), InjectionError> {
+    pub async fn trigger_paste(&self) -> Result<(), InjectionError> {
         Err(InjectionError::MethodUnavailable(
             "MKI feature not enabled".to_string(),
         ))
@@ -134,33 +69,51 @@ impl MkiInjector {
 
 #[async_trait]
 impl TextInjector for MkiInjector {
-    fn name(&self) -> &'static str {
-        "MKI"
-    }
-
-    fn is_available(&self) -> bool {
-        self.is_available && self.config.allow_mki
-    }
-
-    async fn inject(&mut self, text: &str) -> Result<(), InjectionError> {
+    async fn inject_text(&self, text: &str) -> InjectionResult<()> {
         if text.is_empty() {
             return Ok(());
         }
 
-        // First try paste action (more reliable for batch text)
-        // We need to set the clipboard first, but that's handled by the strategy manager
-        // So we just trigger the paste
-        match self.trigger_paste().await {
-            Ok(()) => Ok(()),
-            Err(e) => {
-                debug!("Paste action failed: {}", e);
-                // Fall back to direct typing
-                self.type_text(text).await
-            }
+        if !self.config.allow_mki {
+            return Err(InjectionError::MethodNotAvailable(
+                "MKI not allowed".to_string(),
+            ));
+        }
+
+        #[cfg(feature = "mki")]
+        {
+            // MKI functionality disabled due to missing VirtualKeyboard in mouse_keyboard_input crate
+            let _ = text; // Use the parameter to avoid unused warning
+            Err(InjectionError::MethodUnavailable(
+                "MKI VirtualKeyboard not available in current mouse-keyboard-input version"
+                    .to_string(),
+            ))
+        }
+        #[cfg(not(feature = "mki"))]
+        {
+            Err(InjectionError::MethodUnavailable(
+                "MKI feature not enabled".to_string(),
+            ))
         }
     }
 
-    fn metrics(&self) -> &InjectionMetrics {
-        &self.metrics
+    async fn is_available(&self) -> bool {
+        self.is_available && self.config.allow_mki
+    }
+
+    fn backend_name(&self) -> &'static str {
+        "MKI"
+    }
+
+    fn backend_info(&self) -> Vec<(&'static str, String)> {
+        vec![
+            ("type", "keyboard".to_string()),
+            ("requires_permissions", "true".to_string()),
+            (
+                "description",
+                "Mouse-keyboard-input uinput backend".to_string(),
+            ),
+            ("allowed", self.config.allow_mki.to_string()),
+        ]
     }
 }

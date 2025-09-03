@@ -1,16 +1,12 @@
-use crate::types::{
-    InjectionConfig, InjectionError, InjectionMethod, InjectionMetrics, TextInjector,
-};
+use crate::types::{InjectionConfig, InjectionError, InjectionResult};
+use crate::TextInjector;
 use async_trait::async_trait;
-use enigo::{Enigo, Key, KeyboardControllable};
-use std::time::Duration;
-use tokio::time::{error::Elapsed, timeout};
-use tracing::{debug, error, info, warn};
+use enigo::{Direction, Enigo, Key, Keyboard, Settings};
+use tracing::{debug, info};
 
 /// Enigo injector for synthetic input
 pub struct EnigoInjector {
     config: InjectionConfig,
-    metrics: InjectionMetrics,
     /// Whether enigo is available and can be used
     is_available: bool,
 }
@@ -22,7 +18,6 @@ impl EnigoInjector {
 
         Self {
             config,
-            metrics: InjectionMetrics::default(),
             is_available,
         }
     }
@@ -31,32 +26,35 @@ impl EnigoInjector {
     fn check_availability() -> bool {
         // Check if we can create an Enigo instance
         // This will fail if we don't have the necessary permissions
-        Enigo::new().is_ok()
+        Enigo::new(&Settings::default()).is_ok()
     }
 
     /// Type text using enigo
-    async fn type_text(&mut self, text: &str) -> Result<(), InjectionError> {
-        let start = std::time::Instant::now();
+    async fn type_text(&self, text: &str) -> Result<(), InjectionError> {
         let text_clone = text.to_string();
 
         let result = tokio::task::spawn_blocking(move || {
-            let mut enigo = Enigo::new();
+            let mut enigo = Enigo::new(&Settings::default()).map_err(|e| {
+                InjectionError::MethodFailed(format!("Failed to create Enigo: {}", e))
+            })?;
 
             // Type each character with a small delay
             for c in text_clone.chars() {
                 match c {
-                    ' ' => enigo.key_click(Key::Space),
-                    '\n' => enigo.key_click(Key::Return),
-                    '\t' => enigo.key_click(Key::Tab),
+                    ' ' => enigo.key(Key::Space, Direction::Click).map_err(|e| {
+                        InjectionError::MethodFailed(format!("Failed to type space: {}", e))
+                    })?,
+                    '\n' => enigo.key(Key::Return, Direction::Click).map_err(|e| {
+                        InjectionError::MethodFailed(format!("Failed to type enter: {}", e))
+                    })?,
+                    '\t' => enigo.key(Key::Tab, Direction::Click).map_err(|e| {
+                        InjectionError::MethodFailed(format!("Failed to type tab: {}", e))
+                    })?,
                     _ => {
-                        if c.is_ascii() {
-                            enigo.key_sequence(&c.to_string());
-                        } else {
-                            // For non-ASCII characters, we might need to use clipboard
-                            return Err(InjectionError::MethodFailed(
-                                "Enigo doesn't support non-ASCII characters directly".to_string(),
-                            ));
-                        }
+                        // Use text method for all other characters
+                        enigo.text(&c.to_string()).map_err(|e| {
+                            InjectionError::MethodFailed(format!("Failed to type text: {}", e))
+                        })?;
                     }
                 }
             }
@@ -67,8 +65,6 @@ impl EnigoInjector {
 
         match result {
             Ok(Ok(())) => {
-                let duration = start.elapsed().as_millis() as u64;
-                // TODO: Fix metrics - self.metrics.record_success requires &mut self
                 info!("Successfully typed text via enigo ({} chars)", text.len());
                 Ok(())
             }
@@ -78,16 +74,22 @@ impl EnigoInjector {
     }
 
     /// Trigger paste action using enigo (Ctrl+V)
-    async fn trigger_paste(&mut self) -> Result<(), InjectionError> {
-        let start = std::time::Instant::now();
-
+    async fn trigger_paste(&self) -> Result<(), InjectionError> {
         let result = tokio::task::spawn_blocking(|| {
-            let mut enigo = Enigo::new();
+            let mut enigo = Enigo::new(&Settings::default()).map_err(|e| {
+                InjectionError::MethodFailed(format!("Failed to create Enigo: {}", e))
+            })?;
 
             // Press Ctrl+V
-            enigo.key_down(Key::Control);
-            enigo.key_click(Key::Layout('v'));
-            enigo.key_up(Key::Control);
+            enigo.key(Key::Control, Direction::Press).map_err(|e| {
+                InjectionError::MethodFailed(format!("Failed to press Ctrl: {}", e))
+            })?;
+            enigo
+                .key(Key::Unicode('v'), Direction::Click)
+                .map_err(|e| InjectionError::MethodFailed(format!("Failed to type 'v': {}", e)))?;
+            enigo.key(Key::Control, Direction::Release).map_err(|e| {
+                InjectionError::MethodFailed(format!("Failed to release Ctrl: {}", e))
+            })?;
 
             Ok(())
         })
@@ -95,8 +97,6 @@ impl EnigoInjector {
 
         match result {
             Ok(Ok(())) => {
-                let duration = start.elapsed().as_millis() as u64;
-                // TODO: Fix metrics - self.metrics.record_success requires &mut self
                 info!("Successfully triggered paste action via enigo");
                 Ok(())
             }
@@ -108,15 +108,15 @@ impl EnigoInjector {
 
 #[async_trait]
 impl TextInjector for EnigoInjector {
-    fn name(&self) -> &'static str {
+    fn backend_name(&self) -> &'static str {
         "Enigo"
     }
 
-    fn is_available(&self) -> bool {
+    async fn is_available(&self) -> bool {
         self.is_available && self.config.allow_enigo
     }
 
-    async fn inject(&mut self, text: &str) -> Result<(), InjectionError> {
+    async fn inject_text(&self, text: &str) -> InjectionResult<()> {
         if text.is_empty() {
             return Ok(());
         }
@@ -134,7 +134,18 @@ impl TextInjector for EnigoInjector {
         }
     }
 
-    fn metrics(&self) -> &InjectionMetrics {
-        &self.metrics
+    fn backend_info(&self) -> Vec<(&'static str, String)> {
+        vec![
+            ("type", "synthetic input".to_string()),
+            (
+                "description",
+                "Types text using system keyboard events via Enigo library".to_string(),
+            ),
+            ("platform", "Cross-platform".to_string()),
+            (
+                "requires",
+                "System permissions for synthetic input".to_string(),
+            ),
+        ]
     }
 }

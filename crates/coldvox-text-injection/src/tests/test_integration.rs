@@ -13,7 +13,7 @@ mod integration_tests {
         };
 
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
-        let manager = StrategyManager::new(config, metrics.clone());
+        let manager = StrategyManager::new(config, metrics.clone()).await;
 
         // Test getting current app ID
         let app_id = manager.get_current_app_id().await;
@@ -46,7 +46,7 @@ mod integration_tests {
         };
 
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
-        let manager = StrategyManager::new(config, metrics);
+        let manager = StrategyManager::new(config, metrics).await;
 
         // Test allowlist
         assert!(manager.is_app_allowed("firefox"));
@@ -60,7 +60,7 @@ mod integration_tests {
         };
 
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
-        let manager = StrategyManager::new(config, metrics);
+        let manager = StrategyManager::new(config, metrics).await;
 
         assert!(!manager.is_app_allowed("terminal"));
         assert!(!manager.is_app_allowed("console"));

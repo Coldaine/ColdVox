@@ -13,13 +13,13 @@ impl TextInjector for DummyInjector {
     fn metrics(&self) -> &InjectionMetrics { &self.metrics }
 }
 
-#[test]
-fn regex_caching_allow_block() {
+#[tokio::test]
+async fn regex_caching_allow_block() {
     let mut config = InjectionConfig::default();
     config.allowlist = vec!["^Code$".into()];
     config.blocklist = vec!["^Forbidden$".into()];
     let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
-    let manager = StrategyManager::new(config, metrics);
+    let manager = StrategyManager::new(config, metrics).await;
 
     #[cfg(feature = "regex")]
     {
@@ -33,11 +33,11 @@ fn regex_caching_allow_block() {
     }
 }
 
-#[test]
-fn method_order_caches_per_app() {
+#[tokio::test]
+async fn method_order_caches_per_app() {
     let config = InjectionConfig::default();
     let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
-    let mut manager = StrategyManager::new(config, metrics);
+    let mut manager = StrategyManager::new(config, metrics).await;
     let order1 = manager.get_method_order("appA");
     let order2 = manager.get_method_order("appA");
     assert_eq!(order1, order2);
@@ -46,13 +46,13 @@ fn method_order_caches_per_app() {
     assert!(!order3.is_empty());
 }
 
-#[test]
-fn unicode_chunk_boundaries() {
+#[tokio::test]
+async fn unicode_chunk_boundaries() {
     let mut config = InjectionConfig::default();
     config.paste_chunk_chars = 3;
     config.chunk_delay_ms = 0;
     let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
-    let mut manager = StrategyManager::new(config, metrics);
+    let mut manager = StrategyManager::new(config, metrics).await;
 
     let mut inj: Box<dyn TextInjector> = Box::new(DummyInjector::new());
     let text = "🙂🙂🙂🙂"; // 4 emojis, multi-byte

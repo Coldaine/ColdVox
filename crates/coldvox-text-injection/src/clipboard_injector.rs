@@ -1,6 +1,5 @@
-use crate::types::{
-    InjectionConfig, InjectionError, InjectionMethod, InjectionMetrics, TextInjector,
-};
+use crate::types::{InjectionConfig, InjectionError, InjectionResult};
+use crate::TextInjector;
 use async_trait::async_trait;
 use std::time::{Duration, Instant};
 use tracing::{debug, info, warn};
@@ -10,7 +9,6 @@ use wl_clipboard_rs::paste::MimeType as PasteMimeType;
 /// Clipboard injector using Wayland-native API
 pub struct ClipboardInjector {
     config: InjectionConfig,
-    metrics: InjectionMetrics,
     /// Previous clipboard content if we're restoring
     _previous_clipboard: Option<String>,
 }
@@ -20,7 +18,6 @@ impl ClipboardInjector {
     pub fn new(config: InjectionConfig) -> Self {
         Self {
             config,
-            metrics: InjectionMetrics::default(),
             _previous_clipboard: None,
         }
     }
@@ -28,21 +25,21 @@ impl ClipboardInjector {
 
 #[async_trait]
 impl TextInjector for ClipboardInjector {
-    fn name(&self) -> &'static str {
+    fn backend_name(&self) -> &'static str {
         "Clipboard"
     }
 
-    fn is_available(&self) -> bool {
+    async fn is_available(&self) -> bool {
         // Check if we can access the Wayland display
         std::env::var("WAYLAND_DISPLAY").is_ok()
     }
 
-    async fn inject(&mut self, text: &str) -> Result<(), InjectionError> {
+    async fn inject_text(&self, text: &str) -> InjectionResult<()> {
         if text.is_empty() {
             return Ok(());
         }
 
-        let start = Instant::now();
+        let _start = Instant::now();
 
         // Save current clipboard if configured
         // Note: Clipboard saving would require async context or separate thread
@@ -64,30 +61,27 @@ impl TextInjector for ClipboardInjector {
 
         match result {
             Ok(Ok(_)) => {
-                // TODO: Fix metrics - self.metrics.record_success requires &mut self
                 info!("Clipboard set successfully ({} chars)", text.len());
                 Ok(())
             }
-            Ok(Err(e)) => {
-                let duration = start.elapsed().as_millis() as u64;
-                self.metrics
-                    .record_failure(InjectionMethod::Clipboard, duration, e.to_string());
-                Err(InjectionError::Clipboard(e.to_string()))
-            }
-            Err(_) => {
-                let duration = start.elapsed().as_millis() as u64;
-                self.metrics.record_failure(
-                    InjectionMethod::Clipboard,
-                    duration,
-                    format!("Timeout after {}ms", timeout_ms),
-                );
-                Err(InjectionError::Timeout(timeout_ms))
-            }
+            Ok(Err(e)) => Err(InjectionError::Clipboard(e.to_string())),
+            Err(_) => Err(InjectionError::Timeout(timeout_ms)),
         }
     }
 
-    fn metrics(&self) -> &InjectionMetrics {
-        &self.metrics
+    fn backend_info(&self) -> Vec<(&'static str, String)> {
+        vec![
+            ("type", "clipboard".to_string()),
+            (
+                "description",
+                "Sets clipboard content using Wayland wl-clipboard API".to_string(),
+            ),
+            ("platform", "Linux (Wayland)".to_string()),
+            (
+                "requires",
+                "WAYLAND_DISPLAY environment variable".to_string(),
+            ),
+        ]
     }
 }
 
@@ -241,8 +235,8 @@ mod tests {
         let config = InjectionConfig::default();
         let injector = ClipboardInjector::new(config);
 
-        assert_eq!(injector.name(), "Clipboard");
-        assert!(injector.metrics.attempts == 0);
+        assert_eq!(injector.backend_name(), "Clipboard");
+        // Basic creation test - no metrics in new implementation
     }
 
     // Test that inject works with valid text
@@ -252,36 +246,30 @@ mod tests {
         env::set_var("WAYLAND_DISPLAY", "wayland-0");
 
         let config = InjectionConfig::default();
-        let mut injector = ClipboardInjector::new(config);
+        let _injector = ClipboardInjector::new(config);
 
         // Mock clipboard
         let clipboard = MockClipboard::new();
 
         // Override the actual clipboard operations with our mock
         // This is a simplified test - in real code we'd use proper mocking
-        // Simulate successful clipboard operation and metrics update
         let text = "test text";
         let _ = clipboard.set(text.to_string());
-        let duration = 100;
-        injector
-            .metrics
-            .record_success(InjectionMethod::Clipboard, duration);
-        assert_eq!(injector.metrics.successes, 1);
-        assert_eq!(injector.metrics.attempts, 1);
+        // No metrics tracking in new implementation
 
         env::remove_var("WAYLAND_DISPLAY");
-        assert_eq!(injector.metrics.successes, 1);
+        // No metrics tracking in new implementation
     }
 
     // Test that inject fails with empty text
     #[tokio::test]
     async fn test_clipboard_inject_empty_text() {
         let config = InjectionConfig::default();
-        let mut injector = ClipboardInjector::new(config);
+        let injector = ClipboardInjector::new(config);
 
-        let result = injector.inject("").await;
+        let result = injector.inject_text("").await;
         assert!(result.is_ok());
-        assert_eq!(injector.metrics.attempts, 0); // Should not record attempt for empty text
+        // Empty text should succeed without error
     }
 
     // Test that inject fails when clipboard is not available
@@ -289,10 +277,10 @@ mod tests {
     async fn test_clipboard_inject_no_wayland() {
         // Don't set WAYLAND_DISPLAY to simulate non-Wayland environment
         let config = InjectionConfig::default();
-        let mut injector = ClipboardInjector::new(config);
+        let injector = ClipboardInjector::new(config);
 
-        // Availability depends on environment; just ensure calling inject doesn't panic
-        injector.inject("test").await.ok();
+        // Availability depends on environment; just ensure calling inject_text doesn't panic
+        injector.inject_text("test").await.ok();
     }
 
     // Test clipboard restoration
@@ -329,25 +317,18 @@ mod tests {
             per_method_timeout_ms: 1, // Very short timeout
             ..Default::default()
         };
-        let to_ms = config.per_method_timeout_ms;
+        let _to_ms = config.per_method_timeout_ms;
 
-        let mut injector = ClipboardInjector::new(config.clone());
+        let _injector = ClipboardInjector::new(config.clone());
 
         // Test with a text that would cause timeout in real implementation
         // In our mock, we'll simulate timeout by using a long-running operation
-        // Simulate timeout metrics
+        // Simulate timeout - no metrics in new implementation
         let start = Instant::now();
         while start.elapsed() < Duration::from_millis(10) {}
-        let duration = start.elapsed().as_millis() as u64;
-        injector.metrics.record_failure(
-            InjectionMethod::Clipboard,
-            duration,
-            format!("Timeout after {}ms", to_ms),
-        );
-        assert_eq!(injector.metrics.failures, 1);
-        assert_eq!(injector.metrics.attempts, 1);
+        // Test passes if we get here without panicking
 
         env::remove_var("WAYLAND_DISPLAY");
-        assert_eq!(injector.metrics.failures, 1);
+        // No metrics tracking in new implementation
     }
 }

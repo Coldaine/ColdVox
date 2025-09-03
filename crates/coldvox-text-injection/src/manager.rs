@@ -1,8 +1,7 @@
 use crate::backend::{Backend, BackendDetector};
 use crate::focus::{FocusStatus, FocusTracker};
-use crate::types::{
-    InjectionConfig, InjectionError, InjectionMethod, InjectionMetrics, TextInjector,
-};
+use crate::types::{InjectionConfig, InjectionError, InjectionMethod, InjectionMetrics};
+use crate::TextInjector;
 
 // Import injectors
 #[cfg(feature = "atspi")]
@@ -68,7 +67,7 @@ struct InjectorRegistry {
 }
 
 impl InjectorRegistry {
-    fn build(config: &InjectionConfig, backend_detector: &BackendDetector) -> Self {
+    async fn build(config: &InjectionConfig, backend_detector: &BackendDetector) -> Self {
         let mut injectors: HashMap<InjectionMethod, Box<dyn TextInjector>> = HashMap::new();
 
         // Check backend availability
@@ -87,7 +86,7 @@ impl InjectorRegistry {
         #[cfg(feature = "atspi")]
         {
             let injector = AtspiInjector::new(config.clone());
-            if injector.is_available() {
+            if injector.is_available().await {
                 injectors.insert(InjectionMethod::AtspiInsert, Box::new(injector));
             }
         }
@@ -97,7 +96,7 @@ impl InjectorRegistry {
         {
             if _has_wayland || _has_x11 {
                 let clipboard_injector = ClipboardInjector::new(config.clone());
-                if clipboard_injector.is_available() {
+                if clipboard_injector.is_available().await {
                     injectors.insert(InjectionMethod::Clipboard, Box::new(clipboard_injector));
                 }
 
@@ -105,7 +104,7 @@ impl InjectorRegistry {
                 #[cfg(feature = "atspi")]
                 {
                     let combo_injector = ComboClipboardAtspi::new(config.clone());
-                    if combo_injector.is_available() {
+                    if combo_injector.is_available().await {
                         injectors
                             .insert(InjectionMethod::ClipboardAndPaste, Box::new(combo_injector));
                     }
@@ -117,7 +116,7 @@ impl InjectorRegistry {
         #[cfg(feature = "ydotool")]
         if config.allow_ydotool {
             let ydotool = YdotoolInjector::new(config.clone());
-            if ydotool.is_available() {
+            if ydotool.is_available().await {
                 injectors.insert(InjectionMethod::YdoToolPaste, Box::new(ydotool));
             }
         }
@@ -125,7 +124,7 @@ impl InjectorRegistry {
         #[cfg(feature = "enigo")]
         if config.allow_enigo {
             let enigo = EnigoInjector::new(config.clone());
-            if enigo.is_available() {
+            if enigo.is_available().await {
                 injectors.insert(InjectionMethod::EnigoText, Box::new(enigo));
             }
         }
@@ -133,7 +132,7 @@ impl InjectorRegistry {
         #[cfg(feature = "mki")]
         if config.allow_mki {
             let mki = MkiInjector::new(config.clone());
-            if mki.is_available() {
+            if mki.is_available().await {
                 injectors.insert(InjectionMethod::UinputKeys, Box::new(mki));
             }
         }
@@ -141,7 +140,7 @@ impl InjectorRegistry {
         #[cfg(feature = "xdg_kdotool")]
         if config.allow_kdotool {
             let kdotool = KdotoolInjector::new(config.clone());
-            if kdotool.is_available() {
+            if kdotool.is_available().await {
                 injectors.insert(InjectionMethod::KdoToolAssist, Box::new(kdotool));
             }
         }
@@ -196,7 +195,7 @@ pub struct StrategyManager {
 
 impl StrategyManager {
     /// Create a new strategy manager
-    pub fn new(config: InjectionConfig, metrics: Arc<Mutex<InjectionMetrics>>) -> Self {
+    pub async fn new(config: InjectionConfig, metrics: Arc<Mutex<InjectionMetrics>>) -> Self {
         let backend_detector = BackendDetector::new(config.clone());
         if let Some(backend) = backend_detector.get_preferred_backend() {
             info!("Selected backend: {:?}", backend);
@@ -208,7 +207,7 @@ impl StrategyManager {
         }
 
         // Build injector registry
-        let injectors = InjectorRegistry::build(&config, &backend_detector);
+        let injectors = InjectorRegistry::build(&config, &backend_detector).await;
 
         // Compile regex patterns once for performance
         #[cfg(feature = "regex")]
@@ -757,7 +756,7 @@ impl StrategyManager {
             }
 
             let chunk = &text[start..end];
-            injector.paste(chunk).await?;
+            injector.inject_text(chunk).await?;
 
             start = end;
 
@@ -807,7 +806,7 @@ impl StrategyManager {
             }
 
             let burst = &text[start..end];
-            injector.type_text(burst, rate_cps).await?;
+            injector.inject_text(burst).await?;
 
             // Calculate delay based on burst size and rate
             let delay_ms = (burst.len() as f64 / rate_cps as f64 * 1000.0) as u64;
@@ -928,11 +927,9 @@ impl StrategyManager {
                 if let Some(injector) = self.injectors.get_mut(method) {
                     if use_paste {
                         // For now, perform a single paste operation; chunking is optional
-                        injector.paste(text).await
+                        injector.inject_text(text).await
                     } else {
-                        injector
-                            .type_text(text, self.config.keystroke_rate_cps)
-                            .await
+                        injector.inject_text(text).await
                     }
                 } else {
                     continue;
@@ -1025,7 +1022,6 @@ mod tests {
         name: &'static str,
         available: bool,
         success_rate: f64,
-        metrics: InjectionMetrics,
     }
 
     #[allow(dead_code)]
@@ -1035,22 +1031,21 @@ mod tests {
                 name,
                 available,
                 success_rate,
-                metrics: InjectionMetrics::default(),
             }
         }
     }
 
     #[async_trait]
     impl TextInjector for MockInjector {
-        fn name(&self) -> &'static str {
+        fn backend_name(&self) -> &'static str {
             self.name
         }
 
-        fn is_available(&self) -> bool {
+        async fn is_available(&self) -> bool {
             self.available
         }
 
-        async fn inject(&mut self, _text: &str) -> Result<(), InjectionError> {
+        async fn inject_text(&self, _text: &str) -> crate::types::InjectionResult<()> {
             use std::time::SystemTime;
 
             // Simple pseudo-random based on system time
@@ -1070,17 +1065,21 @@ mod tests {
             }
         }
 
-        fn metrics(&self) -> &InjectionMetrics {
-            &self.metrics
+        fn backend_info(&self) -> Vec<(&'static str, String)> {
+            vec![
+                ("type", "mock".to_string()),
+                ("description", "Mock injector for testing".to_string()),
+                ("success_rate", format!("{:.2}", self.success_rate)),
+            ]
         }
     }
 
     // Test that strategy manager can be created
-    #[test]
-    fn test_strategy_manager_creation() {
+    #[tokio::test]
+    async fn test_strategy_manager_creation() {
         let config = InjectionConfig::default();
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
-        let manager = StrategyManager::new(config, metrics);
+        let manager = StrategyManager::new(config, metrics).await;
 
         {
             let metrics = manager.metrics.lock().unwrap();
@@ -1091,11 +1090,11 @@ mod tests {
     }
 
     // Test method ordering
-    #[test]
-    fn test_method_ordering() {
+    #[tokio::test]
+    async fn test_method_ordering() {
         let config = InjectionConfig::default();
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
-        let manager = StrategyManager::new(config, metrics);
+        let manager = StrategyManager::new(config, metrics).await;
 
         let order = manager.get_method_order_uncached();
 
@@ -1114,7 +1113,7 @@ mod tests {
         };
 
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
-        let manager = StrategyManager::new(config, metrics);
+        let manager = StrategyManager::new(config, metrics).await;
         let order = manager.get_method_order_uncached();
 
         // All methods should be present
@@ -1128,11 +1127,11 @@ mod tests {
     }
 
     // Test success record updates
-    #[test]
-    fn test_success_record_update() {
+    #[tokio::test]
+    async fn test_success_record_update() {
         let config = InjectionConfig::default();
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
-        let mut manager = StrategyManager::new(config.clone(), metrics);
+        let mut manager = StrategyManager::new(config.clone(), metrics).await;
 
         // Test success
         manager.update_success_record("unknown_app", InjectionMethod::AtspiInsert, true);
@@ -1151,11 +1150,11 @@ mod tests {
     }
 
     // Test cooldown updates
-    #[test]
-    fn test_cooldown_update() {
+    #[tokio::test]
+    async fn test_cooldown_update() {
         let config = InjectionConfig::default();
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
-        let mut manager = StrategyManager::new(config.clone(), metrics);
+        let mut manager = StrategyManager::new(config.clone(), metrics).await;
 
         // First failure
         manager.update_cooldown(InjectionMethod::AtspiInsert, "test error");
@@ -1177,15 +1176,15 @@ mod tests {
     }
 
     // Test budget checking
-    #[test]
-    fn test_budget_checking() {
+    #[tokio::test]
+    async fn test_budget_checking() {
         let config = InjectionConfig {
             max_total_latency_ms: 100, // 100ms budget
             ..Default::default()
         };
 
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
-        let mut manager = StrategyManager::new(config, metrics);
+        let mut manager = StrategyManager::new(config, metrics).await;
 
         // No start time - budget should be available
         assert!(manager.has_budget_remaining());
@@ -1204,7 +1203,7 @@ mod tests {
     async fn test_inject_success() {
         let config = InjectionConfig::default();
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
-        let mut manager = StrategyManager::new(config, metrics);
+        let mut manager = StrategyManager::new(config, metrics).await;
 
         // Test with text
         let result = manager.inject("test text").await;
@@ -1224,7 +1223,7 @@ mod tests {
         };
 
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
-        let mut manager = StrategyManager::new(config, metrics);
+        let mut manager = StrategyManager::new(config, metrics).await;
 
         // This should fail due to budget exhaustion
         let result = manager.inject("test text").await;
@@ -1240,7 +1239,7 @@ mod tests {
     async fn test_empty_text() {
         let config = InjectionConfig::default();
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
-        let mut manager = StrategyManager::new(config, metrics);
+        let mut manager = StrategyManager::new(config, metrics).await;
 
         // Inject empty text
         // Should handle empty string gracefully

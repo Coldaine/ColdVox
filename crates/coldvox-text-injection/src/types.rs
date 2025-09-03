@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -115,6 +114,10 @@ pub struct InjectionConfig {
     #[serde(default = "default_clipboard_restore_delay_ms")]
     pub clipboard_restore_delay_ms: Option<u64>,
 
+    /// Timeout for window discovery operations (ms)
+    #[serde(default = "default_discovery_timeout_ms")]
+    pub discovery_timeout_ms: u64,
+
     /// Allowlist of application patterns (regex) for injection
     #[serde(default)]
     pub allowlist: Vec<String>,
@@ -216,6 +219,10 @@ fn default_cooldown_max_ms() -> u64 {
     300_000 // 5 minutes
 }
 
+fn default_discovery_timeout_ms() -> u64 {
+    1000 // 1 second
+}
+
 impl Default for InjectionConfig {
     fn default() -> Self {
         Self {
@@ -244,6 +251,7 @@ impl Default for InjectionConfig {
             min_sample_size: default_min_sample_size(),
             enable_window_detection: default_true(),
             clipboard_restore_delay_ms: default_clipboard_restore_delay_ms(),
+            discovery_timeout_ms: default_discovery_timeout_ms(),
             allowlist: default_allowlist(),
             blocklist: default_blocklist(),
         }
@@ -466,35 +474,5 @@ impl InjectionMetrics {
         };
     }
 }
-/// Trait for text injection backends
-/// This trait is intentionally synchronous. Implementations needing async
-/// operations should use thread::spawn with channels or block_on as appropriate.
-/// Rationale: many backends interact with system services where blocking calls
-/// are acceptable and simplify cross-backend orchestration without forcing a
-/// runtime on callers.
-#[async_trait]
-pub trait TextInjector: Send + Sync {
-    /// Name of the injector for logging and metrics
-    fn name(&self) -> &'static str;
-
-    /// Check if this injector is available for use
-    fn is_available(&self) -> bool;
-
-    /// Inject text using this method
-    async fn inject(&mut self, text: &str) -> Result<(), InjectionError>;
-
-    /// Type text with pacing (characters per second)
-    /// Default implementation falls back to inject()
-    async fn type_text(&mut self, text: &str, _rate_cps: u32) -> Result<(), InjectionError> {
-        self.inject(text).await
-    }
-
-    /// Paste text (may use clipboard or other methods)
-    /// Default implementation falls back to inject()
-    async fn paste(&mut self, text: &str) -> Result<(), InjectionError> {
-        self.inject(text).await
-    }
-
-    /// Get metrics for this injector
-    fn metrics(&self) -> &InjectionMetrics;
-}
+// Note: The TextInjector trait has been moved to lib.rs to avoid conflicts.
+// Use crate::TextInjector for the canonical async trait definition.

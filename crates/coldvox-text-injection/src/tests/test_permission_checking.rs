@@ -1,12 +1,12 @@
 #[cfg(test)]
 mod tests {
+    use crate::InjectionConfig;
     use std::process::Command;
 
     #[cfg(feature = "ydotool")]
-    use crate::types::TextInjector;
-    #[cfg(feature = "ydotool")]
     use crate::ydotool_injector::YdotoolInjector;
-    use crate::InjectionConfig;
+    #[cfg(feature = "ydotool")]
+    use crate::TextInjector;
 
     #[test]
     fn test_binary_existence_check() {
