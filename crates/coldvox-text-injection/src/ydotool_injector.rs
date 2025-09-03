@@ -1,4 +1,5 @@
-use crate::types::{InjectionConfig, InjectionError, InjectionMetrics, TextInjector};
+use crate::types::{InjectionConfig, InjectionError, InjectionResult};
+use crate::TextInjector;
 use anyhow::Result;
 use async_trait::async_trait;
 use std::process::Command;
@@ -9,7 +10,6 @@ use tracing::{debug, info, warn};
 /// Ydotool injector for synthetic key events
 pub struct YdotoolInjector {
     config: InjectionConfig,
-    metrics: InjectionMetrics,
     /// Whether ydotool is available on the system
     is_available: bool,
 }
@@ -21,7 +21,6 @@ impl YdotoolInjector {
 
         Self {
             config,
-            metrics: InjectionMetrics::default(),
             is_available,
         }
     }
@@ -177,17 +176,15 @@ impl YdotoolInjector {
 
 #[async_trait]
 impl TextInjector for YdotoolInjector {
-    fn name(&self) -> &'static str {
-        "Ydotool"
-    }
-
-    fn is_available(&self) -> bool {
-        self.is_available && self.config.allow_ydotool
-    }
-
-    async fn inject(&mut self, text: &str) -> Result<(), InjectionError> {
+    async fn inject_text(&self, text: &str) -> InjectionResult<()> {
         if text.is_empty() {
             return Ok(());
+        }
+
+        if !self.config.allow_ydotool {
+            return Err(InjectionError::MethodNotAvailable(
+                "Ydotool not allowed".to_string(),
+            ));
         }
 
         // First try paste action (more reliable for batch text)
@@ -201,7 +198,23 @@ impl TextInjector for YdotoolInjector {
         }
     }
 
-    fn metrics(&self) -> &InjectionMetrics {
-        &self.metrics
+    async fn is_available(&self) -> bool {
+        self.is_available && self.config.allow_ydotool
+    }
+
+    fn backend_name(&self) -> &'static str {
+        "Ydotool"
+    }
+
+    fn backend_info(&self) -> Vec<(&'static str, String)> {
+        vec![
+            ("type", "uinput".to_string()),
+            ("requires_daemon", "true".to_string()),
+            (
+                "description",
+                "Ydotool uinput automation backend".to_string(),
+            ),
+            ("allowed", self.config.allow_ydotool.to_string()),
+        ]
     }
 }

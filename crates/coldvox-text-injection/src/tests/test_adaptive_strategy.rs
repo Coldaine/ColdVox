@@ -4,11 +4,11 @@ mod tests {
     use crate::types::{InjectionConfig, InjectionMethod, InjectionMetrics};
     use std::sync::{Arc, Mutex};
 
-    #[test]
-    fn test_success_rate_calculation() {
+    #[tokio::test]
+    async fn test_success_rate_calculation() {
         let config = InjectionConfig::default();
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
-        let mut manager = StrategyManager::new(config, metrics);
+        let mut manager = StrategyManager::new(config, metrics).await;
 
         // Simulate some successes and failures
         manager.update_success_record("test_app", InjectionMethod::Clipboard, true);
@@ -20,11 +20,11 @@ mod tests {
         assert!(!methods.is_empty());
     }
 
-    #[test]
-    fn test_cooldown_application() {
+    #[tokio::test]
+    async fn test_cooldown_application() {
         let config = InjectionConfig::default();
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
-        let mut manager = StrategyManager::new(config, metrics);
+        let mut manager = StrategyManager::new(config, metrics).await;
 
         // Apply cooldown
         manager.apply_cooldown("test_app", InjectionMethod::YdoToolPaste, "Test error");
@@ -33,8 +33,8 @@ mod tests {
         let _ = manager.is_in_cooldown(InjectionMethod::YdoToolPaste);
     }
 
-    #[test]
-    fn test_method_priority_ordering() {
+    #[tokio::test]
+    async fn test_method_priority_ordering() {
         let config = InjectionConfig {
             allow_ydotool: true,
             allow_enigo: false,
@@ -42,7 +42,7 @@ mod tests {
         };
 
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
-        let manager = StrategyManager::new(config, metrics);
+        let manager = StrategyManager::new(config, metrics).await;
 
         let methods = manager.get_method_priority("test_app");
 
@@ -54,11 +54,11 @@ mod tests {
         assert_eq!(methods[0], InjectionMethod::AtspiInsert);
     }
 
-    #[test]
-    fn test_success_rate_decay() {
+    #[tokio::test]
+    async fn test_success_rate_decay() {
         let config = InjectionConfig::default();
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
-        let mut manager = StrategyManager::new(config, metrics);
+        let mut manager = StrategyManager::new(config, metrics).await;
 
         // Add initial success
         manager.update_success_record("test_app", InjectionMethod::Clipboard, true);

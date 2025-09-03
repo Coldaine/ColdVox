@@ -65,7 +65,7 @@ pub struct InjectionProcessor {
 
 impl InjectionProcessor {
     /// Create a new injection processor
-    pub fn new(
+    pub async fn new(
         config: InjectionConfig,
         pipeline_metrics: Option<Arc<PipelineMetrics>>,
         injection_metrics: Arc<Mutex<InjectionMetrics>>,
@@ -74,7 +74,7 @@ impl InjectionProcessor {
         let session_config = SessionConfig::default(); // TODO: Expose this if needed
         let session = InjectionSession::new(session_config, injection_metrics.clone());
 
-        let injector = StrategyManager::new(config.clone(), injection_metrics.clone());
+        let injector = StrategyManager::new(config.clone(), injection_metrics.clone()).await;
 
         let metrics = Arc::new(Mutex::new(ProcessorMetrics {
             session_state: SessionState::Idle,
@@ -303,7 +303,7 @@ pub struct AsyncInjectionProcessor {
 
 impl AsyncInjectionProcessor {
     /// Create a new async injection processor
-    pub fn new(
+    pub async fn new(
         config: InjectionConfig,
         transcription_rx: mpsc::Receiver<TranscriptionEvent>,
         shutdown_rx: mpsc::Receiver<()>,
@@ -313,14 +313,13 @@ impl AsyncInjectionProcessor {
         let injection_metrics = Arc::new(Mutex::new(crate::types::InjectionMetrics::default()));
 
         // Create processor with shared metrics
-        let processor = Arc::new(tokio::sync::Mutex::new(InjectionProcessor::new(
-            config.clone(),
-            pipeline_metrics,
-            injection_metrics.clone(),
-        )));
+        let processor = Arc::new(tokio::sync::Mutex::new(
+            InjectionProcessor::new(config.clone(), pipeline_metrics, injection_metrics.clone())
+                .await,
+        ));
 
         // Create injector with shared metrics
-        let injector = StrategyManager::new(config, injection_metrics.clone());
+        let injector = StrategyManager::new(config, injection_metrics.clone()).await;
 
         Self {
             processor,
@@ -406,12 +405,12 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    #[test]
-    fn test_injection_processor_basic_flow() {
+    #[tokio::test]
+    async fn test_injection_processor_basic_flow() {
         let config = InjectionConfig::default();
 
         let injection_metrics = Arc::new(Mutex::new(crate::types::InjectionMetrics::default()));
-        let mut processor = InjectionProcessor::new(config, None, injection_metrics);
+        let mut processor = InjectionProcessor::new(config, None, injection_metrics).await;
 
         // Start with idle state
         assert_eq!(processor.session_state(), SessionState::Idle);
@@ -447,11 +446,11 @@ mod tests {
         assert_eq!(processor.session_state(), SessionState::Idle);
     }
 
-    #[test]
-    fn test_metrics_update() {
+    #[tokio::test]
+    async fn test_metrics_update() {
         let config = InjectionConfig::default();
         let injection_metrics = Arc::new(Mutex::new(crate::types::InjectionMetrics::default()));
-        let mut processor = InjectionProcessor::new(config, None, injection_metrics);
+        let mut processor = InjectionProcessor::new(config, None, injection_metrics).await;
 
         // Add transcription
         processor.handle_transcription(TranscriptionEvent::Final {
@@ -466,11 +465,11 @@ mod tests {
         assert!(metrics.buffer_chars > 0);
     }
 
-    #[test]
-    fn test_partial_transcription_handling() {
+    #[tokio::test]
+    async fn test_partial_transcription_handling() {
         let config = InjectionConfig::default();
         let injection_metrics = Arc::new(Mutex::new(crate::types::InjectionMetrics::default()));
-        let mut processor = InjectionProcessor::new(config, None, injection_metrics);
+        let mut processor = InjectionProcessor::new(config, None, injection_metrics).await;
 
         // Start with idle state
         assert_eq!(processor.session_state(), SessionState::Idle);

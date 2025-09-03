@@ -1,5 +1,6 @@
 use crate::clipboard_injector::ClipboardInjector;
-use crate::types::{InjectionConfig, InjectionError, InjectionMetrics, TextInjector};
+use crate::types::{InjectionConfig, InjectionResult};
+use crate::TextInjector;
 use async_trait::async_trait;
 use std::time::Duration;
 use tracing::{debug, warn};
@@ -8,7 +9,6 @@ use tracing::{debug, warn};
 /// NOTE: AT-SPI paste action not yet implemented for atspi 0.22
 pub struct ComboClipboardAtspi {
     _config: InjectionConfig,
-    metrics: InjectionMetrics,
     clipboard_injector: ClipboardInjector,
 }
 
@@ -17,35 +17,34 @@ impl ComboClipboardAtspi {
     pub fn new(config: InjectionConfig) -> Self {
         Self {
             _config: config.clone(),
-            metrics: InjectionMetrics::default(),
             clipboard_injector: ClipboardInjector::new(config),
         }
     }
 
     /// Check if this combo injector is available
-    pub fn is_available(&self) -> bool {
+    pub async fn is_available(&self) -> bool {
         // For now, just check if clipboard is available
         // AT-SPI paste action implementation pending
-        self.clipboard_injector.is_available()
+        self.clipboard_injector.is_available().await
     }
 }
 
 #[async_trait]
 impl TextInjector for ComboClipboardAtspi {
     /// Get the name of this injector
-    fn name(&self) -> &'static str {
+    fn backend_name(&self) -> &'static str {
         "Clipboard+AT-SPI"
     }
 
     /// Check if this injector is available for use
-    fn is_available(&self) -> bool {
-        self.is_available()
+    async fn is_available(&self) -> bool {
+        self.is_available().await
     }
 
     /// Inject text using clipboard+AT-SPI paste
-    async fn inject(&mut self, text: &str) -> Result<(), InjectionError> {
+    async fn inject_text(&self, text: &str) -> InjectionResult<()> {
         // Step 1: Set clipboard content
-        self.clipboard_injector.inject(text).await?;
+        self.clipboard_injector.inject_text(text).await?;
         debug!("Clipboard set with {} chars", text.len());
 
         // Step 2: Wait a short time for clipboard to stabilize
@@ -62,8 +61,19 @@ impl TextInjector for ComboClipboardAtspi {
         Ok(())
     }
 
-    /// Get current metrics
-    fn metrics(&self) -> &InjectionMetrics {
-        &self.metrics
+    /// Get backend-specific configuration information
+    fn backend_info(&self) -> Vec<(&'static str, String)> {
+        vec![
+            ("type", "combo clipboard+atspi".to_string()),
+            (
+                "description",
+                "Sets clipboard content and triggers paste via AT-SPI".to_string(),
+            ),
+            ("platform", "Linux (Wayland + AT-SPI)".to_string()),
+            (
+                "status",
+                "AT-SPI paste action not yet implemented".to_string(),
+            ),
+        ]
     }
 }
