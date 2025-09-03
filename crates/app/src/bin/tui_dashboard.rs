@@ -6,14 +6,13 @@
 use clap::Parser;
 use coldvox_app::audio::vad_processor::VadProcessor;
 use coldvox_audio::capture::AudioCaptureThread;
-use coldvox_audio::chunker::AudioFrame as VadFrame;
 use coldvox_audio::chunker::{AudioChunker, ChunkerConfig};
 use coldvox_audio::frame_reader::FrameReader;
 use coldvox_audio::ring_buffer::AudioRingBuffer;
 use coldvox_foundation::error::AudioConfig;
 #[cfg(feature = "vosk")]
 use coldvox_stt::{
-    processor::SttProcessor, EventBasedTranscriber, TranscriptionConfig, TranscriptionEvent,
+    processor::SttProcessor, TranscriptionConfig, TranscriptionEvent,
 };
 #[cfg(feature = "vosk")]
 use coldvox_stt_vosk::VoskTranscriber;
@@ -480,11 +479,23 @@ async fn run_audio_pipeline(tx: mpsc::Sender<AppEvent>, device: String) {
             let (stt_audio_tx, stt_audio_rx) =
                 broadcast::channel::<coldvox_stt::processor::AudioFrame>(200);
             let mut chunker_rx_for_stt = chunker_audio_tx.subscribe();
+            let start_time = std::time::Instant::now();
             tokio::spawn(async move {
                 while let Ok(frame) = chunker_rx_for_stt.recv().await {
+                    // Convert f32 samples to i16 samples
+                    let i16_samples: Vec<i16> = frame
+                        .samples
+                        .iter()
+                        .map(|&sample| (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
+                        .collect();
+
+                    // Convert Instant to milliseconds since start of processing
+                    let timestamp_ms =
+                        frame.timestamp.duration_since(start_time).as_millis() as u64;
+
                     let stt_frame = coldvox_stt::processor::AudioFrame {
-                        data: frame.samples,
-                        timestamp_ms: frame.timestamp,
+                        data: i16_samples,
+                        timestamp_ms,
                         sample_rate: frame.sample_rate,
                     };
                     let _ = stt_audio_tx.send(stt_frame);

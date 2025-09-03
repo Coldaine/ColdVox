@@ -15,7 +15,7 @@ impl TextInjectionProbe {
         let injection_metrics = Arc::new(std::sync::Mutex::new(InjectionMetrics::default()));
 
         // Create strategy manager
-        let mut manager = StrategyManager::new(config, injection_metrics.clone());
+        let mut manager = StrategyManager::new(config, injection_metrics.clone()).await;
 
         // Test basic injection
         let start_time = std::time::Instant::now();

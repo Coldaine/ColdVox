@@ -4,10 +4,6 @@
 // - The logs/ directory is created on startup if missing; file output uses a non-blocking writer.
 // - This ensures persistent logs for post-run analysis while keeping console output for live use.
 use anyhow::anyhow;
-#[cfg(feature = "vosk")]
-use coldvox_app::stt::persistence::{
-    AudioFormat, PersistenceConfig, SessionMetadata, TranscriptFormat,
-};
 use coldvox_audio::{
     AudioCaptureThread, AudioChunker, AudioRingBuffer, ChunkerConfig, FrameReader,
 };
@@ -22,8 +18,6 @@ use clap::Args;
 use clap::{Parser, ValueEnum};
 use coldvox_app::hotkey::spawn_hotkey_listener;
 use coldvox_telemetry::PipelineMetrics;
-#[cfg(feature = "text-injection")]
-use coldvox_text_injection::{AsyncInjectionProcessor, InjectionConfig};
 use coldvox_vad::{UnifiedVadConfig, VadEvent, VadMode, FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
@@ -309,18 +303,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Only spawn STT processor if enabled
-    let mut injection_shutdown_tx: Option<mpsc::Sender<()>> = None;
+    let injection_shutdown_tx: Option<mpsc::Sender<()>> = None;
     #[cfg(feature = "vosk")]
-    let (stt_handle, _persistence_handle, injection_handle) = if stt_config.enabled {
+    let (stt_handle, _persistence_handle, injection_handle): (
+        Option<tokio::task::JoinHandle<()>>,
+        Option<tokio::task::JoinHandle<()>>,
+        Option<tokio::task::JoinHandle<()>>,
+    ) = if stt_config.enabled {
         // --- Conversion Layer for Audio Frames ---
         let (stt_audio_tx, stt_audio_rx) =
             broadcast::channel::<coldvox_stt::processor::AudioFrame>(200);
         let mut chunker_rx = audio_tx.subscribe();
+        let start_time = std::time::Instant::now();
         tokio::spawn(async move {
             while let Ok(frame) = chunker_rx.recv().await {
+                // Convert f32 samples to i16 samples
+                let i16_samples: Vec<i16> = frame
+                    .samples
+                    .iter()
+                    .map(|&sample| (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
+                    .collect();
+
+                // Convert Instant to milliseconds since start of processing
+                let timestamp_ms = frame.timestamp.duration_since(start_time).as_millis() as u64;
+
                 let stt_frame = coldvox_stt::processor::AudioFrame {
-                    data: frame.samples,
-                    timestamp_ms: frame.timestamp,
+                    data: i16_samples,
+                    timestamp_ms,
                     sample_rate: frame.sample_rate,
                 };
                 let _ = stt_audio_tx.send(stt_frame);
@@ -359,11 +368,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             stt_config.clone(),
         );
 
-        // ... (rest of the logic)
+        // Spawn STT processor
+        let stt_handle = Some(tokio::spawn(async move {
+            stt_processor.run().await;
+        }));
+
+        // For now, return None for persistence and injection handles as they're not implemented
+        let persistence_handle = None::<tokio::task::JoinHandle<()>>;
+        let injection_handle = None::<tokio::task::JoinHandle<()>>;
+
+        (stt_handle, persistence_handle, injection_handle)
+    } else {
+        // STT is disabled, return None handles
+        (
+            None::<tokio::task::JoinHandle<()>>,
+            None::<tokio::task::JoinHandle<()>>,
+            None::<tokio::task::JoinHandle<()>>,
+        )
     };
 
     #[cfg(not(feature = "vosk"))]
-    let (stt_handle, _persistence_handle, injection_handle) = {
+    let (stt_handle, _persistence_handle, injection_handle): (
+        Option<tokio::task::JoinHandle<()>>,
+        Option<tokio::task::JoinHandle<()>>,
+        Option<tokio::task::JoinHandle<()>>,
+    ) = {
         tracing::info!("STT processor disabled - no vosk feature");
 
         // Consume VAD events even when STT is disabled to prevent channel backpressure
