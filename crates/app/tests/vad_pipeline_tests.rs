@@ -1,5 +1,7 @@
 #[cfg(feature = "level3")]
-use coldvox_audio::{AudioFrame as VadFrame, VadProcessor};
+use coldvox_audio::AudioFrame as VadFrame;
+#[cfg(feature = "level3")]
+use coldvox_app::audio::VadProcessor;
 #[cfg(feature = "level3")]
 use coldvox_telemetry::pipeline_metrics::PipelineMetrics;
 #[cfg(feature = "level3")]

@@ -102,7 +102,7 @@ proptest = "1.4"
 rand = "0.8"
 
 [features]
-default = ["silero", "text-injection", "vosk"]
+default = ["silero", "text-injection"]
 live-hardware-tests = []
 vosk = ["dep:coldvox-stt-vosk"]
 no-stt = []

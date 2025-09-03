@@ -44,6 +44,7 @@ impl VadAdapter {
                         .to_string(),
                 );
             }
+            #[cfg(feature = "silero")]
             VadMode::Silero => {
                 let silero_config = coldvox_vad_silero::SileroConfig {
                     threshold: config.silero.threshold,
@@ -52,6 +53,13 @@ impl VadAdapter {
                     window_size_samples: config.silero.window_size_samples,
                 };
                 Box::new(SileroEngine::new(silero_config)?)
+            }
+            #[cfg(not(feature = "silero"))]
+            VadMode::Silero => {
+                return Err(
+                    "Silero VAD is not available in this build. Use Level3 mode instead."
+                        .to_string(),
+                );
             }
         };
 

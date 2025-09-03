@@ -1,46 +1,333 @@
-name: Feature Matrix Tests
+name: Feature Matrix Testing
 
 on:
-  # Weekly comprehensive testing
-  schedule:
-    - cron: '0 2 * * 1'
-  # Manual trigger
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
   workflow_dispatch:
+    inputs:
+      test_strategy:
+        description: 'Testing strategy to use'
+        required: false
+        default: 'curated'
+        type: choice
+        options:
+          - curated
+          - default-only
+          - no-default
+          - each-feature
+          - powerset
+      verbose:
+        description: 'Enable verbose output'
+        required: false
+        default: false
+        type: boolean
 
-permissions:
-  contents: read
-  pull-requests: read
-
-concurrency:
-  group: feature-matrix-${{ github.ref }}
-  cancel-in-progress: true
+env:
+  RUST_BACKTRACE: 1
+  CARGO_TERM_COLOR: always
 
 jobs:
-  feature-combinations:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
+  feature-matrix:
+    name: Test ${{ matrix.package }} - ${{ matrix.features.name }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        package: [coldvox-app, coldvox-vad, coldvox-text-injection]
+        features:
+          # Default features
+          - name: "default"
+            flags: ""
+            
+          # No default features
+          - name: "no-default"
+            flags: "--no-default-features"
+            
+          # VAD variants
+          - name: "silero"
+            flags: "--no-default-features --features silero"
+            
+          - name: "level3"
+            flags: "--no-default-features --features level3"
+            
+          # STT variants
+          - name: "vosk"
+            flags: "--no-default-features --features vosk"
+            
+          # Text injection variants (platform-specific)
+          - name: "text-injection"
+            flags: "--no-default-features --features text-injection"
+            
+          # Combined features
+          - name: "silero+vosk"
+            flags: "--no-default-features --features silero,vosk"
+            
+          - name: "level3+vosk"
+            flags: "--no-default-features --features level3,vosk"
+            
+          - name: "silero+text-injection"
+            flags: "--no-default-features --features silero,text-injection"
+            
+          - name: "full"
+            flags: "--features silero,vosk,text-injection"
+        
+        exclude:
+          # Exclude text-injection specific tests from non-app packages
+          - package: coldvox-vad
+            features:
+              name: "text-injection"
+          - package: coldvox-vad
+            features:
+              name: "silero+text-injection"
+          - package: coldvox-vad
+            features:
+              name: "vosk"
+          - package: coldvox-vad
+            features:
+              name: "silero+vosk"
+          - package: coldvox-vad
+            features:
+              name: "level3+vosk"
+          - package: coldvox-vad
+            features:
+              name: "full"
+              
+          # Exclude VAD-specific tests from text-injection package
+          - package: coldvox-text-injection
+            features:
+              name: "silero"
+          - package: coldvox-text-injection
+            features:
+              name: "level3"
+          - package: coldvox-text-injection
+            features:
+              name: "vosk"
+          - package: coldvox-text-injection
+            features:
+              name: "silero+vosk"
+          - package: coldvox-text-injection
+            features:
+              name: "level3+vosk"
+          - package: coldvox-text-injection
+            features:
+              name: "silero+text-injection"
+          - package: coldvox-text-injection
+            features:
+              name: "full"
+    
     steps:
-      - uses: actions/checkout@3df4ab11eba7bda6032a0b82a6bb43b11571feac # v4.1.7
-      - uses: dtolnay/rust-toolchain@1482605bfc5719782e1267fd0c0cc350fe7646b8 # v1
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-      - name: Install cargo-hack
-        run: cargo install cargo-hack --locked
-      - uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84 # v2.7.3
+          components: rustfmt, clippy
       
-      - name: Install system dependencies
+      - name: Cache Rust dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ matrix.package }}-${{ matrix.features.name }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ matrix.package }}-${{ matrix.features.name }}-
+            ${{ runner.os }}-cargo-${{ matrix.package }}-
+            ${{ runner.os }}-cargo-
+      
+      # Platform-specific setup
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev libxdo-dev libxtst-dev
+          sudo apt-get install -y \
+            libasound2-dev \
+            libdbus-1-dev \
+            pkg-config \
+            libssl-dev \
+            libxcb1-dev \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev
       
-      - name: Test feature combinations for critical crates
+      - name: Install Windows dependencies
+        if: runner.os == 'Windows'
         run: |
-          # Test each feature in isolation and combinations
-          cargo hack test --each-feature -p coldvox-audio
-          cargo hack test --each-feature -p coldvox-vad
-          cargo hack test --each-feature -p coldvox-text-injection
+          # Windows-specific setup if needed
+          echo "Windows environment ready"
+      
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        run: |
+          # macOS-specific setup if needed
+          echo "macOS environment ready"
+      
+      # Download Vosk model if testing with Vosk feature
+      - name: Download Vosk model
+        if: contains(matrix.features.name, 'vosk')
+        run: |
+          mkdir -p models
+          cd models
+          if [ ! -d "vosk-model-small-en-us-0.15" ]; then
+            curl -L https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip -o model.zip
+            unzip model.zip
+            rm model.zip
+          fi
+        shell: bash
+      
+      # Build the package with specified features
+      - name: Build package
+        run: cargo build -p ${{ matrix.package }} ${{ matrix.features.flags }}
+      
+      # Run tests
+      - name: Run tests
+        run: cargo test -p ${{ matrix.package }} ${{ matrix.features.flags }}
+        env:
+          VOSK_MODEL_PATH: ${{ github.workspace }}/models/vosk-model-small-en-us-0.15
+      
+      # Run clippy for additional checks
+      - name: Run clippy
+        run: cargo clippy -p ${{ matrix.package }} ${{ matrix.features.flags }} -- -D warnings
+        continue-on-error: true
+
+  # Comprehensive test job using the Python script
+  comprehensive-test:
+    name: Comprehensive Feature Testing
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev \
+            libdbus-1-dev \
+            pkg-config \
+            libssl-dev
+      
+      - name: Make test script executable
+        run: chmod +x test-features.py
+      
+      - name: Run comprehensive feature tests
+        run: |
+          strategy="${{ github.event.inputs.test_strategy || 'curated' }}"
+          verbose_flag=""
+          if [ "${{ github.event.inputs.verbose }}" = "true" ]; then
+            verbose_flag="--verbose"
+          fi
           
-          # Skip GUI and Vosk crates (require special setup)
-          cargo hack test --each-feature --workspace \
-            --exclude coldvox-gui \
-            --exclude coldvox-stt-vosk
+          # Test main app package
+          python3 test-features.py \
+            -p coldvox-app \
+            --strategy "$strategy" \
+            $verbose_flag \
+            --json-output test-results-app.json
+          
+          # Test VAD package
+          python3 test-features.py \
+            -p coldvox-vad \
+            --strategy "$strategy" \
+            $verbose_flag \
+            --json-output test-results-vad.json
+          
+          # Test text injection package
+          python3 test-features.py \
+            -p coldvox-text-injection \
+            --strategy "$strategy" \
+            $verbose_flag \
+            --json-output test-results-injection.json
+      
+      - name: Upload test results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: feature-test-results
+          path: test-results-*.json
+      
+      - name: Generate test report
+        if: always()
+        run: |
+          python3 -c "
+          import json
+          import glob
+          
+          all_results = []
+          for file in glob.glob('test-results-*.json'):
+              with open(file) as f:
+                  results = json.load(f)
+                  all_results.extend(results)
+          
+          total = len(all_results)
+          passed = sum(1 for r in all_results if r['success'])
+          failed = total - passed
+          
+          print('## Feature Testing Summary')
+          print(f'- Total tests: {total}')
+          print(f'- Passed: {passed}')
+          print(f'- Failed: {failed}')
+          print(f'- Success rate: {(passed/total*100):.1f}%')
+          
+          if failed > 0:
+              print('\n### Failed Combinations:')
+              for r in all_results:
+                  if not r['success']:
+                      print(f\"- Features: {r['features']} - Command: {r['command']}\")
+          " > test-summary.md
+          
+          cat test-summary.md >> $GITHUB_STEP_SUMMARY
+
+  # Quick smoke test for PRs
+  smoke-test:
+    name: Quick Smoke Test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libdbus-1-dev pkg-config
+      
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      
+      - name: Build with default features
+        run: cargo build --workspace
+      
+      - name: Test with default features
+        run: cargo test --workspace
+      
+      - name: Build with no default features
+        run: cargo build --workspace --no-default-features
+      
+      - name: Test with no default features
+        run: cargo test --workspace --no-default-features
+      
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
