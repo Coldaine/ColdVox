@@ -115,40 +115,11 @@ jobs:
         env:
           LD_LIBRARY_PATH: /usr/local/lib:${LD_LIBRARY_PATH}
           VOSK_MODEL_PATH: models/vosk-model-small-en-us-0.15
-          TEST_WAV: test_audio.wav
         run: |
-          # Generate a simple test WAV file if none exists
-          if [ ! -f test_audio.wav ]; then
-            echo "Generating test WAV file..."
-            # Create a simple sine wave WAV file for testing
-            cat > generate_wav.py << 'EOF'
-          import wave
-          import struct
-          import math
-
-          # Generate 1 second of 440Hz sine wave at 16kHz
-          sample_rate = 16000
-          duration = 1
-          frequency = 440
-          samples = []
-
-          for i in range(sample_rate * duration):
-              t = i / sample_rate
-              value = int(32767.0 * math.sin(2.0 * math.pi * frequency * t))
-              samples.append(struct.pack('<h', value))
-
-          # Write WAV file
-          with wave.open('test_audio.wav', 'wb') as w:
-              w.setnchannels(1)
-              w.setsampwidth(2)
-              w.setframerate(sample_rate)
-              w.writeframes(b''.join(samples))
-          print('Test WAV file created')
-          EOF
-            python3 generate_wav.py
-            rm generate_wav.py
-          fi
-          cargo test --locked -p coldvox-app --features vosk test_end_to_end_wav_pipeline -- --nocapture
+          # The test will automatically use WAV files from crates/app/test_data/
+          # which contains 12 test files with corresponding transcripts
+          cd crates/app
+          cargo test --locked --features vosk test_end_to_end_wav_pipeline -- --nocapture
 
       - name: Test Vosk examples
         env:
