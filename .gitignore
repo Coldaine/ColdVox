@@ -40,6 +40,8 @@ Thumbs.db
 models/
 *.model
 *.zip
+# Exception for vendored dependencies
+!vendor/**/*.zip
 
 # ColdVox local run artifacts
 # Keep directory structure but ignore contents
