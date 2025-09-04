@@ -1,14 +1,32 @@
 use coldvox_app::audio::vad_adapter::VadAdapter;
 use coldvox_vad::{UnifiedVadConfig, VadMode, FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 use hound::WavReader;
+use std::path::PathBuf;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let wav_path = std::env::var("TEST_WAV").unwrap_or_else(|_| "test_audio_16k.wav".to_string());
-
-    println!("Loading WAV: {}", wav_path);
-
-    // Load WAV file directly
-    let mut reader = WavReader::open(&wav_path)?;
+    let wav_env = std::env::var("TEST_WAV").unwrap_or_else(|_| "test_audio_16k.wav".to_string());
+    // Try opening provided path, else fallback to crates/app
+    let reader = match hound::WavReader::open(&wav_env) {
+        Ok(r) => {
+            println!("Loading WAV: {}", wav_env);
+            r
+        }
+        Err(e) => {
+            // Fallback to crates/app directory
+            let mut fallback = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+            fallback.pop(); // move from examples/ to repo root
+            fallback.push("crates");
+            fallback.push("app");
+            fallback.push(&wav_env);
+            println!(
+                "Failed to open {}: {}. Falling back to {}",
+                wav_env,
+                e,
+                fallback.display()
+            );
+            hound::WavReader::open(&fallback)?
+        }
+    };
     let spec = reader.spec();
 
     println!(
