@@ -75,7 +75,7 @@ clap = { version = "4.0", features = ["derive", "env"] }
 env_logger = "0.11"
 chrono = { version = "0.4", features = ["serde"] }
 ratatui = "0.26"
-crossterm = "0.27"
+crossterm = "0.29"
 futures = "0.3"
 fastrand = "2.0"
 # voice_activity_detector moved to coldvox-vad-silero
