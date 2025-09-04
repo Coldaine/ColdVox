@@ -383,7 +383,6 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    #[ignore] // Requires WAV files and Vosk model
     async fn test_end_to_end_wav_pipeline() {
         init_test_tracing();
         use rand::seq::SliceRandom;
@@ -500,7 +499,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // Requires WAV files, Vosk model, and text injection backend
+    #[ignore] // Keep ignored - requires text injection backend
     async fn test_end_to_end_with_real_injection() {
         init_test_tracing();
         // This test uses the real AsyncInjectionProcessor for comprehensive testing
