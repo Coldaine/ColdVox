@@ -21,8 +21,6 @@ use coldvox_audio::{
 };
 use coldvox_foundation::*;
 use coldvox_stt::TranscriptionConfig;
-#[cfg(feature = "vosk")]
-use coldvox_stt_vosk::VoskTranscriber;
 use coldvox_telemetry::PipelineMetrics;
 use coldvox_vad::{UnifiedVadConfig, VadEvent, VadMode, FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 
@@ -367,14 +365,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let (stt_transcription_tx, stt_transcription_rx) = mpsc::channel::<TranscriptionEvent>(100);
 
-        let transcriber = VoskTranscriber::new(stt_config.clone(), SAMPLE_RATE_HZ as f32)?;
         let stt_processor = SttProcessor::new(
             stt_audio_rx,
             stt_vad_rx,
             stt_transcription_tx,
-            transcriber,
             stt_config.clone(),
-        );
+        )?;
 
         // Spawn STT processor
         let stt_handle = Some(tokio::spawn(async move {
