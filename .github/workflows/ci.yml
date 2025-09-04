@@ -159,14 +159,8 @@ jobs:
 
       - name: Run tests
         run: |
-          if [[ "${{ matrix.features }}" == *"text-injection"* ]]; then
-            echo "Running with xvfb for text-injection tests"
-            xvfb-run -a --server-args="-screen 0 1280x1024x24" \
-              cargo nextest run --workspace --no-default-features --features ${{ matrix.features }}
-          else
-            echo "Running without xvfb"
+          xvfb-run -a --server-args="-screen 0 1280x1024x24" \
             cargo nextest run --workspace --no-default-features --features ${{ matrix.features }}
-          fi
       - name: Run doc tests
         run: cargo test --doc --workspace --no-default-features --features ${{ matrix.features }}
 
