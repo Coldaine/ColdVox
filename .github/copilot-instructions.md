@@ -83,7 +83,6 @@ Key defaults right now:
 - Hotkeys: `cargo run --example test_hotkey_backend`
 - KDE KGlobalAccel: `cargo run --example test_kglobalaccel_hotkey`
 - Silero VAD (wav): `cargo run --features examples --example test_silero_wav`
-Note: A `vad_demo` example is not present in the repo; use `test_silero_wav` instead for VAD checks.
 
 ### Build Options
 - **Release**: `cargo build --release`
