@@ -198,6 +198,7 @@ jobs:
   # Security audit
   security:
     name: Security Audit
+    if: false # temporarily disabled per request
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v4.1.7
