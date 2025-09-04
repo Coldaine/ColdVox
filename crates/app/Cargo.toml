@@ -20,10 +20,6 @@ path = "src/bin/mic_probe.rs"
 name = "foundation_probe"
 path = "../../examples/foundation_probe.rs"
 
-[[example]]
-name = "vad_demo"
-path = "../../examples/vad_demo.rs"
-required-features = ["examples"]
 
 [[example]]
 name = "record_10s"
@@ -74,8 +70,8 @@ toml = "0.8"
 clap = { version = "4.0", features = ["derive", "env"] }
 env_logger = "0.11"
 chrono = { version = "0.4", features = ["serde"] }
-ratatui = "0.29"
-crossterm = "0.29"
+ratatui = "0.28"
+crossterm = "0.28"
 futures = "0.3"
 fastrand = "2.0"
 # voice_activity_detector moved to coldvox-vad-silero

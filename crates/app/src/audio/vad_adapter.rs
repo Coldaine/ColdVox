@@ -14,6 +14,14 @@ pub struct VadAdapter {
 
 impl VadAdapter {
     pub fn new(config: UnifiedVadConfig) -> Result<Self, String> {
+        #[cfg(not(any(feature = "level3", feature = "silero")))]
+        {
+            return Err(
+                "No VAD engine available. Enable either 'silero' or 'level3' feature.".to_string(),
+            );
+        }
+
+        #[cfg(any(feature = "level3", feature = "silero"))]
         let engine: Box<dyn VadEngine> = match config.mode {
             #[cfg(feature = "level3")]
             VadMode::Level3 => {
@@ -63,6 +71,7 @@ impl VadAdapter {
             }
         };
 
+        #[cfg(any(feature = "level3", feature = "silero"))]
         let resampler = if engine.required_sample_rate() != config.sample_rate_hz
             || engine.required_frame_size_samples() != config.frame_size_samples
         {
@@ -76,6 +85,7 @@ impl VadAdapter {
             None
         };
 
+        #[cfg(any(feature = "level3", feature = "silero"))]
         Ok(Self {
             engine,
             config,

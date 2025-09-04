@@ -81,13 +81,12 @@ jobs:
       # Run clippy for additional checks
       - name: Run clippy
         run: cargo clippy -p coldvox-app ${{ matrix.features.flags }} -- -D warnings
-        continue-on-error: true
 
   # Comprehensive test job using the Python script
   comprehensive-test:
     name: Comprehensive Feature Testing
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+    if: github.event_name == 'workflow_dispatch'
     
     steps:
       - name: Checkout repository

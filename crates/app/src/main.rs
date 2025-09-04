@@ -148,7 +148,8 @@ struct InjectionArgs {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Give PipeWire better routing hints if using its ALSA bridge
+    // Give PipeWire better routing hints if using its ALSA bridge (Linux only)
+    #[cfg(target_os = "linux")]
     std::env::set_var(
         "PIPEWIRE_PROPS",
         "{ application.name=ColdVox media.role=capture }",
