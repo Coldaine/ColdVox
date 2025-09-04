@@ -177,6 +177,98 @@ jobs:
 
           cat test-summary.md >> $GITHUB_STEP_SUMMARY
 
+  # Test coldvox-vad crate features
+  vad-features:
+    name: Test coldvox-vad - ${{ matrix.features.name }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        features:
+          - name: "no-default"
+            flags: "--no-default-features"
+          - name: "level3-only"
+            flags: "--no-default-features --features level3"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3df4ab11eba7bda6032a0b82a6bb43b11571feac # v4.1.7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1482605bfc5719782e1267fd0c0cc350fe7646b8 # v1
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84 # v2.7.3
+
+      # Build the package with specified features
+      - name: Build package
+        run: cargo build -p coldvox-vad ${{ matrix.features.flags }}
+
+      # Run tests
+      - name: Run tests
+        run: cargo test -p coldvox-vad ${{ matrix.features.flags }}
+
+      # Run clippy for additional checks
+      - name: Run clippy
+        run: cargo clippy -p coldvox-vad ${{ matrix.features.flags }} -- -D warnings
+        continue-on-error: true
+
+  # Test coldvox-text-injection crate features
+  text-injection-features:
+    name: Test coldvox-text-injection - ${{ matrix.features.name }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        features:
+          - name: "default"
+            flags: ""
+          - name: "no-default"
+            flags: "--no-default-features"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3df4ab11eba7bda6032a0b82a6bb43b11571feac # v4.1.7
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1482605bfc5719782e1267fd0c0cc350fe7646b8 # v1
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84 # v2.7.3
+
+      # Platform-specific setup (Linux only)
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libdbus-1-dev \
+            pkg-config \
+            libxcb1-dev \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev
+
+      # Build the package with specified features
+      - name: Build package
+        run: cargo build -p coldvox-text-injection ${{ matrix.features.flags }}
+
+      # Run tests
+      - name: Run tests
+        run: cargo test -p coldvox-text-injection ${{ matrix.features.flags }}
+
+      # Run clippy for additional checks
+      - name: Run clippy
+        run: cargo clippy -p coldvox-text-injection ${{ matrix.features.flags }} -- -D warnings
+        continue-on-error: true
+
   # Quick smoke test for PRs
   smoke-test:
     name: Quick Smoke Test

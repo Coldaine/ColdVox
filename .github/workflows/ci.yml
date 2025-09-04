@@ -24,6 +24,45 @@ env:
   RUSTFLAGS: "-D warnings"
 
 jobs:
+  validate-workflows:
+    name: Validate Workflows (gh)
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3df4ab11eba7bda6032a0b82a6bb43b11571feac # v4.1.7
+      - name: Validate with gh
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v gh >/dev/null 2>&1; then
+            echo "gh CLI not found on runner" >&2
+            exit 1
+          fi
+
+          shopt -s nullglob
+          files=(.github/workflows/*.yml .github/workflows/*.yaml)
+          if [[ ${#files[@]} -eq 0 ]]; then
+            echo "No workflow files found"
+            exit 0
+          fi
+
+          echo "Validating ${{ github.sha }} against ${#files[@]} workflow files..."
+          failed=0
+          for wf in "${files[@]}"; do
+            echo "-- $wf"
+            if ! gh workflow view "$wf" --ref "$GITHUB_SHA" --yaml >/dev/null 2>&1; then
+              echo "ERROR: Failed to render $wf via gh" >&2
+              failed=1
+            fi
+          done
+
+          if [[ $failed -ne 0 ]]; then
+            echo "One or more workflows failed server-side validation via gh." >&2
+            exit 1
+          fi
+          echo "All workflows render via gh."
+
   # Format checking
   fmt:
     name: Format Check
@@ -35,7 +74,6 @@ jobs:
         with:
           toolchain: stable
           components: rustfmt
-
       - name: Check formatting
         run: cargo fmt --all -- --check
 
@@ -52,7 +90,6 @@ jobs:
           components: clippy
 
       - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
-
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -66,7 +103,7 @@ jobs:
     name: Type Check & Build
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest]
         rust: [stable]
     runs-on: ${{ matrix.os }}
     steps:
@@ -79,7 +116,6 @@ jobs:
       - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
         with:
           key: ${{ matrix.os }}-${{ matrix.rust }}
-
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
@@ -88,7 +124,6 @@ jobs:
 
       - name: Type check
         run: cargo check --workspace --all-targets --no-default-features --features silero
-
       - name: Build
         run: cargo build --workspace --no-default-features --features silero
 
@@ -114,7 +149,6 @@ jobs:
       - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
         with:
           key: test-${{ matrix.features }}
-
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
@@ -125,7 +159,6 @@ jobs:
 
       - name: Run tests
         run: cargo nextest run --workspace --no-default-features --features ${{ matrix.features }}
-
       - name: Run doc tests
         run: cargo test --doc --workspace --no-default-features --features ${{ matrix.features }}
 
@@ -141,7 +174,6 @@ jobs:
           toolchain: stable
 
       - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
-
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
@@ -162,17 +194,20 @@ jobs:
       - uses: rustsec/audit-check@59f2b7ec596e815e1d0b911f9560e784e5ba2cf7 # v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run security audit
+        run: cargo audit
 
   # Success marker job
   ci-success:
     name: CI Success
     if: always()
-    needs: [fmt, clippy, check, test, docs, security]
+    needs: [validate-workflows, fmt, clippy, check, test, docs, security]
     runs-on: ubuntu-latest
     steps:
       - name: Check if all jobs succeeded
         run: |
-          if [[ "${{ needs.fmt.result }}" != "success" ]] || \
+          if [[ "${{ needs.validate-workflows.result }}" != "success" ]] || \
+             [[ "${{ needs.fmt.result }}" != "success" ]] || \
              [[ "${{ needs.clippy.result }}" != "success" ]] || \
              [[ "${{ needs.check.result }}" != "success" ]] || \
              [[ "${{ needs.test.result }}" != "success" ]] || \

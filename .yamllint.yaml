@@ -20,13 +20,13 @@ rules:
     require-starting-space: false
     ignore-shebangs: true
 
-  # Flexible indentation (prettier will handle this)
+  # Let Prettier own indentation & whitespace rules
   indentation: disable
+  trailing-spaces: disable
+  new-line-at-end-of-file: disable
+  empty-lines: disable
 
-  # Document start not required
-  document-start: disable
-
-  # Allow multiple spaces in brackets for alignment
+  # Flexible bracket spacing
   brackets:
     min-spaces-inside: 0
     max-spaces-inside: -1
@@ -35,15 +35,6 @@ rules:
   quoted-strings:
     quote-type: any
     required: false
-
-  # Disable trailing spaces check (prettier will fix)
-  trailing-spaces: disable
-
-  # Disable new line at end of file check (prettier will fix)
-  new-line-at-end-of-file: disable
-
-  # Disable empty lines check
-  empty-lines: disable
 
 ignore: |
   target/

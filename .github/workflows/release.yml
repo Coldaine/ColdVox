@@ -27,18 +27,14 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ github.token }}
-
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: stable
-
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
-
       - name: Install release-plz
         run: cargo install release-plz --locked
-
       - name: Run release-plz
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -59,15 +55,12 @@ jobs:
           fetch-depth: 0
           # Ensure we operate against the main branch after merge
           ref: main
-
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: stable
-
       - name: Install release-plz
         run: cargo install release-plz --locked
-
       - name: Create GitHub release
         env:
           GITHUB_TOKEN: ${{ github.token }}

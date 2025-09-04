@@ -19,11 +19,13 @@ path = "src/bin/mic_probe.rs"
 [[example]]
 name = "foundation_probe"
 path = "../../examples/foundation_probe.rs"
+required-features = ["examples"]
 
 
 [[example]]
 name = "record_10s"
 path = "../../examples/record_10s.rs"
+required-features = ["examples"]
 
 [[example]]
 name = "vosk_test"
@@ -38,10 +40,12 @@ required-features = ["text-injection"]
 [[example]]
 name = "test_hotkey_backend"
 path = "../../examples/test_hotkey_backend.rs"
+required-features = ["examples"]
 
 [[example]]
 name = "test_kglobalaccel_hotkey"
 path = "../../examples/test_kglobalaccel_hotkey.rs"
+required-features = ["examples"]
 
 [[example]]
 name = "test_silero_wav"
