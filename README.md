@@ -99,3 +99,20 @@ Notes:
 - VAD and STT subscribe to a broadcast of chunked frames.
 
 See `crates/app` and `docs/` for deeper architecture notes.
+
+## License
+
+ColdVox is licensed under your chosen license.
+
+### Third-Party Software
+
+This project includes vendored dependencies:
+
+#### Vosk Speech Recognition
+- **Location**: `vendor/vosk/`
+- **Copyright**: 2019-2022 Alpha Cephei Inc.
+- **License**: Apache License 2.0
+- **Source**: https://github.com/alphacep/vosk-api
+
+The vendored Vosk binary (`libvosk.so`) is distributed under the Apache License, Version 2.0.
+See `vendor/vosk/LICENSE` for the full license text.

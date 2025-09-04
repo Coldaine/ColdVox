@@ -56,10 +56,20 @@ jobs:
       - name: Install libvosk (Linux)
         run: |
           VOSK_VER=0.3.45
-          wget -q https://github.com/alphacep/vosk-api/releases/download/v${VOSK_VER}/vosk-linux-x86_64-${VOSK_VER}.zip
-          unzip -q vosk-linux-x86_64-${VOSK_VER}.zip
-          sudo cp -v vosk-linux-x86_64-${VOSK_VER}/lib/libvosk.so /usr/local/lib/
+          # Use vendored libvosk from repository
+          echo "=== Using vendored libvosk ==="
+          unzip -q vendor/vosk/vosk-linux-x86_64-${VOSK_VER}.zip
+
+          # Install libvosk.so and header
+          sudo cp -v vosk-linux-x86_64-${VOSK_VER}/libvosk.so /usr/local/lib/
+          sudo cp -v vosk-linux-x86_64-${VOSK_VER}/vosk_api.h /usr/local/include/
+
           sudo ldconfig
+
+          # Verify installation
+          echo "=== Verifying installation ==="
+          ls -la /usr/local/lib/libvosk.so
+          ldconfig -p | grep vosk || true
 
       - name: Cache Vosk model
         id: cache-vosk-model
