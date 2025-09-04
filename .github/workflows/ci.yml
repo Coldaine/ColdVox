@@ -152,13 +152,15 @@ jobs:
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev libxdo-dev libxtst-dev
+          sudo apt-get install -y libasound2-dev libxdo-dev libxtst-dev xvfb at-spi2-core xdotool
 
       - name: Install cargo-nextest
         run: cargo install cargo-nextest --locked
 
       - name: Run tests
-        run: cargo nextest run --workspace --no-default-features --features ${{ matrix.features }}
+        run: |
+          xvfb-run -a --server-args="-screen 0 1280x1024x24" \
+            cargo nextest run --workspace --no-default-features --features ${{ matrix.features }}
       - name: Run doc tests
         run: cargo test --doc --workspace --no-default-features --features ${{ matrix.features }}
 
