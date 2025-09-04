@@ -1,4 +1,4 @@
-use coldvox_app::audio::vad_adapter::VadAdapter;
+use coldvox_app::audio::VadAdapter;
 use coldvox_vad::{UnifiedVadConfig, VadMode, FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 use hound::WavReader;
 use std::path::PathBuf;

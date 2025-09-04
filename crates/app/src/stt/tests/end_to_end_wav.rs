@@ -214,7 +214,7 @@ impl MockInjectionProcessor {
                     info!("Mock injection processor shutting down");
                     // Inject any remaining buffer content
                     if !buffer.trim().is_empty() {
-                        self.injector.inject(&buffer.trim()).await?;
+                        self.injector.inject(buffer.trim()).await?;
                     }
                     break;
                 }

@@ -14,6 +14,8 @@ use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 use coldvox_app::hotkey::spawn_hotkey_listener;
+#[cfg(feature = "vosk")]
+use coldvox_app::stt::{processor::SttProcessor, TranscriptionEvent};
 use coldvox_audio::{
     AudioCaptureThread, AudioChunker, AudioRingBuffer, ChunkerConfig, FrameReader,
 };

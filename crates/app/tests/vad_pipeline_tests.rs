@@ -13,8 +13,10 @@ use tokio::sync::{broadcast, mpsc};
 #[cfg(feature = "level3")]
 async fn vad_processor_silence_no_events_level3() {
     // Use Level3 to avoid ONNX model dependency in unit tests
-    let mut cfg = UnifiedVadConfig::default();
-    cfg.mode = VadMode::Level3;
+    let mut cfg = UnifiedVadConfig {
+        mode: VadMode::Level3,
+        ..Default::default()
+    };
     cfg.level3.enabled = true;
     cfg.frame_size_samples = FRAME_SIZE_SAMPLES; // Level3 now uses 512
     cfg.sample_rate_hz = 16_000;
