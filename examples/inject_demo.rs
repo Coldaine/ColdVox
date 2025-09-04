@@ -67,7 +67,7 @@ async fn run_processor_demo() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Simulate receiving transcriptions
-    let test_transcriptions = vec![
+    let test_transcriptions = [
         "Hello world",
         "This is a test of the text injection system",
         "It should automatically inject text when silence is detected",
@@ -156,7 +156,7 @@ async fn run_direct_injection_demo() -> Result<(), Box<dyn std::error::Error>> {
     info!("StrategyManager created");
 
     // Test different injection texts
-    let test_texts = vec![
+    let test_texts = [
         "Direct injection test",
         "Hello from ColdVox!",
         "This demonstrates the text injection capabilities",
