@@ -73,7 +73,7 @@ The system automatically selects the best available backend for each application
 # For AT-SPI support
 sudo apt install libatk-bridge2.0-dev
 
-# For X11 backends  
+# For X11 backends
 sudo apt install libxdo-dev libxtst-dev
 
 # For clipboard functionality

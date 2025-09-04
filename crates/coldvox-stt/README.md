@@ -7,7 +7,7 @@ Core speech-to-text abstraction layer for ColdVox.
 This crate provides the foundational types and traits for speech-to-text functionality in ColdVox:
 
 - `TranscriptionEvent`: Enum representing different types of transcription results
-- `TranscriptionConfig`: Configuration for STT behavior 
+- `TranscriptionConfig`: Configuration for STT behavior
 - `WordInfo`: Word-level timing and confidence information
 - `Transcriber`: Legacy trait for backward compatibility
 - `EventBasedTranscriber`: Modern event-based interface for STT implementations

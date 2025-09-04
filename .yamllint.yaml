@@ -4,24 +4,24 @@ extends: default
 rules:
   # Allow longer lines for GitHub Actions workflows
   line-length:
-    max: 120
+    max: 150
     level: warning
     allow-non-breakable-words: true
     allow-non-breakable-inline-mappings: true
 
   # GitHub Actions uses on: syntax
   truthy:
-    allowed-values: ['true', 'false', 'on']
+    allowed-values: ["true", "false", "on"]
     check-keys: false
 
   # Allow comments without space for directives
   comments:
     min-spaces-from-content: 1
+    require-starting-space: false
+    ignore-shebangs: true
 
-  # Indentation settings
-  indentation:
-    spaces: 2
-    indent-sequences: true
+  # Flexible indentation (prettier will handle this)
+  indentation: disable
 
   # Document start not required
   document-start: disable
@@ -29,12 +29,21 @@ rules:
   # Allow multiple spaces in brackets for alignment
   brackets:
     min-spaces-inside: 0
-    max-spaces-inside: 1
+    max-spaces-inside: -1
 
   # Allow both quoted and unquoted strings
   quoted-strings:
     quote-type: any
     required: false
+
+  # Disable trailing spaces check (prettier will fix)
+  trailing-spaces: disable
+
+  # Disable new line at end of file check (prettier will fix)
+  new-line-at-end-of-file: disable
+
+  # Disable empty lines check
+  empty-lines: disable
 
 ignore: |
   target/

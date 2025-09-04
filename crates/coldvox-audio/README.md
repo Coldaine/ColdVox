@@ -19,7 +19,7 @@ This crate handles all audio-related functionality in the ColdVox pipeline:
 - Automatic device recovery and error handling
 - Configurable sample rates and formats
 
-### AudioChunker  
+### AudioChunker
 - Converts multi-channel audio to mono
 - Resamples to target rate (typically 16kHz)
 - Emits fixed-size frames (512 samples by default)

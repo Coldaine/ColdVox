@@ -30,12 +30,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v4.1.7
-      
+
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: stable
           components: rustfmt
-      
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 
@@ -45,19 +45,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v4.1.7
-      
+
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: stable
           components: clippy
-      
+
       - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
-      
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libasound2-dev libxdo-dev libxtst-dev
-      
+
       - name: Run clippy
         run: cargo clippy --all-targets --no-default-features --features silero -- -D warnings
 
@@ -71,24 +71,24 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v4.1.7
-      
+
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: ${{ matrix.rust }}
-      
+
       - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
         with:
           key: ${{ matrix.os }}-${{ matrix.rust }}
-      
+
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libasound2-dev libxdo-dev libxtst-dev
-      
+
       - name: Type check
         run: cargo check --workspace --all-targets --no-default-features --features silero
-      
+
       - name: Build
         run: cargo build --workspace --no-default-features --features silero
 
@@ -106,26 +106,26 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v4.1.7
-      
+
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: stable
-      
+
       - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
         with:
           key: test-${{ matrix.features }}
-      
+
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libasound2-dev libxdo-dev libxtst-dev
-      
+
       - name: Install cargo-nextest
         run: cargo install cargo-nextest --locked
-      
+
       - name: Run tests
         run: cargo nextest run --workspace --no-default-features --features ${{ matrix.features }}
-      
+
       - name: Run doc tests
         run: cargo test --doc --workspace --no-default-features --features ${{ matrix.features }}
 
@@ -135,18 +135,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v4.1.7
-      
+
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: stable
-      
+
       - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
-      
+
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libasound2-dev libxdo-dev libxtst-dev
-      
+
       - name: Build documentation
         run: cargo doc --workspace --no-deps --no-default-features --features silero
         env:
@@ -158,7 +158,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v4.1.7
-      
+
       - uses: rustsec/audit-check@59f2b7ec596e815e1d0b911f9560e784e5ba2cf7 # v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}

@@ -11,7 +11,7 @@ This is a placeholder crate for the future ColdVox graphical user interface.
 The ColdVox GUI will provide:
 
 - **Real-time Transcription Display**: Live view of speech-to-text output with confidence indicators
-- **Audio Input Configuration**: Device selection, sample rate settings, and input level monitoring  
+- **Audio Input Configuration**: Device selection, sample rate settings, and input level monitoring
 - **VAD Settings and Visualization**: Voice activity detection configuration with visual feedback
 - **System Status and Metrics**: Performance monitoring, error reporting, and health checks
 - **Text Injection Configuration**: Setup and testing of various text input methods
@@ -28,7 +28,7 @@ The GUI framework selection will be based on:
 - **Rust Integration**: Native Rust support with good ecosystem integration
 - **Packaging**: Easy distribution and deployment
 
-### User Experience Requirements  
+### User Experience Requirements
 - **Responsiveness**: Non-blocking UI during audio processing
 - **Configurability**: Extensive customization options
 - **Visual Feedback**: Clear indicators for system state and activity
@@ -85,7 +85,7 @@ cargo run -p coldvox-gui
 
 For actual ColdVox functionality, use the TUI dashboard:
 
-```bash  
+```bash
 cargo run -p coldvox-app --bin tui_dashboard
 ```
 

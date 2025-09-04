@@ -119,7 +119,7 @@ text-injection-regex = ["text-injection", "dep:regex"]
 [target.'cfg(target_os = "linux")'.dependencies]
 coldvox-text-injection = { path = "../coldvox-text-injection", features = ["atspi", "wl_clipboard", "ydotool"], optional = true }
 
-# Platform-specific dependencies for Windows  
+# Platform-specific dependencies for Windows
 [target.'cfg(target_os = "windows")'.dependencies]
 coldvox-text-injection = { path = "../coldvox-text-injection", features = ["enigo"], optional = true }
 

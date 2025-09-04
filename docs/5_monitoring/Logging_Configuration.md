@@ -178,20 +178,20 @@ grep -i "buffer\|overflow\|dropped" logs/coldvox.log
 fn init_logging() -> Result<(), Box<dyn std::error::Error>> {
     // Create logs directory
     std::fs::create_dir_all("logs")?;
-    
+
     // Set up daily rotating file appender
     let file_appender = RollingFileAppender::new(Rotation::daily(), "logs", "coldvox.log");
     let (non_blocking_file, _guard) = tracing_appender::non_blocking(file_appender);
-    
+
     // Environment-based log level configuration
     let log_level = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
-    
+
     // Dual output: console + file
     tracing_subscriber::fmt()
         .with_writer(std::io::stdout.and(non_blocking_file))
         .with_env_filter(log_level)
         .init();
-    
+
     // Keep guard alive for program duration
     std::mem::forget(_guard);
     Ok(())
@@ -226,7 +226,7 @@ tracing::error!(
 - Log state transitions and significant events
 - Use environment variables for runtime log control
 
-### Don't  
+### Don't
 - Log sensitive information (credentials, personal data)
 - Use println! or eprintln! instead of tracing macros
 - Log in tight loops without rate limiting

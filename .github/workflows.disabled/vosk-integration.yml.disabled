@@ -28,21 +28,21 @@ jobs:
     name: Vosk STT Integration
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@3df4ab11eba7bda6032a0b82a6bb43b11571feac # v4.1.7
         with:
           fetch-depth: 0
-      
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@1482605bfc5719782e1267fd0c0cc350fe7646b8 # v1
         with:
           toolchain: stable
-      
+
       - name: Cache Cargo
         uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84 # v2.7.3
-      
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -52,7 +52,7 @@ jobs:
             python3-pip \
             wget \
             unzip
-      
+
       - name: Cache Vosk model
         id: cache-vosk-model
         uses: actions/cache@13aacd865c20de90d75de3b17ebe84f7a17d57d2 # v4.0.0
@@ -62,7 +62,7 @@ jobs:
           restore-keys: |
             vosk-model-small-en-us-
             vosk-model-
-      
+
       - name: Download Vosk model
         if: steps.cache-vosk-model.outputs.cache-hit != 'true'
         run: |
@@ -76,29 +76,29 @@ jobs:
           done
           unzip vosk-model-small-en-us-0.15.zip
           rm vosk-model-small-en-us-0.15.zip
-      
+
       - name: Install cargo-nextest
         run: cargo install cargo-nextest --locked
-      
+
       - name: Build with Vosk
         run: |
           # Build both crates that use Vosk feature
           cargo build --locked -p coldvox-stt-vosk --features vosk
           cargo build --locked -p app --features vosk
-      
+
       - name: Run Vosk tests
         env:
           VOSK_MODEL_PATH: models/vosk-model-small-en-us-0.15
           RUST_TEST_THREADS: 1  # Vosk may have threading issues
         run: |
           cargo nextest run --locked -p coldvox-stt-vosk --features vosk
-      
+
       - name: Run end-to-end WAV pipeline test
         env:
           VOSK_MODEL_PATH: models/vosk-model-small-en-us-0.15
         run: |
           cargo test --locked -p app --features vosk test_end_to_end_wav_pipeline -- --ignored --nocapture
-      
+
       - name: Test Vosk examples
         env:
           VOSK_MODEL_PATH: models/vosk-model-small-en-us-0.15
@@ -110,7 +110,7 @@ jobs:
               cargo run --locked --example $name --features vosk,examples || true
             done
           fi
-      
+
       - name: Upload artifacts on failure
         if: failure()
         uses: actions/upload-artifact@50769540e7f4bd5e21e526ee35c689e35e0d6874 # v4.4.0

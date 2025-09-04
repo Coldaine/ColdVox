@@ -16,7 +16,7 @@ updates:
       actions:
         patterns:
           - "*"
-  
+
   - package-ecosystem: "cargo"
     directory: "/"
     schedule:

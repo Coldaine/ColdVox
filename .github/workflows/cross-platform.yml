@@ -30,25 +30,25 @@ jobs:
       - name: Install cargo-nextest
         run: cargo install cargo-nextest --locked
       - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
-      
+
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libasound2-dev libxdo-dev libxtst-dev
-      
+
       - name: Build
         run: cargo build --workspace --locked --no-default-features
-      
+
       - name: Test
         run: cargo nextest run --workspace --locked --no-default-features
-  
+
   # Windows is secondary platform - best effort
   windows-test:
     if: contains(github.event.label.name, 'release') || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     timeout-minutes: 45
-    continue-on-error: true  # Don't block releases on Windows issues
-    
+    continue-on-error: true # Don't block releases on Windows issues
+
     steps:
       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v4.1.7
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
@@ -59,13 +59,13 @@ jobs:
       - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
         with:
           key: windows
-      
+
       - name: Build (Windows)
         run: cargo build --workspace --locked --no-default-features
-      
+
       - name: Test (Windows)
         run: cargo nextest run --workspace --locked --no-default-features
-      
+
       - name: Upload Windows artifacts on failure
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
