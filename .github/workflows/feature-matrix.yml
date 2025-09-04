@@ -66,6 +66,9 @@ jobs:
           - name: "vosk"
             flags: "--no-default-features --features vosk"
             
+          - name: "whisper"
+            flags: "--no-default-features --features whisper"
+            
           # Text injection variants (platform-specific)
           - name: "text-injection"
             flags: "--no-default-features --features text-injection"
@@ -77,11 +80,17 @@ jobs:
           - name: "level3+vosk"
             flags: "--no-default-features --features level3,vosk"
             
+          - name: "silero+whisper"
+            flags: "--no-default-features --features silero,whisper"
+            
           - name: "silero+text-injection"
             flags: "--no-default-features --features silero,text-injection"
             
           - name: "full"
             flags: "--features silero,vosk,text-injection"
+            
+          - name: "full+whisper"
+            flags: "--features silero,vosk,whisper,text-injection"
         
         exclude:
           # Exclude text-injection specific tests from non-app packages

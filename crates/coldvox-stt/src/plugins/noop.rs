@@ -1,8 +1,8 @@
 //! No-operation STT plugin for testing and fallback
 
-use async_trait::async_trait;
 use crate::plugin::*;
-use crate::types::{TranscriptionEvent, TranscriptionConfig};
+use crate::types::{TranscriptionConfig, TranscriptionEvent};
+use async_trait::async_trait;
 
 /// A no-op STT plugin that never transcribes anything
 /// Useful for testing the pipeline without STT dependencies
@@ -37,7 +37,7 @@ impl SttPlugin for NoOpPlugin {
             memory_usage_mb: Some(0),
         }
     }
-    
+
     fn capabilities(&self) -> PluginCapabilities {
         PluginCapabilities {
             streaming: true,
@@ -49,25 +49,28 @@ impl SttPlugin for NoOpPlugin {
             custom_vocabulary: false,
         }
     }
-    
+
     async fn is_available(&self) -> Result<bool, SttPluginError> {
         Ok(true) // Always available
     }
-    
+
     async fn initialize(&mut self, _config: TranscriptionConfig) -> Result<(), SttPluginError> {
         self.initialized = true;
         Ok(())
     }
-    
-    async fn process_audio(&mut self, _samples: &[i16]) -> Result<Option<TranscriptionEvent>, SttPluginError> {
+
+    async fn process_audio(
+        &mut self,
+        _samples: &[i16],
+    ) -> Result<Option<TranscriptionEvent>, SttPluginError> {
         // Never produces transcriptions
         Ok(None)
     }
-    
+
     async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, SttPluginError> {
         Ok(None)
     }
-    
+
     async fn reset(&mut self) -> Result<(), SttPluginError> {
         Ok(())
     }
@@ -80,11 +83,11 @@ impl SttPluginFactory for NoOpPluginFactory {
     fn create(&self) -> Result<Box<dyn SttPlugin>, SttPluginError> {
         Ok(Box::new(NoOpPlugin::new()))
     }
-    
+
     fn plugin_info(&self) -> PluginInfo {
         NoOpPlugin::new().info()
     }
-    
+
     fn check_requirements(&self) -> Result<(), SttPluginError> {
         Ok(()) // No requirements
     }

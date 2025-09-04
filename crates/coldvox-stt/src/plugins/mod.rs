@@ -1,7 +1,7 @@
 //! Built-in STT plugin implementations
 
-pub mod noop;
 pub mod mock;
+pub mod noop;
 
 #[cfg(feature = "vosk")]
 pub mod vosk_plugin;
@@ -10,5 +10,5 @@ pub mod vosk_plugin;
 pub mod whisper_plugin;
 
 // Re-export commonly used plugins
-pub use noop::NoOpPlugin;
 pub use mock::MockPlugin;
+pub use noop::NoOpPlugin;

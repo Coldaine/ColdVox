@@ -5,10 +5,10 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-pub mod processor;
-pub mod types;
 pub mod plugin;
 pub mod plugins;
+pub mod processor;
+pub mod types;
 
 pub use types::{TranscriptionConfig, TranscriptionEvent, WordInfo};
 
