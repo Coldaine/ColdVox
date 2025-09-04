@@ -9,7 +9,7 @@ echo "Checking for vad_demo references..."
 # Use ripgrep if available, otherwise fall back to grep
 if command -v rg >/dev/null 2>&1; then
     # Exclude target/, .git/, and this script itself
-    MATCHES=$(rg -n --hidden --iglob '!*target/*' --iglob '!*scripts/ci/guard_no_vad_demo.sh' -i 'vad_demo|vad demo|vad\s+demo' . || true)
+    MATCHES=$(rg -n --hidden --iglob '!*target/*' --iglob '!*scripts/ci/guard_no_vad_demo.sh' -i 'vad_demo|vad demo|vad[[:space:]]+demo' . || true)
 else
     # Fallback to grep
     MATCHES=$(grep -Rni --exclude-dir=target --exclude-dir=.git --exclude=scripts/ci/guard_no_vad_demo.sh 'vad_demo\|vad demo' . || true)
