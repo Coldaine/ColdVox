@@ -2,7 +2,7 @@
 members = [
     "crates/app",
     "crates/coldvox-foundation",
-    "crates/coldvox-telemetry", 
+    "crates/coldvox-telemetry",
     "crates/coldvox-audio",
     "crates/coldvox-vad",
     "crates/coldvox-vad-silero",

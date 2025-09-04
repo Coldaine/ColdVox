@@ -489,6 +489,7 @@ impl StrategyManager {
                     base_order.push(InjectionMethod::Clipboard);
                 }
                 Backend::MacCgEvent | Backend::WindowsSendInput => {
+                    // 2025-09-04: Currently not targeting Windows builds
                     base_order.push(InjectionMethod::AtspiInsert);
                     base_order.push(InjectionMethod::ClipboardAndPaste);
                     base_order.push(InjectionMethod::Clipboard);
@@ -583,6 +584,7 @@ impl StrategyManager {
                     base_order.push(InjectionMethod::Clipboard);
                 }
                 Backend::WindowsSendInput => {
+                    // 2025-09-04: Currently not targeting Windows builds
                     base_order.push(InjectionMethod::AtspiInsert);
                     base_order.push(InjectionMethod::ClipboardAndPaste);
                     base_order.push(InjectionMethod::Clipboard);
@@ -666,6 +668,7 @@ impl StrategyManager {
                     base_order.push(InjectionMethod::Clipboard);
                 }
                 Backend::MacCgEvent | Backend::WindowsSendInput => {
+                    // 2025-09-04: Currently not targeting Windows builds
                     base_order.push(InjectionMethod::AtspiInsert);
                     base_order.push(InjectionMethod::ClipboardAndPaste);
                     base_order.push(InjectionMethod::Clipboard);

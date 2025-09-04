@@ -80,16 +80,35 @@ impl EnigoInjector {
                 InjectionError::MethodFailed(format!("Failed to create Enigo: {}", e))
             })?;
 
-            // Press Ctrl+V
-            enigo.key(Key::Control, Direction::Press).map_err(|e| {
-                InjectionError::MethodFailed(format!("Failed to press Ctrl: {}", e))
-            })?;
-            enigo
-                .key(Key::Unicode('v'), Direction::Click)
-                .map_err(|e| InjectionError::MethodFailed(format!("Failed to type 'v': {}", e)))?;
-            enigo.key(Key::Control, Direction::Release).map_err(|e| {
-                InjectionError::MethodFailed(format!("Failed to release Ctrl: {}", e))
-            })?;
+            // Press platform-appropriate paste shortcut
+            #[cfg(target_os = "macos")]
+            {
+                enigo.key(Key::Meta, Direction::Press).map_err(|e| {
+                    InjectionError::MethodFailed(format!("Failed to press Cmd: {}", e))
+                })?;
+                enigo
+                    .key(Key::Unicode('v'), Direction::Click)
+                    .map_err(|e| {
+                        InjectionError::MethodFailed(format!("Failed to type 'v': {}", e))
+                    })?;
+                enigo.key(Key::Meta, Direction::Release).map_err(|e| {
+                    InjectionError::MethodFailed(format!("Failed to release Cmd: {}", e))
+                })?;
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                enigo.key(Key::Control, Direction::Press).map_err(|e| {
+                    InjectionError::MethodFailed(format!("Failed to press Ctrl: {}", e))
+                })?;
+                enigo
+                    .key(Key::Unicode('v'), Direction::Click)
+                    .map_err(|e| {
+                        InjectionError::MethodFailed(format!("Failed to type 'v': {}", e))
+                    })?;
+                enigo.key(Key::Control, Direction::Release).map_err(|e| {
+                    InjectionError::MethodFailed(format!("Failed to release Ctrl: {}", e))
+                })?;
+            }
 
             Ok(())
         })

@@ -10,7 +10,7 @@ Rust-based real-time audio capture and processing with robust recovery, VAD, and
 ColdVox is organized as a Cargo workspace with the following crates:
 
 - **`crates/app/`** - Main application binaries and CLI interface
-- **`crates/coldvox-foundation/`** - Core types, errors, and foundation functionality  
+- **`crates/coldvox-foundation/`** - Core types, errors, and foundation functionality
 - **`crates/coldvox-audio/`** - Audio capture, processing, and device management
 - **`crates/coldvox-telemetry/`** - Metrics and performance monitoring
 - **`crates/coldvox-stt/`** - Speech-to-text framework and interfaces
@@ -28,7 +28,7 @@ cargo build --workspace
 # Run basic VAD pipeline without STT dependencies
 cargo run -p coldvox-app --bin coldvox
 
-# Run audio probe utilities  
+# Run audio probe utilities
 cargo run -p coldvox-app --bin mic_probe -- --duration 30
 cargo run -p coldvox-app --bin tui_dashboard
 ```
@@ -53,7 +53,7 @@ RUST_LOG=debug cargo run -p coldvox-app --features vosk
 
 **Core (always available):**
 - Reliable microphone capture with auto-recovery (watchdog)
-- Device‑native capture to ring buffer (no resampling on capture thread) 
+- Device‑native capture to ring buffer (no resampling on capture thread)
 - AudioChunker handles stereo→mono and resampling to 16 kHz
 - Ring buffer and backpressure handling with stats
 - Voice Activity Detection (Silero V5 via vendored fork)
@@ -62,7 +62,7 @@ RUST_LOG=debug cargo run -p coldvox-app --features vosk
 **Optional features (via feature flags):**
 - **`vosk`**: Speech-to-text using Vosk engine (requires system dependencies)
 - **`text-injection`**: Automated text input for transcribed speech
-- **`examples`**: Additional example programs and demos  
+- **`examples`**: Additional example programs and demos
 - **`live-hardware-tests`**: Hardware-specific test suites
 
 ## Configuration

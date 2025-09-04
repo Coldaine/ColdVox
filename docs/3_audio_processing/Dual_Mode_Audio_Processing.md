@@ -62,7 +62,7 @@ enum AudioMode {
 
 enum PttState {
     Idle,
-    Recording { 
+    Recording {
         start_time: Instant,
         buffer: Vec<i16>,
     },

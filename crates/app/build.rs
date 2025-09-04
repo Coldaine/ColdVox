@@ -12,7 +12,7 @@ fn main() {
     println!("cargo::rustc-check-cfg=cfg(text_injection_kdotool)");
     println!("cargo::rustc-check-cfg=cfg(text_injection_mki)");
     println!("cargo::rustc-check-cfg=cfg(text_injection_enigo)");
-    println!("cargo::rustc-check-cfg=cfg(text_injection_windows)");
+    println!("cargo::rustc-check-cfg=cfg(text_injection_windows)"); // 2025-09-04: Currently not targeting Windows builds
     println!("cargo::rustc-check-cfg=cfg(text_injection_macos)");
 
     // Detect Linux desktop environment at compile time
@@ -71,7 +71,7 @@ fn main() {
         println!("cargo:rustc-cfg=text_injection_enigo");
     }
 
-    // Windows
+    // Windows - 2025-09-04: Currently not targeting Windows builds
     if cfg!(target_os = "windows") {
         println!("cargo:rustc-cfg=text_injection_windows");
         println!("cargo:rustc-cfg=text_injection_enigo");

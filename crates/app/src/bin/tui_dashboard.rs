@@ -618,7 +618,7 @@ fn draw_ui(f: &mut Frame, state: &DashboardState) {
             Constraint::Min(10),
             Constraint::Length(8),
         ])
-        .split(f.size());
+        .split(f.area());
 
     let top_chunks = Layout::default()
         .direction(Direction::Horizontal)

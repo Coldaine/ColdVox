@@ -21,10 +21,6 @@ name = "foundation_probe"
 path = "../../examples/foundation_probe.rs"
 required-features = ["examples"]
 
-[[example]]
-name = "vad_demo"
-path = "../../examples/vad_demo.rs"
-required-features = ["examples"]
 
 [[example]]
 name = "record_10s"
@@ -60,7 +56,7 @@ required-features = ["examples"]
 zbus = { version = "5.10.0" }
 tokio = { version = "1", features = ["full"] }
 anyhow = "1.0"
-thiserror = "1.0"
+thiserror = "2.0"
 tracing = "0.1"
 parking_lot = "0.12"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -78,8 +74,8 @@ toml = "0.8"
 clap = { version = "4.0", features = ["derive", "env"] }
 env_logger = "0.11"
 chrono = { version = "0.4", features = ["serde"] }
-ratatui = "0.26"
-crossterm = "0.27"
+ratatui = "0.28"
+crossterm = "0.28"
 futures = "0.3"
 fastrand = "2.0"
 # voice_activity_detector moved to coldvox-vad-silero
@@ -127,7 +123,7 @@ text-injection-regex = ["text-injection", "dep:regex"]
 [target.'cfg(target_os = "linux")'.dependencies]
 coldvox-text-injection = { path = "../coldvox-text-injection", features = ["atspi", "wl_clipboard", "ydotool"], optional = true }
 
-# Platform-specific dependencies for Windows  
+# Platform-specific dependencies for Windows
 [target.'cfg(target_os = "windows")'.dependencies]
 coldvox-text-injection = { path = "../coldvox-text-injection", features = ["enigo"], optional = true }
 

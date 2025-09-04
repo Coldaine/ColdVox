@@ -16,9 +16,9 @@ pub enum Backend {
     MacCgEvent,
     /// macOS with NSPasteboard
     MacPasteboard,
-    /// Windows with SendInput
+    /// Windows with SendInput - 2025-09-04: Currently not targeting Windows builds
     WindowsSendInput,
-    /// Windows with clipboard
+    /// Windows with clipboard - 2025-09-04: Currently not targeting Windows builds
     WindowsClipboard,
 }
 
@@ -67,7 +67,7 @@ impl BackendDetector {
             available.push(Backend::MacPasteboard);
         }
 
-        // Detect Windows backends
+        // Detect Windows backends - 2025-09-04: Currently not targeting Windows builds
         if self.is_windows() {
             available.push(Backend::WindowsSendInput);
             available.push(Backend::WindowsClipboard);
@@ -95,8 +95,8 @@ impl BackendDetector {
             Backend::X11Native,               // Fallback on X11
             Backend::MacCgEvent,              // Preferred on macOS
             Backend::MacPasteboard,           // Fallback on macOS
-            Backend::WindowsSendInput,        // Preferred on Windows
-            Backend::WindowsClipboard,        // Fallback on Windows
+            Backend::WindowsSendInput, // Preferred on Windows - 2025-09-04: Currently not targeting Windows builds
+            Backend::WindowsClipboard, // Fallback on Windows - 2025-09-04: Currently not targeting Windows builds
         ]
     }
 
@@ -121,7 +121,7 @@ impl BackendDetector {
         cfg!(target_os = "macos")
     }
 
-    /// Check if running on Windows
+    /// Check if running on Windows - 2025-09-04: Currently not targeting Windows builds
     fn is_windows(&self) -> bool {
         cfg!(target_os = "windows")
     }

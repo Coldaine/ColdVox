@@ -70,7 +70,7 @@ UDEV_RULE="/etc/udev/rules.d/99-uinput.rules"
 if [ ! -f "$UDEV_RULE" ]; then
     echo "Creating udev rule for uinput access..."
     echo 'KERNEL=="uinput", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"' | sudo tee "$UDEV_RULE" > /dev/null
-    
+
     # Reload udev rules
     sudo udevadm control --reload-rules
     sudo udevadm trigger
@@ -177,7 +177,7 @@ fi
 
 if [ ${#ISSUES[@]} -eq 0 ]; then
     echo "✓ All checks passed! ColdVox text injection is ready."
-    
+
     if [ "$GROUP_CHANGE_NEEDED" = true ]; then
         echo
         echo "⚠ IMPORTANT: Log out and log back in for group changes to take effect!"

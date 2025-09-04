@@ -116,7 +116,7 @@ manager.initialize().await?;
 // List available plugins
 let plugins = manager.list_plugins().await;
 for plugin in plugins {
-    println!("{}: {} (Available: {})", 
+    println!("{}: {} (Available: {})",
         plugin.id, plugin.description, plugin.is_available);
 }
 
@@ -146,11 +146,11 @@ impl SttPlugin for MyCustomPlugin {
             // ...
         }
     }
-    
+
     async fn process_audio(&mut self, samples: &[i16]) -> Result<Option<TranscriptionEvent>, SttPluginError> {
         // Your STT logic here
     }
-    
+
     // ... implement other required methods
 }
 ```
@@ -164,7 +164,7 @@ impl SttPluginFactory for MyCustomPluginFactory {
     fn create(&self) -> Result<Box<dyn SttPlugin>, SttPluginError> {
         Ok(Box::new(MyCustomPlugin::new()))
     }
-    
+
     fn check_requirements(&self) -> Result<(), SttPluginError> {
         // Check if your plugin's dependencies are available
     }

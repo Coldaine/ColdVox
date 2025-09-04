@@ -21,7 +21,7 @@ After comprehensive analysis of the ColdVox Rust workspace, the migration comple
 - **Migration complexity**: None
 - **Status**: Already using v2.5.0 transitively
 
-### ✅ rustix 0.37.28 → 1.0.8 **[NO ACTION REQUIRED]**  
+### ✅ rustix 0.37.28 → 1.0.8 **[NO ACTION REQUIRED]**
 - **Direct usage**: None found
 - **Current version**: Already using v1.0.8 transitively
 - **Module imports**: No direct imports requiring feature flags
@@ -52,7 +52,7 @@ After comprehensive analysis of the ColdVox Rust workspace, the migration comple
 ```
 ColdVox Direct Dependencies → Transitive Dependencies
 ├── zbus v5.10.0 → async-io v2.5.0, nix v0.30.1
-├── ctrlc v3.4.7 → nix v0.30.1  
+├── ctrlc v3.4.7 → nix v0.30.1
 ├── mouse-keyboard-input v0.7.3 → nix v0.28.0
 ├── wl-clipboard-rs v0.8.1 → nix v0.28.0
 ├── Multiple crates → rustix v1.0.8
