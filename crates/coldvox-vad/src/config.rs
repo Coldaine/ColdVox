@@ -44,21 +44,60 @@ impl Default for Level3Config {
     }
 }
 
+impl SileroConfig {
+    pub fn clean_speech() -> Self {
+        Self {
+            activation_threshold: 0.4,
+            deactivation_threshold: 0.25,
+            min_speech_duration_ms: 200,
+            min_silence_duration_ms: 250,
+            speech_padding_ms: 100,
+            energy_floor_dbfs: -60.0,
+            ..Default::default()
+        }
+    }
+
+    pub fn noisy_environment() -> Self {
+        Self {
+            activation_threshold: 0.45,
+            deactivation_threshold: 0.3,
+            min_speech_duration_ms: 300,
+            min_silence_duration_ms: 400,
+            speech_padding_ms: 200,
+            energy_floor_dbfs: -50.0,
+            ..Default::default()
+        }
+    }
+}
+
+// NOTE: This struct is a deliberate duplication of the one in `coldvox_vad_silero::config`.
+// This is necessary to avoid a circular dependency, as `coldvox-vad-silero` depends on this
+// crate (`coldvox-vad`) for the `VadEngine` trait. This struct serves as the high-level,
+// user-facing configuration, which is then mapped to the engine-specific config in the
+// `VadAdapter`. The canonical definition should be considered the one in `coldvox-vad-silero`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SileroConfig {
-    pub threshold: f32,
+    pub activation_threshold: f32,
+    pub deactivation_threshold: f32,
     pub min_speech_duration_ms: u32,
     pub min_silence_duration_ms: u32,
     pub window_size_samples: usize,
+    pub speech_padding_ms: u32,
+    pub energy_floor_dbfs: f32,
+    pub max_speech_duration_ms: Option<u32>,
 }
 
 impl Default for SileroConfig {
     fn default() -> Self {
         Self {
-            threshold: 0.3,
+            activation_threshold: 0.35,
+            deactivation_threshold: 0.25,
             min_speech_duration_ms: 250,
-            min_silence_duration_ms: 100,
+            min_silence_duration_ms: 250,
             window_size_samples: FRAME_SIZE_SAMPLES,
+            speech_padding_ms: 150,
+            energy_floor_dbfs: -55.0,
+            max_speech_duration_ms: Some(30000),
         }
     }
 }

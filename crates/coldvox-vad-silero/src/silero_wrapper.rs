@@ -48,7 +48,7 @@ impl SileroEngine {
 
         match self.current_state {
             VadState::Silence => {
-                if probability >= self.config.threshold {
+                if probability >= self.config.activation_threshold {
                     if self.speech_start_time.is_none() {
                         self.speech_start_time = Some(Instant::now());
                         self.speech_start_timestamp_ms = timestamp_ms;
@@ -59,8 +59,11 @@ impl SileroEngine {
                             self.speech_start_time = None;
                             self.silence_start_time = None;
 
+                            let start_timestamp = self
+                                .speech_start_timestamp_ms
+                                .saturating_sub(self.config.speech_padding_ms as u64);
                             return Some(VadEvent::SpeechStart {
-                                timestamp_ms: self.speech_start_timestamp_ms,
+                                timestamp_ms: start_timestamp,
                                 energy_db: probability_to_db(probability),
                             });
                         }
@@ -70,7 +73,30 @@ impl SileroEngine {
                 }
             }
             VadState::Speech => {
-                if probability < self.config.threshold {
+                // Check for max speech duration
+                if let Some(max_duration) = self.config.max_speech_duration_ms {
+                    let current_duration = timestamp_ms - self.speech_start_timestamp_ms;
+                    if current_duration >= max_duration as u64 {
+                        self.current_state = VadState::Silence;
+                        self.speech_start_time = None;
+                        self.silence_start_time = None;
+
+                        let padded_start_ms = self
+                            .speech_start_timestamp_ms
+                            .saturating_sub(self.config.speech_padding_ms as u64);
+                        let padded_end_ms =
+                            timestamp_ms + self.config.speech_padding_ms as u64;
+                        let padded_duration_ms = padded_end_ms - padded_start_ms;
+
+                        return Some(VadEvent::SpeechEnd {
+                            timestamp_ms: padded_end_ms,
+                            duration_ms: padded_duration_ms,
+                            energy_db: probability_to_db(probability),
+                        });
+                    }
+                }
+
+                if probability < self.config.deactivation_threshold {
                     if self.silence_start_time.is_none() {
                         self.silence_start_time = Some(Instant::now());
                     } else if let Some(start) = self.silence_start_time {
@@ -81,11 +107,16 @@ impl SileroEngine {
                             self.speech_start_time = None;
                             self.silence_start_time = None;
 
-                            let duration_ms = timestamp_ms - self.speech_start_timestamp_ms;
+                            let padded_start_ms = self
+                                .speech_start_timestamp_ms
+                                .saturating_sub(self.config.speech_padding_ms as u64);
+                            let padded_end_ms =
+                                timestamp_ms + self.config.speech_padding_ms as u64;
+                            let padded_duration_ms = padded_end_ms - padded_start_ms;
 
                             return Some(VadEvent::SpeechEnd {
-                                timestamp_ms,
-                                duration_ms,
+                                timestamp_ms: padded_end_ms,
+                                duration_ms: padded_duration_ms,
                                 energy_db: probability_to_db(probability),
                             });
                         }
@@ -109,7 +140,12 @@ impl VadEngine for SileroEngine {
             ));
         }
 
-        let probability = self.detector.predict(frame.iter().map(|&s| I16Sample(s)));
+        let energy_dbfs = calculate_energy_dbfs(frame);
+        let mut probability = self.detector.predict(frame.iter().map(|&s| I16Sample(s)));
+
+        if energy_dbfs < self.config.energy_floor_dbfs {
+            probability = 0.0;
+        }
 
         self.last_probability = probability;
         self.frames_processed += 1;
@@ -146,6 +182,21 @@ fn probability_to_db(probability: f32) -> f32 {
     } else {
         20.0 * probability.log10()
     }
+}
+
+fn calculate_energy_dbfs(frame: &[i16]) -> f32 {
+    if frame.is_empty() {
+        return -96.0; // Return a very low dBFS for empty frames
+    }
+    let sum_sq = frame.iter().map(|&s| (s as f64).powi(2)).sum::<f64>();
+    let rms = (sum_sq / frame.len() as f64).sqrt();
+
+    if rms == 0.0 {
+        return -96.0; // Log of zero is undefined, return a low value
+    }
+
+    // Convert RMS to dBFS, where 0 dBFS is the max possible level for i16
+    20.0 * (rms / i16::MAX as f64).log10() as f32
 }
 
 #[cfg(test)]
