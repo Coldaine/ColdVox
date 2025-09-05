@@ -2,6 +2,14 @@
 
 Automated text injection system for ColdVox transcribed speech.
 
+## What’s New (workspace v2.0.1)
+
+- FocusProvider DI: inject focus detection for deterministic and safe tests
+- Combo clipboard+paste injector (`combo_clip_ydotool`) with async `ydotool` check
+- Comprehensive mock injectors and utilities for fallback and latency tests
+- Headless CI support using Xvfb + fluxbox + D-Bus; readiness loops (no fixed sleeps)
+- Allow/block list semantics: compiled regex path when `regex` is enabled; substring matching otherwise
+
 ## Purpose
 
 This crate provides text injection capabilities that automatically type transcribed speech into applications:
@@ -15,10 +23,11 @@ This crate provides text injection capabilities that automatically type transcri
 
 ### Text Injection Backends
 - **Clipboard**: Copy transcription to clipboard and paste
-- **AT-SPI**: Accessibility API for direct text insertion
-- **XDotool**: X11-based keyboard simulation
-- **YDotool**: Universal input device simulation
-- **Native APIs**: Platform-specific keyboard/input APIs
+- **AT-SPI**: Accessibility API for direct text insertion (if enabled)
+- **Combo (Clipboard + Paste)**: Clipboard set plus AT-SPI paste or `ydotool` fallback
+- **YDotool**: uinput-based paste or key events (opt-in)
+- **KDotool Assist**: KDE/X11 window activation assistance (opt-in)
+- **Enigo**: Cross-platform input simulation (opt-in)
 
 ### Focus Detection
 - Active window detection and application identification
@@ -37,8 +46,8 @@ This crate provides text injection capabilities that automatically type transcri
 - `wl_clipboard`: Clipboard-based injection via wl-clipboard-rs
 - `enigo`: Cross-platform input simulation
 - `ydotool`: Linux uinput automation
-- `xdg_kdotool`: KDE/X11 window activation assistance
-- `regex`: Precompile allow/block list patterns
+- `kdotool` / `xdg_kdotool`: KDE/X11 window activation assistance (alias supported)
+- `regex`: Compiled allow/block list patterns (regex)
 - `all-backends`: Enable all available backends
 - `linux-desktop`: Enable recommended Linux desktop backends
 
@@ -47,9 +56,10 @@ This crate provides text injection capabilities that automatically type transcri
 The system automatically selects the best available backend for each application:
 
 1. **AT-SPI** (preferred for accessibility compliance)
-2. **Native APIs** (platform-specific optimized methods)
-3. **Clipboard + Paste** (universal fallback)
-4. **Input Simulation** (XDotool/YDotool for compatibility)
+2. **Clipboard + Paste** (AT-SPI paste when available; `ydotool` fallback)
+3. **Clipboard** (plain clipboard set)
+4. **Input Simulation** (YDotool/Enigo as opt-in fallbacks)
+5. **KDotool Assist** (window activation assistance)
 
 ## Configuration
 
@@ -72,11 +82,14 @@ The system automatically selects the best available backend for each application
 # For AT-SPI support
 sudo apt install libatk-bridge2.0-dev
 
-# For X11 backends
-sudo apt install libxdo-dev libxtst-dev
+# For X11 helpers
+sudo apt install libxtst-dev wmctrl
 
 # For clipboard functionality
 sudo apt install xclip wl-clipboard
+
+# For ydotool-based paste (optional)
+sudo apt install ydotool
 ```
 
 ### Security Considerations
@@ -104,3 +117,20 @@ cargo run --features text-injection -- --allow-ydotool --restore-clipboard
 - Backend-specific libraries (optional based on features)
 - Platform integration libraries for focus detection
 - Async runtime support for timeout handling
+
+## Testing
+
+Headless tests can be run under a session bus; CI uses Xvfb + fluxbox + D-Bus:
+
+```bash
+# Run crate tests (default)
+dbus-run-session -- cargo test -p coldvox-text-injection --locked
+
+# No-default-features
+dbus-run-session -- cargo test -p coldvox-text-injection --no-default-features --locked
+
+# Regex feature
+dbus-run-session -- cargo test -p coldvox-text-injection --no-default-features --features regex --locked
+```
+
+See `docs/testing.md` for details on live/CI testing and feature matrices.

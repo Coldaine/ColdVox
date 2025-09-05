@@ -1,9 +1,19 @@
 # ColdVox – Voice AI audio pipeline
 
 [![Status: STT Integration Enhancement](https://img.shields.io/badge/Status-STT%20Integration%20Enhancement-blue)](docs/PROJECT_STATUS.md)
-[![CI](https://github.com/YOUR_USERNAME/ColdVox/workflows/CI/badge.svg)](https://github.com/YOUR_USERNAME/ColdVox/actions)
+[![CI](https://github.com/Coldaine/ColdVox/actions/workflows/ci.yml/badge.svg)](https://github.com/Coldaine/ColdVox/actions/workflows/ci.yml)
 
 Rust-based real-time audio capture and processing with robust recovery, VAD, and STT integration.
+
+## What's New (v2.0.1)
+
+- Text Injection: FocusProvider dependency injection for reliable focus handling in tests and prod
+- Mocked fallback tests and utilities for deterministic injection behavior
+- Headless CI: Xvfb + fluxbox readiness checks, workflow validation via `gh`
+- Clippy and doc warning cleanup; async `ydotool` availability check
+- Documentation: testing guide, architecture diagram updates, and coverage analysis
+
+See release notes: https://github.com/Coldaine/ColdVox/releases/tag/v2.0.1
 
 ## Workspace Structure
 
