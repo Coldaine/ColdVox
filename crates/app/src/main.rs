@@ -355,6 +355,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Consume VAD events even when STT is disabled to prevent channel backpressure
         tokio::spawn(async move {
+            let mut event_rx = event_rx;
             while let Some(_event) = event_rx.recv().await {
                 // Just consume the events - no STT processing when vosk is disabled
             }

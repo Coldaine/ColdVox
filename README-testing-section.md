@@ -44,36 +44,32 @@ chmod +x test-features.py
 
 ```
 ================================================================================
-Running: cargo test -p coldvox-app --no-default-features --features silero,vosk
+Running: cargo test -p coldvox-app --no-default-features --features "silero,vosk"
 ================================================================================
 ✅ SUCCESS (took 12.34s)
 
 [3/8] Testing combination...
 ================================================================================
-Running: cargo test -p coldvox-app --no-default-features --features level3,text-injection
+Running: cargo test -p coldvox-app --no-default-features --features "silero,text-injection"
 ================================================================================
-❌ FAILURE (took 5.67s)
+✅ SUCCESS (took 5.67s)
 
 TEST SUMMARY
 ================================================================================
 
 Total tests: 8
-✅ Passed: 7
-❌ Failed: 1
+✅ Passed: 8
+❌ Failed: 0
 
-FAILED COMBINATIONS
---------------------------------------------------------------------------------
-  Features: level3,text-injection
-  Command:  cargo test -p coldvox-app --no-default-features --features level3,text-injection
 ```
 
 ## CI/CD Integration
 
-The framework integrates with GitHub Actions to provide automated testing:
+The CI strategy prioritizes testing the default end-to-end pipeline (`silero`, `vosk`, `text-injection`) to ensure the primary use case is always functional. Other combinations are tested as needed.
 
 ### Automatic Testing
 - **Pull Requests**: Quick smoke tests (formatting, basic builds, clippy)
-- **Main Branch**: Comprehensive feature matrix testing across platforms
+- **Main Branch**: Comprehensive testing of the default pipeline across platforms.
 - **Manual Trigger**: Full customizable testing via GitHub Actions UI
 
 ### Manual Workflow Trigger
@@ -125,7 +121,7 @@ The framework integrates with GitHub Actions to provide automated testing:
 The framework tests these core packages with curated feature combinations:
 
 - **`coldvox-app`**: Main application with VAD, STT, and text injection features
-- **`coldvox-vad`**: Voice activity detection with energy-based alternatives
+- **`coldvox-vad`**: Voice activity detection core traits.
 - **`coldvox-text-injection`**: Platform-specific text injection backends
 - **`coldvox-vad-silero`**: Silero ML-based VAD engine
 - **`coldvox-stt-vosk`**: Vosk speech-to-text integration

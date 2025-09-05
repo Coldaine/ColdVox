@@ -5,15 +5,15 @@
 // - Useful for post-session analysis even when the TUI is active.
 use clap::Parser;
 use coldvox_app::audio::vad_processor::VadProcessor;
+#[cfg(feature = "vosk")]
+use coldvox_app::stt::{processor::SttProcessor, TranscriptionEvent};
 use coldvox_audio::capture::AudioCaptureThread;
 use coldvox_audio::chunker::{AudioChunker, ChunkerConfig};
 use coldvox_audio::frame_reader::FrameReader;
 use coldvox_audio::ring_buffer::AudioRingBuffer;
 use coldvox_foundation::error::AudioConfig;
 #[cfg(feature = "vosk")]
-use coldvox_stt::{processor::SttProcessor, TranscriptionConfig, TranscriptionEvent};
-#[cfg(feature = "vosk")]
-use coldvox_stt_vosk::VoskTranscriber;
+use coldvox_stt::TranscriptionConfig;
 use coldvox_telemetry::pipeline_metrics::{PipelineMetrics, PipelineStage};
 use coldvox_vad::config::{UnifiedVadConfig, VadMode};
 use coldvox_vad::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};

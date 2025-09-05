@@ -18,7 +18,6 @@ graph TD
     BROADCAST --> |Subscribe| VAD[VadProcessor]
     VAD --> |VadAdapter| VADENG{VAD Engine}
     VADENG --> |SileroEngine Default| SILERO[SileroEngine<br/>ML-based VAD]
-    VADENG --> |Level3Vad Disabled| ENERGY[Level3Vad<br/>Energy-based VAD]
 
     %% VAD state management
     VAD --> |VAD Events| VADFSM[VadStateMachine<br/>Debouncing]
@@ -61,15 +60,42 @@ graph TD
     classDef stt fill:#f5a623,stroke:#333,stroke-width:2px,color:#000
     classDef ui fill:#9013fe,stroke:#333,stroke-width:2px,color:#fff
     classDef foundation fill:#d0021b,stroke:#333,stroke-width:2px,color:#fff
-    classDef disabled fill:#9b9b9b,stroke:#333,stroke-width:2px,color:#fff,stroke-dasharray: 5 5
 
     class AC,ARB,FR,CHUNKER,BROADCAST processing
     class VAD,VADENG,SILERO,VADFSM,EVENTS,HK vad
     class STT,VOSK stt
     class TUI ui
     class SM,HM,SH,METRICS foundation
-    class ENERGY disabled
 ```
+
+## Key Architecture Changes Since Original Diagram
+
+### 1. **Broadcast-Based Audio Distribution**
+- Replaced linear pipeline with fan-out broadcast system
+- Single `AudioChunker` feeds multiple subscribers via `broadcast::channel`
+- Enables parallel processing of VAD and STT without blocking
+
+### 2. **STT Integration (New)**
+- `SttProcessor` subscribes to both audio frames and VAD events
+- Vosk transcriber only processes audio when VAD indicates speech
+- Produces structured logging output with partial and final transcriptions
+
+### 3. **Global Hotkey System (New)**
+- `spawn_hotkey_listener` captures system-wide hotkeys
+- Sends `VadEvent` messages directly to the VAD event channel
+- Enables manual control of voice activity detection state
+- Integrated with KDE KGlobalAccel backend for Plasma environments
+
+### 4. **TUI Dashboard (New)**
+- Real-time monitoring interface (`tui_dashboard` binary)
+- Subscribes to VAD events and transcription logs
+- Displays live status, partial/final transcripts, and system metrics
+- Separate from main application for dedicated monitoring
+
+### 5. **Simplified VAD Architecture**
+- `VadAdapter` provides a unified interface to the VAD engine.
+- Silero ML-based VAD is the default and primary engine.
+- `VadStateMachine` handles debouncing and state transitions.
 
 ## Key Architecture Changes Since Original Diagram
 

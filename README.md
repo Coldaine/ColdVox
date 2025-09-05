@@ -19,34 +19,29 @@ ColdVox is organized as a Cargo workspace with the following crates:
 
 ## Quick Start
 
-### VAD-Only Mode (Recommended for getting started)
+### Default End-to-End Pipeline
+
+The recommended way to run ColdVox is with the default end-to-end pipeline, which includes Silero VAD, Vosk STT, and Text Injection.
 
 ```bash
-# Build the workspace
-cargo build --workspace
+# Build and run the default pipeline
+cargo run -p coldvox-app --bin coldvox --features "silero,vosk,text-injection"
 
-# Run basic VAD pipeline without STT dependencies
-cargo run -p coldvox-app --bin coldvox
+# For debugging with logging
+RUST_LOG=debug cargo run -p coldvox-app --bin coldvox --features "silero,vosk,text-injection"
+```
+
+### Minimal Configurations (for Development & Debugging)
+
+You can run with a reduced feature set for specific development or debugging scenarios.
+
+```bash
+# VAD-only mode (without STT)
+cargo run -p coldvox-app --bin coldvox --no-default-features --features "silero,text-injection"
 
 # Run audio probe utilities
 cargo run -p coldvox-app --bin mic_probe -- --duration 30
 cargo run -p coldvox-app --bin tui_dashboard
-```
-
-### With Feature Flags
-
-```bash
-# STT with Vosk (requires system dependencies)
-cargo run -p coldvox-app --features vosk
-
-# Text injection capabilities
-cargo run -p coldvox-app --features text-injection
-
-# Full feature set
-cargo run -p coldvox-app --features vosk,text-injection
-
-# Debug logging
-RUST_LOG=debug cargo run -p coldvox-app --features vosk
 ```
 
 ## Features

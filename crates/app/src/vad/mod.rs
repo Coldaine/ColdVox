@@ -11,8 +11,5 @@ pub use coldvox_vad::{
     VadProcessor,
 };
 
-#[cfg(feature = "level3")]
-pub use coldvox_vad::level3::{Level3Vad, Level3VadBuilder};
-
 #[cfg(feature = "silero")]
 pub use coldvox_vad_silero::SileroEngine;

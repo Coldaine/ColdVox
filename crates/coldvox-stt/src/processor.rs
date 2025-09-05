@@ -6,8 +6,20 @@
 
 use crate::types::{TranscriptionConfig, TranscriptionEvent};
 use crate::EventBasedTranscriber;
-use coldvox_audio::chunker::AudioFrame;
-use coldvox_vad::types::VadEvent;
+/// Minimal audio frame type (i16 PCM) used by the generic STT processor
+#[derive(Debug, Clone)]
+pub struct AudioFrame {
+    pub data: Vec<i16>,
+    pub timestamp_ms: u64,
+    pub sample_rate: u32,
+}
+
+/// Minimal VAD event type mirrored here to avoid cross-crate deps
+#[derive(Debug, Clone, Copy)]
+pub enum VadEvent {
+    SpeechStart { timestamp_ms: u64 },
+    SpeechEnd { timestamp_ms: u64, duration_ms: u64 },
+}
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::{broadcast, mpsc};
@@ -277,14 +289,8 @@ impl<T: EventBasedTranscriber + Send> SttProcessor<T> {
             ..
         } = &mut self.state
         {
-            // Buffer the audio frame
-            // Convert f32 samples back to i16
-            let i16_samples: Vec<i16> = frame
-                .samples
-                .iter()
-                .map(|&s| (s * i16::MAX as f32) as i16)
-                .collect();
-            audio_buffer.extend_from_slice(&i16_samples);
+            // Buffer the audio frame (already i16 PCM)
+            audio_buffer.extend_from_slice(&frame.data);
             *frames_buffered += 1;
 
             // Log periodically to show we're buffering

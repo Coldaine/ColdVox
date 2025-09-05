@@ -2,7 +2,7 @@
 
 ## Overview
 
-ColdVox uses a plugin-based architecture for Speech-to-Text (STT) functionality, allowing seamless switching between different STT backends without requiring system dependencies for unused plugins.
+ColdVox uses a plugin-based architecture for Speech-to-Text (STT) functionality, allowing seamless switching between different STT backends without requiring system dependencies for unused plugins. While the architecture is designed for modularity, the current practical implementation is focused on the single `vosk` plugin as part of the default pipeline.
 
 ## Motivation
 
@@ -10,7 +10,7 @@ Previously, ColdVox had a hard dependency on Vosk, which required:
 - System-level `libvosk` library installation
 - Large model downloads (500MB+)
 - Complex CI/CD setup
-- Build failures when libvosk wasn't available
+- Build failures when libvosk wasn\'t available
 
 The plugin architecture solves these issues by:
 - Making STT backends optional and pluggable
@@ -68,12 +68,12 @@ High-level manager for the application:
 - **Purpose**: Offline speech recognition
 - **Dependencies**: `libvosk` system library
 - **Features**: Multiple languages, word timestamps
-- **Status**: Optional, feature-gated
+- **Status**: Default, feature-gated
 
-#### Future Plugins
+#### Potential Future Plugins
 - **Whisper**: Local AI-based STT
 - **Google Cloud STT**: Cloud-based recognition
-- **Azure Speech**: Microsoft's cloud STT
+- **Azure Speech**: Microsoft\'s cloud STT
 - **OpenAI Whisper API**: Cloud-based Whisper
 
 ## Usage
@@ -166,7 +166,7 @@ impl SttPluginFactory for MyCustomPluginFactory {
     }
 
     fn check_requirements(&self) -> Result<(), SttPluginError> {
-        // Check if your plugin's dependencies are available
+        // Check if your plugin\'s dependencies are available
     }
 }
 ```
@@ -184,9 +184,9 @@ Control which plugins are compiled:
 
 ```toml
 [features]
-default = ["silero", "text-injection"]  # No STT by default
-vosk = ["dep:coldvox-stt-vosk"]         # Opt-in for Vosk
-whisper = ["dep:whisper-rs"]            # Opt-in for Whisper
+default = ["silero", "vosk", "text-injection"]  # Vosk is now part of the default pipeline
+vosk = ["dep:coldvox-stt-vosk"]
+whisper = ["dep:whisper-rs"]
 all-stt = ["vosk", "whisper"]           # Enable all STT backends
 ```
 
@@ -274,8 +274,8 @@ default = ["silero", "text-injection", "vosk"]  # Vosk always required
 **After**:
 ```toml
 [features]
-default = ["silero", "text-injection"]  # Vosk optional
-vosk = ["dep:coldvox-stt-vosk"]         # Opt-in
+default = ["silero", "vosk", "text-injection"]  # Vosk is now part of the default pipeline
+vosk = ["dep:coldvox-stt-vosk"]
 ```
 
 ## Troubleshooting
@@ -288,7 +288,7 @@ Warning: No STT plugins available, using NoOp plugin
 
 ### Vosk Not Found
 ```
-Error: Plugin 'vosk' not available: libvosk not found on system
+Error: Plugin \'vosk\' not available: libvosk not found on system
 ```
 **Solution**: Install libvosk or use a different STT backend.
 
@@ -309,9 +309,9 @@ Error: Plugin 'vosk' not available: libvosk not found on system
 ### Potential Plugins
 - **Whisper.cpp**: Lightweight C++ Whisper implementation
 - **SpeechRecognition API**: Web browser speech API
-- **Watson STT**: IBM's speech recognition
+- **Watson STT**: IBM\'s speech recognition
 - **Kaldi**: Open-source speech recognition toolkit
-- **DeepSpeech**: Mozilla's neural network STT
+- **DeepSpeech**: Mozilla\'s neural network STT
 
 ## Conclusion
 

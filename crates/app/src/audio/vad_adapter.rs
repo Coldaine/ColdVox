@@ -1,7 +1,3 @@
-#[cfg(feature = "level3")]
-use coldvox_vad::level3::Level3Vad;
-#[cfg(feature = "level3")]
-use coldvox_vad::VadConfig;
 use coldvox_vad::{UnifiedVadConfig, VadEngine, VadEvent, VadMode, VadState};
 #[cfg(feature = "silero")]
 use coldvox_vad_silero::SileroEngine;
@@ -14,45 +10,19 @@ pub struct VadAdapter {
 
 impl VadAdapter {
     pub fn new(config: UnifiedVadConfig) -> Result<Self, String> {
-        #[cfg(not(any(feature = "level3", feature = "silero")))]
+        #[cfg(not(feature = "silero"))]
         {
-            return Err(
-                "No VAD engine available. Enable either 'silero' or 'level3' feature.".to_string(),
-            );
+            return Err("No VAD engine available. Enable 'silero' feature.".to_string());
         }
 
-        #[cfg(any(feature = "level3", feature = "silero"))]
+        #[cfg(feature = "silero")]
         let engine: Box<dyn VadEngine> = match config.mode {
-            #[cfg(feature = "level3")]
-            VadMode::Level3 => {
-                // INTENTIONAL: Level3 VAD is disabled by default
-                // This check ensures it's not accidentally enabled without explicit configuration
-                if !config.level3.enabled {
-                    return Err(
-                        "Level3 VAD is disabled in configuration. Use Silero mode instead."
-                            .to_string(),
-                    );
-                }
-                let level3_config = VadConfig {
-                    onset_threshold_db: config.level3.onset_threshold_db,
-                    offset_threshold_db: config.level3.offset_threshold_db,
-                    ema_alpha: config.level3.ema_alpha,
-                    speech_debounce_ms: config.level3.speech_debounce_ms,
-                    silence_debounce_ms: config.level3.silence_debounce_ms,
-                    initial_floor_db: config.level3.initial_floor_db,
-                    frame_size_samples: config.frame_size_samples,
-                    sample_rate_hz: config.sample_rate_hz,
-                };
-                Box::new(Level3Vad::new(level3_config))
-            }
-            #[cfg(not(feature = "level3"))]
             VadMode::Level3 => {
                 return Err(
                     "Level3 VAD is not available in this build. Use Silero mode instead."
                         .to_string(),
                 );
             }
-            #[cfg(feature = "silero")]
             VadMode::Silero => {
                 let silero_config = coldvox_vad_silero::SileroConfig {
                     threshold: config.silero.threshold,
@@ -62,16 +32,9 @@ impl VadAdapter {
                 };
                 Box::new(SileroEngine::new(silero_config)?)
             }
-            #[cfg(not(feature = "silero"))]
-            VadMode::Silero => {
-                return Err(
-                    "Silero VAD is not available in this build. Use Level3 mode instead."
-                        .to_string(),
-                );
-            }
         };
 
-        #[cfg(any(feature = "level3", feature = "silero"))]
+        #[cfg(feature = "silero")]
         let resampler = if engine.required_sample_rate() != config.sample_rate_hz
             || engine.required_frame_size_samples() != config.frame_size_samples
         {
@@ -85,7 +48,7 @@ impl VadAdapter {
             None
         };
 
-        #[cfg(any(feature = "level3", feature = "silero"))]
+        #[cfg(feature = "silero")]
         Ok(Self {
             engine,
             config,

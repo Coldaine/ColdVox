@@ -42,7 +42,7 @@ jobs:
 
   # Windows is secondary platform - best effort
   windows-test:
-    if: false  # temporarily disabled
+    if: false # temporarily disabled
     runs-on: windows-latest
     timeout-minutes: 45
     continue-on-error: true # Don't block releases on Windows issues
