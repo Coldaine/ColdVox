@@ -123,7 +123,7 @@ mod tests {
         assert!(result.is_err(), "Should fail due to budget exhaustion");
 
         // Verify cooldown is active
-    let method = manager.get_method_order_uncached()[0]; // First method should be in cooldown
+        let method = manager.get_method_order_uncached()[0]; // First method should be in cooldown
         assert!(manager.is_in_cooldown(method), "Method should be in cooldown after failure");
 
         // Wait for cooldown to expire
@@ -138,5 +138,98 @@ mod tests {
 
         // Verify cooldown is cleared after success
         assert!(!manager.is_in_cooldown(method), "Cooldown should be cleared after successful injection");
+    }
+
+    #[tokio::test]
+    async fn test_injection_timeout_handling() {
+        // Create configuration with very short timeouts
+        let mut config = InjectionConfig::default();
+        config.max_total_latency_ms = 100; // Very short timeout
+        config.per_method_timeout_ms = 50;  // Very short per-method timeout
+
+        // Create shared metrics
+        let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
+
+        // Create strategy manager
+        let mut manager = StrategyManager::new(config, metrics.clone()).await;
+
+        // This should timeout quickly
+        let start = std::time::Instant::now();
+        let result = manager.inject("Timeout test").await;
+        let elapsed = start.elapsed();
+
+        // Should fail due to timeout
+        assert!(result.is_err(), "Should fail due to short timeout");
+
+        // Should complete relatively quickly
+        assert!(elapsed < Duration::from_millis(200), "Should timeout quickly");
+
+        // Verify metrics
+        let metrics_guard = metrics.lock().await;
+        assert_eq!(metrics_guard.attempts, 1, "Should record one attempt");
+        assert_eq!(metrics_guard.failures, 1, "Should record one failure");
+    }
+
+    #[tokio::test]
+    async fn test_injection_with_unknown_focus_allowed() {
+        // Create configuration that allows injection on unknown focus
+        let mut config = InjectionConfig::default();
+        config.inject_on_unknown_focus = true; // Allow for testing
+
+        // Create shared metrics
+        let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
+
+        // Create strategy manager
+        let mut manager = StrategyManager::new(config, metrics.clone()).await;
+
+        // This should attempt injection even with unknown focus
+        let result = manager.inject("Test with unknown focus").await;
+
+        // In a test environment, this might fail due to no available backends,
+        // but it should at least attempt the injection
+        let metrics_guard = metrics.lock().await;
+        assert!(metrics_guard.attempts >= 1, "Should record at least one attempt");
+
+        // Result might be error due to no backends available in test env
+        // but the important thing is that it attempted
+        println!("Injection result: {:?}", result);
+        println!("Attempts: {}, Successes: {}, Failures: {}",
+                metrics_guard.attempts, metrics_guard.successes, metrics_guard.failures);
+    }
+
+    #[tokio::test]
+    async fn test_clipboard_save_restore_simulation() {
+        // Test clipboard save/restore logic without actual injection
+        use coldvox_text_injection::strategies::combo_clip_atspi::ComboClipAtspiStrategy;
+        use coldvox_text_injection::types::InjectionContext;
+
+        let config = InjectionConfig {
+            restore_clipboard: true,
+            inject_on_unknown_focus: true,
+            ..Default::default()
+        };
+
+        let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
+        let strategy = ComboClipAtspiStrategy::new(config, metrics);
+
+        // Create a mock context
+        let context = InjectionContext {
+            text: "Test text".to_string(),
+            session_id: "test-session".to_string(),
+            attempt_id: 1,
+        };
+
+        // Test the clipboard save/restore logic
+        // Note: This will fail in test environment due to no display/Wayland
+        // but we can verify the logic doesn't panic
+        let result = strategy.inject(&context).await;
+
+        // In test environment, this will likely fail, but shouldn't panic
+        match result {
+            Ok(_) => println!("✅ Clipboard strategy succeeded (unexpected in test env)"),
+            Err(e) => println!("⚠️  Clipboard strategy failed as expected: {}", e),
+        }
+
+        // The important thing is that it doesn't panic and handles errors gracefully
     }
 }

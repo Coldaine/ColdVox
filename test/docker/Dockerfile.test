@@ -1,0 +1,20 @@
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    curl ca-certificates build-essential pkg-config \
+    xvfb x11vnc fluxbox dbus-x11 at-spi2-core \
+    wl-clipboard xclip ydotool git && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Rust toolchain
+RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+ENV DISPLAY=:99
+COPY test-runner.sh /usr/local/bin/test-runner.sh
+RUN chmod +x /usr/local/bin/test-runner.sh
+
+WORKDIR /work
+ENTRYPOINT ["/usr/local/bin/test-runner.sh"]

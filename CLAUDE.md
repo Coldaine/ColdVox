@@ -53,7 +53,7 @@ Multi-crate Cargo workspace:
 - `crates/coldvox-text-injection/` - Text injection backends (feature-gated)
   - **Linux**: `atspi_injector.rs`, `clipboard_injector.rs`, `ydotool_injector.rs`, `kdotool_injector.rs`
   - **Cross-platform**: `enigo_injector.rs`
-  - **Combined**: `combo_clip_atspi.rs` (clipboard + AT-SPI fallback)
+  - **Combined**: `combo_clip_ydotool.rs` (clipboard + AT-SPI paste, fallback to ydotool)
   - **Management**: `manager.rs` (StrategyManager), `session.rs`, `window_manager.rs`
 
 - `crates/coldvox-telemetry/` - Pipeline metrics
@@ -254,3 +254,7 @@ Run `scripts/setup_text_injection.sh` to install:
 - Install libvosk system library
 - Download model from https://alphacephei.com/vosk/models
 - Set `VOSK_MODEL_PATH` or place in `models/vosk-model-small-en-us-0.15/`
+
+## Maintenance Notes
+
+- Project status: Source of truth is `docs/PROJECT_STATUS.md`. The README badge is static and must be updated manually to match the current phase.

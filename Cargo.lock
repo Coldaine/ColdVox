@@ -651,6 +651,7 @@ dependencies = [
  "enigo",
  "mockall",
  "parking_lot",
+ "rand 0.8.5",
  "regex",
  "serde",
  "serde_json",

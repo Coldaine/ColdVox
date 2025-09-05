@@ -158,6 +158,54 @@ jobs:
         run: |
           cargo test --workspace -- --skip test_end_to_end_wav_pipeline
 
+  text_injection_matrix:
+    name: Text Injection Feature Matrix
+    runs-on: ubuntu-latest
+    env:
+      DISPLAY: :99
+    steps:
+      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v4.1.7
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
+      - name: Install headless GUI deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            xvfb fluxbox dbus-x11 at-spi2-core \
+            wl-clipboard xclip ydotool \
+            x11-utils wmctrl
+      - name: Start Xvfb + window manager + D-Bus
+        run: |
+          set -euo pipefail
+          Xvfb :99 -screen 0 1024x768x24 &
+          # Wait for X server to become ready
+          for i in {1..30}; do
+            if xdpyinfo -display ":99" >/dev/null 2>&1; then
+              echo "Xvfb is ready"; break
+            fi
+            sleep 0.5
+          done
+          fluxbox -display :99 &
+          # Wait for window manager to become ready
+          for i in {1..30}; do
+            if wmctrl -m >/dev/null 2>&1; then
+              echo "fluxbox is ready"; break
+            fi
+            sleep 0.5
+          done
+          # Launch a session bus and export environment
+          eval "$(dbus-launch --sh-syntax)"
+          echo "DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS" >> $GITHUB_ENV
+          echo "DBUS_SESSION_BUS_PID=$DBUS_SESSION_BUS_PID" >> $GITHUB_ENV
+      - name: Test default features
+        run: dbus-run-session -- bash -lc 'cargo test -p coldvox-text-injection --locked'
+      - name: Test no-default-features
+        run: dbus-run-session -- bash -lc 'cargo test -p coldvox-text-injection --no-default-features --locked'
+      - name: Test with regex feature
+        run: dbus-run-session -- bash -lc 'cargo test -p coldvox-text-injection --no-default-features --features regex --locked'
+
       - name: Build pipeline (default features)
         run: |
           # Default features represent the full end-to-end pipeline
