@@ -172,12 +172,7 @@ jobs:
       - name: Install headless GUI + build deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            # X/desktop + AT-SPI for headless GUI testing
-            xvfb fluxbox dbus-x11 at-spi2-core \
-            wl-clipboard xclip ydotool x11-utils wmctrl \
-            # Build and runtime deps required by crates (alsa, xdo, xtst)
-            libasound2-dev libxdo-dev libxtst-dev
+          sudo apt-get install -y xvfb fluxbox dbus-x11 at-spi2-core wl-clipboard xclip ydotool x11-utils wmctrl libasound2-dev libxdo-dev libxtst-dev
       - name: Install libvosk (vendored)
         run: |
           VOSK_VER=0.3.45
