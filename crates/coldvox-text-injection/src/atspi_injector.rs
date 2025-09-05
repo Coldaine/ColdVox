@@ -1,7 +1,8 @@
 use crate::types::{InjectionConfig, InjectionResult};
 use crate::TextInjector;
 use async_trait::async_trait;
-use tracing::debug;
+use std::time::Instant;
+use tracing::{debug, trace, warn};
 
 pub struct AtspiInjector {
     _config: InjectionConfig,
@@ -56,10 +57,15 @@ impl TextInjector for AtspiInjector {
                 MatchType, ObjectMatchRule, SortOrder, State,
             };
 
+            let start = Instant::now();
+            trace!("AT-SPI injection starting for {} chars of text", text.len());
+
             let conn = AccessibilityConnection::new().await.map_err(|e| {
+                warn!("AT-SPI connection failed: {}", e);
                 crate::types::InjectionError::Other(format!("AT-SPI connect failed: {e}"))
             })?;
             let zbus_conn = conn.connection();
+            trace!("AT-SPI connection established");
 
             let collection = CollectionProxy::builder(zbus_conn)
                 .destination("org.a11y.atspi.Registry")
@@ -87,6 +93,7 @@ impl TextInjector for AtspiInjector {
             rule.ifaces_mt = MatchType::All;
 
             // Try to find focused element, with one quick retry if needed
+            // Focus can be transient during window switches or UI updates
             let mut matches = collection
                 .get_matches(rule.clone(), SortOrder::Canonical, 1, false)
                 .await
@@ -112,9 +119,17 @@ impl TextInjector for AtspiInjector {
             }
 
             let Some(obj_ref) = matches.pop() else {
-                debug!("No focused EditableText found after retry");
+                debug!(
+                    "No focused EditableText found after retry ({}ms elapsed)",
+                    start.elapsed().as_millis()
+                );
                 return Err(crate::types::InjectionError::NoEditableFocus);
             };
+
+            debug!(
+                "Found editable element at path: {:?} in app: {:?}",
+                obj_ref.path, obj_ref.name
+            );
 
             let editable = EditableTextProxy::builder(zbus_conn)
                 .destination(obj_ref.name.clone())
@@ -155,17 +170,31 @@ impl TextInjector for AtspiInjector {
                 })?;
 
             let caret = text_iface.caret_offset().await.map_err(|e| {
+                warn!("Failed to get caret offset from {:?}: {}", obj_ref.path, e);
                 crate::types::InjectionError::Other(format!("Text.caret_offset failed: {e}"))
             })?;
+            trace!("Current caret position: {}", caret);
 
             editable
                 .insert_text(caret, text, text.chars().count() as i32)
                 .await
                 .map_err(|e| {
+                    warn!(
+                        "Failed to insert text at position {} in {:?}: {}",
+                        caret, obj_ref.path, e
+                    );
                     crate::types::InjectionError::Other(format!(
                         "EditableText.insert_text failed: {e}"
                     ))
                 })?;
+
+            let elapsed = start.elapsed();
+            debug!(
+                "Successfully injected {} chars via AT-SPI to {:?} in {}ms",
+                text.len(),
+                obj_ref.name,
+                elapsed.as_millis()
+            );
 
             Ok(())
         }

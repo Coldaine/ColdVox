@@ -2,6 +2,11 @@ use crate::types::{InjectionConfig, InjectionError};
 use std::time::{Duration, Instant};
 use tracing::debug;
 
+#[async_trait::async_trait]
+pub trait FocusProvider: Send + Sync {
+    async fn get_focus_status(&mut self) -> Result<FocusStatus, InjectionError>;
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FocusStatus {
     EditableText,
@@ -110,5 +115,12 @@ impl FocusTracker {
             debug!("AT-SPI feature disabled; focus status unknown");
             Ok(FocusStatus::Unknown)
         }
+    }
+}
+
+#[async_trait::async_trait]
+impl FocusProvider for FocusTracker {
+    async fn get_focus_status(&mut self) -> Result<FocusStatus, InjectionError> {
+        FocusTracker::get_focus_status(self).await
     }
 }

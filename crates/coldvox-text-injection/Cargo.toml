@@ -34,6 +34,7 @@ regex = { version = "1.10", optional = true }
 tempfile = "3.8"
 mockall = "0.12"
 tokio-test = "0.4"
+rand = "0.8"
 
 [features]
 default = []
@@ -51,6 +52,9 @@ regex = ["dep:regex"]
 # Combined features for convenience
 all-backends = ["atspi", "wl_clipboard", "enigo", "kdotool"]
 linux-desktop = ["atspi", "wl_clipboard", "kdotool"]
+
+# Test features
+live-hardware-tests = []
 
 # Deprecated alias for xdg_kdotool. Will be removed in a future version.
 xdg_kdotool = ["kdotool"]

@@ -41,8 +41,8 @@ pub mod atspi_injector;
 #[cfg(feature = "wl_clipboard")]
 pub mod clipboard_injector;
 
-#[cfg(all(feature = "wl_clipboard", feature = "atspi"))]
-pub mod combo_clip_atspi;
+#[cfg(all(feature = "wl_clipboard", feature = "ydotool"))]
+pub mod combo_clip_ydotool;
 
 #[cfg(feature = "enigo")]
 pub mod enigo_injector;
@@ -60,6 +60,7 @@ mod tests;
 
 // Re-export key components for easy access
 pub use backend::Backend;
+pub use focus::{FocusProvider, FocusStatus};
 pub use manager::StrategyManager;
 pub use processor::{AsyncInjectionProcessor, InjectionProcessor, ProcessorMetrics};
 pub use session::{InjectionSession, SessionConfig, SessionState};

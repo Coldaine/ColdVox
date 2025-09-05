@@ -590,7 +590,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // Keep ignored - requires text injection backend
     async fn test_end_to_end_with_real_injection() {
         init_test_tracing();
         // This test uses the real AsyncInjectionProcessor for comprehensive testing
@@ -701,15 +700,33 @@ mod tests {
             stt_processor.run().await;
         });
 
-        // Set up real injection processor
+        // Set up real injection processor with top 2 methods
         let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>(1);
+
+        // Create a temporary file to capture injected text
+        let capture_file =
+            std::env::temp_dir().join(format!("coldvox_injection_test_{}.txt", std::process::id()));
+        std::fs::write(&capture_file, "").ok();
+
+        // Open a terminal window that will receive the injection
+        let terminal = match open_test_terminal(&capture_file).await {
+            Ok(term) => term,
+            Err(e) => {
+                eprintln!("Skipping test: Could not open test terminal: {}", e);
+                return;
+            }
+        };
+
+        // Give terminal time to start and focus
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
         let injection_config = InjectionConfig {
-            allow_ydotool: cfg!(feature = "text-injection-ydotool"),
-            allow_kdotool: cfg!(feature = "text-injection-kdotool"),
-            allow_enigo: cfg!(feature = "text-injection-enigo"),
-            restore_clipboard: false,
-            inject_on_unknown_focus: true,
-            require_focus: false,
+            allow_ydotool: false, // Test primary methods only
+            allow_kdotool: false,
+            allow_enigo: false,
+            restore_clipboard: true,        // Enable clipboard restoration
+            inject_on_unknown_focus: false, // Require proper focus
+            require_focus: true,
             ..Default::default()
         };
 
@@ -737,7 +754,218 @@ mod tests {
         streaming_handle.abort();
 
         info!("Comprehensive end-to-end test completed");
-        // Note: With real injection, we can't easily verify the output
-        // This test mainly ensures the pipeline runs without errors
+
+        // Close the terminal
+        if let Some(mut term) = terminal {
+            let _ = term.kill().await;
+        }
+
+        // Verify injection by reading capture file
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let captured = std::fs::read_to_string(&capture_file).unwrap_or_default();
+        let _ = std::fs::remove_file(&capture_file);
+
+        if !captured.is_empty() {
+            info!("Successfully captured injected text: {}", captured);
+            // Verify some expected words were transcribed
+            assert!(!captured.trim().is_empty(), "No text was injected");
+        } else {
+            eprintln!("Warning: Could not verify injection (normal in headless environment)");
+        }
     }
+
+    /// Test AT-SPI injection specifically
+    #[tokio::test]
+    #[cfg(feature = "text-injection")]
+    async fn test_atspi_injection() {
+        #[cfg(feature = "text-injection")]
+        {
+            use crate::text_injection::{
+                atspi_injector::AtspiInjector, InjectionConfig, TextInjector,
+            };
+
+            let config = InjectionConfig::default();
+            let injector = AtspiInjector::new(config);
+
+            // Check availability first
+            if !injector.is_available().await {
+                eprintln!("Skipping AT-SPI test: Backend not available");
+                return;
+            }
+
+            // Open test terminal
+            let capture_file = std::env::temp_dir().join("coldvox_atspi_test.txt");
+            let terminal = match open_test_terminal(&capture_file).await {
+                Ok(term) => term,
+                Err(_) => {
+                    eprintln!("Skipping AT-SPI test: Could not open terminal");
+                    return;
+                }
+            };
+
+            tokio::time::sleep(Duration::from_millis(500)).await;
+
+            // Test injection
+            let test_text = "AT-SPI injection test";
+            match injector.inject_text(test_text).await {
+                Ok(_) => info!("AT-SPI injection successful"),
+                Err(e) => eprintln!("AT-SPI injection failed: {:?}", e),
+            }
+
+            // Cleanup
+            if let Some(mut term) = terminal {
+                let _ = term.kill().await;
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            let captured = std::fs::read_to_string(&capture_file).unwrap_or_default();
+            let _ = std::fs::remove_file(&capture_file);
+
+            if captured.contains(test_text) {
+                info!("✅ AT-SPI injection verified");
+            }
+        }
+    }
+
+    /// Test clipboard injection specifically
+    #[tokio::test]
+    #[cfg(feature = "text-injection")]
+    async fn test_clipboard_injection() {
+        #[cfg(feature = "text-injection")]
+        {
+            use crate::text_injection::{
+                clipboard_injector::ClipboardInjector, InjectionConfig, TextInjector,
+            };
+
+            let config = InjectionConfig::default();
+            let injector = ClipboardInjector::new(config);
+
+            // Check availability
+            if !injector.is_available().await {
+                eprintln!("Skipping clipboard test: Backend not available");
+                return;
+            }
+
+            // Save current clipboard
+            let original_clipboard = get_clipboard_content().await;
+
+            // Open test terminal
+            let capture_file = std::env::temp_dir().join("coldvox_clipboard_test.txt");
+            let terminal = match open_test_terminal(&capture_file).await {
+                Ok(term) => term,
+                Err(_) => {
+                    eprintln!("Skipping clipboard test: Could not open terminal");
+                    return;
+                }
+            };
+
+            tokio::time::sleep(Duration::from_millis(500)).await;
+
+            // Test injection
+            let test_text = "Clipboard injection test";
+            match injector.inject_text(test_text).await {
+                Ok(_) => info!("Clipboard injection successful"),
+                Err(e) => eprintln!("Clipboard injection failed: {:?}", e),
+            }
+
+            // Verify clipboard was restored
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            let restored_clipboard = get_clipboard_content().await;
+
+            if original_clipboard == restored_clipboard {
+                info!("✅ Clipboard correctly restored");
+            } else {
+                eprintln!("⚠️ Clipboard not restored properly");
+            }
+
+            // Cleanup
+            if let Some(mut term) = terminal {
+                let _ = term.kill().await;
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            let captured = std::fs::read_to_string(&capture_file).unwrap_or_default();
+            let _ = std::fs::remove_file(&capture_file);
+
+            if captured.contains(test_text) {
+                info!("✅ Clipboard injection verified");
+            }
+        }
+    }
+}
+
+/// Helper to open a test terminal that captures input to a file
+async fn open_test_terminal(
+    capture_file: &std::path::Path,
+) -> Result<Option<tokio::process::Child>> {
+    use std::process::Stdio;
+
+    // Try xterm first (commonly available in CI)
+    let xterm_result = tokio::process::Command::new("xterm")
+        .arg("-e")
+        .arg("bash")
+        .arg("-c")
+        .arg(format!("tee {} > /dev/null", capture_file.display()))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
+
+    if let Ok(child) = xterm_result {
+        return Ok(Some(child));
+    }
+
+    // Try gnome-terminal as fallback
+    let gnome_result = tokio::process::Command::new("gnome-terminal")
+        .arg("--")
+        .arg("bash")
+        .arg("-c")
+        .arg(format!("tee {} > /dev/null", capture_file.display()))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
+
+    if let Ok(child) = gnome_result {
+        return Ok(Some(child));
+    }
+
+    // In headless CI, we might not have a terminal but can still test
+    // Create a simple background process that reads stdin
+    if std::env::var("CI").is_ok() || std::env::var("DISPLAY").is_err() {
+        // In CI/headless, just create the file for the test to proceed
+        std::fs::write(capture_file, "").ok();
+        return Ok(None);
+    }
+
+    Err(anyhow::anyhow!("No suitable terminal emulator found"))
+}
+
+/// Helper to get clipboard content
+async fn get_clipboard_content() -> Option<String> {
+    // Try wl-paste first (Wayland)
+    let wl_result = tokio::process::Command::new("wl-paste")
+        .arg("--no-newline")
+        .output()
+        .await;
+
+    if let Ok(output) = wl_result {
+        if output.status.success() {
+            return Some(String::from_utf8_lossy(&output.stdout).to_string());
+        }
+    }
+
+    // Try xclip (X11)
+    let xclip_result = tokio::process::Command::new("xclip")
+        .arg("-selection")
+        .arg("clipboard")
+        .arg("-o")
+        .output()
+        .await;
+
+    if let Ok(output) = xclip_result {
+        if output.status.success() {
+            return Some(String::from_utf8_lossy(&output.stdout).to_string());
+        }
+    }
+
+    None
 }

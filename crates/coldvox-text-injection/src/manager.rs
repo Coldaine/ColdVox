@@ -1,5 +1,5 @@
 use crate::backend::{Backend, BackendDetector};
-use crate::focus::{FocusStatus, FocusTracker};
+use crate::focus::{FocusProvider, FocusStatus, FocusTracker};
 use crate::types::{InjectionConfig, InjectionError, InjectionMethod, InjectionMetrics};
 use crate::TextInjector;
 
@@ -8,8 +8,8 @@ use crate::TextInjector;
 use crate::atspi_injector::AtspiInjector;
 #[cfg(feature = "wl_clipboard")]
 use crate::clipboard_injector::ClipboardInjector;
-#[cfg(all(feature = "wl_clipboard", feature = "atspi"))]
-use crate::combo_clip_atspi::ComboClipboardAtspi;
+#[cfg(all(feature = "wl_clipboard", feature = "ydotool"))]
+use crate::combo_clip_ydotool::ComboClipboardYdotool;
 #[cfg(feature = "enigo")]
 use crate::enigo_injector::EnigoInjector;
 #[cfg(feature = "kdotool")]
@@ -99,10 +99,10 @@ impl InjectorRegistry {
                     injectors.insert(InjectionMethod::Clipboard, Box::new(clipboard_injector));
                 }
 
-                // Add combo clipboard+AT-SPI if both are available
-                #[cfg(feature = "atspi")]
+                // Add combo clipboard+paste if wl_clipboard + ydotool features are enabled
+                #[cfg(all(feature = "wl_clipboard", feature = "ydotool"))]
                 {
-                    let combo_injector = ComboClipboardAtspi::new(config.clone());
+                    let combo_injector = ComboClipboardYdotool::new(config.clone());
                     if combo_injector.is_available().await {
                         injectors
                             .insert(InjectionMethod::ClipboardAndPaste, Box::new(combo_injector));
@@ -160,8 +160,8 @@ impl InjectorRegistry {
 pub struct StrategyManager {
     /// Configuration for injection
     config: InjectionConfig,
-    /// Focus tracker for determining target context
-    focus_tracker: FocusTracker,
+    /// Focus provider abstraction for determining target context
+    focus_provider: Box<dyn FocusProvider>,
     /// Cache of success records per app-method combination
     success_cache: HashMap<AppMethodKey, SuccessRecord>,
     /// Cooldown states per app-method combination
@@ -185,8 +185,18 @@ pub struct StrategyManager {
 }
 
 impl StrategyManager {
-    /// Create a new strategy manager
+    /// Create a new strategy manager with default focus tracker
     pub async fn new(config: InjectionConfig, metrics: Arc<Mutex<InjectionMetrics>>) -> Self {
+        let focus = Box::new(FocusTracker::new(config.clone()));
+        Self::new_with_focus_provider(config, metrics, focus).await
+    }
+
+    /// Create a new strategy manager with an injected focus provider (for tests)
+    pub async fn new_with_focus_provider(
+        config: InjectionConfig,
+        metrics: Arc<Mutex<InjectionMetrics>>,
+        focus_provider: Box<dyn FocusProvider>,
+    ) -> Self {
         let backend_detector = BackendDetector::new(config.clone());
         if let Some(backend) = backend_detector.get_preferred_backend() {
             info!("Selected backend: {:?}", backend);
@@ -235,7 +245,7 @@ impl StrategyManager {
 
         Self {
             config: config.clone(),
-            focus_tracker: FocusTracker::new(config.clone()),
+            focus_provider,
             success_cache: HashMap::new(),
             cooldowns: HashMap::new(),
             global_start: None,
@@ -335,7 +345,8 @@ impl StrategyManager {
                 .config
                 .allowlist
                 .iter()
-                .any(|pattern| app_id.contains(pattern));
+                .map(|pattern| Self::_strip_anchors_local(pattern))
+                .any(|pattern| app_id.contains(&pattern));
         }
 
         // If blocklist is not empty, block apps in the blocklist
@@ -347,11 +358,25 @@ impl StrategyManager {
                 .config
                 .blocklist
                 .iter()
-                .any(|pattern| app_id.contains(pattern));
+                .map(|pattern| Self::_strip_anchors_local(pattern))
+                .any(|pattern| app_id.contains(&pattern));
         }
 
         // If neither allowlist nor blocklist is set, allow all apps
         true
+    }
+
+    #[cfg(not(feature = "regex"))]
+    fn _strip_anchors_local(pattern: &str) -> String {
+        // Remove a leading '^' and trailing '$' to make simple substring semantics
+        let mut s = pattern;
+        if let Some(stripped) = s.strip_prefix('^') {
+            s = stripped;
+        }
+        if let Some(stripped) = s.strip_suffix('$') {
+            s = stripped;
+        }
+        s.to_string()
     }
 
     /// Check if a method is in cooldown for the current app
@@ -837,7 +862,7 @@ impl StrategyManager {
         self.global_start = Some(Instant::now());
 
         // Get current focus status
-        let focus_status = match self.focus_tracker.get_focus_status().await {
+        let focus_status = match self.focus_provider.get_focus_status().await {
             Ok(status) => status,
             Err(e) => {
                 warn!("Failed to get focus status: {}", e);
@@ -885,12 +910,27 @@ impl StrategyManager {
 
         // Get ordered list of methods to try
         let method_order = self.get_method_order_cached(&app_id);
+        trace!(
+            "Strategy selection for app '{}': {:?} ({} methods available)",
+            app_id,
+            method_order,
+            method_order.len()
+        );
 
         // Try each method in order
+        let total_start = Instant::now();
+        let mut attempts = 0;
+        let total_methods = method_order.len();
+
         for method in method_order {
+            attempts += 1;
             // Skip if in cooldown
             if self.is_in_cooldown(method) {
-                debug!("Skipping method {:?} - in cooldown", method);
+                trace!(
+                    "Skipping method {:?} (attempt {}) - in cooldown",
+                    method,
+                    attempts
+                );
                 continue;
             }
 
@@ -904,9 +944,18 @@ impl StrategyManager {
 
             // Skip if injector not available
             if !self.injectors.contains(method) {
-                debug!("Skipping method {:?} - injector not available", method);
+                trace!(
+                    "Skipping method {:?} (attempt {}) - injector not available",
+                    method,
+                    attempts
+                );
                 continue;
             }
+
+            debug!(
+                "Attempting injection with method {:?} (attempt {} of {})",
+                method, attempts, total_methods
+            );
 
             // Try injection with the real injector
             let start = Instant::now();
@@ -932,12 +981,16 @@ impl StrategyManager {
                     }
                     self.update_success_record(&app_id, method, true);
                     self.clear_cooldown(method);
-                    let redacted = redact_text(text, self.config.redact_logs);
+                    let total_elapsed = total_start.elapsed();
                     info!(
-                        "Successfully injected text {} using method {:?} with mode {:?}",
-                        redacted,
+                        "Successfully injected {} chars using {:?} (mode: {}, method time: {}ms, total: {}ms, attempt {} of {})",
+                        text.len(),
                         method,
-                        if use_paste { "paste" } else { "keystroke" }
+                        if use_paste { "paste" } else { "keystroke" },
+                        duration,
+                        total_elapsed.as_millis(),
+                        attempts,
+                        total_methods
                     );
                     // Log full text only at trace level when not redacting
                     if !self.config.redact_logs {
@@ -953,14 +1006,24 @@ impl StrategyManager {
                     }
                     self.update_success_record(&app_id, method, false);
                     self.update_cooldown(method, &error_string);
-                    debug!("Method {:?} failed: {}", method, error_string);
+                    debug!(
+                        "Method {:?} failed after {}ms (attempt {}): {}",
+                        method, duration, attempts, error_string
+                    );
+                    trace!("Continuing to next method in fallback chain");
                     // Continue to next method
                 }
             }
         }
 
         // If we get here, all methods failed
-        error!("All injection methods failed");
+        let total_elapsed = total_start.elapsed();
+        error!(
+            "All {} injection methods failed after {}ms ({} attempts made)",
+            total_methods,
+            total_elapsed.as_millis(),
+            attempts
+        );
         Err(InjectionError::MethodFailed(
             "All injection methods failed".to_string(),
         ))
@@ -969,6 +1032,14 @@ impl StrategyManager {
     /// Get metrics for the strategy manager
     pub fn metrics(&self) -> Arc<Mutex<InjectionMetrics>> {
         self.metrics.clone()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn override_injectors_for_tests(
+        &mut self,
+        map: std::collections::HashMap<InjectionMethod, Box<dyn TextInjector>>,
+    ) {
+        self.injectors = InjectorRegistry { injectors: map };
     }
 
     /// Print injection statistics for debugging

@@ -8,7 +8,7 @@ pub enum InjectionMethod {
     AtspiInsert,
     /// Set the Wayland clipboard with text
     Clipboard,
-    /// Set clipboard then trigger paste via AT-SPI2 Action interface
+    /// Set clipboard then trigger paste (AT-SPI Action when available, else ydotool)
     ClipboardAndPaste,
     /// Use ydotool to simulate Ctrl+V paste (opt-in)
     YdoToolPaste,
