@@ -52,6 +52,11 @@ name = "test_silero_wav"
 path = "../../examples/test_silero_wav.rs"
 required-features = ["examples"]
 
+[[example]]
+name = "async_stt_demo"
+path = "../../examples/async_stt_demo.rs"
+required-features = ["examples"]
+
 [dependencies]
 zbus = { version = "5.10.0" }
 tokio = { version = "1", features = ["full"] }

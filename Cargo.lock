@@ -626,7 +626,10 @@ dependencies = [
 name = "coldvox-stt-vosk"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "coldvox-stt",
+ "futures",
+ "tokio",
  "tracing",
  "vosk",
 ]

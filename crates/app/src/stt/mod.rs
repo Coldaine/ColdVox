@@ -2,7 +2,7 @@
 
 // Re-export core STT types from the new crate
 pub use coldvox_stt::{
-    next_utterance_id, EventBasedTranscriber, Transcriber, TranscriptionConfig, TranscriptionEvent,
+    next_utterance_id, AsyncEventBasedTranscriber, EventBasedTranscriber, Transcriber, TranscriptionConfig, TranscriptionEvent,
     WordInfo,
 };
 
@@ -10,10 +10,13 @@ pub use coldvox_stt::{
 pub mod vosk;
 
 #[cfg(feature = "vosk")]
-pub use vosk::VoskTranscriber;
+pub use vosk::{VoskTranscriber, AsyncVoskTranscriber};
 
 #[cfg(feature = "vosk")]
 pub mod processor;
+
+#[cfg(feature = "vosk")]
+pub use processor::{SttProcessor, AsyncSttProcessor};
 
 #[cfg(feature = "vosk")]
 pub mod persistence;

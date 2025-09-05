@@ -8,6 +8,9 @@ description = "Vosk speech recognition implementation for ColdVox STT"
 coldvox-stt = { path = "../coldvox-stt" }
 vosk = { version = "0.3", optional = true }
 tracing = "0.1"
+tokio = { version = "1.35", features = ["rt", "sync"] }
+async-trait = "0.1"
+futures = "0.3"
 
 [features]
 default = []

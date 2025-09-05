@@ -2,6 +2,9 @@
 pub mod end_to_end_wav;
 
 #[cfg(test)]
+pub mod async_tests;
+
+#[cfg(test)]
 mod vosk_tests {
     use super::super::*;
 
