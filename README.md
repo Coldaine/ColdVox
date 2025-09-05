@@ -41,7 +41,7 @@ cargo run -p coldvox-app --bin coldvox --no-default-features --features "silero,
 
 # Run audio probe utilities
 cargo run -p coldvox-app --bin mic_probe -- --duration 30
-cargo run -p coldvox-app --bin tui_dashboard
+cargo run -p coldvox-app --bin tui_dashboard  # S=Start, A=Toggle VAD/PTT, R=Reset, Q=Quit
 ```
 
 ## Features
@@ -64,6 +64,7 @@ cargo run -p coldvox-app --bin tui_dashboard
 
 - CLI flags are the primary interface (see probes for examples).
   - `--activation-mode`: select `hotkey` (default) or `vad` to control how speech is detected
+  - TUI defaults mirror the app and run the same runtime; no flags required for common usage.
 - Environment variables:
   - `RUST_LOG`: Controls logging verbosity (info/debug)
   - `VOSK_MODEL_PATH`: Path to Vosk model files (defaults to models/vosk-model-small-en-us-0.15)

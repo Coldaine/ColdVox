@@ -90,6 +90,7 @@ enum CliActivationMode {
     Hotkey,
 }
 
+#[allow(dead_code)]
 enum AppEvent {
     Log(LogLevel, String),
     Vad(VadEvent),

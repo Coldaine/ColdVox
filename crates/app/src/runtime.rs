@@ -288,12 +288,14 @@ pub async fn start(
         let inj_opts = opts.injection.clone();
         if let (Some(inj), Some(stt_rx)) = (inj_opts, stt_transcription_rx_opt.take()) {
             if inj.enable {
-                let mut config = crate::text_injection::InjectionConfig::default();
-                config.allow_ydotool = inj.allow_ydotool;
-                config.allow_kdotool = inj.allow_kdotool;
-                config.allow_enigo = inj.allow_enigo;
-                config.inject_on_unknown_focus = inj.inject_on_unknown_focus;
-                config.restore_clipboard = inj.restore_clipboard;
+                let mut config = crate::text_injection::InjectionConfig {
+                    allow_ydotool: inj.allow_ydotool,
+                    allow_kdotool: inj.allow_kdotool,
+                    allow_enigo: inj.allow_enigo,
+                    inject_on_unknown_focus: inj.inject_on_unknown_focus,
+                    restore_clipboard: inj.restore_clipboard,
+                    ..Default::default()
+                };
                 if let Some(v) = inj.max_total_latency_ms {
                     config.max_total_latency_ms = v;
                 }
