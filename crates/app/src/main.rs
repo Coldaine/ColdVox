@@ -16,6 +16,8 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 use coldvox_app::hotkey::spawn_hotkey_listener;
 #[cfg(feature = "vosk")]
 use coldvox_app::stt::{processor::SttProcessor, TranscriptionEvent};
+#[cfg(feature = "text-injection")]
+use coldvox_app::text_injection::{AsyncInjectionProcessor, InjectionConfig};
 use coldvox_audio::{
     AudioCaptureThread, AudioChunker, AudioRingBuffer, ChunkerConfig, FrameReader,
 };
@@ -299,7 +301,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    // Type alias for the complex tuple type
+    // Type alias for spawned processor handles
     type ProcessorHandles = (
         Option<tokio::task::JoinHandle<()>>,
         Option<tokio::task::JoinHandle<()>>,
@@ -309,41 +311,83 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Only spawn STT processor if enabled
     let injection_shutdown_tx: Option<mpsc::Sender<()>> = None;
     #[cfg(feature = "vosk")]
-    let (stt_handle, _persistence_handle, injection_handle): ProcessorHandles =
-        if stt_config.enabled {
-            // Subscribe to the audio frames directly (no conversion needed)
-            let stt_audio_rx = audio_tx.subscribe();
+    let (stt_handle, _persistence_handle, injection_handle): ProcessorHandles = if stt_config
+        .enabled
+    {
+        // Subscribe to the audio frames directly (no conversion needed)
+        let stt_audio_rx = audio_tx.subscribe();
 
-            // Create transcription event channel
-            let (stt_transcription_tx, _stt_transcription_rx) =
-                mpsc::channel::<TranscriptionEvent>(100);
+        // Create transcription event channel
+        let (stt_transcription_tx, stt_transcription_rx) = mpsc::channel::<TranscriptionEvent>(100);
 
-            // Create STT processor with original types
-            let stt_processor = SttProcessor::new(
-                stt_audio_rx,
-                event_rx,
-                stt_transcription_tx,
-                stt_config.clone(),
-            )?;
+        // Create STT processor with original types
+        let stt_processor = SttProcessor::new(
+            stt_audio_rx,
+            event_rx,
+            stt_transcription_tx,
+            stt_config.clone(),
+        )?;
 
-            // Spawn STT processor
-            let stt_handle = Some(tokio::spawn(async move {
-                stt_processor.run().await;
-            }));
+        // Spawn STT processor
+        let stt_handle = Some(tokio::spawn(async move {
+            stt_processor.run().await;
+        }));
 
-            // For now, return None for persistence and injection handles as they're not implemented
-            let persistence_handle = None::<tokio::task::JoinHandle<()>>;
-            let injection_handle = None::<tokio::task::JoinHandle<()>>;
+        #[cfg(feature = "text-injection")]
+        let injection_handle = if cli.injection.enable {
+            // Build injection configuration from CLI
+            let mut config = InjectionConfig::default();
+            config.allow_ydotool = cli.injection.allow_ydotool;
+            config.allow_kdotool = cli.injection.allow_kdotool;
+            config.allow_enigo = cli.injection.allow_enigo;
+            config.inject_on_unknown_focus = cli.injection.inject_on_unknown_focus;
+            config.restore_clipboard = cli.injection.restore_clipboard;
+            if let Some(v) = cli.injection.max_total_latency_ms {
+                config.max_total_latency_ms = v;
+            }
+            if let Some(v) = cli.injection.per_method_timeout_ms {
+                config.per_method_timeout_ms = v;
+            }
+            if let Some(v) = cli.injection.cooldown_initial_ms {
+                config.cooldown_initial_ms = v;
+            }
 
-            (stt_handle, persistence_handle, injection_handle)
+            let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>(1);
+            injection_shutdown_tx = Some(shutdown_tx);
+
+            let processor =
+                AsyncInjectionProcessor::new(config, stt_transcription_rx, shutdown_rx, None).await;
+
+            Some(tokio::spawn(async move {
+                if let Err(e) = processor.run().await {
+                    tracing::error!("Injection processor error: {}", e);
+                }
+            }))
         } else {
-            // STT is disabled, return None handles
-            (
-                None::<tokio::task::JoinHandle<()>>,
-                None::<tokio::task::JoinHandle<()>>,
-                None::<tokio::task::JoinHandle<()>>,
-            )
+            // Drop receiver if injection disabled
+            drop(stt_transcription_rx);
+            None
         };
+
+        #[cfg(not(feature = "text-injection"))]
+        let injection_handle = {
+            // If text injection feature is not compiled, drop receiver
+            drop(stt_transcription_rx);
+            None
+        };
+
+        // For now, no persistence handle
+        let persistence_handle = None::<tokio::task::JoinHandle<()>>;
+
+        (stt_handle, persistence_handle, injection_handle)
+    } else {
+        // STT is disabled, return None handles
+        (
+            None::<tokio::task::JoinHandle<()>>,
+            None::<tokio::task::JoinHandle<()>>,
+            None::<tokio::task::JoinHandle<()>>,
+        )
+    };
 
     #[cfg(not(feature = "vosk"))]
     let (stt_handle, _persistence_handle, injection_handle): ProcessorHandles = {
