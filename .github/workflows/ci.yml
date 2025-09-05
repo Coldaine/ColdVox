@@ -169,13 +169,22 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
-      - name: Install headless GUI deps
+      - name: Install headless GUI + build deps
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            # X/desktop + AT-SPI for headless GUI testing
             xvfb fluxbox dbus-x11 at-spi2-core \
-            wl-clipboard xclip ydotool \
-            x11-utils wmctrl
+            wl-clipboard xclip ydotool x11-utils wmctrl \
+            # Build and runtime deps required by crates (alsa, xdo, xtst)
+            libasound2-dev libxdo-dev libxtst-dev
+      - name: Install libvosk (vendored)
+        run: |
+          VOSK_VER=0.3.45
+          unzip -q vendor/vosk/vosk-linux-x86_64-${VOSK_VER}.zip
+          sudo cp -v vosk-linux-x86_64-${VOSK_VER}/libvosk.so /usr/local/lib/
+          sudo cp -v vosk-linux-x86_64-${VOSK_VER}/vosk_api.h /usr/local/include/
+          sudo ldconfig
       - name: Start Xvfb + window manager + D-Bus
         run: |
           set -euo pipefail
@@ -210,6 +219,46 @@ jobs:
         run: |
           # Default features represent the full end-to-end pipeline
           cargo build --locked -p coldvox-app
+
+      # Download Vosk model needed for the E2E pipeline test
+      - name: Cache Vosk model
+        id: cache-vosk-model-matrix
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: models/vosk-model-small-en-us-0.15
+          key: vosk-model-small-en-us-0.15
+          restore-keys: |
+            vosk-model-small-en-us-
+            vosk-model-
+
+      - name: Download Vosk model
+        if: steps.cache-vosk-model-matrix.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          MODEL="models/vosk-model-small-en-us-0.15"
+          mkdir -p models
+          if [ -d "$MODEL" ]; then
+            echo "Model already present at $MODEL"; exit 0; fi
+          ZIP="$MODEL.zip"
+          echo "Downloading $ZIP ..."
+          for i in 1 2 3; do
+            if wget -O "$ZIP" "https://alphacephei.com/vosk/models/$ZIP"; then
+              break
+            fi
+            echo "Download failed, retrying in 3s..." >&2
+            sleep 3
+          done
+          echo "Unzipping $ZIP ..."
+          unzip -q -o "$ZIP"
+          rm -f "$ZIP"
+          if [ ! -d "$MODEL" ]; then
+            FOUND_DIR=$(find . -maxdepth 1 -type d -name "vosk-model-*" | head -n1 || true)
+            if [ -n "${FOUND_DIR:-}" ] && [ "$FOUND_DIR" != "./$MODEL" ]; then
+              mv "$FOUND_DIR" "$MODEL"
+            fi
+          fi
+          test -d "$MODEL"
+          echo "VOSK_MODEL_PATH=$(pwd)/$MODEL" >> $GITHUB_ENV
 
       - name: Run End to End WAV pipeline test
         env:
