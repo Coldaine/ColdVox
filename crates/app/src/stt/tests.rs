@@ -95,6 +95,7 @@ mod vosk_tests {
 
         #[test]
         fn test_vosk_transcriber_empty_model_path() {
+            // Empty model_path should fall back to default_model_path()
             let config = TranscriptionConfig {
                 enabled: true,
                 model_path: "".to_string(),
@@ -104,10 +105,26 @@ mod vosk_tests {
                 buffer_size_ms: 512,
             };
 
+            let default_path = super::super::super::vosk::default_model_path();
+            let default_exists = std::path::Path::new(&default_path).exists();
+
             let result = VoskTranscriber::new(config, 16000.0);
-            assert!(result.is_err());
-            if let Err(e) = result {
-                assert!(e.contains("Model path is required"));
+
+            if default_exists {
+                assert!(
+                    result.is_ok(),
+                    "Expected Ok() when default model exists at {}",
+                    default_path
+                );
+            } else {
+                assert!(
+                    result.is_err(),
+                    "Expected Err() when default model missing at {}",
+                    default_path
+                );
+                if let Err(e) = result {
+                    assert!(e.contains("Vosk model not found"));
+                }
             }
         }
 
