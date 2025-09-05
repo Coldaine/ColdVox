@@ -99,7 +99,7 @@ impl SttPlugin for VoskPlugin {
 
     async fn process_audio(
         &mut self,
-        samples: &[i16],
+        _samples: &[i16],
     ) -> Result<Option<TranscriptionEvent>, SttPluginError> {
         if !self.initialized {
             return Err(SttPluginError::InitializationFailed(
