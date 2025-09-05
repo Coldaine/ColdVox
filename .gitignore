@@ -36,10 +36,11 @@ temp/
 # OS files
 Thumbs.db
 
-# Vosk models (large binary files)
+# Vosk models and libraries (large binary files)
 models/
 *.model
 *.zip
+vosk-linux-x86_64-*/
 # Exception for vendored dependencies
 !vendor/**/*.zip
 
