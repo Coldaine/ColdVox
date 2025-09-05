@@ -234,7 +234,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Set up device config monitoring to update FrameReader
     // We no longer need a separate monitor; the chunker reads device config updates directly.
 
-    let (event_tx, mut event_rx) = mpsc::channel::<VadEvent>(100);
+    let (event_tx, event_rx) = mpsc::channel::<VadEvent>(100);
     let trigger_handle = match cli.activation_mode {
         ActivationMode::Vad => {
             let vad_audio_rx = audio_tx.subscribe();
@@ -313,83 +313,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Only spawn STT processor if enabled
     let injection_shutdown_tx: Option<mpsc::Sender<()>> = None;
     #[cfg(feature = "vosk")]
-    let (stt_handle, _persistence_handle, injection_handle): ProcessorHandles = if stt_config
-        .enabled
-    {
-        // --- Conversion Layer for Audio Frames ---
-        let (stt_audio_tx, stt_audio_rx) =
-            broadcast::channel::<coldvox_stt::processor::AudioFrame>(200);
-        let mut chunker_rx = audio_tx.subscribe();
-        let start_time = std::time::Instant::now();
-        tokio::spawn(async move {
-            while let Ok(frame) = chunker_rx.recv().await {
-                // Convert f32 samples to i16 samples
-                let i16_samples: Vec<i16> = frame
-                    .samples
-                    .iter()
-                    .map(|&sample| (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
-                    .collect();
+    let (stt_handle, _persistence_handle, injection_handle): ProcessorHandles =
+        if stt_config.enabled {
+            // Subscribe to the audio frames directly (no conversion needed)
+            let stt_audio_rx = audio_tx.subscribe();
 
-                // Convert Instant to milliseconds since start of processing
-                let timestamp_ms = frame.timestamp.duration_since(start_time).as_millis() as u64;
+            // Create transcription event channel
+            let (stt_transcription_tx, _stt_transcription_rx) =
+                mpsc::channel::<TranscriptionEvent>(100);
 
-                let stt_frame = coldvox_stt::processor::AudioFrame {
-                    data: i16_samples,
-                    timestamp_ms,
-                    sample_rate: frame.sample_rate,
-                };
-                let _ = stt_audio_tx.send(stt_frame);
-            }
-        });
+            // Create STT processor with original types
+            let stt_processor = SttProcessor::new(
+                stt_audio_rx,
+                event_rx,
+                stt_transcription_tx,
+                stt_config.clone(),
+            )?;
 
-        // --- Conversion Layer for VAD Events ---
-        let (stt_vad_tx, stt_vad_rx) = mpsc::channel::<coldvox_stt::processor::VadEvent>(100);
-        tokio::spawn(async move {
-            while let Some(event) = event_rx.recv().await {
-                let stt_event = match event {
-                    VadEvent::SpeechStart { timestamp_ms, .. } => {
-                        coldvox_stt::processor::VadEvent::SpeechStart { timestamp_ms }
-                    }
-                    VadEvent::SpeechEnd {
-                        timestamp_ms,
-                        duration_ms,
-                        ..
-                    } => coldvox_stt::processor::VadEvent::SpeechEnd {
-                        timestamp_ms,
-                        duration_ms,
-                    },
-                };
-                let _ = stt_vad_tx.send(stt_event).await;
-            }
-        });
+            // Spawn STT processor
+            let stt_handle = Some(tokio::spawn(async move {
+                stt_processor.run().await;
+            }));
 
-        let (stt_transcription_tx, stt_transcription_rx) = mpsc::channel::<TranscriptionEvent>(100);
+            // For now, return None for persistence and injection handles as they're not implemented
+            let persistence_handle = None::<tokio::task::JoinHandle<()>>;
+            let injection_handle = None::<tokio::task::JoinHandle<()>>;
 
-        let stt_processor = SttProcessor::new(
-            stt_audio_rx,
-            stt_vad_rx,
-            stt_transcription_tx,
-            stt_config.clone(),
-        )?;
-
-        // Spawn STT processor
-        let stt_handle = Some(tokio::spawn(async move {
-            stt_processor.run().await;
-        }));
-
-        // For now, return None for persistence and injection handles as they're not implemented
-        let persistence_handle = None::<tokio::task::JoinHandle<()>>;
-        let injection_handle = None::<tokio::task::JoinHandle<()>>;
-
-        (stt_handle, persistence_handle, injection_handle)
-    } else {
-        // STT is disabled, return None handles
-        (
-            None::<tokio::task::JoinHandle<()>>,
-            None::<tokio::task::JoinHandle<()>>,
-            None::<tokio::task::JoinHandle<()>>,
-        )
-    };
+            (stt_handle, persistence_handle, injection_handle)
+        } else {
+            // STT is disabled, return None handles
+            (
+                None::<tokio::task::JoinHandle<()>>,
+                None::<tokio::task::JoinHandle<()>>,
+                None::<tokio::task::JoinHandle<()>>,
+            )
+        };
 
     #[cfg(not(feature = "vosk"))]
     let (stt_handle, _persistence_handle, injection_handle): ProcessorHandles = {

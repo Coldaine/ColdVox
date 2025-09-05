@@ -1,8 +1,6 @@
 name: CI
 
 on:
-  push:
-    branches: [main, develop]
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
@@ -63,9 +61,9 @@ jobs:
           fi
           echo "All workflows render via gh."
 
-  # Format checking
-  fmt:
-    name: Format Check
+  # Combined check, build, format, and lint
+  build_and_check:
+    name: Build & Check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v4.1.7
@@ -73,21 +71,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: stable
-          components: rustfmt
-      - name: Check formatting
-        run: cargo fmt --all -- --check
-
-  # Clippy linting
-  clippy:
-    name: Clippy Linting
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v4.1.7
-
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
-        with:
-          toolchain: stable
-          components: clippy
+          components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
       - name: Install system dependencies
@@ -95,42 +79,27 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libasound2-dev libxdo-dev libxtst-dev
 
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
       - name: Run clippy
         run: cargo clippy --all-targets --no-default-features --features silero -- -D warnings
 
-  # Type checking and build
-  check:
-    name: Type Check & Build
-    strategy:
-      matrix:
-        os: [ubuntu-latest]
-        rust: [stable]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v4.1.7
-
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
-        with:
-          toolchain: ${{ matrix.rust }}
-
-      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
-        with:
-          key: ${{ matrix.os }}-${{ matrix.rust }}
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libasound2-dev libxdo-dev libxtst-dev
-
       - name: Type check
         run: cargo check --workspace --all-targets --no-default-features --features silero
+
       - name: Build
         run: cargo build --workspace --no-default-features --features silero
+
+      - name: Build documentation
+        run: cargo doc --workspace --no-deps --no-default-features --features silero
+        env:
+          RUSTDOCFLAGS: "-D warnings"
 
   # Unit and integration tests
   test:
     name: Tests
-    needs: [fmt, clippy, check]
+    needs: [build_and_check]
     strategy:
       matrix:
         os: [ubuntu-latest]
@@ -195,35 +164,13 @@ jobs:
       - name: Run doc tests
         run: cargo test --doc --workspace --no-default-features --features ${{ matrix.features }}
 
-  # Documentation build
-  docs:
-    name: Documentation
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v4.1.7
-
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
-        with:
-          toolchain: stable
-
-      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
-      - name: Install Linux dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libasound2-dev libxdo-dev libxtst-dev
-
-      - name: Build documentation
-        run: cargo doc --workspace --no-deps --no-default-features --features silero
-        env:
-          RUSTDOCFLAGS: "-D warnings"
-
   # Security audit
   security:
     name: Security Audit
     if: false # temporarily disabled per request
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v4.1.7
+      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v4.t7
 
       - uses: rustsec/audit-check@v2.0.0 # pin to release tag
         with:
@@ -235,7 +182,7 @@ jobs:
   ci-success:
     name: CI Success
     if: always()
-    needs: [validate-workflows, fmt, clippy, check, test, docs, security]
+    needs: [validate-workflows, build_and_check, test, security]
     runs-on: ubuntu-latest
     steps:
       - name: Check if all jobs succeeded
@@ -244,11 +191,8 @@ jobs:
           failed=0
           for res in \
             "${{ needs.validate-workflows.result }}" \
-            "${{ needs.fmt.result }}" \
-            "${{ needs.clippy.result }}" \
-            "${{ needs.check.result }}" \
+            "${{ needs.build_and_check.result }}" \
             "${{ needs.test.result }}" \
-            "${{ needs.docs.result }}" \
             "${{ needs.security.result }}"; do
             if [[ "$res" == "failure" ]]; then
               failed=1

@@ -4,33 +4,14 @@
 //! segments and processes transcription when speech ends. The processor is designed
 //! to work with any VAD system and any STT implementation.
 
+use crate::types::{TranscriptionConfig, TranscriptionEvent};
+use crate::EventBasedTranscriber;
+use coldvox_audio::chunker::AudioFrame;
+use coldvox_vad::types::VadEvent;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::{broadcast, mpsc};
 use tracing::{debug, error, info, warn};
-
-use crate::types::{TranscriptionConfig, TranscriptionEvent};
-use crate::EventBasedTranscriber;
-
-/// Audio frame type (generic over audio formats)
-#[derive(Debug, Clone)]
-pub struct AudioFrame {
-    /// Audio data as 16-bit PCM samples
-    pub data: Vec<i16>,
-    /// Timestamp in milliseconds
-    pub timestamp_ms: u64,
-    /// Sample rate in Hz
-    pub sample_rate: u32,
-}
-
-/// VAD event types
-#[derive(Debug, Clone)]
-pub enum VadEvent {
-    /// Speech started
-    SpeechStart { timestamp_ms: u64 },
-    /// Speech ended
-    SpeechEnd { timestamp_ms: u64, duration_ms: u64 },
-}
 
 /// STT processor state
 #[derive(Debug, Clone)]
@@ -297,7 +278,13 @@ impl<T: EventBasedTranscriber + Send> SttProcessor<T> {
         } = &mut self.state
         {
             // Buffer the audio frame
-            audio_buffer.extend_from_slice(&frame.data);
+            // Convert f32 samples back to i16
+            let i16_samples: Vec<i16> = frame
+                .samples
+                .iter()
+                .map(|&s| (s * i16::MAX as f32) as i16)
+                .collect();
+            audio_buffer.extend_from_slice(&i16_samples);
             *frames_buffered += 1;
 
             // Log periodically to show we're buffering

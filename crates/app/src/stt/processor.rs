@@ -305,13 +305,7 @@ impl SttProcessor {
             ..
         } = &mut self.state
         {
-            // Convert f32 samples back to i16
-            let i16_samples: Vec<i16> = frame
-                .samples
-                .iter()
-                .map(|&s| (s * i16::MAX as f32) as i16)
-                .collect();
-
+            let i16_samples = coldvox_audio::utils::f32_to_i16_vec(&frame.samples);
             // Buffer the audio frame
             audio_buffer.extend_from_slice(&i16_samples);
             *frames_buffered += 1;

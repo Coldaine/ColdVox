@@ -468,55 +468,36 @@ async fn run_audio_pipeline(tx: mpsc::Sender<AppEvent>, device: String) {
     let (mut stt_transcription_rx_opt, stt_vad_tx_opt) = {
         let model_path = std::env::var("VOSK_MODEL_PATH")
             .unwrap_or_else(|_| "models/vosk-model-small-en-us-0.15".to_string());
+
         if std::path::Path::new(&model_path).exists() {
             let (stt_transcription_tx, stt_transcription_rx) =
                 mpsc::channel::<TranscriptionEvent>(100);
-            let (stt_vad_tx, stt_vad_rx) = mpsc::channel::<coldvox_stt::processor::VadEvent>(100);
-
-            // --- Conversion Layer for Audio Frames ---
-            let (stt_audio_tx, stt_audio_rx) =
-                broadcast::channel::<coldvox_stt::processor::AudioFrame>(200);
-            let mut chunker_rx_for_stt = chunker_audio_tx.subscribe();
-            let start_time = std::time::Instant::now();
-            tokio::spawn(async move {
-                while let Ok(frame) = chunker_rx_for_stt.recv().await {
-                    // Convert f32 samples to i16 samples
-                    let i16_samples: Vec<i16> = frame
-                        .samples
-                        .iter()
-                        .map(|&sample| (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
-                        .collect();
-
-                    // Convert Instant to milliseconds since start of processing
-                    let timestamp_ms =
-                        frame.timestamp.duration_since(start_time).as_millis() as u64;
-
-                    let stt_frame = coldvox_stt::processor::AudioFrame {
-                        data: i16_samples,
-                        timestamp_ms,
-                        sample_rate: frame.sample_rate,
-                    };
-                    let _ = stt_audio_tx.send(stt_frame);
-                }
-            });
+            let (stt_vad_tx, stt_vad_rx) = mpsc::channel::<VadEvent>(100);
+            let stt_audio_rx = chunker_audio_tx.subscribe();
 
             let stt_config = TranscriptionConfig {
                 enabled: true,
                 model_path,
                 partial_results: true,
                 max_alternatives: 1,
-                include_words: false,
+                include_words: true,
                 buffer_size_ms: 512,
             };
-            let transcriber =
-                VoskTranscriber::new(stt_config.clone(), SAMPLE_RATE_HZ as f32).unwrap();
-            let stt_processor = SttProcessor::new(
-                stt_audio_rx,
-                stt_vad_rx,
-                stt_transcription_tx,
-                transcriber,
-                stt_config,
-            );
+
+            let stt_processor =
+                match SttProcessor::new(stt_audio_rx, stt_vad_rx, stt_transcription_tx, stt_config)
+                {
+                    Ok(p) => p,
+                    Err(e) => {
+                        let _ = tx
+                            .send(AppEvent::Log(
+                                LogLevel::Error,
+                                format!("Failed to create STT: {}", e),
+                            ))
+                            .await;
+                        return;
+                    }
+                };
             tokio::spawn(async move {
                 stt_processor.run().await;
             });
@@ -536,20 +517,7 @@ async fn run_audio_pipeline(tx: mpsc::Sender<AppEvent>, device: String) {
             let _ = ui_vad_tx.send(ev).await;
             #[cfg(feature = "vosk")]
             if let Some(stt_tx) = &stt_vad_tx_clone {
-                let stt_event = match ev {
-                    VadEvent::SpeechStart { timestamp_ms, .. } => {
-                        coldvox_stt::processor::VadEvent::SpeechStart { timestamp_ms }
-                    }
-                    VadEvent::SpeechEnd {
-                        timestamp_ms,
-                        duration_ms,
-                        ..
-                    } => coldvox_stt::processor::VadEvent::SpeechEnd {
-                        timestamp_ms,
-                        duration_ms,
-                    },
-                };
-                let _ = stt_tx.send(stt_event).await;
+                let _ = stt_tx.send(ev).await;
             }
         }
     });
