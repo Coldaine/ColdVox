@@ -9,5 +9,5 @@ name = "coldvox-gui"
 path = "src/main.rs"
 
 [dependencies]
-# No GUI toolkit dependencies yet - this is a placeholder crate
-# Future considerations will include: egui, tauri, gtk4, qt, slint, etc.
+# Using `eframe` (egui framework) for the initial GUI implementation.
+eframe = "0.32"
