@@ -301,7 +301,7 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
         max_alternatives: 1,
         include_words: false,
         buffer_size_ms: 512,
-        streaming: false,
+        streaming: true,
     };
 
     // Check if STT model exists
@@ -671,6 +671,7 @@ mod tests {
         let (stt_transcription_tx, stt_transcription_rx) = mpsc::channel::<TranscriptionEvent>(100);
         let stt_config = TranscriptionConfig {
             enabled: true,
+            streaming: true,
             model_path: std::env::var("VOSK_MODEL_PATH")
                 .unwrap_or_else(|_| "models/vosk-model-small-en-us-0.15".to_string()),
             partial_results: true,
