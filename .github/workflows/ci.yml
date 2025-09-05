@@ -84,6 +84,15 @@ jobs:
             wget \
             unzip
 
+      # Install libvosk early so any default-feature builds/tests that link it succeed
+      - name: Install libvosk (vendored)
+        run: |
+          VOSK_VER=0.3.45
+          unzip -q vendor/vosk/vosk-linux-x86_64-${VOSK_VER}.zip
+          sudo cp -v vosk-linux-x86_64-${VOSK_VER}/libvosk.so /usr/local/lib/
+          sudo cp -v vosk-linux-x86_64-${VOSK_VER}/vosk_api.h /usr/local/include/
+          sudo ldconfig
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 
@@ -106,13 +115,6 @@ jobs:
           cargo test --workspace -- --skip test_end_to_end_wav_pipeline
 
       # Prepare and run End-to-End WAV pipeline test on same runner
-      - name: Install libvosk (vendored)
-        run: |
-          VOSK_VER=0.3.45
-          unzip -q vendor/vosk/vosk-linux-x86_64-${VOSK_VER}.zip
-          sudo cp -v vosk-linux-x86_64-${VOSK_VER}/libvosk.so /usr/local/lib/
-          sudo cp -v vosk-linux-x86_64-${VOSK_VER}/vosk_api.h /usr/local/include/
-          sudo ldconfig
 
       - name: Cache Vosk model
         id: cache-vosk-model
