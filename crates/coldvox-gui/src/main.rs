@@ -1,25 +1,31 @@
-// TODO: This is a placeholder crate for future GUI implementation.
-// Remove this comment when implementing the actual GUI functionality.
-fn main() {
-    println!("ColdVox GUI - Development Placeholder");
-    println!("=====================================");
-    println!();
-    println!("This is a stub implementation for the ColdVox GUI frontend.");
-    println!("The GUI framework has not yet been selected.");
-    println!();
-    println!("Potential GUI toolkit options being considered:");
-    println!("  • egui - Immediate mode GUI in Rust");
-    println!("  • tauri - Web-based desktop app framework");
-    println!("  • gtk4 - Cross-platform native toolkit");
-    println!("  • slint - Rust-native declarative UI toolkit");
-    println!("  • iced - Cross-platform GUI library");
-    println!();
-    println!("Future GUI will provide:");
-    println!("  • Real-time transcription display");
-    println!("  • Audio input configuration");
-    println!("  • VAD settings and visualization");
-    println!("  • System status and metrics");
-    println!("  • Text injection configuration");
-    println!();
-    println!("For now, use the TUI dashboard: cargo run -p coldvox-app --bin tui_dashboard");
+#[cfg(feature = "qt-ui")]
+mod run_ui {
+    use cxx_qt_lib::QGuiApplication;
+
+    // Bring the bridge module (generated via cxx-qt) into scope when needed.
+    #[allow(unused_imports)]
+    use crate::bridge::ffi;
+
+    pub fn main() {
+        // Create a minimal Qt GUI application; no UI loaded yet.
+        // This verifies Qt linking works when the feature is enabled.
+        let _app = QGuiApplication::new();
+        // Intentionally do not load QML or create a window yet.
+        // This binary will start and exit immediately when run.
+        println!("ColdVox GUI groundwork: Qt + CXX-Qt linked (qt-ui feature).");
+    }
 }
+
+#[cfg(not(feature = "qt-ui"))]
+fn main() {
+    println!("ColdVox GUI groundwork ready.");
+    println!("Enable with: cargo run -p coldvox-gui --features qt-ui");
+}
+
+#[cfg(feature = "qt-ui")]
+fn main() {
+    run_ui::main();
+}
+
+#[cfg(feature = "qt-ui")]
+mod bridge;
