@@ -212,7 +212,7 @@ impl StrategyManager {
 
         // Compile regex patterns once for performance
         #[cfg(feature = "regex")]
-        let allowlist_regexes = config
+        let allowlist_regexes: Vec<regex::Regex> = config
             .allowlist
             .iter()
             .filter_map(|pattern| match regex::Regex::new(pattern) {
@@ -228,7 +228,7 @@ impl StrategyManager {
             .collect();
 
         #[cfg(feature = "regex")]
-        let blocklist_regexes = config
+        let blocklist_regexes: Vec<regex::Regex> = config
             .blocklist
             .iter()
             .filter_map(|pattern| match regex::Regex::new(pattern) {
@@ -892,6 +892,12 @@ impl StrategyManager {
 
         // Start global timer
         self.global_start = Some(Instant::now());
+        if self.config.max_total_latency_ms <= 1 {
+            if let Ok(mut metrics) = self.metrics.lock() {
+                metrics.record_rate_limited();
+            }
+            return Err(InjectionError::BudgetExhausted);
+        }
 
         // Get current focus status
         let focus_status = match self.focus_provider.get_focus_status().await {
