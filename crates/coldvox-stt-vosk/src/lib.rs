@@ -7,7 +7,7 @@
 pub mod vosk_transcriber;
 
 #[cfg(feature = "vosk")]
-pub use vosk_transcriber::{VoskTranscriber, AsyncVoskTranscriber};
+pub use vosk_transcriber::{VoskTranscriber, AsyncVoskTranscriber, ConcurrentAsyncSttProcessor};
 
 // Re-export common types
 pub use coldvox_stt::{

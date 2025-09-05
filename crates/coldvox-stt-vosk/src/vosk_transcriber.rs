@@ -396,3 +396,154 @@ impl AsyncEventBasedTranscriber for AsyncVoskTranscriber {
         &self.config
     }
 }
+
+/// Concurrent STT processor for handling multiple audio streams
+///
+/// This processor can handle multiple concurrent audio streams, enabling
+/// high-throughput scenarios where multiple audio sources need to be
+/// transcribed simultaneously.
+pub struct ConcurrentAsyncSttProcessor {
+    /// Map of stream ID to individual processors
+    processors: Arc<Mutex<std::collections::HashMap<u32, AsyncVoskTranscriber>>>,
+    /// Global configuration
+    config: TranscriptionConfig,
+    /// Global metrics aggregator
+    metrics: Arc<parking_lot::RwLock<SttMetrics>>,
+    /// Event sender for all streams
+    event_tx: mpsc::Sender<(u32, TranscriptionEvent)>, // (stream_id, event)
+}
+
+impl ConcurrentAsyncSttProcessor {
+    /// Create a new concurrent async STT processor
+    pub fn new(
+        event_tx: mpsc::Sender<(u32, TranscriptionEvent)>,
+        config: TranscriptionConfig,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            processors: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            config,
+            metrics: Arc::new(parking_lot::RwLock::new(SttMetrics::default())),
+            event_tx,
+        })
+    }
+
+    /// Add a new audio stream for processing
+    pub async fn add_stream(&self, stream_id: u32) -> Result<(), String> {
+        let transcriber = AsyncVoskTranscriber::new(self.config.clone(), 16000.0)?;
+        let mut processors = self.processors.lock().await;
+        processors.insert(stream_id, transcriber);
+        Ok(())
+    }
+
+    /// Remove an audio stream
+    pub async fn remove_stream(&self, stream_id: u32) -> Result<(), String> {
+        let mut processors = self.processors.lock().await;
+        processors.remove(&stream_id);
+        Ok(())
+    }
+
+    /// Process audio frame for a specific stream (async)
+    pub async fn process_frame_for_stream(
+        &self,
+        stream_id: u32,
+        pcm: Vec<i16>,
+    ) -> Result<(), String> {
+        let processors = Arc::clone(&self.processors);
+        let event_tx = self.event_tx.clone();
+        let metrics = Arc::clone(&self.metrics);
+
+        tokio::spawn(async move {
+            let mut processors_guard = processors.lock().await;
+            if let Some(transcriber) = processors_guard.get_mut(&stream_id) {
+                match transcriber.accept_frame_async(pcm).await {
+                    Ok(Some(event)) => {
+                        if let Err(e) = event_tx.send((stream_id, event)).await {
+                            tracing::error!("Failed to send concurrent STT event: {}", e);
+                        }
+                        metrics.write().frames_out += 1;
+                    }
+                    Ok(None) => {
+                        // No event generated
+                    }
+                    Err(e) => {
+                        tracing::error!("Concurrent STT processing error for stream {}: {}", stream_id, e);
+                        let error_event = TranscriptionEvent::Error {
+                            code: "CONCURRENT_PROCESS_ERROR".to_string(),
+                            message: e,
+                        };
+                        if let Err(e) = event_tx.send((stream_id, error_event)).await {
+                            tracing::error!("Failed to send concurrent STT error: {}", e);
+                        }
+                        metrics.write().error_count += 1;
+                    }
+                }
+                metrics.write().frames_in += 1;
+            }
+        });
+
+        Ok(())
+    }
+
+    /// Finalize transcription for a specific stream
+    pub async fn finalize_stream(&self, stream_id: u32) -> Result<(), String> {
+        let processors = Arc::clone(&self.processors);
+        let event_tx = self.event_tx.clone();
+        let metrics = Arc::clone(&self.metrics);
+
+        tokio::spawn(async move {
+            let mut processors_guard = processors.lock().await;
+            if let Some(transcriber) = processors_guard.get_mut(&stream_id) {
+                match transcriber.finalize_utterance_async().await {
+                    Ok(Some(event)) => {
+                        if let Err(e) = event_tx.send((stream_id, event)).await {
+                            tracing::error!("Failed to send concurrent STT finalize event: {}", e);
+                        }
+                        metrics.write().final_count += 1;
+                    }
+                    Ok(None) => {
+                        // No final result
+                    }
+                    Err(e) => {
+                        tracing::error!("Concurrent STT finalize error for stream {}: {}", stream_id, e);
+                        let error_event = TranscriptionEvent::Error {
+                            code: "CONCURRENT_FINALIZE_ERROR".to_string(),
+                            message: e,
+                        };
+                        if let Err(e) = event_tx.send((stream_id, error_event)).await {
+                            tracing::error!("Failed to send concurrent STT finalize error: {}", e);
+                        }
+                        metrics.write().error_count += 1;
+                    }
+                }
+            }
+        });
+
+        Ok(())
+    }
+
+    /// Reset transcriber for a specific stream
+    pub async fn reset_stream(&self, stream_id: u32) -> Result<(), String> {
+        let processors = Arc::clone(&self.processors);
+
+        tokio::spawn(async move {
+            let mut processors_guard = processors.lock().await;
+            if let Some(transcriber) = processors_guard.get_mut(&stream_id) {
+                if let Err(e) = transcriber.reset_async().await {
+                    tracing::error!("Failed to reset concurrent STT stream {}: {}", stream_id, e);
+                }
+            }
+        });
+
+        Ok(())
+    }
+
+    /// Get current metrics across all streams
+    pub fn metrics(&self) -> SttMetrics {
+        self.metrics.read().clone()
+    }
+
+    /// Get number of active streams
+    pub async fn active_stream_count(&self) -> usize {
+        self.processors.lock().await.len()
+    }
+}
