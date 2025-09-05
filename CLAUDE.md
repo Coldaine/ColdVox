@@ -97,9 +97,10 @@ cargo run -- --device "USB Microphone"
 # With Vosk STT
 cargo run --features vosk
 
-# TUI Dashboard
-cargo run --bin tui_dashboard
-cargo run --bin tui_dashboard -- --device "pipewire" --log-level debug
+# TUI Dashboard (shared runtime)
+cargo run --bin tui_dashboard  # S=Start, A=Toggle VAD/PTT, R=Reset, Q=Quit
+# Optional explicit device or extra logging
+cargo run --bin tui_dashboard -- --device "USB Microphone" --log-level "info,stt=debug,coldvox_audio=debug"
 
 # Mic probe utility
 cargo run --bin mic_probe -- --duration 30
