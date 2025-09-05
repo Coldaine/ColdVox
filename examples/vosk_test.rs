@@ -30,6 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         max_alternatives: 3,
         include_words: true,
         buffer_size_ms: 512,
+        streaming: false,
     };
 
     // Create transcriber with configuration

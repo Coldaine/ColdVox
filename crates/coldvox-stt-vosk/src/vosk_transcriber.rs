@@ -72,6 +72,7 @@ impl VoskTranscriber {
             max_alternatives: 1,
             include_words: false,
             buffer_size_ms: 512,
+            streaming: false,
         };
         Self::new(config, sample_rate)
     }
