@@ -17,6 +17,7 @@ mod vosk_tests {
         assert_eq!(config.max_alternatives, 1);
         assert!(!config.include_words);
         assert_eq!(config.buffer_size_ms, 512);
+        assert!(!config.streaming);
     }
 
     #[test]
@@ -87,6 +88,7 @@ mod vosk_tests {
                 max_alternatives: 1,
                 include_words: false,
                 buffer_size_ms: 512,
+                streaming: false,
             };
 
             let result = VoskTranscriber::new(config, 16000.0);
@@ -106,6 +108,7 @@ mod vosk_tests {
                 max_alternatives: 1,
                 include_words: false,
                 buffer_size_ms: 512,
+                streaming: false,
             };
 
             let default_path = super::super::super::vosk::default_model_path();
@@ -148,6 +151,7 @@ mod vosk_tests {
                 max_alternatives: 1,
                 include_words: false,
                 buffer_size_ms: 512,
+                streaming: false,
             };
 
             let result = VoskTranscriber::new(config.clone(), 16000.0);

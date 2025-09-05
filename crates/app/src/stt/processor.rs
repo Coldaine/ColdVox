@@ -49,6 +49,33 @@ pub struct SttMetrics {
     pub queue_depth: usize,
     /// Time since last STT event
     pub last_event_time: Option<Instant>,
+    /// Performance metrics
+    pub perf: PerformanceMetrics,
+}
+
+/// Detailed performance metrics
+#[derive(Debug, Clone, Default)]
+pub struct PerformanceMetrics {
+    /// Total processing time spent in STT operations
+    pub total_processing_time_ns: u128,
+    /// Average processing latency per frame
+    pub avg_frame_latency_ns: u64,
+    /// Peak memory usage in bytes
+    pub peak_memory_usage_bytes: usize,
+    /// Current memory usage in bytes
+    pub current_memory_usage_bytes: usize,
+    /// Buffer allocation count
+    pub buffer_allocations: u64,
+    /// Buffer reallocation count
+    pub buffer_reallocations: u64,
+    /// Total audio samples processed
+    pub total_samples_processed: u64,
+    /// Processing throughput (samples/second)
+    pub throughput_samples_per_sec: f64,
+    /// Time spent waiting for audio frames
+    pub audio_wait_time_ns: u128,
+    /// Time spent processing audio frames
+    pub processing_time_ns: u128,
 }
 
 #[cfg(feature = "vosk")]
@@ -113,6 +140,7 @@ impl SttProcessor {
             max_alternatives: 1,
             include_words: false,
             buffer_size_ms: 512,
+            streaming: false,
         };
 
         Self::new(audio_rx, vad_event_rx, event_tx, config)
@@ -298,20 +326,79 @@ impl SttProcessor {
         // Update metrics
         self.metrics.write().frames_in += 1;
 
-        // Only buffer if speech is active
-        if let UtteranceState::SpeechActive {
-            ref mut audio_buffer,
-            ref mut frames_buffered,
-            ..
-        } = &mut self.state
-        {
+        // Check if we're in streaming mode and speech is active
+        let is_streaming_and_active =
+            self.config.streaming && matches!(self.state, UtteranceState::SpeechActive { .. });
+
+        if is_streaming_and_active {
+            // Streaming mode: Process audio chunks incrementally
             // Convert f32 samples to i16 (PCM)
             let i16_samples: Vec<i16> = frame
                 .samples
                 .iter()
                 .map(|&sample| (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
                 .collect();
-            // Buffer the audio frame
+
+            let event_result = coldvox_stt::EventBasedTranscriber::accept_frame(
+                &mut self.transcriber,
+                &i16_samples,
+            );
+
+            match event_result {
+                Ok(Some(event)) => {
+                    self.send_event(event).await;
+                    // Update metrics
+                    let mut metrics = self.metrics.write();
+                    metrics.frames_out += 1;
+                    metrics.last_event_time = Some(Instant::now());
+                }
+                Ok(None) => {
+                    // No transcription result for this chunk
+                }
+                Err(e) => {
+                    tracing::error!(target: "stt", "Failed to process streaming audio chunk: {}", e);
+                    // Send error event
+                    let error_event = TranscriptionEvent::Error {
+                        code: "STREAMING_PROCESS_ERROR".to_string(),
+                        message: e,
+                    };
+                    self.send_event(error_event).await;
+                    // Update metrics
+                    self.metrics.write().error_count += 1;
+                }
+            }
+
+            // Update frame count for streaming mode
+            if let UtteranceState::SpeechActive {
+                ref mut frames_buffered,
+                ..
+            } = &mut self.state
+            {
+                *frames_buffered += 1;
+
+                // Log periodically
+                if *frames_buffered % 100 == 0 {
+                    tracing::debug!(
+                        target: "stt",
+                        "Streaming audio: {} frames processed",
+                        frames_buffered
+                    );
+                }
+            }
+        } else if let UtteranceState::SpeechActive {
+            ref mut audio_buffer,
+            ref mut frames_buffered,
+            ..
+        } = &mut self.state
+        {
+            // Batch mode: Buffer the audio frame
+            // Convert f32 samples to i16 (PCM)
+            let i16_samples: Vec<i16> = frame
+                .samples
+                .iter()
+                .map(|&sample| (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
+                .collect();
+
             audio_buffer.extend_from_slice(&i16_samples);
             *frames_buffered += 1;
 

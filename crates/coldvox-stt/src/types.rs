@@ -51,6 +51,8 @@ pub struct TranscriptionConfig {
     pub include_words: bool,
     /// Buffer size in milliseconds
     pub buffer_size_ms: u32,
+    /// Enable streaming mode (process audio incrementally vs batch)
+    pub streaming: bool,
 }
 
 impl Default for TranscriptionConfig {
@@ -66,6 +68,7 @@ impl Default for TranscriptionConfig {
             max_alternatives: 1,
             include_words: false,
             buffer_size_ms: 512,
+            streaming: false, // Default to batch mode for backward compatibility
         }
     }
 }
