@@ -351,6 +351,10 @@ pub struct InjectionMetrics {
     pub last_injection: Option<std::time::Instant>,
     /// Age of stuck buffer (if any)
     pub stuck_buffer_age_ms: u64,
+    /// Count of compiled allowlist regex patterns (feature `regex`)
+    pub allowlist_regex_count: u64,
+    /// Count of compiled blocklist regex patterns (feature `regex`)
+    pub blocklist_regex_count: u64,
 }
 
 /// Metrics for a specific injection method
@@ -469,6 +473,16 @@ impl InjectionMetrics {
         } else {
             0.0
         };
+    }
+
+    /// Set the number of compiled allowlist regex patterns
+    pub fn set_allowlist_regex_count(&mut self, count: usize) {
+        self.allowlist_regex_count = count as u64;
+    }
+
+    /// Set the number of compiled blocklist regex patterns
+    pub fn set_blocklist_regex_count(&mut self, count: usize) {
+        self.blocklist_regex_count = count as u64;
     }
 }
 // Note: The TextInjector trait has been moved to lib.rs to avoid conflicts.

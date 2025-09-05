@@ -212,7 +212,7 @@ impl StrategyManager {
 
         // Compile regex patterns once for performance
         #[cfg(feature = "regex")]
-        let allowlist_regexes = config
+        let allowlist_regexes: Vec<regex::Regex> = config
             .allowlist
             .iter()
             .filter_map(|pattern| match regex::Regex::new(pattern) {
@@ -228,7 +228,7 @@ impl StrategyManager {
             .collect();
 
         #[cfg(feature = "regex")]
-        let blocklist_regexes = config
+        let blocklist_regexes: Vec<regex::Regex> = config
             .blocklist
             .iter()
             .filter_map(|pattern| match regex::Regex::new(pattern) {
@@ -242,6 +242,13 @@ impl StrategyManager {
                 }
             })
             .collect();
+
+        // Record regex cache sizes in metrics (when enabled)
+        #[cfg(feature = "regex")]
+        if let Ok(mut m) = metrics.lock() {
+            m.set_allowlist_regex_count(allowlist_regexes.len());
+            m.set_blocklist_regex_count(blocklist_regexes.len());
+        }
 
         Self {
             config: config.clone(),
@@ -329,12 +336,10 @@ impl StrategyManager {
     }
 
     /// Check if the current application is allowed for injection
-    /// When feature regex is enabled, compile patterns once at StrategyManager construction
-    /// and store Regex objects; else fallback to substring match.
-    /// Note: invalid regex should log and skip that pattern.
-    /// TODO: Store compiled regexes in the manager state for performance.
-    /// Performance consideration: Regex compilation is expensive, so cache compiled patterns.
-    /// Invalid patterns should be logged as warnings and skipped, not crash the system.
+    /// When feature `regex` is enabled, patterns are compiled once at
+    /// StrategyManager construction and stored as `Regex` objects; otherwise we
+    /// fallback to substring match semantics. Invalid regex patterns are logged
+    /// and skipped.
     pub(crate) fn is_app_allowed(&self, app_id: &str) -> bool {
         // If allowlist is not empty, only allow apps in the allowlist
         if !self.config.allowlist.is_empty() {
