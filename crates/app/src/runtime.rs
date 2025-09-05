@@ -251,6 +251,7 @@ pub async fn start(
                 max_alternatives: 1,
                 include_words: false,
                 buffer_size_ms: 512,
+                streaming: false,
             };
             let stt_processor =
                 SttProcessor::new(stt_audio_rx, stt_vad_rx, stt_transcription_tx, stt_config)
