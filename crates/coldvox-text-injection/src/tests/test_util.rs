@@ -1,5 +1,6 @@
 #[cfg(test)]
 pub mod util {
+    #![allow(dead_code)]
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;

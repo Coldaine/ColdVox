@@ -357,6 +357,8 @@ async fn run_app(
                                 // Start runtime synchronously and then wire up event forwarders
                                 match app_runtime::start(opts).await {
                                     Ok(app) => {
+                                        #[allow(unused_mut)]
+                                        let mut app = app;
                                         // Forward VAD events to UI
                                         let mut vad_rx = app.subscribe_vad();
                                         tokio::spawn(async move {

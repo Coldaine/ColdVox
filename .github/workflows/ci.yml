@@ -172,13 +172,29 @@ jobs:
       - name: Install headless GUI deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb fluxbox dbus-x11 at-spi2-core wl-clipboard xclip ydotool
+          sudo apt-get install -y \
+            xvfb fluxbox dbus-x11 at-spi2-core \
+            wl-clipboard xclip ydotool \
+            x11-utils wmctrl
       - name: Start Xvfb + window manager + D-Bus
         run: |
+          set -euo pipefail
           Xvfb :99 -screen 0 1024x768x24 &
-          sleep 1
+          # Wait for X server to become ready
+          for i in {1..30}; do
+            if xdpyinfo -display ":99" >/dev/null 2>&1; then
+              echo "Xvfb is ready"; break
+            fi
+            sleep 0.5
+          done
           fluxbox -display :99 &
-          sleep 1
+          # Wait for window manager to become ready
+          for i in {1..30}; do
+            if wmctrl -m >/dev/null 2>&1; then
+              echo "fluxbox is ready"; break
+            fi
+            sleep 0.5
+          done
           # Launch a session bus and export environment
           eval "$(dbus-launch --sh-syntax)"
           echo "DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS" >> $GITHUB_ENV

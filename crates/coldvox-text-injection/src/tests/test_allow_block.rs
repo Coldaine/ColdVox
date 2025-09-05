@@ -8,8 +8,10 @@ use crate::{
 #[tokio::test]
 async fn allow_block_with_regex_feature_or_substring() {
     // Case 1: allowlist present -> only allowed when pattern matches
-    let mut config = InjectionConfig::default();
-    config.allowlist = vec!["^Code$".into(), "^Terminal$".into()];
+    let config = InjectionConfig {
+        allowlist: vec!["^Code$".into(), "^Terminal$".into()],
+        ..Default::default()
+    };
     let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
     let manager = StrategyManager::new(config, metrics).await;
 
@@ -31,8 +33,10 @@ async fn allow_block_with_regex_feature_or_substring() {
 
 #[tokio::test]
 async fn blocklist_only_behavior() {
-    let mut config = InjectionConfig::default();
-    config.blocklist = vec!["^Forbidden$".into(), "Games".into()];
+    let config = InjectionConfig {
+        blocklist: vec!["^Forbidden$".into(), "Games".into()],
+        ..Default::default()
+    };
     let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
     let manager = StrategyManager::new(config, metrics).await;
 

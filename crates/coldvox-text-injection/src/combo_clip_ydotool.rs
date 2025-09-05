@@ -37,16 +37,15 @@ impl ComboClipboardYdotool {
     /// Check if this combo injector is available
     pub async fn is_available(&self) -> bool {
         // Requires clipboard to be available and ydotool present (for fallback)
-        self.clipboard_injector.is_available().await && Self::check_ydotool()
+        self.clipboard_injector.is_available().await && Self::check_ydotool().await
     }
 
-    /// Check if ydotool is available in PATH
-    fn check_ydotool() -> bool {
-        std::process::Command::new("which")
-            .arg("ydotool")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
+    /// Check if ydotool is available in PATH (non-blocking)
+    async fn check_ydotool() -> bool {
+        match Command::new("which").arg("ydotool").output().await {
+            Ok(o) => o.status.success(),
+            Err(_) => false,
+        }
     }
 }
 

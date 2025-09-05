@@ -1035,6 +1035,7 @@ impl StrategyManager {
     }
 
     #[cfg(test)]
+    #[allow(dead_code)]
     pub(crate) fn override_injectors_for_tests(
         &mut self,
         map: std::collections::HashMap<InjectionMethod, Box<dyn TextInjector>>,
