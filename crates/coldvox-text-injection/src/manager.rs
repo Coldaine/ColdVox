@@ -276,8 +276,40 @@ impl StrategyManager {
     pub(crate) async fn get_current_app_id(&self) -> Result<String, InjectionError> {
         #[cfg(feature = "atspi")]
         {
-            // TODO: Implement real AT-SPI app identification once API is stable
-            debug!("AT-SPI app identification placeholder");
+            use atspi::{
+                connection::AccessibilityConnection, proxy::collection::CollectionProxy, MatchType,
+                ObjectMatchRule, SortOrder, State,
+            };
+            if let Ok(conn) = AccessibilityConnection::new().await {
+                let zbus_conn = conn.connection();
+                if let Ok(builder) = CollectionProxy::builder(zbus_conn)
+                    .destination("org.a11y.atspi.Registry")
+                    .and_then(|b| b.path("/org/a11y/atspi/accessible/root"))
+                {
+                    if let Ok(collection) = builder.build().await {
+                        let mut rule = ObjectMatchRule::default();
+                        rule.states = State::Focused.into();
+                        rule.states_mt = MatchType::All;
+                        if let Ok(mut matches) = collection
+                            .get_matches(rule, SortOrder::Canonical, 1, false)
+                            .await
+                        {
+                            if let Some(obj_ref) = matches.pop() {
+                                if !obj_ref.name.is_empty() {
+                                    return Ok(obj_ref.name.to_string());
+                                }
+                                if let Some(last) = obj_ref.path.rsplit('/').next() {
+                                    if !last.is_empty() {
+                                        return Ok(last.to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                debug!("AT-SPI: connection unavailable for app identification");
+            }
         }
 
         // Fallback: Try window manager

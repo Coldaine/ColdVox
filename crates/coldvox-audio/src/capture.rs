@@ -310,6 +310,13 @@ impl AudioCapture {
         thread_local! {
             static CONVERT_BUFFER: std::cell::RefCell<Vec<i16>> = const { std::cell::RefCell::new(Vec::new()) };
         }
+        CONVERT_BUFFER.with(|buf| {
+            let mut v = buf.borrow_mut();
+            let cap = v.capacity();
+            if cap < 131072 {
+                v.reserve_exact(131072 - cap);
+            }
+        });
 
         let stream = match sample_format {
             SampleFormat::I16 => device.build_input_stream(
@@ -320,88 +327,89 @@ impl AudioCapture {
                 err_fn,
                 None,
             )?,
-            SampleFormat::F32 => {
-                device.build_input_stream(
-                    &config,
-                    move |data: &[f32], _: &_| {
-                        CONVERT_BUFFER.with(|buf| {
-                            let mut converted = buf.borrow_mut();
-                            converted.clear();
-                            converted.reserve(data.len());
-                            // Clamp [-1.0, 1.0] and scale to i16
-                            for &s in data {
-                                let clamped = s.clamp(-1.0, 1.0);
-                                let v = (clamped * 32767.0).round() as i16;
-                                converted.push(v);
-                            }
-                            handle_i16(&converted);
-                        });
-                    },
-                    err_fn,
-                    None,
-                )?
-            }
-            SampleFormat::U16 => {
-                device.build_input_stream(
-                    &config,
-                    move |data: &[u16], _: &_| {
-                        CONVERT_BUFFER.with(|buf| {
-                            let mut converted = buf.borrow_mut();
-                            converted.clear();
-                            converted.reserve(data.len());
-                            // Convert unsigned [0,65535] to signed [-32768,32767]
-                            for &s in data {
-                                let v = (s as i32 - 32768) as i16;
-                                converted.push(v);
-                            }
-                            handle_i16(&converted);
-                        });
-                    },
-                    err_fn,
-                    None,
-                )?
-            }
-            SampleFormat::U32 => {
-                device.build_input_stream(
-                    &config,
-                    move |data: &[u32], _: &_| {
-                        CONVERT_BUFFER.with(|buf| {
-                            let mut converted = buf.borrow_mut();
-                            converted.clear();
-                            converted.reserve(data.len());
-                            // Map 0..=u32::MAX to i16 range via center-offset and shift
-                            for &s in data {
-                                let centered = s as i64 - 2_147_483_648i64; // 2^31
-                                let v = (centered >> 16) as i16; // scale down to 16-bit
-                                converted.push(v);
-                            }
-                            handle_i16(&converted);
-                        });
-                    },
-                    err_fn,
-                    None,
-                )?
-            }
-            SampleFormat::F64 => {
-                device.build_input_stream(
-                    &config,
-                    move |data: &[f64], _: &_| {
-                        CONVERT_BUFFER.with(|buf| {
-                            let mut converted = buf.borrow_mut();
-                            converted.clear();
-                            converted.reserve(data.len());
-                            for &s in data {
-                                let clamped = s.clamp(-1.0, 1.0);
-                                let v = (clamped * 32767.0).round() as i16; // Now uses .round() like F32
-                                converted.push(v);
-                            }
-                            handle_i16(&converted);
-                        });
-                    },
-                    err_fn,
-                    None,
-                )?
-            }
+            SampleFormat::F32 => device.build_input_stream(
+                &config,
+                move |data: &[f32], _: &_| {
+                    CONVERT_BUFFER.with(|buf| {
+                        let mut converted = buf.borrow_mut();
+                        let cap = converted.capacity();
+                        if cap < 131072 {
+                            converted.reserve_exact(131072 - cap);
+                        }
+                        converted.clear();
+                        for &s in data {
+                            let clamped = s.clamp(-1.0, 1.0);
+                            let v = (clamped * 32767.0).round() as i16;
+                            converted.push(v);
+                        }
+                        handle_i16(&converted);
+                    });
+                },
+                err_fn,
+                None,
+            )?,
+            SampleFormat::U16 => device.build_input_stream(
+                &config,
+                move |data: &[u16], _: &_| {
+                    CONVERT_BUFFER.with(|buf| {
+                        let mut converted = buf.borrow_mut();
+                        let cap = converted.capacity();
+                        if cap < 131072 {
+                            converted.reserve_exact(131072 - cap);
+                        }
+                        converted.clear();
+                        for &s in data {
+                            let v = (s as i32 - 32768) as i16;
+                            converted.push(v);
+                        }
+                        handle_i16(&converted);
+                    });
+                },
+                err_fn,
+                None,
+            )?,
+            SampleFormat::U32 => device.build_input_stream(
+                &config,
+                move |data: &[u32], _: &_| {
+                    CONVERT_BUFFER.with(|buf| {
+                        let mut converted = buf.borrow_mut();
+                        let cap = converted.capacity();
+                        if cap < 131072 {
+                            converted.reserve_exact(131072 - cap);
+                        }
+                        converted.clear();
+                        for &s in data {
+                            let centered = s as i64 - 2_147_483_648i64;
+                            let v = (centered >> 16) as i16;
+                            converted.push(v);
+                        }
+                        handle_i16(&converted);
+                    });
+                },
+                err_fn,
+                None,
+            )?,
+            SampleFormat::F64 => device.build_input_stream(
+                &config,
+                move |data: &[f64], _: &_| {
+                    CONVERT_BUFFER.with(|buf| {
+                        let mut converted = buf.borrow_mut();
+                        let cap = converted.capacity();
+                        if cap < 131072 {
+                            converted.reserve_exact(131072 - cap);
+                        }
+                        converted.clear();
+                        for &s in data {
+                            let clamped = s.clamp(-1.0, 1.0);
+                            let v = (clamped * 32767.0).round() as i16;
+                            converted.push(v);
+                        }
+                        handle_i16(&converted);
+                    });
+                },
+                err_fn,
+                None,
+            )?,
             other => {
                 return Err(AudioError::FormatNotSupported {
                     format: format!("{:?}", other),
