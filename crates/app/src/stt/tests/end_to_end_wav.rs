@@ -677,6 +677,7 @@ mod tests {
             max_alternatives: 1,
             include_words: false,
             buffer_size_ms: 512,
+            streaming: false,
         };
 
         // Check if STT model exists

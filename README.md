@@ -27,6 +27,7 @@ ColdVox is organized as a Cargo workspace with the following crates:
 - **`crates/coldvox-stt-vosk/`** - Vosk STT implementation
 - **`crates/coldvox-text-injection/`** - Text injection for automation
   - Testing: see `docs/testing.md` for feature modes and mocking notes
+  - Platform testing: see `docs/text_injection_platform_matrix.md` for environment matrix and setup tips
 
 ## Quick Start
 
