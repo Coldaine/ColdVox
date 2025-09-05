@@ -1086,10 +1086,18 @@ mod tests {
 
         let order = manager.get_method_order_uncached();
 
-        // Verify core methods are present
-        assert!(order.contains(&InjectionMethod::AtspiInsert));
-        assert!(order.contains(&InjectionMethod::ClipboardAndPaste));
-        assert!(order.contains(&InjectionMethod::Clipboard));
+        // Always ensure we have at least one method (NoOp fallback)
+        assert!(!order.is_empty());
+        assert!(order.contains(&InjectionMethod::NoOp));
+
+        // Verify core methods only if a desktop backend is detected in this environment
+        let available = manager.backend_detector.detect_available_backends();
+        let has_desktop = !available.is_empty();
+        if has_desktop {
+            assert!(order.contains(&InjectionMethod::AtspiInsert));
+            assert!(order.contains(&InjectionMethod::ClipboardAndPaste));
+            assert!(order.contains(&InjectionMethod::Clipboard));
+        }
 
         // Verify optional methods are included if enabled
         let config = InjectionConfig {
@@ -1104,10 +1112,16 @@ mod tests {
         let manager = StrategyManager::new(config, metrics).await;
         let order = manager.get_method_order_uncached();
 
-        // All methods should be present
-        assert!(order.contains(&InjectionMethod::AtspiInsert));
-        assert!(order.contains(&InjectionMethod::ClipboardAndPaste));
-        assert!(order.contains(&InjectionMethod::Clipboard));
+        // NoOp always present
+        assert!(order.contains(&InjectionMethod::NoOp));
+
+        // Core methods only asserted when any desktop backend is detected
+        let available = manager.backend_detector.detect_available_backends();
+        if !available.is_empty() {
+            assert!(order.contains(&InjectionMethod::AtspiInsert));
+            assert!(order.contains(&InjectionMethod::ClipboardAndPaste));
+            assert!(order.contains(&InjectionMethod::Clipboard));
+        }
         assert!(order.contains(&InjectionMethod::YdoToolPaste));
         assert!(order.contains(&InjectionMethod::KdoToolAssist));
         assert!(order.contains(&InjectionMethod::EnigoText));
