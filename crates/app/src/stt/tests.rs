@@ -9,7 +9,10 @@ mod vosk_tests {
     fn test_transcription_config_default() {
         let config = TranscriptionConfig::default();
         assert!(!config.enabled);
-        assert_eq!(config.model_path, "models/vosk-model-small-en-us-0.15");
+        // Model path should match default or env var if set
+        let expected_path = std::env::var("VOSK_MODEL_PATH")
+            .unwrap_or_else(|_| "models/vosk-model-small-en-us-0.15".to_string());
+        assert_eq!(config.model_path, expected_path);
         assert!(config.partial_results);
         assert_eq!(config.max_alternatives, 1);
         assert!(!config.include_words);

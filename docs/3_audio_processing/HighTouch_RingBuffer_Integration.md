@@ -52,22 +52,24 @@ Those gaps matter as we integrate VAD (fixed 512‑sample windows), target stabl
   - Counters: samples_written, samples_dropped, frames_emitted, underflow_events, continuity_gaps
   - Gauges: buffer_utilization (approx used/total), last_frame_age_ms, drop_rate
 
-## APIs and contracts
+## APIs and contracts (current implementation)
 
-- New internal types in `audio`:
-  - `AudioRingBuffer` (already present for samples) with producer/consumer halves
-  - `FrameReader` wrapping the consumer:
-    - `next_frame(frame_len: usize, mode: UnderflowMode) -> AudioFrame`
-    - Emits `AudioFrame { seq_no, samples, timestamp, sample_rate, channels }`
+Note: the implementation lives in the `coldvox-audio` crate. App-level code in `crates/app` re-uses and re-exports these types where convenient.
 
-- Config additions (`AudioConfig`):
-  - `buffer_capacity_seconds: f32` (default: 2.0)
-  - `buffer_overflow_policy: OverflowPolicy` = { DropNewest (default), Panic (debug) }
-  - `consumer_underflow_mode: UnderflowMode` = { PadWithSilence (default), NonBlockingPartial, BlockUntilFull }
+- Implemented types and APIs (today):
+  - `crates/coldvox-audio/src/ring_buffer.rs` — `AudioRingBuffer`, `AudioProducer`, `AudioConsumer` (rtrb SPSC). Producer uses `write_chunk`; consumer uses `read_chunk`. Unit tests present.
+  - `crates/coldvox-audio/src/frame_reader.rs` — `FrameReader::new(consumer, sample_rate, channels, capacity, metrics)` and `FrameReader::read_frame(max_samples) -> Option<AudioFrame>`. Timestamps are reconstructed from a sample-count clock (monotonic). `FrameReader` reports buffer fill to `PipelineMetrics` when provided.
+  - `crates/coldvox-audio/src/capture.rs` — `AudioCaptureThread::spawn(...)` and the CPAL callback that converts to `i16` and writes into the shared `AudioProducer` with no per-callback heap allocations (thread-local conversion buffers + rtrb chunk writes).
 
-- Behavior:
-  - Producer never blocks; all policies must be O(1) in the callback
-  - Reader controls underflow surfaces to consumers, keeping call sites simple
+- Planned but not yet implemented in code (Phase 2 items):
+  - `OverflowPolicy` / `UnderflowMode` enums and corresponding `AudioConfig` fields (`buffer_capacity_seconds`, `buffer_overflow_policy`, `consumer_underflow_mode`). The current `AudioConfig` in `crates/coldvox-foundation/src/error.rs` only exposes `silence_threshold`.
+  - `FrameReader::next_frame(frame_len, UnderflowMode)` API. Current API is `read_frame(max_samples)` which returns currently-available samples (partial reads) or None when empty.
+  - `seq_no` and explicit continuity-gap detection/counters in `FrameReader` (timestamps are monotonic via sample clock, but per-frame seq_no/gap metrics are not present).
+  - Dedicated telemetry counters listed in the plan (`samples_written`, `samples_dropped`, `underflow_events`, `continuity_gaps`, explicit last_frame_age_ms and drop_rate). Some stats exist (e.g. `CaptureStats.frames_captured` and `frames_dropped`) and `FrameReader` updates buffer fill via `PipelineMetrics`, but the plan's full metric set is not yet wired.
+
+Behavior notes (current):
+- Producer code path in the CPAL callback is non‑blocking and avoids heap allocations; producer returns an error on overflow (`WriteError::BufferFull`) which the capture code maps to `frames_dropped` in `CaptureStats`.
+- Reader reconstructs timestamps from a running sample count and a `start_time`, producing monotonic timestamps independent of callback burstiness.
 
 ## Timestamping and continuity
 
