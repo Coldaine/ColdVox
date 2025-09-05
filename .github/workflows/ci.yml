@@ -110,11 +110,7 @@ jobs:
         env:
           RUSTDOCFLAGS: "-D warnings"
 
-      - name: Run unit and integration tests (skip E2E)
-        run: |
-          cargo test --workspace -- --skip test_end_to_end_wav_pipeline
-
-      # Prepare and run End-to-End WAV pipeline test on same runner
+      # Download Vosk model before running tests
 
       - name: Cache Vosk model
         id: cache-vosk-model
@@ -129,11 +125,38 @@ jobs:
       - name: Download Vosk model
         if: steps.cache-vosk-model.outputs.cache-hit != 'true'
         run: |
+          set -euo pipefail
           mkdir -p models
           cd models
-          wget https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip || true
-          unzip -q vosk-model-small-en-us-0.15.zip || true
-          rm -f vosk-model-small-en-us-0.15.zip
+          MODEL=vosk-model-small-en-us-0.15
+          ZIP="$MODEL.zip"
+          echo "Downloading $ZIP ..."
+          for i in 1 2 3; do
+            if wget -O "$ZIP" "https://alphacephei.com/vosk/models/$ZIP"; then
+              break
+            fi
+            echo "Download failed, retrying in 3s..." >&2
+            sleep 3
+          done
+          echo "Unzipping $ZIP ..."
+          unzip -q -o "$ZIP"
+          rm -f "$ZIP"
+          # Some archives may unpack into the desired directory name already
+          if [ ! -d "$MODEL" ]; then
+            # If the archive structure differs, try to detect and move it
+            FOUND_DIR=$(find . -maxdepth 1 -type d -name "vosk-model-*" | head -n1 || true)
+            if [ -n "${FOUND_DIR:-}" ] && [ "$FOUND_DIR" != "./$MODEL" ]; then
+              mv "$FOUND_DIR" "$MODEL"
+            fi
+          fi
+          test -d "$MODEL"
+          echo "VOSK_MODEL_PATH=$(pwd)/$MODEL" >> $GITHUB_ENV
+
+      - name: Run unit and integration tests (skip E2E)
+        env:
+          VOSK_MODEL_PATH: models/vosk-model-small-en-us-0.15
+        run: |
+          cargo test --workspace -- --skip test_end_to_end_wav_pipeline
 
       - name: Build pipeline (default features)
         run: |

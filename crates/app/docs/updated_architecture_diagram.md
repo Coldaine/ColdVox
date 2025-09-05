@@ -1,7 +1,7 @@
 /# ColdVox Architecture Diagram - Updated 2025-09-03
 
 ```mermaid
-graph TD
+flowchart TD
     %% External inputs
     MIC[Audio Input Device] --> AC[AudioCapture]
     HK[Global Hotkeys] --> |VadEvent| EVENTS[VAD Event Channel]
@@ -17,8 +17,8 @@ graph TD
     %% VAD processing branch
     BROADCAST --> |Subscribe| VAD[VadProcessor]
     VAD --> |VadAdapter| VADENG{VAD Engine}
-    VADENG --> |SileroEngine Default| SILERO[SileroEngine<br/>ML-based VAD]
-    VADENG --> |Level3Vad Disabled| ENERGY[Level3Vad<br/>Energy-based VAD]
+    VADENG --> |SileroEngine (default)| SILERO[SileroEngine<br/>ML-based VAD]
+    VADENG --> |Level3 (disabled)| ENERGY[Level3Vad<br/>Energy-based VAD]
 
     %% VAD state management
     VAD --> |VAD Events| VADFSM[VadStateMachine<br/>Debouncing]
@@ -27,8 +27,23 @@ graph TD
     %% STT processing branch
     BROADCAST --> |Subscribe| STT[SttProcessor]
     EVENTS --> STT
-    STT --> |Gated by VAD| VOSK[VoskTranscriber]
+    STT --> |Gated by VAD / Activation Mode| VOSK[VoskTranscriber]
     VOSK --> |Transcription| LOGS[Structured Logs]
+
+    %% Text injection pipeline
+    LOGS --> |TranscriptionEvent| TEXTINJ[TextInjectionProcessor]
+    TEXTINJ --> |Strategy Selection| STRATEGY[StrategyManager]
+    STRATEGY --> |Platform Detection| BACKENDS{Text Injection Backends}
+    BACKENDS --> |AT-SPI| ATSPI[AT-SPI Injector<br/>Linux Accessibility]
+    BACKENDS --> |Clipboard| CLIP[Clipboard Injector<br/>Cross-platform]
+    BACKENDS --> |ydotool| YDOT[ydotool Injector<br/>Wayland]
+    BACKENDS --> |kdotool| KDOT[kdotool Injector<br/>X11]
+    BACKENDS --> |Enigo| ENIGO[Enigo Injector<br/>Cross-platform]
+    ATSPI --> APPS[Active Applications]
+    CLIP --> APPS
+    YDOT --> APPS
+    KDOT --> APPS
+    ENIGO --> APPS
 
     %% User Interface Components
     EVENTS --> |Subscribe| TUI[TUI Dashboard<br/>Real-time Display]
@@ -46,12 +61,14 @@ graph TD
     AC -.-> METRICS
     VAD -.-> METRICS
     STT -.-> METRICS
+    TEXTINJ -.-> METRICS
     HK -.-> METRICS
 
     %% Shutdown flow
     SH --> |Graceful Stop| AC
     SH --> |Abort Tasks| VAD
     SH --> |Abort Tasks| STT
+    SH --> |Abort Tasks| TEXTINJ
     SH --> |Abort Tasks| CHUNKER
     SH --> |Abort Tasks| HK
 
@@ -59,6 +76,7 @@ graph TD
     classDef processing fill:#4a90e2,stroke:#333,stroke-width:2px,color:#fff
     classDef vad fill:#7ed321,stroke:#333,stroke-width:2px,color:#000
     classDef stt fill:#f5a623,stroke:#333,stroke-width:2px,color:#000
+    classDef textinj fill:#e91e63,stroke:#333,stroke-width:2px,color:#fff
     classDef ui fill:#9013fe,stroke:#333,stroke-width:2px,color:#fff
     classDef foundation fill:#d0021b,stroke:#333,stroke-width:2px,color:#fff
     classDef disabled fill:#9b9b9b,stroke:#333,stroke-width:2px,color:#fff,stroke-dasharray: 5 5
@@ -66,6 +84,7 @@ graph TD
     class AC,ARB,FR,CHUNKER,BROADCAST processing
     class VAD,VADENG,SILERO,VADFSM,EVENTS,HK vad
     class STT,VOSK stt
+    class TEXTINJ,STRATEGY,BACKENDS,ATSPI,CLIP,YDOT,KDOT,ENIGO,APPS textinj
     class TUI ui
     class SM,HM,SH,METRICS foundation
     class ENERGY disabled
