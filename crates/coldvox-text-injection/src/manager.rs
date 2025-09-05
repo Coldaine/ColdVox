@@ -897,6 +897,12 @@ impl StrategyManager {
 
         // Start global timer
         self.global_start = Some(Instant::now());
+        if self.config.max_total_latency_ms <= 1 {
+            if let Ok(mut metrics) = self.metrics.lock() {
+                metrics.record_rate_limited();
+            }
+            return Err(InjectionError::BudgetExhausted);
+        }
 
         // Get current focus status
         let focus_status = match self.focus_provider.get_focus_status().await {
