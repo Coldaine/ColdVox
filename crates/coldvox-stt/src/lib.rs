@@ -50,3 +50,22 @@ pub trait EventBasedTranscriber {
     /// Get current configuration
     fn config(&self) -> &TranscriptionConfig;
 }
+
+/// Async wrapper trait for non-blocking transcription operations
+///
+/// This trait provides async versions of transcriber operations that won't block
+/// the tokio runtime, improving UI responsiveness and enabling concurrent processing.
+#[async_trait::async_trait]
+pub trait AsyncEventBasedTranscriber {
+    /// Accept PCM16 audio and return transcription events (async)
+    async fn accept_frame_async(&mut self, pcm: Vec<i16>) -> Result<Option<TranscriptionEvent>, String>;
+
+    /// Finalize current utterance and return final result (async)
+    async fn finalize_utterance_async(&mut self) -> Result<Option<TranscriptionEvent>, String>;
+
+    /// Reset transcriber state for new utterance (async)
+    async fn reset_async(&mut self) -> Result<(), String>;
+
+    /// Get current configuration (synchronous - no blocking I/O)
+    fn config(&self) -> &TranscriptionConfig;
+}

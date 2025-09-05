@@ -1,7 +1,9 @@
 use coldvox_stt::{
-    next_utterance_id, EventBasedTranscriber, Transcriber, TranscriptionConfig, TranscriptionEvent,
+    next_utterance_id, AsyncEventBasedTranscriber, EventBasedTranscriber, Transcriber, TranscriptionConfig, TranscriptionEvent,
     WordInfo,
 };
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use tracing::warn;
 use vosk::{CompleteResult, DecodingState, Model, PartialResult, Recognizer};
 
@@ -299,5 +301,98 @@ impl Transcriber for VoskTranscriber {
             Some(TranscriptionEvent::Error { message, .. }) => Err(message),
             None => Ok(None),
         }
+    }
+}
+
+/// Async wrapper for VoskTranscriber that provides non-blocking operations
+///
+/// This wrapper moves blocking Vosk operations to separate threads to prevent
+/// blocking the tokio runtime, improving UI responsiveness and enabling
+/// concurrent transcription processing.
+pub struct AsyncVoskTranscriber {
+    inner: Arc<Mutex<VoskTranscriber>>,
+    config: TranscriptionConfig,
+}
+
+impl AsyncVoskTranscriber {
+    /// Create a new AsyncVoskTranscriber with the given configuration
+    pub fn new(config: TranscriptionConfig, sample_rate: f32) -> Result<Self, String> {
+        let transcriber = VoskTranscriber::new(config.clone(), sample_rate)?;
+        Ok(Self {
+            inner: Arc::new(Mutex::new(transcriber)),
+            config,
+        })
+    }
+
+    /// Create with default model path (backward compatibility)
+    pub fn new_with_default(model_path: &str, sample_rate: f32) -> Result<Self, String> {
+        let transcriber = VoskTranscriber::new_with_default(model_path, sample_rate)?;
+        let config = transcriber.config().clone();
+        Ok(Self {
+            inner: Arc::new(Mutex::new(transcriber)),
+            config,
+        })
+    }
+
+    /// Update configuration (requires recreating recognizer)
+    pub async fn update_config(
+        &mut self,
+        config: TranscriptionConfig,
+        sample_rate: f32,
+    ) -> Result<(), String> {
+        let inner = Arc::clone(&self.inner);
+        let config_clone = config.clone();
+        tokio::task::spawn_blocking(move || {
+            // Use a new runtime handle to avoid blocking issues
+            let mut transcriber = futures::executor::block_on(inner.lock());
+            transcriber.update_config(config_clone, sample_rate)
+        })
+        .await
+        .map_err(|e| format!("Task join error: {}", e))??;
+        
+        self.config = config;
+        Ok(())
+    }
+}
+
+#[async_trait::async_trait]
+impl AsyncEventBasedTranscriber for AsyncVoskTranscriber {
+    /// Accept PCM16 audio and return transcription events (async)
+    async fn accept_frame_async(&mut self, pcm: Vec<i16>) -> Result<Option<TranscriptionEvent>, String> {
+        let inner = Arc::clone(&self.inner);
+        tokio::task::spawn_blocking(move || {
+            // Use futures::executor to avoid nested tokio runtime issues
+            let mut transcriber = futures::executor::block_on(inner.lock());
+            transcriber.accept_frame(&pcm)
+        })
+        .await
+        .map_err(|e| format!("Task join error: {}", e))?
+    }
+
+    /// Finalize current utterance and return final result (async)
+    async fn finalize_utterance_async(&mut self) -> Result<Option<TranscriptionEvent>, String> {
+        let inner = Arc::clone(&self.inner);
+        tokio::task::spawn_blocking(move || {
+            let mut transcriber = futures::executor::block_on(inner.lock());
+            transcriber.finalize_utterance()
+        })
+        .await
+        .map_err(|e| format!("Task join error: {}", e))?
+    }
+
+    /// Reset transcriber state for new utterance (async)
+    async fn reset_async(&mut self) -> Result<(), String> {
+        let inner = Arc::clone(&self.inner);
+        tokio::task::spawn_blocking(move || {
+            let mut transcriber = futures::executor::block_on(inner.lock());
+            transcriber.reset()
+        })
+        .await
+        .map_err(|e| format!("Task join error: {}", e))?
+    }
+
+    /// Get current configuration (synchronous - no blocking I/O)
+    fn config(&self) -> &TranscriptionConfig {
+        &self.config
     }
 }

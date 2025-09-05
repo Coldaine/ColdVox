@@ -12,7 +12,9 @@ use std::time::Instant;
 use tokio::sync::{broadcast, mpsc};
 
 #[cfg(feature = "vosk")]
-use crate::stt::VoskTranscriber;
+use crate::stt::{VoskTranscriber, AsyncVoskTranscriber};
+#[cfg(feature = "vosk")]
+use coldvox_stt::AsyncEventBasedTranscriber;
 
 /// STT processor state
 #[derive(Debug, Clone)]
@@ -61,6 +63,24 @@ pub struct SttProcessor {
     event_tx: mpsc::Sender<TranscriptionEvent>,
     /// Vosk transcriber instance
     transcriber: VoskTranscriber,
+    /// Current utterance state
+    state: UtteranceState,
+    /// Metrics
+    metrics: Arc<parking_lot::RwLock<SttMetrics>>,
+    /// Configuration
+    config: TranscriptionConfig,
+}
+
+#[cfg(feature = "vosk")]
+pub struct AsyncSttProcessor {
+    /// Audio frame receiver (broadcast from pipeline)
+    audio_rx: broadcast::Receiver<AudioFrame>,
+    /// VAD event receiver
+    vad_event_rx: mpsc::Receiver<VadEvent>,
+    /// Transcription event sender
+    event_tx: mpsc::Sender<TranscriptionEvent>,
+    /// Async Vosk transcriber instance
+    transcriber: AsyncVoskTranscriber,
     /// Current utterance state
     state: UtteranceState,
     /// Metrics
@@ -359,6 +379,254 @@ impl SttProcessor {
             Err(_) => {
                 // Timeout - consumer is too slow
                 tracing::warn!(target: "stt", "Event channel send timed out after 5s - consumer too slow");
+                self.metrics.write().frames_dropped += 1;
+            }
+        }
+    }
+}
+
+#[cfg(feature = "vosk")]
+impl AsyncSttProcessor {
+    /// Create a new async STT processor
+    pub fn new(
+        audio_rx: broadcast::Receiver<AudioFrame>,
+        vad_event_rx: mpsc::Receiver<VadEvent>,
+        event_tx: mpsc::Sender<TranscriptionEvent>,
+        config: TranscriptionConfig,
+    ) -> Result<Self, String> {
+        // Check if STT is enabled
+        if !config.enabled {
+            tracing::info!("Async STT processor disabled in configuration");
+        }
+
+        // Create async Vosk transcriber with configuration
+        let transcriber = AsyncVoskTranscriber::new(config.clone(), 16000.0)?;
+
+        Ok(Self {
+            audio_rx,
+            vad_event_rx,
+            event_tx,
+            transcriber,
+            state: UtteranceState::Idle,
+            metrics: Arc::new(parking_lot::RwLock::new(SttMetrics::default())),
+            config,
+        })
+    }
+
+    /// Get current metrics
+    pub fn metrics(&self) -> SttMetrics {
+        self.metrics.read().clone()
+    }
+
+    /// Run the async STT processor loop
+    pub async fn run(mut self) {
+        // Exit early if STT is disabled
+        if !self.config.enabled {
+            tracing::info!(
+                target: "stt",
+                "Async STT processor disabled - exiting immediately"
+            );
+            return;
+        }
+
+        tracing::info!(
+            target: "stt",
+            "Async STT processor starting (model: {}, partials: {}, words: {})",
+            self.config.model_path,
+            self.config.partial_results,
+            self.config.include_words
+        );
+
+        loop {
+            tokio::select! {
+                // Listen for VAD events
+                Some(event) = self.vad_event_rx.recv() => {
+                    match event {
+                        VadEvent::SpeechStart { timestamp_ms, .. } => {
+                            self.handle_speech_start(timestamp_ms).await;
+                        }
+                        VadEvent::SpeechEnd { timestamp_ms, duration_ms, .. } => {
+                            self.handle_speech_end(timestamp_ms, Some(duration_ms)).await;
+                        }
+                    }
+                }
+
+                // Listen for audio frames
+                Ok(frame) = self.audio_rx.recv() => {
+                    self.handle_audio_frame(frame).await;
+                }
+
+                else => {
+                    tracing::info!(target: "stt", "Async STT processor shutting down: all channels closed");
+                    break;
+                }
+            }
+        }
+
+        // Log final metrics
+        let metrics = self.metrics.read();
+        tracing::info!(
+            target: "stt",
+            "Async STT processor final stats - frames in: {}, out: {}, dropped: {}, partials: {}, finals: {}, errors: {}",
+            metrics.frames_in,
+            metrics.frames_out,
+            metrics.frames_dropped,
+            metrics.partial_count,
+            metrics.final_count,
+            metrics.error_count
+        );
+    }
+
+    /// Handle speech start event
+    async fn handle_speech_start(&mut self, timestamp_ms: u64) {
+        tracing::debug!(target: "stt", "Async STT processor received SpeechStart at {}ms", timestamp_ms);
+
+        let start_instant = Instant::now();
+        self.state = UtteranceState::SpeechActive {
+            started_at: start_instant,
+            audio_buffer: Vec::with_capacity(16000 * 10),
+            frames_buffered: 0,
+        };
+
+        // Reset transcriber for new utterance (now async)
+        if let Err(e) = self.transcriber.reset_async().await {
+            tracing::warn!(target: "stt", "Failed to reset async transcriber: {}", e);
+        }
+
+        tracing::info!(target: "stt", "Started buffering audio for new utterance (async)");
+    }
+
+    /// Handle speech end event (async)
+    async fn handle_speech_end(&mut self, timestamp_ms: u64, duration_ms: Option<u64>) {
+        tracing::debug!(
+            target: "stt",
+            "Async STT processor received SpeechEnd at {}ms (duration: {:?}ms)",
+            timestamp_ms,
+            duration_ms
+        );
+
+        // Process the buffered audio all at once
+        if let UtteranceState::SpeechActive {
+            audio_buffer,
+            frames_buffered,
+            ..
+        } = &self.state
+        {
+            let buffer_size = audio_buffer.len();
+            tracing::info!(
+                target: "stt",
+                "Processing buffered audio (async): {} samples ({:.2}s), {} frames",
+                buffer_size,
+                buffer_size as f32 / 16000.0,
+                frames_buffered
+            );
+
+            if !audio_buffer.is_empty() {
+                // Send the entire buffer to the async transcriber
+                let audio_data = audio_buffer.clone(); // Clone to move into async call
+                match self.transcriber.accept_frame_async(audio_data).await {
+                    Ok(Some(event)) => {
+                        self.send_event(event).await;
+                        let mut metrics = self.metrics.write();
+                        metrics.frames_out += frames_buffered;
+                        metrics.last_event_time = Some(Instant::now());
+                    }
+                    Ok(None) => {
+                        tracing::debug!(target: "stt", "No transcription from buffered audio (async)");
+                    }
+                    Err(e) => {
+                        tracing::error!(target: "stt", "Failed to process buffered audio (async): {}", e);
+                        let error_event = TranscriptionEvent::Error {
+                            code: "ASYNC_BUFFER_PROCESS_ERROR".to_string(),
+                            message: e,
+                        };
+                        self.send_event(error_event).await;
+                        self.metrics.write().error_count += 1;
+                    }
+                }
+            }
+
+            // Finalize to get any remaining transcription (async)
+            match self.transcriber.finalize_utterance_async().await {
+                Ok(Some(event)) => {
+                    self.send_event(event).await;
+                    let mut metrics = self.metrics.write();
+                    metrics.final_count += 1;
+                    metrics.last_event_time = Some(Instant::now());
+                }
+                Ok(None) => {
+                    tracing::debug!(target: "stt", "No final transcription available (async)");
+                }
+                Err(e) => {
+                    tracing::error!(target: "stt", "Failed to finalize transcription (async): {}", e);
+                    let error_event = TranscriptionEvent::Error {
+                        code: "ASYNC_FINALIZE_ERROR".to_string(),
+                        message: e,
+                    };
+                    self.send_event(error_event).await;
+                    self.metrics.write().error_count += 1;
+                }
+            }
+        }
+
+        self.state = UtteranceState::Idle;
+    }
+
+    /// Handle incoming audio frame (async)
+    async fn handle_audio_frame(&mut self, frame: AudioFrame) {
+        self.metrics.write().frames_in += 1;
+
+        if let UtteranceState::SpeechActive {
+            ref mut audio_buffer,
+            ref mut frames_buffered,
+            ..
+        } = &mut self.state
+        {
+            // Convert f32 samples to i16 (PCM)
+            let i16_samples: Vec<i16> = frame
+                .samples
+                .iter()
+                .map(|&sample| (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
+                .collect();
+            audio_buffer.extend_from_slice(&i16_samples);
+            *frames_buffered += 1;
+
+            if *frames_buffered % 100 == 0 {
+                tracing::debug!(
+                    target: "stt",
+                    "Buffering audio (async): {} frames, {} samples ({:.2}s)",
+                    frames_buffered,
+                    audio_buffer.len(),
+                    audio_buffer.len() as f32 / 16000.0
+                );
+            }
+        }
+    }
+
+    /// Send transcription event (async)
+    async fn send_event(&self, event: TranscriptionEvent) {
+        match &event {
+            TranscriptionEvent::Partial { text, .. } => {
+                tracing::info!(target: "stt", "Partial (async): {}", text);
+            }
+            TranscriptionEvent::Final { text, words, .. } => {
+                let word_count = words.as_ref().map(|w| w.len()).unwrap_or(0);
+                tracing::info!(target: "stt", "Final (async): {} (words: {})", text, word_count);
+            }
+            TranscriptionEvent::Error { code, message } => {
+                tracing::error!(target: "stt", "Error (async) [{}]: {}", code, message);
+            }
+        }
+
+        match tokio::time::timeout(std::time::Duration::from_secs(5), self.event_tx.send(event))
+            .await
+        {
+            Ok(Ok(())) => {},
+            Ok(Err(_)) => {
+                tracing::debug!(target: "stt", "Event channel closed (async)");
+            }
+            Err(_) => {
+                tracing::warn!(target: "stt", "Event channel send timed out after 5s - consumer too slow (async)");
                 self.metrics.write().frames_dropped += 1;
             }
         }
