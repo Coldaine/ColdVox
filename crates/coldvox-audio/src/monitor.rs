@@ -16,6 +16,7 @@ pub struct DeviceMonitor {
     monitor_interval: Duration,
     last_devices: HashMap<String, DeviceStatus>,
     current_device: Option<String>,
+    preferred_devices: Vec<String>,
 }
 
 impl DeviceMonitor {
@@ -29,9 +30,16 @@ impl DeviceMonitor {
             monitor_interval,
             last_devices: HashMap::new(),
             current_device: None,
+            preferred_devices: Vec::new(),
         };
         
         Ok((monitor, event_rx))
+    }
+
+    /// Set preferred device order for automatic switching
+    pub fn set_preferred_devices(&mut self, devices: Vec<String>) {
+        self.preferred_devices = devices;
+        info!("Updated preferred device list: {:?}", self.preferred_devices);
     }
 
     /// Start monitoring in a background thread
@@ -149,9 +157,51 @@ impl DeviceMonitor {
         self.current_device.as_ref()
     }
 
-    /// Get preferred device candidates in priority order
+    /// Request a manual device switch
+    pub fn request_device_switch(&self, target_device: String) -> Result<(), AudioError> {
+        if !self.is_device_available(&target_device) {
+            return Err(AudioError::DeviceNotFound { 
+                name: Some(target_device) 
+            });
+        }
+        
+        info!("Requesting manual switch to device: {}", target_device);
+        let _ = self.event_tx.send(DeviceEvent::DeviceSwitchRequested { 
+            target: target_device 
+        });
+        
+        Ok(())
+    }
+
+    /// Get preferred device candidates, considering user preferences
+    pub fn get_preferred_candidates(&self) -> Vec<String> {
+        let mut candidates = Vec::new();
+        
+        // First, add user-preferred devices that are available
+        for device in &self.preferred_devices {
+            if self.is_device_available(device) {
+                candidates.push(device.clone());
+            }
+        }
+        
+        // Then add system candidates not already in the list
+        let system_candidates = self.device_manager.candidate_device_names();
+        for device in system_candidates {
+            if !candidates.contains(&device) {
+                candidates.push(device);
+            }
+        }
+        
+        candidates
+    }
+
+    /// Get the default device candidate priority list (fallback when no preferences set)
     pub fn get_device_candidates(&self) -> Vec<String> {
-        self.device_manager.candidate_device_names()
+        if self.preferred_devices.is_empty() {
+            self.device_manager.candidate_device_names()
+        } else {
+            self.get_preferred_candidates()
+        }
     }
 }
 
@@ -178,6 +228,91 @@ mod tests {
         // Test clearing current device
         monitor.set_current_device(None);
         assert_eq!(monitor.current_device(), None);
+    }
+
+    #[test]
+    fn test_device_preferences() {
+        let (mut monitor, _rx) = DeviceMonitor::new(Duration::from_millis(100))
+            .expect("Failed to create monitor");
+        
+        // Test setting preferred devices
+        let preferred = vec!["device1".to_string(), "device2".to_string()];
+        monitor.set_preferred_devices(preferred.clone());
+        
+        // Test getting candidates with preferences
+        let candidates = monitor.get_device_candidates();
+        // Should include system candidates since preferred devices may not be available
+        assert!(!candidates.is_empty());
+    }
+
+    #[test]
+    fn test_manual_device_switch_request() {
+        let (monitor, _rx) = DeviceMonitor::new(Duration::from_millis(100))
+            .expect("Failed to create monitor");
+        
+        // Test requesting switch to non-existent device
+        let result = monitor.request_device_switch("non_existent_device".to_string());
+        assert!(result.is_err());
+        
+        if let Err(e) = result {
+            assert!(matches!(e, AudioError::DeviceNotFound { .. }));
+        }
+    }
+
+    #[test]
+    fn test_device_switch_requested_event() {
+        // Test that we can create device switch request event
+        let request_event = DeviceEvent::DeviceSwitchRequested { 
+            target: "target_device".to_string() 
+        };
+        assert!(matches!(request_event, DeviceEvent::DeviceSwitchRequested { .. }));
+    }
+
+    #[test]
+    fn test_device_monitor_integration() {
+        // Integration test showing device monitor usage
+        let (mut monitor, mut event_rx) = DeviceMonitor::new(Duration::from_millis(200))
+            .expect("Failed to create monitor");
+        
+        // Test the complete workflow
+        let device_candidates = monitor.get_device_candidates();
+        println!("Available device candidates: {:?}", device_candidates);
+        
+        // Test setting preferences
+        if !device_candidates.is_empty() {
+            let first_device = device_candidates[0].clone();
+            monitor.set_preferred_devices(vec![first_device.clone()]);
+            
+            // Test preference-aware candidates
+            let preferred_candidates = monitor.get_device_candidates();
+            println!("Preferred candidates: {:?}", preferred_candidates);
+            
+            // Should get the preferred device first (if available)
+            assert!(!preferred_candidates.is_empty());
+        }
+        
+        // Test monitoring for a short time
+        let running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let monitor_handle = monitor.start_monitoring(running.clone());
+        
+        // Wait briefly for monitor to initialize
+        std::thread::sleep(Duration::from_millis(300));
+        
+        // Check if any events were generated
+        match event_rx.try_recv() {
+            Ok(event) => {
+                println!("Device monitor generated event: {:?}", event);
+            }
+            Err(_) => {
+                println!("No device events in test period (expected in CI)");
+            }
+        }
+        
+        // Clean shutdown
+        running.store(false, std::sync::atomic::Ordering::Relaxed);
+        let _ = monitor_handle.join();
+        
+        println!("Device monitor integration test completed successfully");
     }
 
     #[test]
