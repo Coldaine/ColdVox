@@ -6,6 +6,10 @@ This crate now includes groundwork for a Qt 6 + QML UI using CXX-Qt, gated behin
 
 By default this remains a stub implementation and does not link Qt. With `--features qt-ui`, the binary constructs a minimal `QGuiApplication` to validate Qt linkage, then exits.
 
+## Platform Scope (Prototype)
+
+The GUI prototype targets Linux only for now, specifically Nobara (Fedora‑based) on KDE Plasma. Always‑on‑top overlay behavior, visuals, and any system integrations are validated against this environment first. Cross‑platform support will be addressed later.
+
 ## Goals
 
 The ColdVox GUI will provide:
@@ -97,10 +101,9 @@ cargo run -p coldvox-app --bin tui_dashboard
 
 ## Prerequisites for `qt-ui`
 
-- Install Qt 6 development packages (Core, Gui, Qml, Quick):
-  - Ubuntu/Debian: `sudo apt-get install qt6-base-dev qt6-declarative-dev qml-qt6`
-  - macOS (Homebrew): `brew install qt@6`
-  - Windows: Install Qt 6 via the Qt online installer and ensure `qmake` is on PATH.
+- Linux (Nobara/KDE Plasma): install Qt 6 development packages (Core, Gui, Qml, Quick):
+  - Fedora/Nobara: `sudo dnf install qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtquickcontrols2-devel`
+  - Other distros may require different package names; non‑Linux platforms are out of scope for this prototype.
 
 ## Contributing
 

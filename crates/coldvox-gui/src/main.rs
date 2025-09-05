@@ -1,18 +1,24 @@
 #[cfg(feature = "qt-ui")]
 mod run_ui {
-    use cxx_qt_lib::QGuiApplication;
+    use cxx_qt_lib::{QGuiApplication, QQmlApplicationEngine, QString, QUrl};
 
     // Bring the bridge module (generated via cxx-qt) into scope when needed.
     #[allow(unused_imports)]
     use crate::bridge::ffi;
 
     pub fn main() {
-        // Create a minimal Qt GUI application; no UI loaded yet.
-        // This verifies Qt linking works when the feature is enabled.
+        // Create a Qt GUI app and load our QML UI.
         let _app = QGuiApplication::new();
-        // Intentionally do not load QML or create a window yet.
-        // This binary will start and exit immediately when run.
-        println!("ColdVox GUI groundwork: Qt + CXX-Qt linked (qt-ui feature).");
+
+        let engine = QQmlApplicationEngine::new();
+
+        // Load the main QML from the crate's qml directory.
+        let qml_path = format!("{}/qml/Main.qml", env!("CARGO_MANIFEST_DIR"));
+        let url = QUrl::from_local_file(&QString::from(&qml_path));
+        engine.load_url(&url);
+
+        // Enter Qt event loop.
+        let _ = QGuiApplication::exec();
     }
 }
 
