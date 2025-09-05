@@ -257,63 +257,91 @@ impl SttProcessor {
             );
 
             if !audio_buffer.is_empty() {
-                // Send the entire buffer to the transcriber at once
-                match coldvox_stt::EventBasedTranscriber::accept_frame(
-                    &mut self.transcriber,
-                    audio_buffer,
-                ) {
-                    Ok(Some(event)) => {
-                        self.send_event(event).await;
-
-                        // Update metrics
-                        let mut metrics = self.metrics.write();
-                        metrics.frames_out += frames_buffered;
-                        metrics.last_event_time = Some(Instant::now());
-                    }
-                    Ok(None) => {
-                        tracing::debug!(target: "stt", "No transcription from buffered audio");
-                    }
-                    Err(e) => {
-                        tracing::error!(target: "stt", "Failed to process buffered audio: {}", e);
-
-                        // Send error event
-                        let error_event = TranscriptionEvent::Error {
-                            code: "BUFFER_PROCESS_ERROR".to_string(),
-                            message: e,
-                        };
-                        self.send_event(error_event).await;
-
-                        // Update metrics
-                        self.metrics.write().error_count += 1;
+                let mut attempts = 0;
+                let mut last_err: Option<String>;
+                loop {
+                    let res = coldvox_stt::EventBasedTranscriber::accept_frame(
+                        &mut self.transcriber,
+                        audio_buffer,
+                    );
+                    match res {
+                        Ok(Some(event)) => {
+                            self.send_event(event).await;
+                            let mut metrics = self.metrics.write();
+                            metrics.frames_out += frames_buffered;
+                            metrics.last_event_time = Some(Instant::now());
+                            break;
+                        }
+                        Ok(None) => {
+                            tracing::debug!(target: "stt", "No transcription from buffered audio");
+                            break;
+                        }
+                        Err(e) => {
+                            last_err = Some(e);
+                            if attempts < 2 {
+                                attempts += 1;
+                                let _ = coldvox_stt::EventBasedTranscriber::reset(
+                                    &mut self.transcriber,
+                                );
+                                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                                continue;
+                            } else {
+                                let msg = last_err.unwrap_or_else(|| "unknown error".to_string());
+                                tracing::error!(target: "stt", "Failed to process buffered audio after retries: {}", msg);
+                                let error_event = TranscriptionEvent::Error {
+                                    code: "BUFFER_PROCESS_ERROR".to_string(),
+                                    message: msg,
+                                };
+                                self.send_event(error_event).await;
+                                self.metrics.write().error_count += 1;
+                                break;
+                            }
+                        }
                     }
                 }
             }
 
             // Finalize to get any remaining transcription
-            match coldvox_stt::EventBasedTranscriber::finalize_utterance(&mut self.transcriber) {
-                Ok(Some(event)) => {
-                    self.send_event(event).await;
-
-                    // Update metrics
-                    let mut metrics = self.metrics.write();
-                    metrics.final_count += 1;
-                    metrics.last_event_time = Some(Instant::now());
-                }
-                Ok(None) => {
-                    tracing::debug!(target: "stt", "No final transcription available");
-                }
-                Err(e) => {
-                    tracing::error!(target: "stt", "Failed to finalize transcription: {}", e);
-
-                    // Send error event
-                    let error_event = TranscriptionEvent::Error {
-                        code: "FINALIZE_ERROR".to_string(),
-                        message: e,
-                    };
-                    self.send_event(error_event).await;
-
-                    // Update metrics
-                    self.metrics.write().error_count += 1;
+            {
+                let mut attempts = 0;
+                let mut last_err: Option<String>;
+                loop {
+                    match coldvox_stt::EventBasedTranscriber::finalize_utterance(
+                        &mut self.transcriber,
+                    ) {
+                        Ok(Some(event)) => {
+                            self.send_event(event).await;
+                            let mut metrics = self.metrics.write();
+                            metrics.final_count += 1;
+                            metrics.last_event_time = Some(Instant::now());
+                            break;
+                        }
+                        Ok(None) => {
+                            tracing::debug!(target: "stt", "No final transcription available");
+                            break;
+                        }
+                        Err(e) => {
+                            last_err = Some(e);
+                            if attempts < 2 {
+                                attempts += 1;
+                                let _ = coldvox_stt::EventBasedTranscriber::reset(
+                                    &mut self.transcriber,
+                                );
+                                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                                continue;
+                            } else {
+                                let msg = last_err.unwrap_or_else(|| "unknown error".to_string());
+                                tracing::error!(target: "stt", "Failed to finalize transcription after retries: {}", msg);
+                                let error_event = TranscriptionEvent::Error {
+                                    code: "FINALIZE_ERROR".to_string(),
+                                    message: msg,
+                                };
+                                self.send_event(error_event).await;
+                                self.metrics.write().error_count += 1;
+                                break;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -347,24 +375,50 @@ impl SttProcessor {
             match event_result {
                 Ok(Some(event)) => {
                     self.send_event(event).await;
-                    // Update metrics
                     let mut metrics = self.metrics.write();
                     metrics.frames_out += 1;
                     metrics.last_event_time = Some(Instant::now());
                 }
-                Ok(None) => {
-                    // No transcription result for this chunk
-                }
+                Ok(None) => {}
                 Err(e) => {
-                    tracing::error!(target: "stt", "Failed to process streaming audio chunk: {}", e);
-                    // Send error event
-                    let error_event = TranscriptionEvent::Error {
-                        code: "STREAMING_PROCESS_ERROR".to_string(),
-                        message: e,
-                    };
-                    self.send_event(error_event).await;
-                    // Update metrics
-                    self.metrics.write().error_count += 1;
+                    let mut attempts = 0;
+                    let mut last_err: Option<String> = Some(e);
+                    let mut handled = false;
+                    while attempts < 2 {
+                        attempts += 1;
+                        let _ = coldvox_stt::EventBasedTranscriber::reset(&mut self.transcriber);
+                        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                        match coldvox_stt::EventBasedTranscriber::accept_frame(
+                            &mut self.transcriber,
+                            &i16_samples,
+                        ) {
+                            Ok(Some(event)) => {
+                                self.send_event(event).await;
+                                let mut metrics = self.metrics.write();
+                                metrics.frames_out += 1;
+                                metrics.last_event_time = Some(Instant::now());
+                                handled = true;
+                                break;
+                            }
+                            Ok(None) => {
+                                handled = true;
+                                break;
+                            }
+                            Err(e2) => {
+                                last_err = Some(e2);
+                            }
+                        }
+                    }
+                    if !handled {
+                        let msg = last_err.unwrap_or_else(|| "unknown error".to_string());
+                        tracing::error!(target: "stt", "Failed to process streaming audio chunk after retries: {}", msg);
+                        let error_event = TranscriptionEvent::Error {
+                            code: "STREAMING_PROCESS_ERROR".to_string(),
+                            message: msg,
+                        };
+                        self.send_event(error_event).await;
+                        self.metrics.write().error_count += 1;
+                    }
                 }
             }
 
