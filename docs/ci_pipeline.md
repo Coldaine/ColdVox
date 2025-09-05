@@ -6,15 +6,19 @@ This document describes the current Continuous Integration (CI) and Release work
 
 - Primary workflow: `.github/workflows/ci.yml`
 - Release workflow: `.github/workflows/release.yml`
+- Dependency graphs workflow: `.github/workflows/dependency-graphs.yml`
 - Triggers:
   - CI: pull requests targeting `main` (`opened`, `synchronize`, `reopened`) and manual `workflow_dispatch`.
   - Release: manual `workflow_dispatch` for preparing a release PR via `release-plz`, and automatic release when a release PR is merged to `main`.
+  - Dependency graphs: push to `main` branch and manual `workflow_dispatch`.
 - Concurrency:
   - CI groups by ref `ci-${{ github.ref }}`; cancels in-progress runs for the same ref.
   - Release groups by ref `release-${{ github.ref }}`; cancels in-progress runs for the same ref.
+  - Dependency graphs groups by ref `dependency-graphs-${{ github.ref }}`; cancels in-progress runs for the same ref.
 - Permissions:
   - CI: `contents: read`, `pull-requests: read`, `checks: write`.
   - Release: `contents: write`, `pull-requests: write`, `issues: write`.
+  - Dependency graphs: `contents: write`.
 - Global env (CI): `RUST_BACKTRACE=1`, `CARGO_TERM_COLOR=always`, `CARGO_INCREMENTAL=0`, `RUSTFLAGS="-D warnings"`.
 
 ## CI Jobs (`.github/workflows/ci.yml`)
@@ -72,6 +76,21 @@ This document describes the current Continuous Integration (CI) and Release work
 - Trigger: When a pull request merges into `main`.
 - Purpose: Create a GitHub release via `release-plz` against the `main` branch.
 - Steps: Checkout `main`, install stable Rust, `cargo install release-plz`, then `release-plz release` with `GITHUB_TOKEN`.
+
+## Dependency Graphs Workflow (`.github/workflows/dependency-graphs.yml`)
+
+### generate-dependency-graphs (auto on push)
+- Trigger: Push to `main` branch and manual `workflow_dispatch`.
+- Purpose: Generate and commit updated dependency graphs for the workspace.
+- Steps: 
+  - Checkout repository
+  - Install Rust toolchain and cache dependencies
+  - Install system dependencies (GraphViz) and `cargo-depgraph`
+  - Generate workspace-only dependency graph (DOT, PNG, SVG)
+  - Generate full dependency graph with external crates (DOT, SVG only)
+  - Check for changes and commit back to repository if graphs have changed
+- Output: Updates files in `docs/dependency-graphs/` directory
+- Note: Uses `[skip ci]` in commit message to prevent triggering CI on graph updates
 
 ## Disabled/Archived Workflows
 

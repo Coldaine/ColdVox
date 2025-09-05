@@ -156,3 +156,12 @@ flowchart TD
 - **STT Processor Task**: Speech-to-text transcription (async)
 - **Text Injection Task**: Text injection processing and backend management (async)
 - **TUI Dashboard Task**: Real-time monitoring interface (optional, separate binary)
+
+## Dependency Analysis
+
+For detailed crate dependency relationships, see the automatically generated dependency graphs in [`docs/dependency-graphs/`](dependency-graphs/):
+
+- **Workspace Dependencies**: Shows relationships between ColdVox crates only
+- **Full Dependencies**: Shows all dependencies including external crates
+
+These graphs are automatically updated by CI on every push to main.
