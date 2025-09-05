@@ -10,8 +10,15 @@ tracing = "0.1"
 parking_lot = "0.12"
 async-trait = "0.1"
 thiserror = "1.0"
+dirs = "5.0"
+# Note: coldvox-stt-vosk depends on coldvox-stt, not the other way around
+# The Vosk plugin is compiled into this crate when the vosk feature is enabled
 
 [features]
 default = []
-vosk = []
+vosk = []  # The vosk plugin will use the separate coldvox-stt-vosk crate at app level
 whisper = []
+parakeet = []
+coqui = []
+leopard = []
+silero-stt = []
