@@ -55,10 +55,14 @@ impl VadAdapter {
             #[cfg(feature = "silero")]
             VadMode::Silero => {
                 let silero_config = coldvox_vad_silero::SileroConfig {
-                    threshold: config.silero.threshold,
+                    activation_threshold: config.silero.activation_threshold,
+                    deactivation_threshold: config.silero.deactivation_threshold,
                     min_speech_duration_ms: config.silero.min_speech_duration_ms,
                     min_silence_duration_ms: config.silero.min_silence_duration_ms,
                     window_size_samples: config.silero.window_size_samples,
+                    speech_padding_ms: config.silero.speech_padding_ms,
+                    energy_floor_dbfs: config.silero.energy_floor_dbfs,
+                    max_speech_duration_ms: config.silero.max_speech_duration_ms,
                 };
                 Box::new(SileroEngine::new(silero_config)?)
             }
