@@ -71,6 +71,8 @@ pub enum DeviceEvent {
     DeviceSwitched { from: Option<String>, to: String },
     /// Failed to switch device, using fallback
     DeviceSwitchFailed { attempted: String, fallback: Option<String> },
+    /// Request to manually switch to a specific device
+    DeviceSwitchRequested { target: String },
 }
 
 /// Device status information

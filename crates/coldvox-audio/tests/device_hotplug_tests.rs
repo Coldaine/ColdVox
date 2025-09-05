@@ -35,7 +35,7 @@ mod device_hotplug_tests {
         assert_eq!(monitor.current_device(), None);
         
         // Test getting device status list
-        let status_list = monitor.get_device_status();
+        let _status_list = monitor.get_device_status();
         // Should be able to get status list (will be valid in any environment)
     }
 
@@ -109,6 +109,11 @@ mod device_hotplug_tests {
             fallback: None 
         };
         assert!(matches!(failed_event, DeviceEvent::DeviceSwitchFailed { .. }));
+        
+        let request_event = DeviceEvent::DeviceSwitchRequested { 
+            target: "target_device".to_string() 
+        };
+        assert!(matches!(request_event, DeviceEvent::DeviceSwitchRequested { .. }));
     }
 
     #[test]

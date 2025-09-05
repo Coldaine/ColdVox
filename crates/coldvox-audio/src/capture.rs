@@ -161,6 +161,11 @@ impl AudioCaptureThread {
                                     tracing::info!("New device available: {}", name);
                                     // Could implement automatic switching to preferred devices here
                                 }
+                                DeviceEvent::DeviceSwitchRequested { target } => {
+                                    tracing::info!("Manual device switch requested to: {}", target);
+                                    needs_restart = true;
+                                    restart_reason = "manual device switch requested";
+                                }
                                 _ => {}
                             }
                         }
