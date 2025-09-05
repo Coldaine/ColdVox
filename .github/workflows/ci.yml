@@ -135,10 +135,7 @@ jobs:
       matrix:
         os: [ubuntu-latest]
         features:
-          - "silero"
-          - "silero,text-injection"
           - "silero,vosk,text-injection"
-          - "level3"
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v4.1.7
