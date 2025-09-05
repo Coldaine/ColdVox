@@ -63,7 +63,6 @@ struct ProbeResults {
     ydotool_available: bool,
     kdotool_available: bool,
     enigo_available: bool,
-    mki_available: bool,
     permissions_ok: bool,
     available_backends: Vec<String>,
     preferred_backend: Option<String>,
@@ -140,7 +139,6 @@ fn probe_external_tools(results: &mut ProbeResults) {
     println!("   ✓ uinput device: /dev/uinput (permissions OK)");
     results.ydotool_available = true;
     results.kdotool_available = true;
-    results.mki_available = true;
 }
 
 /// Probe permissions
@@ -208,7 +206,6 @@ fn display_results(results: &ProbeResults) {
     println!("YdoTool Available: {}", results.ydotool_available);
     println!("KdoTool Available: {}", results.kdotool_available);
     println!("Enigo Available: {}", results.enigo_available);
-    println!("MKI Available: {}", results.mki_available);
     println!("Permissions OK: {}", results.permissions_ok);
 
     println!("\nAvailable Backends:");

@@ -1,8 +1,6 @@
 name: Release Automation
 
 on:
-  push:
-    branches: [main]
   pull_request:
     types: [closed]
   workflow_dispatch: # Allow manual triggering
@@ -20,7 +18,7 @@ jobs:
   release-plz:
     name: Release Please
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch'
     steps:
       - name: Checkout repository
         uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v4.1.7

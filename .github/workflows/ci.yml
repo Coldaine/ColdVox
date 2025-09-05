@@ -23,7 +23,7 @@ env:
 
 jobs:
   validate-workflows:
-    name: Validate Workflows (gh)
+    name: Validate Workflow Definitions
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
@@ -61,9 +61,9 @@ jobs:
           fi
           echo "All workflows render via gh."
 
-  # Combined check, build, format, and lint
+  # Static checks, formatting, linting, type-check, build, and docs
   build_and_check:
-    name: Build & Check
+    name: Format, Lint, Typecheck, Build & Docs
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v4.1.7
@@ -77,7 +77,12 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev libxdo-dev libxtst-dev
+          sudo apt-get install -y \
+            libasound2-dev \
+            libxdo-dev \
+            libxtst-dev \
+            wget \
+            unzip
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -96,73 +101,50 @@ jobs:
         env:
           RUSTDOCFLAGS: "-D warnings"
 
-  # Unit and integration tests
-  test:
-    name: Tests
-    needs: [build_and_check]
-    strategy:
-      matrix:
-        os: [ubuntu-latest]
-        features:
-          - "silero,vosk,text-injection"
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v4.1.7
-
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
-        with:
-          toolchain: stable
-
-      - name: Prepare cache key (sanitize features)
-        id: prep-cache-key
-        env:
-          MATRIX_FEATURES: ${{ matrix.features }}
+      - name: Run unit and integration tests (skip E2E)
         run: |
-          set -euo pipefail
-          sanitized=$(printf "%s" "${MATRIX_FEATURES}" | tr ',' '_')
-          echo "key=${sanitized}" >> "$GITHUB_OUTPUT"
+          cargo test --workspace -- --skip test_end_to_end_wav_pipeline
 
-      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
-        with:
-          key: test-${{ matrix.os }}-${{ steps.prep-cache-key.outputs.key }}
-      - name: Install Linux dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libasound2-dev libxdo-dev libxtst-dev xvfb at-spi2-core xdotool
-
-      - name: Install Vosk (if needed)
-        if: contains(matrix.features, 'vosk')
+      # Prepare and run End-to-End WAV pipeline test on same runner
+      - name: Install libvosk (vendored)
         run: |
           VOSK_VER=0.3.45
-          # Use vendored libvosk from repository
           unzip -q vendor/vosk/vosk-linux-x86_64-${VOSK_VER}.zip
-          # Install libvosk.so and header
           sudo cp -v vosk-linux-x86_64-${VOSK_VER}/libvosk.so /usr/local/lib/
           sudo cp -v vosk-linux-x86_64-${VOSK_VER}/vosk_api.h /usr/local/include/
           sudo ldconfig
 
-      - name: Download Vosk model (if needed)
-        if: contains(matrix.features, 'vosk')
+      - name: Cache Vosk model
+        id: cache-vosk-model
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: models/vosk-model-small-en-us-0.15
+          key: vosk-model-small-en-us-0.15
+          restore-keys: |
+            vosk-model-small-en-us-
+            vosk-model-
+
+      - name: Download Vosk model
+        if: steps.cache-vosk-model.outputs.cache-hit != 'true'
         run: |
           mkdir -p models
           cd models
-          wget -q https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip || true
+          wget https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip || true
           unzip -q vosk-model-small-en-us-0.15.zip || true
           rm -f vosk-model-small-en-us-0.15.zip
 
-      - name: Install cargo-nextest
-        run: cargo install cargo-nextest --locked
+      - name: Build pipeline (default features)
+        run: |
+          # Default features represent the full end-to-end pipeline
+          cargo build --locked -p coldvox-app
 
-      - name: Run tests
+      - name: Run End to End WAV pipeline test
         env:
           LD_LIBRARY_PATH: /usr/local/lib:${LD_LIBRARY_PATH}
           VOSK_MODEL_PATH: models/vosk-model-small-en-us-0.15
         run: |
-          echo "Running with xvfb for display-dependent tests"
-          xvfb-run -a --server-args="-screen 0 1280x1024x24" \
-            cargo nextest run --workspace --no-default-features --features ${{ matrix.features }}
-      - name: Run doc tests
-        run: cargo test --doc --workspace --no-default-features --features ${{ matrix.features }}
+          # Run with default features (full pipeline); no explicit feature flags needed
+          cargo test -p coldvox-app --locked test_end_to_end_wav_pipeline -- --nocapture
 
   # Security audit
   security:
@@ -182,7 +164,7 @@ jobs:
   ci-success:
     name: CI Success
     if: always()
-    needs: [validate-workflows, build_and_check, test, security]
+    needs: [validate-workflows, build_and_check, security]
     runs-on: ubuntu-latest
     steps:
       - name: Check if all jobs succeeded
@@ -192,7 +174,6 @@ jobs:
           for res in \
             "${{ needs.validate-workflows.result }}" \
             "${{ needs.build_and_check.result }}" \
-            "${{ needs.test.result }}" \
             "${{ needs.security.result }}"; do
             if [[ "$res" == "failure" ]]; then
               failed=1

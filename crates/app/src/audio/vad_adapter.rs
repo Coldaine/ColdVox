@@ -17,12 +17,6 @@ impl VadAdapter {
 
         #[cfg(feature = "silero")]
         let engine: Box<dyn VadEngine> = match config.mode {
-            VadMode::Level3 => {
-                return Err(
-                    "Level3 VAD is not available in this build. Use Silero mode instead."
-                        .to_string(),
-                );
-            }
             VadMode::Silero => {
                 let silero_config = coldvox_vad_silero::SileroConfig {
                     threshold: config.silero.threshold,

@@ -86,15 +86,15 @@ class FeatureTestRunner:
             "coldvox-app": [
                 [],  # Default features
                 ["silero"],
-                ["level3"],
+                # ["level3"], # Legacy feature, not actively tested
                 ["vosk"],
                 ["text-injection"],
                 ["silero", "vosk"],
-                ["level3", "vosk"],
+                # ["level3", "vosk"], # Legacy feature, not actively tested
                 ["silero", "text-injection"],
-                ["level3", "text-injection"],
+                # ["level3", "text-injection"], # Legacy feature, not actively tested
                 ["silero", "vosk", "text-injection"],
-                ["level3", "vosk", "text-injection"],
+                # ["level3", "vosk", "text-injection"], # Legacy feature, not actively tested
                 ["text-injection-atspi"],
                 ["text-injection-clipboard"],
                 ["text-injection-enigo"],
@@ -103,20 +103,20 @@ class FeatureTestRunner:
             ],
             "coldvox-vad": [
                 [],
-                ["level3"],
+                # ["level3"], # Legacy feature, not actively tested
             ],
             "coldvox-text-injection": [
                 [],
                 ["atspi"],
                 ["wl_clipboard"],
                 ["enigo"],
-                ["xdg_kdotool"],
+                ["kdotool"],
                 ["ydotool"],
-                ["mki"],
+                ["enigo"],
                 ["all-backends"],
                 ["linux-desktop"],
                 ["atspi", "wl_clipboard"],
-                ["enigo", "mki"],
+                ["enigo"],
             ],
             "coldvox-vad-silero": [
                 [],

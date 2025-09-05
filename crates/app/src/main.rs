@@ -118,10 +118,6 @@ struct InjectionArgs {
     #[arg(long = "allow-enigo", env = "COLDVOX_ALLOW_ENIGO")]
     allow_enigo: bool,
 
-    /// Allow mki (uinput) as an injection fallback
-    #[arg(long = "allow-mki", env = "COLDVOX_ALLOW_MKI")]
-    allow_mki: bool,
-
     /// Attempt injection even if the focused application is unknown
     #[arg(
         long = "inject-on-unknown-focus",
@@ -218,8 +214,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // --- 3. VAD Processor ---
     let vad_cfg = UnifiedVadConfig {
         mode: VadMode::Silero,
-        frame_size_samples: FRAME_SIZE_SAMPLES, // Both Silero and Level3 use 512 samples
-        sample_rate_hz: SAMPLE_RATE_HZ,         // Standard 16kHz - resampler will handle conversion
+        frame_size_samples: FRAME_SIZE_SAMPLES,
+        sample_rate_hz: SAMPLE_RATE_HZ, // Standard 16kHz - resampler will handle conversion
         ..Default::default()
     };
 

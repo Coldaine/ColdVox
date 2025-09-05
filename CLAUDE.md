@@ -33,10 +33,10 @@ Multi-crate Cargo workspace:
   - `watchdog.rs`: 5-second no-data watchdog with automatic recovery
   - `detector.rs`: RMS-based `SilenceDetector`
 
-- `crates/coldvox-vad/` - VAD core traits and Level3 energy-based VAD
+- `crates/coldvox-vad/` - VAD core traits and legacy Level3 energy-based VAD
   - `config.rs`: `UnifiedVadConfig`, `VadMode` (Silero default, Level3 feature-gated)
   - `engine.rs`: `VadEngine` trait for VAD implementations
-  - `level3.rs`: Energy-based VAD (feature `level3`)
+  - `level3.rs`: Legacy energy-based VAD (feature `level3`) - disabled by default and not recommended for use.
   - `types.rs`: `VadEvent`, `VadState`, `VadMetrics`
 
 - `crates/coldvox-vad-silero/` - Silero V5 ONNX-based VAD (default)
@@ -52,7 +52,7 @@ Multi-crate Cargo workspace:
 
 - `crates/coldvox-text-injection/` - Text injection backends (feature-gated)
   - **Linux**: `atspi_injector.rs`, `clipboard_injector.rs`, `ydotool_injector.rs`, `kdotool_injector.rs`
-  - **Cross-platform**: `enigo_injector.rs`, `mki_injector.rs`
+  - **Cross-platform**: `enigo_injector.rs`
   - **Combined**: `combo_clip_atspi.rs` (clipboard + AT-SPI fallback)
   - **Management**: `manager.rs` (StrategyManager), `session.rs`, `window_manager.rs`
 
@@ -141,12 +141,12 @@ cargo clippy -- -D warnings
 
 ## Features
 
-Default features: `silero`, `text-injection`
+Default features: `silero`, `vosk`, `text-injection`
 
 - `vosk` - Vosk STT support (requires libvosk system library)
 - `text-injection` - Text injection backends (platform-specific)
 - `silero` - Silero VAD (default)
-- `level3` - Level3 energy-based VAD
+- `level3` - Legacy Level3 energy-based VAD (not recommended for use)
 - `examples` - Enable example-specific dependencies
 - `live-hardware-tests` - Hardware-specific test suites
 
@@ -166,7 +166,7 @@ Platform-specific text injection backends are automatically enabled at build tim
 
 ### VAD System
 - **Primary**: Silero V5 via ONNX (feature `silero`)
-- **Fallback**: Level3 energy-based (feature `level3`)
+- **Legacy Fallback**: Level3 energy-based (feature `level3`, not recommended for use)
 - **Events**: `VadEvent::{SpeechStart, SpeechEnd}` with debouncing
 
 ### STT Integration
@@ -176,7 +176,7 @@ Platform-specific text injection backends are automatically enabled at build tim
 
 ### Text Injection
 - **Linux backends**: AT-SPI, wl-clipboard, ydotool (Wayland), kdotool (X11)
-- **Cross-platform**: Enigo, MKI
+- **Cross-platform**: Enigo
 - **Strategy**: Runtime backend selection with fallback chains
 
 ## Configuration

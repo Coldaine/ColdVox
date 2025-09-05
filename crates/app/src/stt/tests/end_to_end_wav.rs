@@ -616,7 +616,6 @@ mod tests {
             allow_ydotool: cfg!(feature = "text-injection-ydotool"),
             allow_kdotool: cfg!(feature = "text-injection-kdotool"),
             allow_enigo: cfg!(feature = "text-injection-enigo"),
-            allow_mki: cfg!(feature = "text-injection-mki"),
             restore_clipboard: false,
             inject_on_unknown_focus: true,
             require_focus: false,

@@ -26,10 +26,9 @@ Key defaults right now:
   - `watchdog.rs`: 5-second no-data watchdog with automatic recovery hooks
   - `detector.rs`: RMS-based `SilenceDetector` using `AudioConfig.silence_threshold`
 
-- `crates/coldvox-vad/` — VAD core traits, configurations, and Level3 energy-based VAD
-  - `config.rs`: `UnifiedVadConfig`, `VadMode` (Silero default, Level3 feature-gated)
+- `crates/coldvox-vad/` — VAD core traits and configurations
+  - `config.rs`: `UnifiedVadConfig`, `VadMode`
   - `engine.rs`: `VadEngine` trait for VAD implementations
-  - `level3.rs`: Energy-based VAD (feature `level3`) - disabled by default
   - `types.rs`: `VadEvent`, `VadState`, `VadMetrics`
   - `constants.rs`: `FRAME_SIZE_SAMPLES = 512`, `SAMPLE_RATE_HZ = 16_000`, `FRAME_DURATION_MS`
 
@@ -50,7 +49,7 @@ Key defaults right now:
 
 - `crates/coldvox-text-injection/` — Text injection backends (feature-gated, platform-aware)
   - **Linux**: `atspi_injector.rs`, `clipboard_injector.rs`, `ydotool_injector.rs`, `kdotool_injector.rs`
-  - **Cross-platform**: `enigo_injector.rs`, `mki_injector.rs`
+  - **Cross-platform**: `enigo_injector.rs`
   - **Management**: `manager.rs`, `session.rs`, `window_manager.rs`
 
 - `crates/coldvox-gui/` — GUI components and interfaces (separate from CLI app)
@@ -100,7 +99,7 @@ Key defaults right now:
 ## Audio data flow and contracts
 - CPAL callback → i16 samples → `AudioRingBuffer` (SPSC) → `FrameReader` → `AudioChunker` → broadcast channel
 - Chunker output: 512-sample frames (32 ms) at 16 kHz to VAD/STT subscribers
-- VAD: Silero V5 (default) or Level3 energy engine generates `VadEvent`s
+- VAD: Silero V5 (default) generates `VadEvent`s
 - STT (when compiled with `vosk`):
   - Activation gating: by default the app uses a hotkey workflow; enable `--activation-mode vad` to auto-activate on speech.
   - Transcribes segments during active speech (SpeechStart → SpeechEnd) and emits `TranscriptionEvent`s.
@@ -155,8 +154,8 @@ Notes:
 - If the model path does not exist at runtime, the app disables STT and logs a warning.
 
 ### Text Injection (Platform-aware)
-- **Linux**: Auto-enables `atspi`, `wl_clipboard`, and Wayland/X11-specific backends (`ydotool` or `kdotool`) based on session; also enables `mki` and `enigo`.
-- **Windows/macOS**: Auto-enables `enigo` (and `mki`).
+- **Linux**: Auto-enables `atspi`, `wl_clipboard`, and Wayland/X11-specific backends (`ydotool` or `kdotool`) based on session; also enables `enigo`.
+- **Windows/macOS**: Auto-enables `enigo`.
 - **Backend selection**: Runtime availability testing with fallback chains
 
 ## Logging & Observability
@@ -223,8 +222,8 @@ let devices = device_manager.enumerate_devices();
 - **Primary**: Silero V5 via `crates/coldvox-vad-silero/` (feature `silero`, default)
   - ONNX-based ML VAD using external `voice_activity_detector` crate
   - 16 kHz, 512-sample windows per prediction
-- **Fallback**: Level3 energy VAD (feature `level3`, disabled by default)
-  - RMS-based energy detection with configurable thresholds
+- **Legacy Fallback**: Level3 energy VAD (feature `level3`, disabled by default)
+  - RMS-based energy detection with configurable thresholds. Not recommended for use.
 - **Events**: `VadEvent::{SpeechStart, SpeechEnd}` with debouncing
 - **Configuration**: Thresholds, durations, and windowing via `UnifiedVadConfig`
 
@@ -244,7 +243,7 @@ STT is optional and compiled in with the `vosk` feature.
 
 ## Text Injection Backends
 - **Linux backends**: AT-SPI (accessibility), wl-clipboard (Wayland), ydotool (uinput), kdotool (X11)
-- **Cross-platform**: Enigo (input simulation), MKI (mock keyboard)
+- **Cross-platform**: Enigo (input simulation)
 - **Combined strategies**: Combo clipboard + AT-SPI fallback
 - **Session management**: Focus tracking, window manager integration
 - **Adaptive selection**: Runtime availability testing with fallback chains

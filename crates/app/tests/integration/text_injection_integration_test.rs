@@ -91,7 +91,6 @@ mod tests {
         manager.config.allow_ydotool = false;
         manager.config.allow_kdotool = false;
         manager.config.allow_enigo = false;
-        manager.config.allow_mki = false;
 
         // This should fail but try all methods in sequence
         let result = manager.inject("Test text").await;

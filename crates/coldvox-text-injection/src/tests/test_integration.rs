@@ -75,7 +75,6 @@ mod integration_tests {
         assert!(!config.allow_ydotool);
         assert!(!config.allow_kdotool);
         assert!(!config.allow_enigo);
-        assert!(!config.allow_mki);
         assert!(!config.restore_clipboard);
         assert!(config.inject_on_unknown_focus);
         assert!(config.enable_window_detection);

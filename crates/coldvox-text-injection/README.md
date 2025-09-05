@@ -33,14 +33,14 @@ This crate provides text injection capabilities that automatically type transcri
 ## Features
 
 - `default`: Core text injection functionality with safe defaults
-- `all-backends`: Enable all available injection backends
-- `x11`: X11-specific backends (XDotool, etc.)
-- `linux-desktop`: Common Linux desktop environment support
-- `atspi`: AT-SPI accessibility support
-- `arboard`: Clipboard-based injection
+- `atspi`: Linux AT-SPI accessibility backend
+- `wl_clipboard`: Clipboard-based injection via wl-clipboard-rs
 - `enigo`: Cross-platform input simulation
-- `wl_clipboard`: Wayland clipboard support
-- `xdg_kdotool`: KDE-specific tooling
+- `ydotool`: Linux uinput automation
+- `xdg_kdotool`: KDE/X11 window activation assistance
+- `regex`: Precompile allow/block list patterns
+- `all-backends`: Enable all available backends
+- `linux-desktop`: Enable recommended Linux desktop backends
 
 ## Backend Selection
 
@@ -54,10 +54,9 @@ The system automatically selects the best available backend for each application
 ## Configuration
 
 ### CLI Options
-- `--allow-ydotool`: Enable YDotool backend
+
 - `--allow-kdotool`: Enable KDE-specific tools
 - `--allow-enigo`: Enable Enigo input simulation
-- `--allow-mki`: Enable MKI input methods
 - `--restore-clipboard`: Restore clipboard contents after injection
 - `--inject-on-unknown-focus`: Inject even when focus detection fails
 

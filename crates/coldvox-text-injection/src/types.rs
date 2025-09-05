@@ -16,8 +16,7 @@ pub enum InjectionMethod {
     KdoToolAssist,
     /// Use enigo library for synthetic text/paste (opt-in)
     EnigoText,
-    /// Use mouse-keyboard-input for synthetic key events (opt-in, last resort)
-    UinputKeys,
+
     /// No-op fallback injector (always succeeds, does nothing)
     NoOp,
 }
@@ -35,9 +34,7 @@ pub struct InjectionConfig {
     /// Whether to allow enigo library usage (Wayland/libei paths)
     #[serde(default = "default_false")]
     pub allow_enigo: bool,
-    /// Whether to allow mouse-keyboard-input usage (uinput)
-    #[serde(default = "default_false")]
-    pub allow_mki: bool,
+
     /// Whether to restore the clipboard content after injection
     #[serde(default = "default_false")]
     pub restore_clipboard: bool,
@@ -229,7 +226,7 @@ impl Default for InjectionConfig {
             allow_ydotool: default_false(),
             allow_kdotool: default_false(),
             allow_enigo: default_false(),
-            allow_mki: default_false(),
+
             restore_clipboard: default_false(),
             inject_on_unknown_focus: default_inject_on_unknown_focus(),
             require_focus: default_require_focus(),

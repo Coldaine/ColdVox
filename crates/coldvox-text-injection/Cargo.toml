@@ -24,13 +24,11 @@ coldvox-stt = { path = "../coldvox-stt" }
 atspi = { version = "0.28", optional = true }
 wl-clipboard-rs = { version = "0.9", optional = true }
 enigo = { version = "0.6", optional = true }
+regex = { version = "1.10", optional = true }
 # device_query = { version = "4.0", optional = true } # Removed: unused dependency
 
 # Additional backend dependencies used by injectors
-x11 = { version = "2.21", optional = true }
-arboard = { version = "3.2", optional = true }
-mouse-keyboard-input = { version = "0.7", optional = true }
-regex = { version = "1.10", optional = true }
+# Note: previously depended on x11/arboard/mouse-keyboard-input, but they are not used.
 
 [dev-dependencies]
 tempfile = "3.8"
@@ -44,13 +42,15 @@ default = []
 atspi = ["dep:atspi"]
 wl_clipboard = ["dep:wl-clipboard-rs"]
 enigo = ["dep:enigo"]
-xdg_kdotool = []
+kdotool = []
 
 # Additional injector features
 ydotool = []
-mki = ["dep:mouse-keyboard-input"]
 regex = ["dep:regex"]
 
 # Combined features for convenience
-all-backends = ["atspi", "wl_clipboard", "enigo", "xdg_kdotool"]
-linux-desktop = ["atspi", "wl_clipboard", "xdg_kdotool"]
+all-backends = ["atspi", "wl_clipboard", "enigo", "kdotool"]
+linux-desktop = ["atspi", "wl_clipboard", "kdotool"]
+
+# Deprecated alias for xdg_kdotool. Will be removed in a future version.
+xdg_kdotool = ["kdotool"]

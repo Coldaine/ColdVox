@@ -12,10 +12,9 @@ use crate::clipboard_injector::ClipboardInjector;
 use crate::combo_clip_atspi::ComboClipboardAtspi;
 #[cfg(feature = "enigo")]
 use crate::enigo_injector::EnigoInjector;
-#[cfg(feature = "xdg_kdotool")]
+#[cfg(feature = "kdotool")]
 use crate::kdotool_injector::KdotoolInjector;
-#[cfg(feature = "mki")]
-use crate::mki_injector::MkiInjector;
+
 use crate::noop_injector::NoOpInjector;
 #[cfg(feature = "ydotool")]
 use crate::ydotool_injector::YdotoolInjector;
@@ -129,15 +128,7 @@ impl InjectorRegistry {
             }
         }
 
-        #[cfg(feature = "mki")]
-        if config.allow_mki {
-            let mki = MkiInjector::new(config.clone());
-            if mki.is_available().await {
-                injectors.insert(InjectionMethod::UinputKeys, Box::new(mki));
-            }
-        }
-
-        #[cfg(feature = "xdg_kdotool")]
+        #[cfg(feature = "kdotool")]
         if config.allow_kdotool {
             let kdotool = KdotoolInjector::new(config.clone());
             if kdotool.is_available().await {
@@ -505,9 +496,7 @@ impl StrategyManager {
         if self.config.allow_enigo {
             base_order.push(InjectionMethod::EnigoText);
         }
-        if self.config.allow_mki {
-            base_order.push(InjectionMethod::UinputKeys);
-        }
+
         if self.config.allow_ydotool {
             base_order.push(InjectionMethod::YdoToolPaste);
         }
@@ -600,9 +589,7 @@ impl StrategyManager {
         if self.config.allow_enigo {
             base_order.push(InjectionMethod::EnigoText);
         }
-        if self.config.allow_mki {
-            base_order.push(InjectionMethod::UinputKeys);
-        }
+
         if self.config.allow_ydotool {
             base_order.push(InjectionMethod::YdoToolPaste);
         }
@@ -682,9 +669,7 @@ impl StrategyManager {
         if self.config.allow_enigo {
             base_order.push(InjectionMethod::EnigoText);
         }
-        if self.config.allow_mki {
-            base_order.push(InjectionMethod::UinputKeys);
-        }
+
         if self.config.allow_ydotool {
             base_order.push(InjectionMethod::YdoToolPaste);
         }
@@ -1111,7 +1096,7 @@ mod tests {
             allow_ydotool: true,
             allow_kdotool: true,
             allow_enigo: true,
-            allow_mki: true,
+
             ..Default::default()
         };
 
@@ -1126,7 +1111,6 @@ mod tests {
         assert!(order.contains(&InjectionMethod::YdoToolPaste));
         assert!(order.contains(&InjectionMethod::KdoToolAssist));
         assert!(order.contains(&InjectionMethod::EnigoText));
-        assert!(order.contains(&InjectionMethod::UinputKeys));
     }
 
     // Test success record updates
