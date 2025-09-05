@@ -158,6 +158,48 @@ jobs:
         run: |
           cargo test --workspace -- --skip test_end_to_end_wav_pipeline
 
+  # GUI groundwork check: explicitly pass if Qt 6 isn't installed
+  gui-groundwork:
+    name: GUI Groundwork (Qt optional)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v4.1.7
+
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
+
+      - name: Detect Qt 6
+        id: detect-qt
+        shell: bash
+        run: |
+          set -euo pipefail
+          qt_found=false
+          if command -v qmake6 >/dev/null 2>&1; then
+            qt_found=true
+          elif command -v qmake-qt6 >/dev/null 2>&1; then
+            qt_found=true
+          elif pkg-config --exists Qt6Core >/dev/null 2>&1; then
+            qt_found=true
+          fi
+          echo "qt6=$qt_found" >> "$GITHUB_OUTPUT"
+          if [[ "$qt_found" == "true" ]]; then
+            echo "Qt 6 detected on runner."
+          else
+            echo "Qt 6 not detected; will skip qt-ui build and explicitly pass."
+          fi
+
+      - name: Build coldvox-gui with qt-ui feature
+        if: steps.detect-qt.outputs.qt6 == 'true'
+        run: |
+          cargo check -p coldvox-gui --features qt-ui --locked
+
+      - name: Qt not found — explicit pass
+        if: steps.detect-qt.outputs.qt6 != 'true'
+        run: echo "Skipping Qt UI build; explicit pass as Qt 6 is not installed."
+
   text_injection_matrix:
     name: Text Injection Feature Matrix
     runs-on: ubuntu-latest
@@ -281,7 +323,7 @@ jobs:
   ci-success:
     name: CI Success
     if: always()
-    needs: [validate-workflows, build_and_check, security]
+    needs: [validate-workflows, build_and_check, gui-groundwork, security]
     runs-on: ubuntu-latest
     steps:
       - name: Check if all jobs succeeded
@@ -291,6 +333,7 @@ jobs:
           for res in \
             "${{ needs.validate-workflows.result }}" \
             "${{ needs.build_and_check.result }}" \
+            "${{ needs.gui-groundwork.result }}" \
             "${{ needs.security.result }}"; do
             if [[ "$res" == "failure" ]]; then
               failed=1
