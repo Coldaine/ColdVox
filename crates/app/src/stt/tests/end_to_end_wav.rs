@@ -395,16 +395,13 @@ mod tests {
         // Look for test WAV files in test_data directory
         let test_data_dir = "test_data";
 
-        // If TEST_WAV is set, use that specific file
-        let (wav_path, expected_fragments) = if let Ok(specific_wav) = std::env::var("TEST_WAV") {
-            if !std::path::Path::new(&specific_wav).exists() {
-                eprintln!("Skipping test: WAV file '{}' not found", specific_wav);
-                return;
-            }
-            // For manually specified WAV, use generic expectations
-            (specific_wav, vec!["the".to_string()])
-        } else {
-            // Find all WAV files in test_data that have corresponding transcripts
+        // Allow an opt-in mode to run ALL WAV samples sequentially
+        let run_all = std::env::var("TEST_WAV_MODE")
+            .map(|v| v.eq_ignore_ascii_case("all"))
+            .unwrap_or(false);
+
+        if run_all {
+            // Discover all WAV+TXT pairs
             let entries = match fs::read_dir(test_data_dir) {
                 Ok(entries) => entries,
                 Err(_) => {
@@ -430,47 +427,141 @@ mod tests {
                 return;
             }
 
-            // Randomly select a test file
-            let mut rng = rand::thread_rng();
-            let selected_wav = wav_files.choose(&mut rng).unwrap().clone();
+            println!("Running ALL {} WAV samples...", wav_files.len());
+            let mut failures = Vec::new();
+            for wav_path in wav_files {
+                let txt_path = std::path::Path::new(&wav_path).with_extension("txt");
+                let transcript = fs::read_to_string(&txt_path).unwrap_or_else(|e| {
+                    panic!("Failed to read transcript {}: {}", txt_path.display(), e)
+                });
 
-            // Load the corresponding transcript
-            let txt_path = std::path::Path::new(&selected_wav).with_extension("txt");
-            let transcript = fs::read_to_string(&txt_path).unwrap_or_else(|e| {
-                panic!("Failed to read transcript {}: {}", txt_path.display(), e)
-            });
-
-            // Extract key words from transcript (longer words are more distinctive)
-            let words: Vec<String> = transcript
-                .to_lowercase()
-                .split_whitespace()
-                .filter(|w| w.len() >= 4) // Focus on words with 4+ characters
-                .take(3) // Take up to 3 key words
-                .map(|s| s.to_string())
-                .collect();
-
-            let expected = if words.is_empty() {
-                // Fallback to any word if no long words found
-                transcript
+                // Extract a few distinctive keywords
+                let words: Vec<String> = transcript
                     .to_lowercase()
                     .split_whitespace()
-                    .take(2)
+                    .filter(|w| w.len() >= 4)
+                    .take(3)
                     .map(|s| s.to_string())
-                    .collect()
-            } else {
-                words
-            };
+                    .collect();
+                let expected = if words.is_empty() {
+                    transcript
+                        .to_lowercase()
+                        .split_whitespace()
+                        .take(2)
+                        .map(|s| s.to_string())
+                        .collect()
+                } else {
+                    words
+                };
 
-            (selected_wav, expected)
+                println!("Testing with WAV file: {}", wav_path);
+                println!("Expected keywords: {:?}", expected);
+                let expected_refs: Vec<&str> = expected.iter().map(|s| s.as_str()).collect();
+
+                match test_wav_pipeline(&wav_path, expected_refs).await {
+                    Ok(injections) => {
+                        println!("✅ Test passed! Injections: {:?}", injections);
+                        if injections.is_empty() {
+                            failures.push(format!("{}: no text injected", wav_path));
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("❌ Test failed for {}: {}", wav_path, e);
+                        failures.push(format!("{}: {}", wav_path, e));
+                    }
+                }
+            }
+
+            if !failures.is_empty() {
+                panic!("One or more WAV samples failed: {:?}", failures);
+            }
+            return;
+        }
+
+        // If TEST_WAV is set, use that specific file (single-file mode)
+        if let Ok(specific_wav) = std::env::var("TEST_WAV") {
+            if !std::path::Path::new(&specific_wav).exists() {
+                eprintln!("Skipping test: WAV file '{}' not found", specific_wav);
+                return;
+            }
+            let expected_fragments = vec!["the".to_string()]; // Generic expectation for ad-hoc file
+            println!("Testing with WAV file: {}", specific_wav);
+            println!("Expected keywords: {:?}", expected_fragments);
+            let expected_refs: Vec<&str> = expected_fragments.iter().map(|s| s.as_str()).collect();
+            match test_wav_pipeline(specific_wav, expected_refs).await {
+                Ok(injections) => {
+                    println!("✅ Test passed! Injections: {:?}", injections);
+                    assert!(!injections.is_empty(), "No text was injected");
+                }
+                Err(e) => {
+                    eprintln!("❌ Test failed: {}", e);
+                    panic!("End-to-end test failed: {}", e);
+                }
+            }
+            return;
+        }
+
+        // Default: random single-file mode (fast CI-friendly)
+        // Find all WAV files in test_data that have corresponding transcripts
+        let entries = match fs::read_dir(test_data_dir) {
+            Ok(entries) => entries,
+            Err(_) => {
+                eprintln!("Skipping test: test_data directory not found");
+                eprintln!("Expected test WAV files in: {}", test_data_dir);
+                return;
+            }
         };
 
-        println!("Testing with WAV file: {}", wav_path);
+        let mut wav_files = Vec::new();
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("wav") {
+                let txt_path = path.with_extension("txt");
+                if txt_path.exists() {
+                    wav_files.push(path.to_string_lossy().to_string());
+                }
+            }
+        }
+
+        if wav_files.is_empty() {
+            eprintln!("Skipping test: No WAV files with transcripts found in test_data/");
+            return;
+        }
+
+        // Randomly select a test file
+        let mut rng = rand::thread_rng();
+        let selected_wav = wav_files.choose(&mut rng).unwrap().clone();
+
+        // Load the corresponding transcript
+        let txt_path = std::path::Path::new(&selected_wav).with_extension("txt");
+        let transcript = fs::read_to_string(&txt_path)
+            .unwrap_or_else(|e| panic!("Failed to read transcript {}: {}", txt_path.display(), e));
+
+        // Extract key words from transcript (longer words are more distinctive)
+        let words: Vec<String> = transcript
+            .to_lowercase()
+            .split_whitespace()
+            .filter(|w| w.len() >= 4) // Focus on words with 4+ characters
+            .take(3) // Take up to 3 key words
+            .map(|s| s.to_string())
+            .collect();
+
+        let expected_fragments = if words.is_empty() {
+            // Fallback to any word if no long words found
+            transcript
+                .to_lowercase()
+                .split_whitespace()
+                .take(2)
+                .map(|s| s.to_string())
+                .collect()
+        } else {
+            words
+        };
+
+        println!("Testing with WAV file: {}", selected_wav);
         println!("Expected keywords: {:?}", expected_fragments);
-
-        // Convert Vec<String> to Vec<&str> for the test function
         let expected_refs: Vec<&str> = expected_fragments.iter().map(|s| s.as_str()).collect();
-
-        match test_wav_pipeline(wav_path, expected_refs).await {
+        match test_wav_pipeline(selected_wav, expected_refs).await {
             Ok(injections) => {
                 println!("✅ Test passed! Injections: {:?}", injections);
                 assert!(!injections.is_empty(), "No text was injected");

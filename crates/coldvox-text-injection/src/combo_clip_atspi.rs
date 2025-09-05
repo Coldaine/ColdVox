@@ -6,7 +6,7 @@ use std::time::Duration;
 use tracing::{debug, warn};
 
 /// Combo injector that sets clipboard and then triggers AT-SPI paste action
-/// NOTE: AT-SPI paste action not yet implemented for atspi 0.22
+/// NOTE: AT-SPI paste action not yet implemented (atspi 0.28.0 has stable Action interface)
 pub struct ComboClipboardAtspi {
     _config: InjectionConfig,
     clipboard_injector: ClipboardInjector,
@@ -51,9 +51,9 @@ impl TextInjector for ComboClipboardAtspi {
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         // Step 3: Trigger paste action via AT-SPI
-        // TODO: Implement AT-SPI paste action when atspi 0.22 API is clarified
+        // TODO: Implement AT-SPI paste action using atspi 0.28.0 Action interface
         // For now, we can only set clipboard and rely on manual paste
-        warn!("AT-SPI paste action not yet implemented for atspi 0.22");
+        warn!("AT-SPI paste action not yet implemented (atspi 0.28.0 Action interface available)");
         warn!("Text is in clipboard but automatic paste is not available");
 
         // Return success since clipboard was set successfully

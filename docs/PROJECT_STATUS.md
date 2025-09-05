@@ -1,8 +1,10 @@
 # ColdVox Project Status
 
-## Current Phase: Workspace Refactoring
+## Current Phase: STT Integration Enhancement
 
-The project is currently undergoing a major workspace refactoring to improve modularity and maintainability.
+Most workspace refactoring is complete. The active focus is improving the STT layer (Vosk defaults, streaming behavior, and preparing for additional backends) and polishing text‑injection ergonomics.
+
+Note: The README status badge is manually maintained. When updating this phase, also update the badge in `README.md` to keep them in sync.
 
 ### Completed Work
 
@@ -28,17 +30,13 @@ The project is currently undergoing a major workspace refactoring to improve mod
 
 ### Current Work
 
-#### Phase 5: Text Injection Unification 🔄
-- Unifying TextInjector trait to async-first design
-- Consolidating injection strategies
-- Improving platform-specific backend selection
+#### Phase 6: STT Integration Enhancement 🔄
+- Default Vosk integration with model autodetect in runtime
+- Streaming transcription pipeline in place (partial/final events)
+- CI E2E WAV test documented and runnable with vendored libvosk
+- Prepare for multi‑backend support (Whisper stub plugin present)
 
 ### Upcoming Work
-
-#### Phase 6: STT Integration Enhancement
-- Improve Vosk model management
-- Add support for multiple STT backends
-- Implement streaming transcription
 
 #### Phase 7: GUI Development
 - Design cross-platform GUI interface
@@ -63,11 +61,24 @@ coldvox/
 └── examples/                   # Example applications
 ```
 
-## Known Issues
+## Known Issues / Remaining Items
 
-- Text injection async trait unification in progress
-- Some platform-specific backends need testing
-- Documentation needs updating for new workspace structure
+- Text injection: AT‑SPI app identification fallback and regex caching optimizations are still TODOs
+- Some platform-specific injection backends need broader testing across environments
+- Whisper plugin is a stub (no functional transcription yet); multi‑backend selection remains future work
+- Documentation updates continue as crates evolve
+
+## Recently Completed
+
+#### Phase 5: Text Injection Unification ✅
+- Unified TextInjector to async‑first design (`crates/coldvox-text-injection`)
+- Consolidated injection strategies and fallback chaining
+- Platform-aware backend selection wiring from the main app
+
+#### Phase 4: Multi-Crate Workspace ✅
+- Split monolithic codebase into focused crates
+- Established clear module boundaries
+- Improved build times and testability
 
 ## Contributing
 

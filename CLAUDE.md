@@ -254,3 +254,7 @@ Run `scripts/setup_text_injection.sh` to install:
 - Install libvosk system library
 - Download model from https://alphacephei.com/vosk/models
 - Set `VOSK_MODEL_PATH` or place in `models/vosk-model-small-en-us-0.15/`
+
+## Maintenance Notes
+
+- Project status: Source of truth is `docs/PROJECT_STATUS.md`. The README badge is static and must be updated manually to match the current phase.

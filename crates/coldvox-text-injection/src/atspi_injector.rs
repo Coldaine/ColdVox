@@ -86,8 +86,9 @@ impl TextInjector for AtspiInjector {
             rule.ifaces = Interface::EditableText.into();
             rule.ifaces_mt = MatchType::All;
 
+            // Try to find focused element, with one quick retry if needed
             let mut matches = collection
-                .get_matches(rule, SortOrder::Canonical, 1, false)
+                .get_matches(rule.clone(), SortOrder::Canonical, 1, false)
                 .await
                 .map_err(|e| {
                     crate::types::InjectionError::Other(format!(
@@ -95,8 +96,23 @@ impl TextInjector for AtspiInjector {
                     ))
                 })?;
 
+            // If no match found, retry once after brief delay (focus can be transient)
+            if matches.is_empty() {
+                debug!("No focused EditableText found, retrying once after 30ms");
+                tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+
+                matches = collection
+                    .get_matches(rule, SortOrder::Canonical, 1, false)
+                    .await
+                    .map_err(|e| {
+                        crate::types::InjectionError::Other(format!(
+                            "Collection.get_matches retry failed: {e}"
+                        ))
+                    })?;
+            }
+
             let Some(obj_ref) = matches.pop() else {
-                debug!("No focused EditableText found");
+                debug!("No focused EditableText found after retry");
                 return Err(crate::types::InjectionError::NoEditableFocus);
             };
 

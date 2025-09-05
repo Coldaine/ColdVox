@@ -82,7 +82,7 @@ This document describes the current Continuous Integration (CI) and Release work
 ### generate-dependency-graphs (auto on push)
 - Trigger: Push to `main` branch and manual `workflow_dispatch`.
 - Purpose: Generate and commit updated dependency graphs for the workspace.
-- Steps: 
+- Steps:
   - Checkout repository
   - Install Rust toolchain and cache dependencies
   - Install system dependencies (GraphViz) and `cargo-depgraph`

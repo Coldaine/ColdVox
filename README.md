@@ -1,6 +1,6 @@
 # ColdVox – Voice AI audio pipeline
 
-[![Status: Workspace Refactoring](https://img.shields.io/badge/Status-Workspace%20Refactoring-yellow)](docs/PROJECT_STATUS.md)
+[![Status: STT Integration Enhancement](https://img.shields.io/badge/Status-STT%20Integration%20Enhancement-blue)](docs/PROJECT_STATUS.md)
 [![CI](https://github.com/YOUR_USERNAME/ColdVox/workflows/CI/badge.svg)](https://github.com/YOUR_USERNAME/ColdVox/actions)
 
 Rust-based real-time audio capture and processing with robust recovery, VAD, and STT integration.
