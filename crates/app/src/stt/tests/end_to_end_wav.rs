@@ -379,6 +379,84 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
     Ok(injections)
 }
 
+// Helper to open a test terminal that captures input to a file
+async fn open_test_terminal(
+    capture_file: &std::path::Path,
+) -> Result<Option<tokio::process::Child>> {
+    use std::process::Stdio;
+
+    // Try xterm first (commonly available in CI)
+    let xterm_result = tokio::process::Command::new("xterm")
+        .arg("-e")
+        .arg("bash")
+        .arg("-c")
+        .arg(format!("tee {} > /dev/null", capture_file.display()))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
+
+    if let Ok(child) = xterm_result {
+        return Ok(Some(child));
+    }
+
+    // Try gnome-terminal as fallback
+    let gnome_result = tokio::process::Command::new("gnome-terminal")
+        .arg("--")
+        .arg("bash")
+        .arg("-c")
+        .arg(format!("tee {} > /dev/null", capture_file.display()))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
+
+    if let Ok(child) = gnome_result {
+        return Ok(Some(child));
+    }
+
+    // In headless CI, we might not have a terminal but can still test
+    // Create a simple background process that reads stdin
+    if std::env::var("CI").is_ok() || std::env::var("DISPLAY").is_err() {
+        // In CI/headless, just create the file for the test to proceed
+        std::fs::write(capture_file, "").ok();
+        return Ok(None);
+    }
+
+    Err(anyhow::anyhow!("No suitable terminal emulator found"))
+}
+
+// Helper to get clipboard content
+async fn get_clipboard_content() -> Option<String> {
+    // Try wl-paste first (Wayland)
+    let wl_result = tokio::process::Command::new("wl-paste")
+        .arg("--no-newline")
+        .output()
+        .await;
+
+    if let Ok(output) = wl_result {
+        if output.status.success() {
+            return Some(String::from_utf8_lossy(&output.stdout).to_string());
+        }
+    }
+
+    // Try xclip (X11)
+    let xclip_result = tokio::process::Command::new("xclip")
+        .arg("-selection")
+        .arg("clipboard")
+        .arg("-o")
+        .output()
+        .await;
+
+    if let Ok(output) = xclip_result {
+        if output.status.success() {
+            return Some(String::from_utf8_lossy(&output.stdout).to_string());
+        }
+    }
+
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -892,82 +970,4 @@ mod tests {
             }
         }
     }
-}
-
-/// Helper to open a test terminal that captures input to a file
-async fn open_test_terminal(
-    capture_file: &std::path::Path,
-) -> Result<Option<tokio::process::Child>> {
-    use std::process::Stdio;
-
-    // Try xterm first (commonly available in CI)
-    let xterm_result = tokio::process::Command::new("xterm")
-        .arg("-e")
-        .arg("bash")
-        .arg("-c")
-        .arg(format!("tee {} > /dev/null", capture_file.display()))
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn();
-
-    if let Ok(child) = xterm_result {
-        return Ok(Some(child));
-    }
-
-    // Try gnome-terminal as fallback
-    let gnome_result = tokio::process::Command::new("gnome-terminal")
-        .arg("--")
-        .arg("bash")
-        .arg("-c")
-        .arg(format!("tee {} > /dev/null", capture_file.display()))
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn();
-
-    if let Ok(child) = gnome_result {
-        return Ok(Some(child));
-    }
-
-    // In headless CI, we might not have a terminal but can still test
-    // Create a simple background process that reads stdin
-    if std::env::var("CI").is_ok() || std::env::var("DISPLAY").is_err() {
-        // In CI/headless, just create the file for the test to proceed
-        std::fs::write(capture_file, "").ok();
-        return Ok(None);
-    }
-
-    Err(anyhow::anyhow!("No suitable terminal emulator found"))
-}
-
-/// Helper to get clipboard content
-async fn get_clipboard_content() -> Option<String> {
-    // Try wl-paste first (Wayland)
-    let wl_result = tokio::process::Command::new("wl-paste")
-        .arg("--no-newline")
-        .output()
-        .await;
-
-    if let Ok(output) = wl_result {
-        if output.status.success() {
-            return Some(String::from_utf8_lossy(&output.stdout).to_string());
-        }
-    }
-
-    // Try xclip (X11)
-    let xclip_result = tokio::process::Command::new("xclip")
-        .arg("-selection")
-        .arg("clipboard")
-        .arg("-o")
-        .output()
-        .await;
-
-    if let Ok(output) = xclip_result {
-        if output.status.success() {
-            return Some(String::from_utf8_lossy(&output.stdout).to_string());
-        }
-    }
-
-    None
 }

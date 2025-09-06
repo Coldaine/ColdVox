@@ -8,6 +8,7 @@ use coldvox_audio::{
 };
 use coldvox_foundation::AudioConfig;
 use coldvox_telemetry::PipelineMetrics;
+use coldvox_vad::config::SileroConfig;
 use coldvox_vad::{UnifiedVadConfig, VadEvent, VadMode, FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 
 use crate::hotkey::spawn_hotkey_listener;
@@ -146,7 +147,12 @@ impl AppHandle {
                     mode: VadMode::Silero,
                     frame_size_samples: FRAME_SIZE_SAMPLES,
                     sample_rate_hz: SAMPLE_RATE_HZ,
-                    ..Default::default()
+                    silero: SileroConfig {
+                        threshold: 0.3,
+                        min_speech_duration_ms: 250,
+                        min_silence_duration_ms: 500, // Increased from 100ms to 500ms for better stitching
+                        window_size_samples: FRAME_SIZE_SAMPLES,
+                    },
                 };
                 let vad_audio_rx = self.audio_tx.subscribe();
                 crate::audio::vad_processor::VadProcessor::spawn(
@@ -205,7 +211,12 @@ pub async fn start(
                 mode: VadMode::Silero,
                 frame_size_samples: FRAME_SIZE_SAMPLES,
                 sample_rate_hz: SAMPLE_RATE_HZ,
-                ..Default::default()
+                silero: SileroConfig {
+                    threshold: 0.3,
+                    min_speech_duration_ms: 250,
+                    min_silence_duration_ms: 500, // Increased from 100ms to 500ms for better stitching
+                    window_size_samples: FRAME_SIZE_SAMPLES,
+                },
             };
             let vad_audio_rx = audio_tx.subscribe();
             crate::audio::vad_processor::VadProcessor::spawn(

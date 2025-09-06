@@ -2,7 +2,7 @@
 // This module defines the bridge between Rust backend and Qt/QML frontend
 // Only compiled when the `qt-ui` feature is enabled to keep non-GUI builds clean
 
-#![cfg(feature = "qt-ui")]
+// Gated at the module site in main.rs via `#[cfg(feature = "qt-ui")] mod bridge;`
 
 // The CXX-Qt bridge macro generates C++ binding code and Rust trait implementations
 // This enables seamless communication between Rust and Qt's object system

@@ -17,26 +17,35 @@ This document provides a detailed overview of the Rust-QML bridge implementation
 
 ```mermaid
 graph TD
-    A[QML Frontend] -->|Property Binding| B[CXX-Qt Generated Code]
+    A[QML UI Components] -->|Property Binding| B[CXX-Qt Generated Code]
     B -->|Method Calls| C[GuiBridge Rust]
-    C -->|Future Integration| D[ColdVox Backend Services]
+    C -->|Service Calls| D[GUI Service Layer]
+    D -->|Async Operations| E[Existing Backend Services]
 
+    E -->|Events/Updates| D
     D -->|State Updates| C
     C -->|Signal Emission| B
     B -->|Property Updates| A
 
-    subgraph Rust Backend
+    subgraph GUI Subsystem
+    A
+    B
     C
     D
     end
 
-    subgraph QML Frontend
-    A
+    subgraph Backend Services
+    E[coldvox-audio<br/>coldvox-stt<br/>coldvox-vad<br/>coldvox-text-injection]
     end
 
-    subgraph CXX-Qt Bridge
-    B
-    end
+    F[ServiceRegistry] -->|Initializes| E
+    F -->|Provides| D
+
+    classDef guiSubsystem fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef backendServices fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+
+    class A,B,C,D guiSubsystem
+    class E backendServices
 ```
 
 ### Key Components
