@@ -17,3 +17,7 @@ mod test_async_processor;
 mod test_focus_enforcement;
 #[cfg(test)]
 mod test_util;
+#[cfg(test)]
+mod test_harness;
+#[cfg(all(test, feature = "real-injection-tests"))]
+mod real_injection;

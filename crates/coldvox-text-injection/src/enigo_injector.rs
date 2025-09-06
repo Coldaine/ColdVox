@@ -123,6 +123,12 @@ impl EnigoInjector {
             Err(_) => Err(InjectionError::Timeout(0)), // Spawn failed
         }
     }
+
+    /// A test-only helper to directly call the private `type_text` method.
+    #[cfg(test)]
+    pub async fn type_text_directly(&self, text: &str) -> Result<(), InjectionError> {
+        self.type_text(text).await
+    }
 }
 
 #[async_trait]
