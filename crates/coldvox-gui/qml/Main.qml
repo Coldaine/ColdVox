@@ -110,7 +110,7 @@ Window {
     // Gear icon (right)
     Text {
       id: gearIcon
-      text: "699"
+      text: "⚙"
       color: Qt.rgba(1,1,1, 0.70)
       font.pixelSize: 18
       anchors.verticalCenter: parent.verticalCenter
@@ -228,22 +228,22 @@ Window {
         spacing: 10
 
         // Stop
-        ControlButton { label: "5A0"; onClicked: { st = 2; if (typeof bridge !== 'undefined' && bridge.cmd_stop) bridge.cmd_stop() } }
+        ControlButton { label: "⏹"; onClicked: { st = 2; if (typeof bridge !== 'undefined' && bridge.cmd_stop) bridge.cmd_stop() } }
         // Pause / Resume
         ControlButton {
-          label: st === 1 ? "613" : "5B6"
+          label: st === 1 ? "⏸" : "▶"
           onClicked: {
             if (typeof bridge !== 'undefined' && bridge.cmd_toggle_pause) bridge.cmd_toggle_pause()
             st = (st === 1) ? 0 : 1
           }
         }
         // Clear
-        ControlButton { label: "5D1"; onClicked: { transcript = ""; if (typeof bridge !== 'undefined' && bridge.cmd_clear) bridge.cmd_clear() } }
+        ControlButton { label: "🗑"; onClicked: { transcript = ""; if (typeof bridge !== 'undefined' && bridge.cmd_clear) bridge.cmd_clear() } }
 
         Item { Layout.fillWidth: true }
 
         // Settings (right-aligned)
-        ControlButton { label: "699"; onClicked: settingsWindow.visible = true }
+        ControlButton { label: "⚙"; onClicked: settingsWindow.visible = true }
       }
     }
   }

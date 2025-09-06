@@ -1,67 +1,34 @@
-// Minimal QObject bridge scaffold for future UI/backend wiring.
-// Only compiled and generated when the `qt-ui` feature is enabled.
+// CXX-Qt bridge for Rust-QML interoperability
+// This module defines the bridge between Rust backend and Qt/QML frontend
+// Only compiled when the `qt-ui` feature is enabled to keep non-GUI builds clean
 
 #![cfg(feature = "qt-ui")]
 
-use core::pin::Pin;
-
+// The CXX-Qt bridge macro generates C++ binding code and Rust trait implementations
+// This enables seamless communication between Rust and Qt's object system
 #[cxx_qt::bridge]
 mod ffi {
-    // Expose Qt types used by the object. (cxx-qt-lib provides wrappers)
-    unsafe extern "C++" {}
-
-    /// GUI bridge object (stub). Extend later with signals/slots.
-    #[qobject]
-    pub struct GuiBridge {
-        #[qproperty]
-        pub expanded: bool,
-        #[qproperty]
-        pub level: i32,
-        #[qproperty]
-        pub state: i32,
-        #[qproperty]
-        pub transcript: QString,
+    // The "RustQt" extern block is CXX-Qt 0.7's required pattern for defining
+    // QObjects that are implemented in Rust but exposed to Qt/QML
+    // The 'unsafe' is required because we're crossing the FFI boundary between
+    // Rust and C++ where Rust's safety guarantees cannot be automatically enforced
+    unsafe extern "RustQt" {
+        // Define a QObject that will be accessible from QML
+        // The #[qobject] attribute tells CXX-Qt to generate Qt Meta-Object Compiler (MOC) data
+        #[qobject]
+        // Properties are declared on the type definition, not as struct fields
+        // This generates getter/setter methods and a 'expandedChanged' signal automatically
+        #[qproperty(bool, expanded)]
+        // Map the Qt-visible type to our Rust implementation struct
+        // This separation allows us to keep Rust logic separate from Qt bindings
+        type GuiBridge = super::GuiBridgeRust;
     }
+}
 
-    impl Default for GuiBridge {
-        fn default() -> Self {
-            Self {
-                expanded: false,
-                level: 0,
-                state: 0,
-                transcript: QString::from(&""),
-            }
-        }
-    }
-
-    impl qobject::GuiBridge {
-        /// Start recording (stub)
-        #[qinvokable]
-        pub fn cmd_start(self: Pin<&mut qobject::GuiBridge>) {
-            let mut this = self;
-            this.set_state(1);
-        }
-
-        /// Toggle pause/resume (stub)
-        #[qinvokable]
-        pub fn cmd_toggle_pause(self: Pin<&mut qobject::GuiBridge>) {
-            let mut this = self;
-            let s = this.state();
-            this.set_state(if s == 1 { 0 } else { 1 });
-        }
-
-        /// Stop (stub)
-        #[qinvokable]
-        pub fn cmd_stop(self: Pin<&mut qobject::GuiBridge>) {
-            let mut this = self;
-            this.set_state(2);
-        }
-
-        /// Clear transcript (stub)
-        #[qinvokable]
-        pub fn cmd_clear(self: Pin<&mut qobject::GuiBridge>) {
-            let mut this = self;
-            this.set_transcript(QString::from(&""));
-        }
-    }
+// The actual Rust struct that backs the QObject
+// This must have fields matching the properties declared above
+// Using #[derive(Default)] provides initialization with expanded = false
+#[derive(Default)]
+pub struct GuiBridgeRust {
+    expanded: bool, // Tracks whether the GUI is in expanded or collapsed state
 }
