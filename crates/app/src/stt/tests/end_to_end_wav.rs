@@ -863,45 +863,54 @@ mod tests {
             use crate::text_injection::{
                 atspi_injector::AtspiInjector, InjectionConfig, TextInjector,
             };
+            use tokio::time::{timeout, Duration};
 
-            let config = InjectionConfig::default();
-            let injector = AtspiInjector::new(config);
+            // Guard the whole test with a short timeout so CI doesn't hang if desktop isn't responsive
+            let test_future = async {
+                let config = InjectionConfig::default();
+                let injector = AtspiInjector::new(config);
 
-            // Check availability first
-            if !injector.is_available().await {
-                eprintln!("Skipping AT-SPI test: Backend not available");
-                return;
-            }
-
-            // Open test terminal
-            let capture_file = std::env::temp_dir().join("coldvox_atspi_test.txt");
-            let terminal = match open_test_terminal(&capture_file).await {
-                Ok(term) => term,
-                Err(_) => {
-                    eprintln!("Skipping AT-SPI test: Could not open terminal");
+                // Check availability first
+                if !injector.is_available().await {
+                    eprintln!("Skipping AT-SPI test: Backend not available");
                     return;
+                }
+
+                // Open test terminal
+                let capture_file = std::env::temp_dir().join("coldvox_atspi_test.txt");
+                let terminal = match open_test_terminal(&capture_file).await {
+                    Ok(term) => term,
+                    Err(_) => {
+                        eprintln!("Skipping AT-SPI test: Could not open terminal");
+                        return;
+                    }
+                };
+
+                tokio::time::sleep(Duration::from_millis(500)).await;
+
+                // Test injection with its own timeout (per-method timeouts exist, but add safety)
+                let test_text = "AT-SPI injection test";
+                match timeout(Duration::from_secs(5), injector.inject_text(test_text)).await {
+                    Ok(Ok(_)) => info!("AT-SPI injection successful"),
+                    Ok(Err(e)) => eprintln!("AT-SPI injection failed: {:?}", e),
+                    Err(_) => eprintln!("AT-SPI injection timed out"),
+                }
+
+                // Cleanup
+                if let Some(mut term) = terminal {
+                    let _ = term.kill().await;
+                }
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                let captured = std::fs::read_to_string(&capture_file).unwrap_or_default();
+                let _ = std::fs::remove_file(&capture_file);
+
+                if captured.contains(test_text) {
+                    info!("✅ AT-SPI injection verified");
                 }
             };
 
-            tokio::time::sleep(Duration::from_millis(500)).await;
-
-            // Test injection
-            let test_text = "AT-SPI injection test";
-            match injector.inject_text(test_text).await {
-                Ok(_) => info!("AT-SPI injection successful"),
-                Err(e) => eprintln!("AT-SPI injection failed: {:?}", e),
-            }
-
-            // Cleanup
-            if let Some(mut term) = terminal {
-                let _ = term.kill().await;
-            }
-            tokio::time::sleep(Duration::from_millis(200)).await;
-            let captured = std::fs::read_to_string(&capture_file).unwrap_or_default();
-            let _ = std::fs::remove_file(&capture_file);
-
-            if captured.contains(test_text) {
-                info!("✅ AT-SPI injection verified");
+            if timeout(Duration::from_secs(15), test_future).await.is_err() {
+                eprintln!("AT-SPI test timed out - skipping (desktop likely unavailable)");
             }
         }
     }

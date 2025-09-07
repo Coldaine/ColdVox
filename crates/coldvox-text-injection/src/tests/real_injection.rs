@@ -7,10 +7,6 @@
 //! To run these tests, use the following command:
 //! `cargo test -p coldvox-text-injection --features real-injection-tests`
 
-// Allow dead code for now, as this is a new module and not all helpers
-// might be used immediately.
-#![allow(dead_code)]
-
 use crate::atspi_injector::AtSpiInjector;
 use crate::backend::Backend;
 use crate::clipboard_injector::ClipboardInjector;
@@ -25,7 +21,7 @@ use std::time::Duration;
 /// A placeholder test to verify that the test harness, build script, and
 /// environment detection are all working correctly.
 #[tokio::test]
-#[cfg_attr(not(feature = "real-injection-tests"), ignore)]
+
 async fn harness_self_test_launch_gtk_app() {
     let env = TestEnvironment::current();
     if !env.can_run_real_tests() {
@@ -89,19 +85,19 @@ async fn run_atspi_test(test_text: &str) {
 }
 
 #[tokio::test]
-#[cfg_attr(not(feature = "real-injection-tests"), ignore)]
+
 async fn test_atspi_simple_text() {
     run_atspi_test("Hello from AT-SPI!").await;
 }
 
 #[tokio::test]
-#[cfg_attr(not(feature = "real-injection-tests"), ignore)]
+
 async fn test_atspi_unicode_text() {
     run_atspi_test("Hello ColdVox 🎤 测试").await;
 }
 
 #[tokio::test]
-#[cfg_attr(not(feature = "real-injection-tests"), ignore)]
+
 async fn test_atspi_long_text() {
     // A long string to test for buffer issues.
     let long_text =
@@ -112,7 +108,7 @@ async fn test_atspi_long_text() {
 }
 
 #[tokio::test]
-#[cfg_attr(not(feature = "real-injection-tests"), ignore)]
+
 async fn test_atspi_special_chars() {
     run_atspi_test("Line 1\nLine 2\twith a tab\nAnd some symbols: !@#$%^&*()_+").await;
 }
@@ -167,19 +163,19 @@ async fn run_ydotool_test(test_text: &str) {
 }
 
 #[tokio::test]
-#[cfg_attr(not(feature = "real-injection-tests"), ignore)]
+
 async fn test_ydotool_simple_text() {
     run_ydotool_test("Hello from ydotool!").await;
 }
 
 #[tokio::test]
-#[cfg_attr(not(feature = "real-injection-tests"), ignore)]
+
 async fn test_ydotool_unicode_text() {
     run_ydotool_test("Hello ColdVox 🎤 测试 (via ydotool)").await;
 }
 
 #[tokio::test]
-#[cfg_attr(not(feature = "real-injection-tests"), ignore)]
+
 async fn test_ydotool_long_text() {
     let long_text = "This is a long string for ydotool. ".repeat(50);
     assert!(long_text.len() > 1000);
@@ -187,7 +183,7 @@ async fn test_ydotool_long_text() {
 }
 
 #[tokio::test]
-#[cfg_attr(not(feature = "real-injection-tests"), ignore)]
+
 async fn test_ydotool_special_chars() {
     run_ydotool_test("ydotool line 1\nydotool line 2\twith tab").await;
 }
@@ -243,13 +239,13 @@ async fn run_clipboard_paste_test(test_text: &str) {
 }
 
 #[tokio::test]
-#[cfg_attr(not(feature = "real-injection-tests"), ignore)]
+
 async fn test_clipboard_simple_text() {
     run_clipboard_paste_test("Hello from the clipboard!").await;
 }
 
 #[tokio::test]
-#[cfg_attr(not(feature = "real-injection-tests"), ignore)]
+
 async fn test_clipboard_unicode_text() {
     run_clipboard_paste_test("Clipboard 🎤 and paste 🎤").await;
 }
@@ -288,20 +284,20 @@ async fn run_enigo_typing_test(test_text: &str) {
 }
 
 #[tokio::test]
-#[cfg_attr(not(feature = "real-injection-tests"), ignore)]
+
 async fn test_enigo_typing_simple_text() {
     run_enigo_typing_test("Enigo types this text.").await;
 }
 
 #[tokio::test]
-#[cfg_attr(not(feature = "real-injection-tests"), ignore)]
+
 async fn test_enigo_typing_unicode_text() {
     // Note: Enigo's unicode support can be platform-dependent. This test will verify it.
     run_enigo_typing_test("Enigo 🎤 typing 🎤 unicode").await;
 }
 
 #[tokio::test]
-#[cfg_attr(not(feature = "real-injection-tests"), ignore)]
+
 async fn test_enigo_typing_special_chars() {
     run_enigo_typing_test("Enigo types\nnew lines and\ttabs.").await;
 }
