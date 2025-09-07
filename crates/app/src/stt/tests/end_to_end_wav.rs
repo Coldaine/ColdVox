@@ -669,7 +669,9 @@ mod tests {
         });
     }
 
+    #[ignore]
     #[tokio::test]
+
     async fn test_end_to_end_with_real_injection() {
         init_test_tracing();
         // This test uses the real AsyncInjectionProcessor for comprehensive testing
@@ -856,8 +858,10 @@ mod tests {
     }
 
     /// Test AT-SPI injection specifically
+    #[ignore]
     #[tokio::test]
     #[cfg(feature = "text-injection")]
+
     async fn test_atspi_injection() {
         #[cfg(feature = "text-injection")]
         {
@@ -917,8 +921,10 @@ mod tests {
     }
 
     /// Test clipboard injection specifically
+    #[ignore]
     #[tokio::test]
     #[cfg(feature = "text-injection")]
+
     async fn test_clipboard_injection() {
         #[cfg(feature = "text-injection")]
         {

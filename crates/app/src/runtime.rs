@@ -219,15 +219,25 @@ pub async fn start(
                 },
             };
             let vad_audio_rx = audio_tx.subscribe();
-            crate::audio::vad_processor::VadProcessor::spawn(
+            let vad_handle = crate::audio::vad_processor::VadProcessor::spawn(
                 vad_cfg,
                 vad_audio_rx,
                 raw_vad_tx.clone(),
                 Some(metrics.clone()),
-            )?
+            )
+            .map_err(|e| {
+                tracing::error!("Failed to spawn VAD processor: {}", e);
+                e
+            })?;
+            vad_handle
         }
         ActivationMode::Hotkey => spawn_hotkey_listener(raw_vad_tx.clone()),
     };
+
+    // Log successful VAD processor spawn
+    if let ActivationMode::Vad = opts.activation_mode {
+        tracing::info!("VAD processor spawned successfully");
+    }
 
     // 4) Fan-out raw VAD mpsc -> broadcast for UI, and to STT when enabled
     let (vad_bcast_tx, _) = broadcast::channel::<VadEvent>(256);
@@ -286,10 +296,16 @@ pub async fn start(
     let vad_fanout_handle = tokio::spawn(async move {
         let mut rx = raw_vad_rx;
         while let Some(ev) = rx.recv().await {
+            tracing::debug!("Fanout: Received VAD event: {:?}", ev);
             let _ = vad_bcast_tx_clone.send(ev);
+            tracing::debug!("Fanout: Forwarded to broadcast channel");
             #[cfg(feature = "vosk")]
             if let Some(stt_tx) = &stt_vad_tx_clone {
-                let _ = stt_tx.send(ev).await;
+                if let Err(e) = stt_tx.send(ev).await {
+                    tracing::warn!("Fanout: Failed to send to STT: {}", e);
+                } else {
+                    tracing::debug!("Fanout: Forwarded to STT channel");
+                }
             }
         }
     });
@@ -340,6 +356,15 @@ pub async fn start(
             None
         }
     };
+
+    // Log pipeline component initialization status
+    tracing::info!(
+        "Audio pipeline components initialized: capture={}, chunker={}, vad={}, stt={}",
+        true, // audio_capture is always initialized
+        true, // chunker_handle is always initialized
+        matches!(opts.activation_mode, ActivationMode::Vad),
+        cfg!(feature = "vosk") && stt_handle_opt.is_some()
+    );
 
     Ok(AppHandle {
         metrics,

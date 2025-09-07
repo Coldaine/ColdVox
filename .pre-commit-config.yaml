@@ -130,6 +130,11 @@ repos:
         language: system
         types: [rust]
         pass_filenames: false
+      - id: gpu-build-tests
+        name: GPU Workstation Build & Test Compile (VRAM >12GB)
+        language: system
+        pass_filenames: false
+        entry: bash -c 'scripts/gpu-build-precommit.sh'
       - id: injection-tests
         name: Text Injection Tests
         entry: bash -c 'if [[ "${SKIP_INJECTION_TESTS:-}" == "1" || "${CI:-}" != "true" ]]; then echo "⏭️ Skipping injection tests (CI only)"; exit 0; fi; cd crates/app && cargo test --features vosk,text-injection test_atspi_injection test_clipboard_injection -- --nocapture'

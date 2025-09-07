@@ -2,7 +2,7 @@
 # KDE Wayland Text Injection Setup for ColdVox
 # Based on 2024-2025 best practices
 
-set -e
+set -euo pipefail
 
 echo "======================================"
 echo "ColdVox Text Injection Setup"

@@ -244,7 +244,7 @@ impl SttProcessor {
 
     /// Handle speech start event
     async fn handle_speech_start(&mut self, timestamp_ms: u64) {
-        tracing::debug!(target: "stt", "STT processor received SpeechStart at {}ms", timestamp_ms);
+        tracing::info!(target: "stt", "STT processor received SpeechStart at {}ms", timestamp_ms);
 
         // Store the start time as Instant for duration calculations
         let start_instant = Instant::now();
@@ -265,7 +265,7 @@ impl SttProcessor {
 
     /// Handle speech end event
     async fn handle_speech_end(&mut self, timestamp_ms: u64, duration_ms: Option<u64>) {
-        tracing::debug!(
+        tracing::info!(
             target: "stt",
             "STT processor received SpeechEnd at {}ms (duration: {:?}ms)",
             timestamp_ms,
