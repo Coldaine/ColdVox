@@ -49,11 +49,27 @@ pub struct SttMetrics {
     pub queue_depth: usize,
     /// Time since last STT event
     pub last_event_time: Option<Instant>,
-    /// Performance metrics
+    /// Performance metrics (streaming STT)
     pub perf: PerformanceMetrics,
+    
+    // Enhanced telemetry metrics
+    /// Last end-to-end processing latency (microseconds)
+    pub last_e2e_latency_us: u64,
+    /// Last engine processing time (microseconds)
+    pub last_engine_time_us: u64,
+    /// Last preprocessing time (microseconds)
+    pub last_preprocessing_us: u64,
+    /// Average confidence score (0-1000 for precision)
+    pub avg_confidence_x1000: u64,
+    /// Total confidence measurements count
+    pub confidence_measurements: u64,
+    /// Memory usage estimate (bytes)
+    pub memory_usage_bytes: u64,
+    /// Buffer utilization percentage (0-100)
+    pub buffer_utilization_pct: u64,
 }
 
-/// Detailed performance metrics
+/// Detailed performance metrics for streaming STT
 #[derive(Debug, Clone, Default)]
 pub struct PerformanceMetrics {
     /// Total processing time spent in STT operations
@@ -94,6 +110,8 @@ pub struct SttProcessor {
     metrics: Arc<parking_lot::RwLock<SttMetrics>>,
     /// Configuration
     config: TranscriptionConfig,
+    /// Performance metrics for comprehensive monitoring
+    performance_metrics: Option<Arc<crate::telemetry::SttPerformanceMetrics>>,
 }
 
 #[cfg(feature = "vosk")]
@@ -121,6 +139,7 @@ impl SttProcessor {
             state: UtteranceState::Idle,
             metrics: Arc::new(parking_lot::RwLock::new(SttMetrics::default())),
             config,
+            performance_metrics: None,
         })
     }
 
@@ -149,6 +168,16 @@ impl SttProcessor {
     /// Get current metrics
     pub fn metrics(&self) -> SttMetrics {
         self.metrics.read().clone()
+    }
+
+    /// Set performance metrics for comprehensive monitoring
+    pub fn set_performance_metrics(&mut self, performance_metrics: Arc<crate::telemetry::SttPerformanceMetrics>) {
+        self.performance_metrics = Some(performance_metrics);
+    }
+
+    /// Get performance metrics reference
+    pub fn performance_metrics(&self) -> Option<&Arc<crate::telemetry::SttPerformanceMetrics>> {
+        self.performance_metrics.as_ref()
     }
 
     /// Run the STT processor loop
@@ -240,11 +269,14 @@ impl SttProcessor {
             duration_ms
         );
 
+        // Start timing the entire end-to-end process
+        let e2e_start = Instant::now();
+
         // Process the buffered audio all at once
         if let UtteranceState::SpeechActive {
             audio_buffer,
             frames_buffered,
-            ..
+            started_at,
         } = &self.state
         {
             let buffer_size = audio_buffer.len();
@@ -256,17 +288,50 @@ impl SttProcessor {
                 frames_buffered
             );
 
+            // Record memory usage estimate
+            let estimated_memory = buffer_size * std::mem::size_of::<i16>() + 1024; // Buffer + overhead
+            if let Some(perf_metrics) = &self.performance_metrics {
+                perf_metrics.update_memory_usage(estimated_memory as u64);
+            }
+
             if !audio_buffer.is_empty() {
+                // Time the preprocessing phase
+                let preprocessing_start = Instant::now();
+                
+                // Calculate buffer utilization (assuming max 10 seconds)
+                let max_samples = 16000 * 10;
+                let utilization = ((buffer_size * 100) / max_samples).min(100);
+                
+                let preprocessing_time = preprocessing_start.elapsed();
+                
+                // Retry logic with telemetry tracking
                 let mut attempts = 0;
                 let mut last_err: Option<String>;
                 loop {
+                    // Time the STT engine processing
+                    let engine_start = Instant::now();
+                    
                     let res = coldvox_stt::EventBasedTranscriber::accept_frame(
                         &mut self.transcriber,
                         audio_buffer,
                     );
                     match res {
                         Ok(Some(event)) => {
-                            self.send_event(event).await;
+                            let engine_time = engine_start.elapsed();
+                            let delivery_start = Instant::now();
+                            
+                            self.send_event(event.clone()).await;
+                            
+                            let delivery_time = delivery_start.elapsed();
+                            let e2e_time = e2e_start.elapsed();
+
+                            // Update comprehensive metrics
+                            self.update_timing_metrics(e2e_time, engine_time, preprocessing_time, delivery_time);
+                            
+                            // Extract confidence if available and update accuracy metrics
+                            self.update_accuracy_metrics(&event, true);
+
+                            // Update basic metrics
                             let mut metrics = self.metrics.write();
                             metrics.frames_out += frames_buffered;
                             metrics.last_event_time = Some(Instant::now());
@@ -277,7 +342,10 @@ impl SttProcessor {
                             break;
                         }
                         Err(e) => {
-                            last_err = Some(e);
+                            let engine_time = engine_start.elapsed();
+                            let e2e_time = e2e_start.elapsed();
+                            
+                            last_err = Some(e.clone());
                             if attempts < 2 {
                                 attempts += 1;
                                 let _ = coldvox_stt::EventBasedTranscriber::reset(
@@ -288,12 +356,29 @@ impl SttProcessor {
                             } else {
                                 let msg = last_err.unwrap_or_else(|| "unknown error".to_string());
                                 tracing::error!(target: "stt", "Failed to process buffered audio after retries: {}", msg);
+
+                                // Update error metrics
+                                self.update_accuracy_metrics(&TranscriptionEvent::Error {
+                                    code: "BUFFER_PROCESS_ERROR".to_string(),
+                                    message: e.clone(),
+                                }, false);
+
                                 let error_event = TranscriptionEvent::Error {
                                     code: "BUFFER_PROCESS_ERROR".to_string(),
                                     message: msg,
                                 };
                                 self.send_event(error_event).await;
-                                self.metrics.write().error_count += 1;
+
+                                // Update metrics including timing even for errors
+                                let mut metrics = self.metrics.write();
+                                metrics.error_count += 1;
+                                metrics.last_engine_time_us = engine_time.as_micros() as u64;
+                                metrics.last_e2e_latency_us = e2e_time.as_micros() as u64;
+                                
+                                if let Some(perf_metrics) = &self.performance_metrics {
+                                    perf_metrics.record_transcription_failure();
+                                    perf_metrics.record_error();
+                                }
                                 break;
                             }
                         }
@@ -310,7 +395,12 @@ impl SttProcessor {
                         &mut self.transcriber,
                     ) {
                         Ok(Some(event)) => {
-                            self.send_event(event).await;
+                            self.send_event(event.clone()).await;
+                            
+                            // Update accuracy metrics
+                            self.update_accuracy_metrics(&event, true);
+
+                            // Update metrics
                             let mut metrics = self.metrics.write();
                             metrics.final_count += 1;
                             metrics.last_event_time = Some(Instant::now());
@@ -321,7 +411,7 @@ impl SttProcessor {
                             break;
                         }
                         Err(e) => {
-                            last_err = Some(e);
+                            last_err = Some(e.clone());
                             if attempts < 2 {
                                 attempts += 1;
                                 let _ = coldvox_stt::EventBasedTranscriber::reset(
@@ -332,12 +422,27 @@ impl SttProcessor {
                             } else {
                                 let msg = last_err.unwrap_or_else(|| "unknown error".to_string());
                                 tracing::error!(target: "stt", "Failed to finalize transcription after retries: {}", msg);
+
+                                // Update error metrics
+                                self.update_accuracy_metrics(&TranscriptionEvent::Error {
+                                    code: "FINALIZE_ERROR".to_string(),
+                                    message: e.clone(),
+                                }, false);
+
                                 let error_event = TranscriptionEvent::Error {
                                     code: "FINALIZE_ERROR".to_string(),
                                     message: msg,
                                 };
                                 self.send_event(error_event).await;
-                                self.metrics.write().error_count += 1;
+
+                                // Update metrics
+                                let mut metrics = self.metrics.write();
+                                metrics.error_count += 1;
+                                
+                                if let Some(perf_metrics) = &self.performance_metrics {
+                                    perf_metrics.record_transcription_failure();
+                                    perf_metrics.record_error();
+                                }
                                 break;
                             }
                         }
@@ -501,6 +606,98 @@ impl SttProcessor {
                 // Timeout - consumer is too slow
                 tracing::warn!(target: "stt", "Event channel send timed out after 5s - consumer too slow");
                 self.metrics.write().frames_dropped += 1;
+            }
+        }
+    }
+
+    /// Update timing metrics from processing measurements
+    fn update_timing_metrics(
+        &self,
+        e2e_time: std::time::Duration,
+        engine_time: std::time::Duration,
+        preprocessing_time: std::time::Duration,
+        delivery_time: std::time::Duration,
+    ) {
+        // Update basic metrics with latest timings
+        {
+            let mut metrics = self.metrics.write();
+            metrics.last_e2e_latency_us = e2e_time.as_micros() as u64;
+            metrics.last_engine_time_us = engine_time.as_micros() as u64;
+            metrics.last_preprocessing_us = preprocessing_time.as_micros() as u64;
+        }
+
+        // Update comprehensive performance metrics if available
+        if let Some(perf_metrics) = &self.performance_metrics {
+            perf_metrics.record_end_to_end_latency(e2e_time);
+            perf_metrics.record_engine_processing_time(engine_time);
+            perf_metrics.record_preprocessing_latency(preprocessing_time);
+            perf_metrics.record_result_delivery_latency(delivery_time);
+            perf_metrics.increment_requests();
+        }
+    }
+
+    /// Update accuracy metrics from transcription events
+    fn update_accuracy_metrics(&self, event: &TranscriptionEvent, success: bool) {
+        if let Some(perf_metrics) = &self.performance_metrics {
+            if success {
+                perf_metrics.record_transcription_success();
+                
+                // Extract confidence from transcription events
+                match event {
+                    TranscriptionEvent::Final { words, .. } => {
+                        // Calculate average confidence from word-level data if available
+                        if let Some(word_list) = words {
+                            if !word_list.is_empty() {
+                                let avg_confidence: f64 = word_list.iter()
+                                    .map(|w| w.conf as f64)
+                                    .sum::<f64>() / word_list.len() as f64;
+                                perf_metrics.record_confidence_score(avg_confidence);
+                            }
+                        }
+                        perf_metrics.record_final_transcription();
+                    }
+                    TranscriptionEvent::Partial { .. } => {
+                        perf_metrics.record_partial_transcription();
+                    }
+                    TranscriptionEvent::Error { .. } => {
+                        perf_metrics.record_transcription_failure();
+                        perf_metrics.record_error();
+                    }
+                }
+            } else {
+                perf_metrics.record_transcription_failure();
+                perf_metrics.record_error();
+            }
+        }
+
+        // Update basic metrics
+        {
+            let mut metrics = self.metrics.write();
+            match event {
+                TranscriptionEvent::Final { words, .. } => {
+                    metrics.final_count += 1;
+                    
+                    // Update confidence if available
+                    if let Some(word_list) = words {
+                        if !word_list.is_empty() {
+                            let avg_confidence: f64 = word_list.iter()
+                                .map(|w| w.conf as f64)
+                                .sum::<f64>() / word_list.len() as f64;
+                            
+                            // Update running average (stored as x1000 for precision)
+                            let confidence_x1000 = (avg_confidence * 1000.0) as u64;
+                            let current_sum = metrics.avg_confidence_x1000 * metrics.confidence_measurements;
+                            metrics.confidence_measurements += 1;
+                            metrics.avg_confidence_x1000 = (current_sum + confidence_x1000) / metrics.confidence_measurements;
+                        }
+                    }
+                }
+                TranscriptionEvent::Partial { .. } => {
+                    metrics.partial_count += 1;
+                }
+                TranscriptionEvent::Error { .. } => {
+                    metrics.error_count += 1;
+                }
             }
         }
     }
