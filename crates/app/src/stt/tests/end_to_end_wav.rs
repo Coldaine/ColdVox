@@ -293,14 +293,15 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
 
     // Set up STT processor
     let (stt_transcription_tx, stt_transcription_rx) = mpsc::channel::<TranscriptionEvent>(100);
+
     let stt_config = TranscriptionConfig {
         enabled: true,
-    streaming: true,
         model_path: std::env::var("VOSK_MODEL_PATH")
             .unwrap_or_else(|_| "models/vosk-model-small-en-us-0.15".to_string()),
         partial_results: true,
         max_alternatives: 1,
         include_words: false,
+        streaming: false,
         buffer_size_ms: 512,
     };
 
@@ -748,6 +749,7 @@ mod tests {
 
         // Set up STT processor
         let (stt_transcription_tx, stt_transcription_rx) = mpsc::channel::<TranscriptionEvent>(100);
+
         let stt_config = TranscriptionConfig {
             enabled: true,
             model_path: std::env::var("VOSK_MODEL_PATH")
@@ -755,6 +757,7 @@ mod tests {
             partial_results: true,
             max_alternatives: 1,
             include_words: false,
+            streaming: false,
             buffer_size_ms: 512,
         };
 
