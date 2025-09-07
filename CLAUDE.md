@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## AI Assistant Response Guidelines
+
+**Prompt Response Format**: When asked to create a prompt for another agent, return ONLY the prompt content without any additional commentary, explanation, or wrapper text. Simply output the prompt as requested.
+
 ## ColdVox Overview
 
 Rust-based voice AI pipeline implementing VAD-gated STT with text injection. The pipeline captures audio, detects speech activity, transcribes it to text, and injects the transcribed text into the active application.

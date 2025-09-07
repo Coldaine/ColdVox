@@ -29,6 +29,19 @@ use super::test_harness::{TestAppManager, TestEnvironment};
 use crate::types::InjectionConfig;
 use crate::TextInjector;
 
+/// Initialize tracing for tests with debug level
+fn init_test_tracing() {
+    use std::sync::Once;
+    use tracing_subscriber::{fmt, EnvFilter};
+
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("debug"));
+
+        fmt().with_env_filter(filter).with_test_writer().init();
+    });
+}
+
 /// Adaptive timeout profile (cold -> warm) for backend operations.
 fn backend_timeouts(is_cold: bool) -> (Duration, Duration) {
     // (injection_attempt_timeout, verify_timeout)
@@ -92,6 +105,7 @@ where
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn real_injection_smoke() {
+    init_test_tracing();
     // Check for environment variable to enable smoke test
     if std::env::var("RUN_REAL_INJECTION_SMOKE").is_err() {
         eprintln!("[smoke] Skipping smoke test (set RUN_REAL_INJECTION_SMOKE=1 to enable)");

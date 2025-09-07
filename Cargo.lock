@@ -743,6 +743,7 @@ dependencies = [
  "tokio-test",
  "toml",
  "tracing",
+ "tracing-subscriber",
  "wl-clipboard-rs",
 ]
 

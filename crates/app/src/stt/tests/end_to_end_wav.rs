@@ -863,6 +863,7 @@ mod tests {
     #[cfg(feature = "text-injection")]
 
     async fn test_atspi_injection() {
+        init_test_tracing();
         #[cfg(feature = "text-injection")]
         {
             use crate::text_injection::{
@@ -926,6 +927,7 @@ mod tests {
     #[cfg(feature = "text-injection")]
 
     async fn test_clipboard_injection() {
+        init_test_tracing();
         #[cfg(feature = "text-injection")]
         {
             use crate::text_injection::{

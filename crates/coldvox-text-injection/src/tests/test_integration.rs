@@ -3,9 +3,26 @@ mod integration_tests {
     use crate::manager::StrategyManager;
     use crate::types::{InjectionConfig, InjectionMetrics};
     use std::sync::{Arc, Mutex};
+    use tracing::{debug, info};
+
+    /// Initialize tracing for tests with debug level
+    fn init_test_tracing() {
+        use std::sync::Once;
+        use tracing_subscriber::{fmt, EnvFilter};
+
+        static INIT: Once = Once::new();
+        INIT.call_once(|| {
+            let filter =
+                EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("debug"));
+
+            fmt().with_env_filter(filter).with_test_writer().init();
+        });
+    }
 
     #[tokio::test]
     async fn test_full_injection_flow() {
+        init_test_tracing();
+        info!("Starting test_full_injection_flow");
         let config = InjectionConfig {
             allow_ydotool: false, // Disable external dependencies for testing
             restore_clipboard: true,
@@ -14,24 +31,29 @@ mod integration_tests {
 
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
         let manager = StrategyManager::new(config, metrics.clone()).await;
+        debug!("StrategyManager created successfully");
 
         // Test getting current app ID
+        info!("Attempting to get current app ID...");
         let app_id = manager.get_current_app_id().await;
+        debug!("get_current_app_id completed, result: {:?}", app_id);
         assert!(app_id.is_ok());
         let app_id = app_id.unwrap();
-        println!("Current app ID: {}", app_id);
+        info!("Current app ID: {}", app_id);
 
         // Test method priority
+        info!("Attempting to get method priority...");
         let methods = manager.get_method_priority(&app_id);
+        debug!("get_method_priority completed, result: {:?}", methods);
         assert!(
             !methods.is_empty(),
             "Should have at least one injection method available"
         );
-        println!("Available methods: {:?}", methods);
+        info!("Available methods: {:?}", methods);
 
         // Check metrics
         let metrics_guard = metrics.lock().unwrap();
-        println!(
+        debug!(
             "Initial metrics: attempts={}, successes={}",
             metrics_guard.attempts, metrics_guard.successes
         );
