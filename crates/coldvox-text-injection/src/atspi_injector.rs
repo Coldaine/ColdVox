@@ -51,40 +51,41 @@ impl TextInjector for AtspiInjector {
     async fn inject_text(&self, text: &str) -> InjectionResult<()> {
         #[cfg(feature = "atspi")]
         {
+            use crate::types::InjectionError;
             use atspi::{
                 connection::AccessibilityConnection, proxy::collection::CollectionProxy,
                 proxy::editable_text::EditableTextProxy, proxy::text::TextProxy, Interface,
                 MatchType, ObjectMatchRule, SortOrder, State,
             };
+            use tokio::time;
+
+            let per_method_timeout = self._config.per_method_timeout();
 
             let start = Instant::now();
             trace!("AT-SPI injection starting for {} chars of text", text.len());
 
-            let conn = AccessibilityConnection::new().await.map_err(|e| {
-                warn!("AT-SPI connection failed: {}", e);
-                crate::types::InjectionError::Other(format!("AT-SPI connect failed: {e}"))
-            })?;
+            let conn = time::timeout(per_method_timeout, AccessibilityConnection::new())
+                .await
+                .map_err(|_| InjectionError::Timeout(per_method_timeout.as_millis() as u64))?
+                .map_err(|e| {
+                    warn!("AT-SPI connection failed: {}", e);
+                    InjectionError::Other(format!("AT-SPI connect failed: {e}"))
+                })?;
             let zbus_conn = conn.connection();
             trace!("AT-SPI connection established");
 
-            let collection = CollectionProxy::builder(zbus_conn)
+            let collection_fut = CollectionProxy::builder(zbus_conn)
                 .destination("org.a11y.atspi.Registry")
                 .map_err(|e| {
-                    crate::types::InjectionError::Other(format!(
-                        "CollectionProxy destination failed: {e}"
-                    ))
+                    InjectionError::Other(format!("CollectionProxy destination failed: {e}"))
                 })?
                 .path("/org/a11y/atspi/accessible/root")
-                .map_err(|e| {
-                    crate::types::InjectionError::Other(format!("CollectionProxy path failed: {e}"))
-                })?
-                .build()
+                .map_err(|e| InjectionError::Other(format!("CollectionProxy path failed: {e}")))?
+                .build();
+            let collection = time::timeout(per_method_timeout, collection_fut)
                 .await
-                .map_err(|e| {
-                    crate::types::InjectionError::Other(format!(
-                        "CollectionProxy build failed: {e}"
-                    ))
-                })?;
+                .map_err(|_| InjectionError::Timeout(per_method_timeout.as_millis() as u64))?
+                .map_err(|e| InjectionError::Other(format!("CollectionProxy build failed: {e}")))?;
 
             let mut rule = ObjectMatchRule::default();
             rule.states = State::Focused.into();
@@ -94,13 +95,12 @@ impl TextInjector for AtspiInjector {
 
             // Try to find focused element, with one quick retry if needed
             // Focus can be transient during window switches or UI updates
-            let mut matches = collection
-                .get_matches(rule.clone(), SortOrder::Canonical, 1, false)
+            let get_matches = collection.get_matches(rule.clone(), SortOrder::Canonical, 1, false);
+            let mut matches = time::timeout(per_method_timeout, get_matches)
                 .await
+                .map_err(|_| InjectionError::Timeout(per_method_timeout.as_millis() as u64))?
                 .map_err(|e| {
-                    crate::types::InjectionError::Other(format!(
-                        "Collection.get_matches failed: {e}"
-                    ))
+                    InjectionError::Other(format!("Collection.get_matches failed: {e}"))
                 })?;
 
             // If no match found, retry once after brief delay (focus can be transient)
@@ -108,13 +108,12 @@ impl TextInjector for AtspiInjector {
                 debug!("No focused EditableText found, retrying once after 30ms");
                 tokio::time::sleep(std::time::Duration::from_millis(30)).await;
 
-                matches = collection
-                    .get_matches(rule, SortOrder::Canonical, 1, false)
+                let retry = collection.get_matches(rule, SortOrder::Canonical, 1, false);
+                matches = time::timeout(per_method_timeout, retry)
                     .await
+                    .map_err(|_| InjectionError::Timeout(per_method_timeout.as_millis() as u64))?
                     .map_err(|e| {
-                        crate::types::InjectionError::Other(format!(
-                            "Collection.get_matches retry failed: {e}"
-                        ))
+                        InjectionError::Other(format!("Collection.get_matches retry failed: {e}"))
                     })?;
             }
 
@@ -131,61 +130,52 @@ impl TextInjector for AtspiInjector {
                 obj_ref.path, obj_ref.name
             );
 
-            let editable = EditableTextProxy::builder(zbus_conn)
+            let editable_fut = EditableTextProxy::builder(zbus_conn)
                 .destination(obj_ref.name.clone())
                 .map_err(|e| {
-                    crate::types::InjectionError::Other(format!(
-                        "EditableTextProxy destination failed: {e}"
-                    ))
+                    InjectionError::Other(format!("EditableTextProxy destination failed: {e}"))
                 })?
                 .path(obj_ref.path.clone())
-                .map_err(|e| {
-                    crate::types::InjectionError::Other(format!(
-                        "EditableTextProxy path failed: {e}"
-                    ))
-                })?
-                .build()
+                .map_err(|e| InjectionError::Other(format!("EditableTextProxy path failed: {e}")))?
+                .build();
+            let editable = time::timeout(per_method_timeout, editable_fut)
                 .await
+                .map_err(|_| InjectionError::Timeout(per_method_timeout.as_millis() as u64))?
                 .map_err(|e| {
-                    crate::types::InjectionError::Other(format!(
-                        "EditableTextProxy build failed: {e}"
-                    ))
+                    InjectionError::Other(format!("EditableTextProxy build failed: {e}"))
                 })?;
 
-            let text_iface = TextProxy::builder(zbus_conn)
+            let text_iface_fut = TextProxy::builder(zbus_conn)
                 .destination(obj_ref.name.clone())
-                .map_err(|e| {
-                    crate::types::InjectionError::Other(format!(
-                        "TextProxy destination failed: {e}"
-                    ))
-                })?
+                .map_err(|e| InjectionError::Other(format!("TextProxy destination failed: {e}")))?
                 .path(obj_ref.path.clone())
-                .map_err(|e| {
-                    crate::types::InjectionError::Other(format!("TextProxy path failed: {e}"))
-                })?
-                .build()
+                .map_err(|e| InjectionError::Other(format!("TextProxy path failed: {e}")))?
+                .build();
+            let text_iface = time::timeout(per_method_timeout, text_iface_fut)
                 .await
-                .map_err(|e| {
-                    crate::types::InjectionError::Other(format!("TextProxy build failed: {e}"))
-                })?;
+                .map_err(|_| InjectionError::Timeout(per_method_timeout.as_millis() as u64))?
+                .map_err(|e| InjectionError::Other(format!("TextProxy build failed: {e}")))?;
 
-            let caret = text_iface.caret_offset().await.map_err(|e| {
-                warn!("Failed to get caret offset from {:?}: {}", obj_ref.path, e);
-                crate::types::InjectionError::Other(format!("Text.caret_offset failed: {e}"))
-            })?;
+            let caret_fut = text_iface.caret_offset();
+            let caret = time::timeout(per_method_timeout, caret_fut)
+                .await
+                .map_err(|_| InjectionError::Timeout(per_method_timeout.as_millis() as u64))?
+                .map_err(|e| {
+                    warn!("Failed to get caret offset from {:?}: {}", obj_ref.path, e);
+                    InjectionError::Other(format!("Text.caret_offset failed: {e}"))
+                })?;
             trace!("Current caret position: {}", caret);
 
-            editable
-                .insert_text(caret, text, text.chars().count() as i32)
+            let insert_fut = editable.insert_text(caret, text, text.chars().count() as i32);
+            time::timeout(per_method_timeout, insert_fut)
                 .await
+                .map_err(|_| InjectionError::Timeout(per_method_timeout.as_millis() as u64))?
                 .map_err(|e| {
                     warn!(
                         "Failed to insert text at position {} in {:?}: {}",
                         caret, obj_ref.path, e
                     );
-                    crate::types::InjectionError::Other(format!(
-                        "EditableText.insert_text failed: {e}"
-                    ))
+                    InjectionError::Other(format!("EditableText.insert_text failed: {e}"))
                 })?;
 
             let elapsed = start.elapsed();
