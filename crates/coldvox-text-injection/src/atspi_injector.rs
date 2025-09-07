@@ -36,10 +36,22 @@ impl TextInjector for AtspiInjector {
         #[cfg(feature = "atspi")]
         {
             use atspi::connection::AccessibilityConnection;
+            use tokio::time;
 
-            // In async context (like #[tokio::test]), just await directly
-            // instead of trying to block_on the current runtime
-            AccessibilityConnection::new().await.is_ok()
+            let timeout_duration = self._config.per_method_timeout();
+
+            let availability_check = async { AccessibilityConnection::new().await.is_ok() };
+
+            match time::timeout(timeout_duration, availability_check).await {
+                Ok(is_ok) => is_ok,
+                Err(_) => {
+                    warn!(
+                        "AT-SPI availability check timed out after {}ms",
+                        timeout_duration.as_millis()
+                    );
+                    false
+                }
+            }
         }
         #[cfg(not(feature = "atspi"))]
         {
