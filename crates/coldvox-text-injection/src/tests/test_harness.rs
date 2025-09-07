@@ -22,11 +22,17 @@ impl Drop for TestApp {
     fn drop(&mut self) {
         // Aggressively terminate the process.
         if let Err(e) = self.process.kill() {
-            eprintln!("Failed to kill test app process with PID {}: {}", self.pid, e);
+            eprintln!(
+                "Failed to kill test app process with PID {}: {}",
+                self.pid, e
+            );
         }
         // It's good practice to wait for the process to avoid zombies.
         if let Err(e) = self.process.wait() {
-            eprintln!("Failed to wait for test app process with PID {}: {}", self.pid, e);
+            eprintln!(
+                "Failed to wait for test app process with PID {}: {}",
+                self.pid, e
+            );
         }
 
         // Clean up the temporary output file.
@@ -54,7 +60,10 @@ impl TestAppManager {
         if !exe_path.exists() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
-                format!("GTK test app executable not found at {:?}. Did build.rs fail to build it?", exe_path)
+                format!(
+                    "GTK test app executable not found at {:?}. Did build.rs fail to build it?",
+                    exe_path
+                ),
             ));
         }
 
@@ -66,7 +75,11 @@ impl TestAppManager {
         let pid = process.id();
         let output_file = PathBuf::from(format!("/tmp/coldvox_gtk_test_{}.txt", pid));
 
-        Ok(TestApp { process, pid, output_file })
+        Ok(TestApp {
+            process,
+            pid,
+            output_file,
+        })
     }
 
     /// Launches the terminal test application.
@@ -92,7 +105,11 @@ impl TestAppManager {
         let pid = process.id();
         let output_file = PathBuf::from(format!("/tmp/coldvox_terminal_test_{}.txt", pid));
 
-        Ok(TestApp { process, pid, output_file })
+        Ok(TestApp {
+            process,
+            pid,
+            output_file,
+        })
     }
 }
 
@@ -110,7 +127,8 @@ pub fn verify_injection(output_file: &Path, expected_text: &str) -> Result<(), S
         std::thread::sleep(Duration::from_millis(50));
     }
 
-    let final_content = fs::read_to_string(output_file).unwrap_or_else(|_| "<file not found or unreadable>".to_string());
+    let final_content = fs::read_to_string(output_file)
+        .unwrap_or_else(|_| "<file not found or unreadable>".to_string());
     Err(format!(
         "Verification failed after {}ms. Expected: '{}', Found: '{}'",
         timeout.as_millis(),
@@ -135,10 +153,7 @@ impl TestEnvironment {
         // The CI variable is a de-facto standard for detecting CI environments.
         let is_ci = env::var("CI").is_ok();
 
-        Self {
-            has_display,
-            is_ci,
-        }
+        Self { has_display, is_ci }
     }
 
     /// Determines if the environment is suitable for running real injection tests.

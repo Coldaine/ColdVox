@@ -79,13 +79,18 @@ fn build_terminal_test_app() {
         .expect("Failed to execute cargo build for terminal-test-app");
 
     if !status.success() {
-        println!("cargo:warning=Failed to build the terminal test app. Real injection tests may fail.");
+        println!(
+            "cargo:warning=Failed to build the terminal test app. Real injection tests may fail."
+        );
     } else {
         // Copy the executable to a known location in OUT_DIR for the tests to find easily.
         let src_path = target_dir.join("release/terminal-test-app");
         let dest_path = Path::new(&out_dir).join("terminal-test-app");
         if let Err(e) = std::fs::copy(&src_path, &dest_path) {
-            println!("cargo:warning=Failed to copy terminal test app executable from {:?} to {:?}: {}", src_path, dest_path, e);
+            println!(
+                "cargo:warning=Failed to copy terminal test app executable from {:?} to {:?}: {}",
+                src_path, dest_path, e
+            );
         }
     }
 }
