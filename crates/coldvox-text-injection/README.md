@@ -10,33 +10,136 @@ Automated text injection system for ColdVox transcribed speech.
 - Headless CI support using Xvfb + fluxbox + D-Bus; readiness loops (no fixed sleeps)
 - Allow/block list semantics: compiled regex path when `regex` is enabled; substring matching otherwise
 
-## Purpose
+## Quick Setup
 
-This crate provides text injection capabilities that automatically type transcribed speech into applications:
+For automated setup of all dependencies and permissions:
+
+```bash
+# From the workspace root
+./scripts/setup_text_injection.sh
+```
+
+This handles package installation, permissions, and daemon configuration for your Linux distribution.
+
+## Manual Setup
+
+If you prefer manual installation, see the platform-specific instructions below.
 
 - **Multi-Backend Support**: Multiple text injection methods for different environments
 - **Focus Tracking**: Automatic detection of active application windows
 - **Smart Routing**: Application-specific injection method selection
 - **Cross-Platform**: Support for X11, Wayland, and other desktop environments
 
-## Key Components
+## Text Injection Methods: AT-SPI vs Ydotool
 
-### Text Injection Backends
-- **Clipboard**: Copy transcription to clipboard and paste
-- **AT-SPI**: Accessibility API for direct text insertion (if enabled)
-- **Combo (Clipboard + Paste)**: Clipboard set plus AT-SPI paste or `ydotool` fallback
-- **YDotool**: uinput-based paste or key events (opt-in)
-- **KDotool Assist**: KDE/X11 window activation assistance (opt-in)
-- **Enigo**: Cross-platform input simulation (opt-in)
+This crate provides two fundamentally different approaches to text injection, each with distinct advantages and limitations:
 
-### Focus Detection
-- Active window detection and application identification
-- Application-specific method prioritization
-- Unknown application fallback strategies
+### 🔍 AT-SPI (Accessibility API) Approach
 
-### Smart Injection Management
-- Latency optimization and timeout handling
-- Method fallback chains for reliability
+**How it works:**
+- Uses Linux Accessibility APIs to query the desktop environment
+- Finds specific UI elements (text fields, editors) in applications
+- Directly inserts text into the identified element
+- Requires AT-SPI service to be running and accessible
+
+**Key Characteristics:**
+- **Precise targeting**: Can insert text into specific text fields
+- **Element-aware**: Knows about different UI components
+- **Application integration**: Works with accessibility-enabled applications
+- **Complex setup**: Requires AT-SPI daemon and permissions
+
+**When to use:**
+- When you need to target specific text fields
+- For applications with complex UI structures
+- When accessibility features are important
+
+**Example use case:** Inserting text into a specific form field in a web browser
+
+### ⌨️ Ydotool (Keyboard Simulation) Approach
+
+**How it works:**
+- Creates virtual input devices via Linux uinput subsystem
+- Simulates keyboard input (like pressing Ctrl+V) to the currently focused window
+- The focused application receives input as if you physically typed it
+- No element detection - just sends input to whatever has focus
+
+**Key Characteristics:**
+- **Simple and reliable**: Works with any focused application
+- **No element finding**: Doesn't need to identify specific UI components
+- **Universal compatibility**: Works with all applications that accept keyboard input
+- **Focus-dependent**: Only works with the currently active window
+
+**When to use:**
+- When you want simple, reliable text insertion
+- For applications where focus is already on the target area
+- When you don't need to target specific text fields
+- As a fallback when AT-SPI is unavailable
+
+**Example use case:** Pasting transcribed speech into any text editor or chat application
+
+### 📊 Comparison Table
+
+| Aspect | AT-SPI | Ydotool |
+|--------|--------|---------|
+| **Precision** | High (targets specific elements) | Low (targets focused window) |
+| **Setup Complexity** | High (AT-SPI daemon, permissions) | Medium (uinput, daemon) |
+| **Application Support** | Accessibility-enabled apps only | All applications |
+| **Reliability** | Variable (depends on app accessibility) | High (works with any focused app) |
+| **Performance** | Slower (API queries + element finding) | Fast (direct input simulation) |
+| **Dependencies** | `libatk-bridge2.0-dev`, AT-SPI service | `ydotool`, `ydotoold` daemon |
+| **Focus Requirements** | Element must be focusable | Window must have keyboard focus |
+
+### 🎯 Choosing the Right Method
+
+**Use AT-SPI when:**
+- You need to insert text into specific form fields or text areas
+- Working with complex applications (IDEs, web forms, etc.)
+- Accessibility features are available and working
+
+**Use Ydotool when:**
+- You want maximum compatibility across all applications
+- The target application already has focus on the right area
+- You need a simple, reliable fallback method
+- Setup complexity should be minimized
+
+### 🔧 Implementation Details
+
+**AT-SPI Implementation:**
+```rust
+// Queries accessibility tree to find text elements
+let collection = CollectionProxy::builder(zbus_conn)
+    .destination("org.a11y.atspi.Registry")
+    .path("/org/a11y/atspi/accessible/root")
+    .build()
+    .await?;
+
+// Finds focused actionable elements
+let matches = collection.get_matches(rule, SortOrder::Canonical, 1, false).await?;
+
+// Inserts text directly into the element
+action.do_action(paste_index, &[]).await?;
+```
+
+**Ydotool Implementation:**
+```rust
+// Sets clipboard content
+clipboard_injector.inject_text(text).await?;
+
+// Sends Ctrl+V to focused window via uinput
+Command::new("ydotool")
+    .env("YDOTOOL_SOCKET", "/tmp/.ydotool_socket")
+    .args(["key", "ctrl+v"])
+    .output()
+    .await?;
+```
+
+### 🚀 Performance & Reliability
+
+- **AT-SPI**: More complex but potentially more accurate for specific use cases
+- **Ydotool**: Simpler, faster, and more universally compatible
+- **Combo Approach**: Use AT-SPI first, fallback to ydotool for maximum reliability
+
+Both methods have their place in a comprehensive text injection system, with ydotool serving as the reliable workhorse and AT-SPI providing precision when needed.
 - Configurable injection strategies per application
 
 ## Features

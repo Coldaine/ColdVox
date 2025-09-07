@@ -100,26 +100,40 @@ echo
 # 4. Configure ydotool service
 echo "Step 4: Configuring ydotool service..."
 
-# Check if systemd service exists
-if systemctl list-unit-files | grep -q "ydotool.service"; then
-    # Try user service first
-    if systemctl --user is-enabled ydotool.service &> /dev/null; then
-        echo "✓ ydotool user service already enabled"
-    elif systemctl is-enabled ydotool.service &> /dev/null; then
-        echo "✓ ydotool system service already enabled"
-    else
-        echo "Enabling ydotool service..."
-        # Try system service (Fedora/Nobara style)
-        if sudo systemctl enable --now ydotool.service &> /dev/null; then
-            echo "✓ ydotool system service enabled"
-        else
-            # Try user service
-            systemctl --user enable --now ydotool.service
-            echo "✓ ydotool user service enabled"
-        fi
-    fi
+# Check if ydotoold is already running
+if pgrep -x "ydotoold" > /dev/null; then
+    echo "✓ ydotoold daemon is already running (PID: $(pgrep -x ydotoold))"
 else
-    echo "⚠ ydotool service not found. You may need to run ydotool manually."
+    # Check if systemd service exists
+    if systemctl list-unit-files | grep -q "ydotool.service"; then
+        # Try user service first
+        if systemctl --user is-enabled ydotool.service &> /dev/null; then
+            echo "✓ ydotool user service already enabled"
+        elif systemctl is-enabled ydotool.service &> /dev/null; then
+            echo "✓ ydotool system service already enabled"
+        else
+            echo "Enabling ydotool service..."
+            # Try system service (Fedora/Nobara style)
+            if sudo systemctl enable --now ydotool.service &> /dev/null; then
+                echo "✓ ydotool system service enabled"
+            else
+                # Try user service
+                systemctl --user enable --now ydotool.service
+                echo "✓ ydotool user service enabled"
+            fi
+        fi
+    else
+        echo "⚠ ydotool systemd service not found. Starting ydotoold manually..."
+        sudo ydotoold &
+        echo "✓ ydotoold started manually"
+    fi
+fi
+
+# Fix ydotool socket permissions if it exists
+if [ -S "/tmp/.ydotool_socket" ]; then
+    echo "Fixing ydotool socket permissions..."
+    sudo chmod 666 /tmp/.ydotool_socket
+    echo "✓ ydotool socket permissions fixed"
 fi
 
 echo
@@ -137,10 +151,10 @@ fi
 
 # Test ydotool (if in input group)
 if groups | grep -q "input"; then
-    if timeout 1 ydotool --help &> /dev/null; then
+    if YDOTOOL_SOCKET=/tmp/.ydotool_socket timeout 1 ydotool --help &> /dev/null; then
         echo "✓ ydotool accessible"
     else
-        echo "⚠ ydotool not accessible (service may need to be started)"
+        echo "⚠ ydotool not accessible (service may need to be started or socket permissions need fixing)"
     fi
 else
     echo "⚠ ydotool test skipped (not in input group yet)"

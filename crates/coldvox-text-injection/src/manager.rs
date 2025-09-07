@@ -66,6 +66,7 @@ struct InjectorRegistry {
 }
 
 impl InjectorRegistry {
+    #[allow(unused_variables)] // config and backend_detector may be unused if no features are on
     async fn build(config: &InjectionConfig, backend_detector: &BackendDetector) -> Self {
         let mut injectors: HashMap<InjectionMethod, Box<dyn TextInjector>> = HashMap::new();
 
@@ -81,60 +82,12 @@ impl InjectorRegistry {
             .iter()
             .any(|b| matches!(b, Backend::X11Xdotool | Backend::X11Native));
 
-        // Add AT-SPI injector if available
-        #[cfg(feature = "atspi")]
-        {
-            let injector = AtspiInjector::new(config.clone());
-            if injector.is_available().await {
-                injectors.insert(InjectionMethod::AtspiInsert, Box::new(injector));
-            }
-        }
-
-        // Add clipboard injectors if available
-        #[cfg(feature = "wl_clipboard")]
-        {
-            if _has_wayland || _has_x11 {
-                let clipboard_injector = ClipboardInjector::new(config.clone());
-                if clipboard_injector.is_available().await {
-                    injectors.insert(InjectionMethod::Clipboard, Box::new(clipboard_injector));
-                }
-
-                // Add combo clipboard+paste if wl_clipboard + ydotool features are enabled
-                #[cfg(all(feature = "wl_clipboard", feature = "ydotool"))]
-                {
-                    let combo_injector = ComboClipboardYdotool::new(config.clone());
-                    if combo_injector.is_available().await {
-                        injectors
-                            .insert(InjectionMethod::ClipboardAndPaste, Box::new(combo_injector));
-                    }
-                }
-            }
-        }
-
-        // Add optional injectors based on config
-        #[cfg(feature = "ydotool")]
-        if config.allow_ydotool {
-            let ydotool = YdotoolInjector::new(config.clone());
-            if ydotool.is_available().await {
-                injectors.insert(InjectionMethod::YdoToolPaste, Box::new(ydotool));
-            }
-        }
-
-        #[cfg(feature = "enigo")]
-        if config.allow_enigo {
-            let enigo = EnigoInjector::new(config.clone());
-            if enigo.is_available().await {
-                injectors.insert(InjectionMethod::EnigoText, Box::new(enigo));
-            }
-        }
-
-        #[cfg(feature = "kdotool")]
-        if config.allow_kdotool {
-            let kdotool = KdotoolInjector::new(config.clone());
-            if kdotool.is_available().await {
-                injectors.insert(InjectionMethod::KdoToolAssist, Box::new(kdotool));
-            }
-        }
+        // Add injectors using helper methods
+        Self::try_add_atspi(&mut injectors, config).await;
+        Self::try_add_clipboard(&mut injectors, config, _has_wayland || _has_x11).await;
+        Self::try_add_ydotool(&mut injectors, config).await;
+        Self::try_add_enigo(&mut injectors, config).await;
+        Self::try_add_kdotool(&mut injectors, config).await;
 
         // Add NoOpInjector as final fallback if no other injectors are available
         if injectors.is_empty() {
@@ -145,6 +98,111 @@ impl InjectorRegistry {
         }
 
         Self { injectors }
+    }
+
+    #[cfg(feature = "atspi")]
+    async fn try_add_atspi(
+        injectors: &mut HashMap<InjectionMethod, Box<dyn TextInjector>>,
+        config: &InjectionConfig,
+    ) {
+        let injector = AtspiInjector::new(config.clone());
+        if injector.is_available().await {
+            injectors.insert(InjectionMethod::AtspiInsert, Box::new(injector));
+        }
+    }
+    #[cfg(not(feature = "atspi"))]
+    async fn try_add_atspi(
+        _injectors: &mut HashMap<InjectionMethod, Box<dyn TextInjector>>,
+        _config: &InjectionConfig,
+    ) {
+    }
+
+    #[cfg(feature = "wl_clipboard")]
+    async fn try_add_clipboard(
+        injectors: &mut HashMap<InjectionMethod, Box<dyn TextInjector>>,
+        config: &InjectionConfig,
+        has_display_server: bool,
+    ) {
+        if !has_display_server {
+            return;
+        }
+        let clipboard_injector = ClipboardInjector::new(config.clone());
+        if clipboard_injector.is_available().await {
+            injectors.insert(InjectionMethod::Clipboard, Box::new(clipboard_injector));
+        }
+
+        // Add combo clipboard+paste if wl_clipboard + ydotool features are enabled
+        #[cfg(all(feature = "wl_clipboard", feature = "ydotool"))]
+        {
+            let combo_injector = ComboClipboardYdotool::new(config.clone());
+            if combo_injector.is_available().await {
+                injectors.insert(InjectionMethod::ClipboardAndPaste, Box::new(combo_injector));
+            }
+        }
+    }
+    #[cfg(not(feature = "wl_clipboard"))]
+    async fn try_add_clipboard(
+        _injectors: &mut HashMap<InjectionMethod, Box<dyn TextInjector>>,
+        _config: &InjectionConfig,
+        _has_display_server: bool,
+    ) {
+    }
+
+    #[cfg(feature = "ydotool")]
+    async fn try_add_ydotool(
+        injectors: &mut HashMap<InjectionMethod, Box<dyn TextInjector>>,
+        config: &InjectionConfig,
+    ) {
+        if config.allow_ydotool {
+            let ydotool = YdotoolInjector::new(config.clone());
+            if ydotool.is_available().await {
+                injectors.insert(InjectionMethod::YdoToolPaste, Box::new(ydotool));
+            }
+        }
+    }
+    #[cfg(not(feature = "ydotool"))]
+    async fn try_add_ydotool(
+        _injectors: &mut HashMap<InjectionMethod, Box<dyn TextInjector>>,
+        _config: &InjectionConfig,
+    ) {
+    }
+
+    #[cfg(feature = "enigo")]
+    async fn try_add_enigo(
+        injectors: &mut HashMap<InjectionMethod, Box<dyn TextInjector>>,
+        config: &InjectionConfig,
+    ) {
+        if config.allow_enigo {
+            let enigo = EnigoInjector::new(config.clone());
+            if enigo.is_available().await {
+                injectors.insert(InjectionMethod::EnigoText, Box::new(enigo));
+            }
+        }
+    }
+    #[cfg(not(feature = "enigo"))]
+    async fn try_add_enigo(
+        _injectors: &mut HashMap<InjectionMethod, Box<dyn TextInjector>>,
+        _config: &InjectionConfig,
+    ) {
+    }
+
+    #[cfg(feature = "kdotool")]
+    async fn try_add_kdotool(
+        injectors: &mut HashMap<InjectionMethod, Box<dyn TextInjector>>,
+        config: &InjectionConfig,
+    ) {
+        if config.allow_kdotool {
+            let kdotool = KdotoolInjector::new(config.clone());
+            if kdotool.is_available().await {
+                injectors.insert(InjectionMethod::KdoToolAssist, Box::new(kdotool));
+            }
+        }
+    }
+    #[cfg(not(feature = "kdotool"))]
+    async fn try_add_kdotool(
+        _injectors: &mut HashMap<InjectionMethod, Box<dyn TextInjector>>,
+        _config: &InjectionConfig,
+    ) {
     }
 
     fn get_mut(&mut self, method: InjectionMethod) -> Option<&mut Box<dyn TextInjector>> {

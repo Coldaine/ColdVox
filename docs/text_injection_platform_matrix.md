@@ -13,11 +13,27 @@ Environment quick-dump:
 - Run `scripts/collect_platform_env.sh` and attach the output to findings.
 
 Backend legend:
-- AT-SPI = Direct insert via AT-SPI EditableText
-- Clipboard = Copy text, paste via app
-- ydotool = Simulated Ctrl+V (Wayland, uinput)
-- kdotool = KDE/X11 assistance
+- AT-SPI = Direct insert via AT-SPI EditableText (precise, element-aware)
+- Clipboard = Copy text, paste via app (simple, app-dependent)
+- ydotool = Simulated Ctrl+V via uinput (universal, focus-dependent)
+- kdotool = KDE/X11 assistance (KDE-specific window activation)
 - Combo = Clipboard + Paste combo (AT-SPI paste → ydotool fallback)
+
+## Backend Comparison
+
+### AT-SPI vs Ydotool: Key Differences
+
+**AT-SPI (Accessibility API):**
+- **Pros**: Precise targeting of specific text fields, works with complex UIs
+- **Cons**: Requires accessibility services, more complex setup, app-dependent
+- **Use when**: You need to target specific form fields or text areas
+
+**Ydotool (Keyboard Simulation):**
+- **Pros**: Works with any focused application, simple setup, reliable
+- **Cons**: Only works with currently focused window, no element precision
+- **Use when**: Maximum compatibility needed, focus is already correct
+
+**Recommendation**: Use Combo backend for best of both worlds (AT-SPI precision with ydotool fallback).
 
 ## Matrix
 
