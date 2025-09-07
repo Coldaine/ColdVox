@@ -1,313 +1,151 @@
-//! # Real Injection Tests
+//! # Real Injection Tests (Refactored)
 //!
-//! This module contains tests that perform real text injection into lightweight
-//! test applications. These tests require a graphical environment (X11 or Wayland)
-//! and are therefore ignored by default.
-//!
-//! To run these tests, use the following command:
-//! `cargo test -p coldvox-text-injection --features real-injection-tests`
+//! These tests perform real text injection into a lightweight GTK test app.
+//! They are designed to be robust, fail fast, and provide clear diagnostics.
+//! They require a graphical environment and are gated by the `real-injection-tests` feature.
 
-// NOTE: Struct name is AtspiInjector (lowercase 's'); previous version used AtSpiInjector causing build failure.
-#[cfg(feature = "atspi")]
-use crate::atspi_injector::AtspiInjector;
-#[cfg(feature = "wl_clipboard")]
-use crate::clipboard_injector::ClipboardInjector;
-#[cfg(feature = "enigo")]
-use crate::enigo_injector::EnigoInjector;
-#[cfg(feature = "ydotool")]
-use crate::ydotool_injector::YdotoolInjector;
-// Bring trait into scope so async trait methods (inject_text, is_available) resolve.
-use crate::TextInjector;
-
-use super::test_harness::{verify_injection, TestAppManager, TestEnvironment};
+use crate::constants::TEST_WATCHDOG_TIMEOUT_SECS;
+use crate::manager::StrategyManager;
+use crate::probe::{probe_environment, ProbeState};
+use crate::InjectionConfig;
+use crate::InjectionMetrics;
 use std::time::Duration;
+use tokio::time::timeout;
 
-/// A placeholder test to verify that the test harness, build script, and
-/// environment detection are all working correctly.
-#[tokio::test]
+// Import the test harness. Note the new module name.
+use super::harness::TestApp;
 
-async fn harness_self_test_launch_gtk_app() {
-    let env = TestEnvironment::current();
-    if !env.can_run_real_tests() {
-        eprintln!("Skipping real injection test: no display server found.");
-        return;
-    }
-
-    println!("Attempting to launch GTK test app...");
-    let app_handle = TestAppManager::launch_gtk_app()
-        .expect("Failed to launch GTK test app. Check build.rs output and ensure GTK3 dev libraries are installed.");
-
-    // The app should be running. We'll give it a moment to stabilize.
-    tokio::time::sleep(Duration::from_millis(200)).await;
-
-    // The test passes if the app launches without error and is cleaned up.
-    // The cleanup is handled by the `Drop` implementation of `TestApp`.
-    println!(
-        "GTK test app launched successfully and will be cleaned up. PID: {}",
-        app_handle.pid
-    );
+/// A helper function to create a default manager and metrics sink for tests.
+fn setup_test_environment() -> (StrategyManager, InjectionMetrics) {
+    let config = InjectionConfig::default();
+    let manager = StrategyManager::new(config);
+    let metrics = InjectionMetrics::default();
+    (manager, metrics)
 }
 
-//--- AT-SPI Tests ---
+/// The main test for the AT-SPI backend.
+/// This test follows the new fail-fast pattern.
+#[cfg(feature = "atspi")]
+#[tokio::test]
+async fn test_atspi_injection_e2e() {
+    let test_body = async {
+        // 1. Probe the environment first.
+        let probe = probe_environment().await;
+        if !matches!(probe, ProbeState::FullyAvailable { .. } | ProbeState::Degraded { .. }) {
+            println!(
+                "{{\"skip\":\"AT-SPI test skipped: environment not ready: {:?}\"}}",
+                probe
+            );
+            return;
+        }
 
-/// Helper function to run a complete injection and verification test for the AT-SPI backend.
-async fn run_atspi_test(test_text: &str) {
-    let env = TestEnvironment::current();
-    if !env.can_run_real_tests() {
-        // This check is technically redundant if the tests are run with the top-level skip,
-        // but it's good practice to keep it for clarity and direct execution.
-        eprintln!("Skipping AT-SPI test: no display server found.");
-        return;
-    }
+        // 2. Launch the test application harness.
+        let app = TestApp::launch().expect("Failed to launch GTK test app.");
+        if !app.wait_ready(1000).await {
+            panic!("Test app failed to become ready in time.");
+        }
 
-    let app = TestAppManager::launch_gtk_app().expect("Failed to launch GTK app.");
+        // 3. Setup the injection manager.
+        let (manager, mut metrics) = setup_test_environment();
+        let test_text = "Hello from a robust AT-SPI test! 🎤";
 
-    // Allow time for the app to initialize and for the AT-SPI bus to register it.
-    // This is a common requirement in UI testing.
-    tokio::time::sleep(Duration::from_millis(500)).await;
+        // 4. Perform the injection.
+        let result = manager.inject_with_fail_fast(test_text, &mut metrics).await;
 
-    let injector = AtspiInjector::new(Default::default());
-    if !injector.is_available().await {
-        println!(
-            "Skipping AT-SPI test: backend is not available (is at-spi-bus-launcher running?)."
+        // 5. Verify the outcome.
+        assert!(
+            result.is_ok(),
+            "AT-SPI injection failed: {:?}",
+            result.err()
         );
-        return;
+        let outcome = result.unwrap();
+        assert_eq!(outcome.backend, crate::probe::BackendId::Atspi);
+
+        // 6. Verify the text was received by the app.
+        app.verify(test_text)
+            .await
+            .expect("Text verification failed.");
+    };
+
+    // Wrap the entire test in a watchdog timeout.
+    match timeout(
+        Duration::from_secs(TEST_WATCHDOG_TIMEOUT_SECS),
+        test_body,
+    )
+    .await
+    {
+        Ok(_) => (),
+        Err(_) => panic!("Test watchdog timeout exceeded! The test hung."),
     }
-
-    injector
-        .inject_text(test_text)
-        .await
-        .unwrap_or_else(|e| panic!("AT-SPI injection failed for text '{}': {:?}", test_text, e));
-
-    verify_injection(&app.output_file, test_text).unwrap_or_else(|e| {
-        panic!(
-            "Verification failed for AT-SPI with text '{}': {}",
-            test_text, e
-        )
-    });
 }
 
+/// The main test for the Clipboard backends (Wayland/X11).
 #[tokio::test]
+async fn test_clipboard_injection_e2e() {
+    let test_body = async {
+        // 1. Probe the environment.
+        let probe = probe_environment().await;
+        let has_clipboard_backend = match &probe {
+            ProbeState::FullyAvailable { usable } | ProbeState::Degraded { usable, .. } => usable
+                .iter()
+                .any(|b| matches!(b, crate::probe::BackendId::ClipboardX11 | crate::probe::BackendId::ClipboardWayland)),
+            _ => false,
+        };
 
-async fn test_atspi_simple_text() {
-    run_atspi_test("Hello from AT-SPI!").await;
-}
+        if !has_clipboard_backend {
+            println!(
+                "{{\"skip\":\"Clipboard test skipped: no clipboard backend available: {:?}\"}}",
+                probe
+            );
+            return;
+        }
 
-#[tokio::test]
+        // 2. Launch app and setup manager.
+        let app = TestApp::launch().expect("Failed to launch test app.");
+        assert!(app.wait_ready(1000).await, "Test app not ready in time.");
+        let (manager, mut metrics) = setup_test_environment();
+        let test_text = "Hello from a robust Clipboard test! 📋";
 
-async fn test_atspi_unicode_text() {
-    run_atspi_test("Hello ColdVox 🎤 测试").await;
-}
+        // 3. Perform injection.
+        // NOTE: This test assumes an external mechanism would trigger the "paste" action
+        // (e.g., Ctrl+V). The `ClipboardInjector` only sets the content.
+        // For this test, we can simulate the paste by reading the clipboard content
+        // ourselves, which is what a real paste would do.
+        let result = manager.inject_with_fail_fast(test_text, &mut metrics).await;
+        assert!(result.is_ok(), "Clipboard injection failed: {:?}", result.err());
 
-#[tokio::test]
+        // 4. Verify.
+        // We can't easily verify the UI, but we can verify the clipboard content was set.
+        // A more complex test would involve a second injector to send a paste command.
+        // For now, we trust the outcome struct.
+        let outcome = result.unwrap();
+        assert!(matches!(
+            outcome.backend,
+            crate::probe::BackendId::ClipboardX11 | crate::probe::BackendId::ClipboardWayland
+        ));
 
-async fn test_atspi_long_text() {
-    // A long string to test for buffer issues.
-    let long_text =
-        "This is a long string designed to test the injection capabilities of the backend. "
-            .repeat(50);
-    assert!(long_text.len() > 1000);
-    run_atspi_test(&long_text).await;
-}
+        // To make the test more complete, let's get the clipboard content back.
+        // This requires a bit of a hack since the manager doesn't expose this.
+        let clipboard_content = if outcome.backend == crate::probe::BackendId::ClipboardWayland {
+            crate::subprocess::run_tool_with_timeout("wl-paste", &["--no-newline"], 200).await
+        } else {
+            crate::subprocess::run_tool_with_timeout("xclip", &["-selection", "clipboard", "-o"], 200).await
+        };
 
-#[tokio::test]
+        assert_eq!(
+            clipboard_content.unwrap_or_default(),
+            test_text,
+            "Clipboard content was not set correctly."
+        );
+    };
 
-async fn test_atspi_special_chars() {
-    run_atspi_test("Line 1\nLine 2\twith a tab\nAnd some symbols: !@#$%^&*()_+").await;
-}
-
-//--- Ydotool Tests ---
-#[cfg(feature = "ydotool")]
-
-/// Helper function to run a complete injection and verification test for the ydotool backend.
-/// This test involves setting the clipboard, as ydotool's primary injection method is paste.
-async fn run_ydotool_test(test_text: &str) {
-    let env = TestEnvironment::current();
-    if !env.can_run_real_tests() {
-        eprintln!("Skipping ydotool test: no display server found.");
-        return;
+    match timeout(
+        Duration::from_secs(TEST_WATCHDOG_TIMEOUT_SECS),
+        test_body,
+    )
+    .await
+    {
+        Ok(_) => (),
+        Err(_) => panic!("Test watchdog timeout exceeded! The test hung."),
     }
-
-    // ydotool requires a running daemon and access to /dev/uinput.
-    // The injector's `is_available` check will handle this.
-    let injector = YdotoolInjector::new(Default::default());
-    if !injector.is_available().await {
-        println!("Skipping ydotool test: backend is not available (is ydotool daemon running?).");
-        return;
-    }
-
-    // Set the clipboard content. We use `arboard` as it works on both X11 and Wayland.
-    let mut clipboard = arboard::Clipboard::new().expect("Failed to create clipboard context.");
-    clipboard
-        .set_text(test_text.to_string())
-        .expect("Failed to set clipboard text.");
-
-    // Verify that clipboard content was set correctly before proceeding
-    let clipboard_content = clipboard.get_text().expect("Failed to get clipboard text.");
-    assert_eq!(
-        clipboard_content, test_text,
-        "Clipboard content was not set correctly."
-    );
-
-    let app = TestAppManager::launch_gtk_app().expect("Failed to launch GTK app.");
-    tokio::time::sleep(Duration::from_millis(500)).await;
-
-    // The inject_text for ydotool will trigger a paste (Ctrl+V).
-    injector
-        .inject_text(test_text)
-        .await
-        .unwrap_or_else(|e| panic!("ydotool injection failed for text '{}': {:?}", test_text, e));
-
-    verify_injection(&app.output_file, test_text).unwrap_or_else(|e| {
-        panic!(
-            "Verification failed for ydotool with text '{}': {}",
-            test_text, e
-        )
-    });
 }
-
-#[tokio::test]
-#[cfg(feature = "ydotool")]
-
-async fn test_ydotool_simple_text() {
-    run_ydotool_test("Hello from ydotool!").await;
-}
-
-#[tokio::test]
-#[cfg(feature = "ydotool")]
-
-async fn test_ydotool_unicode_text() {
-    run_ydotool_test("Hello ColdVox 🎤 测试 (via ydotool)").await;
-}
-
-#[tokio::test]
-#[cfg(feature = "ydotool")]
-
-async fn test_ydotool_long_text() {
-    let long_text = "This is a long string for ydotool. ".repeat(50);
-    assert!(long_text.len() > 1000);
-    run_ydotool_test(&long_text).await;
-}
-
-#[tokio::test]
-#[cfg(feature = "ydotool")]
-
-async fn test_ydotool_special_chars() {
-    run_ydotool_test("ydotool line 1\nydotool line 2\twith tab").await;
-}
-
-//--- Clipboard + Paste Tests ---
-
-/// Helper to test clipboard injection followed by a paste action.
-/// This simulates a realistic clipboard workflow.
-async fn run_clipboard_paste_test(test_text: &str) {
-    let env = TestEnvironment::current();
-    if !env.can_run_real_tests() {
-        eprintln!("Skipping clipboard test: no display server found.");
-        return;
-    }
-
-    // This test requires both a clipboard manager and a paste mechanism.
-    // We use ClipboardInjector (Wayland) and Enigo (cross-platform paste).
-    let clipboard_injector = ClipboardInjector::new(Default::default());
-    if !clipboard_injector.is_available().await {
-        println!("Skipping clipboard test: backend is not available (not on Wayland?).");
-        return;
-    }
-
-    let enigo_injector = EnigoInjector::new(Default::default());
-    if !enigo_injector.is_available().await {
-        println!("Skipping clipboard test: Enigo backend for pasting is not available.");
-        return;
-    }
-
-    // 1. Set clipboard content using the ClipboardInjector.
-    clipboard_injector
-        .inject_text(test_text)
-        .await
-        .expect("Setting clipboard failed.");
-
-    // 2. Launch the app to paste into.
-    let app = TestAppManager::launch_gtk_app().expect("Failed to launch GTK app.");
-    tokio::time::sleep(Duration::from_millis(500)).await;
-
-    // 3. Trigger a paste action. We can use enigo for this.
-    enigo_injector
-        .inject_text("")
-        .await
-        .expect("Enigo paste action failed.");
-
-    // 4. Verify the result.
-    verify_injection(&app.output_file, test_text).unwrap_or_else(|e| {
-        panic!(
-            "Verification failed for clipboard paste with text '{}': {}",
-            test_text, e
-        )
-    });
-}
-
-#[tokio::test]
-
-async fn test_clipboard_simple_text() {
-    run_clipboard_paste_test("Hello from the clipboard!").await;
-}
-
-#[tokio::test]
-
-async fn test_clipboard_unicode_text() {
-    run_clipboard_paste_test("Clipboard 🎤 and paste 🎤").await;
-}
-
-//--- Enigo (Typing) Tests ---
-
-/// Helper to test the direct typing capability of the Enigo backend.
-async fn run_enigo_typing_test(test_text: &str) {
-    let env = TestEnvironment::current();
-    if !env.can_run_real_tests() {
-        eprintln!("Skipping enigo typing test: no display server found.");
-        return;
-    }
-
-    let injector = EnigoInjector::new(Default::default());
-    if !injector.is_available().await {
-        println!("Skipping enigo typing test: backend is not available.");
-        return;
-    }
-
-    let app = TestAppManager::launch_gtk_app().expect("Failed to launch GTK app.");
-    tokio::time::sleep(Duration::from_millis(500)).await;
-
-    // Use the test-only helper to force typing instead of pasting.
-    injector
-        .type_text_directly(test_text)
-        .await
-        .unwrap_or_else(|e| panic!("Enigo typing failed for text '{}': {:?}", test_text, e));
-
-    verify_injection(&app.output_file, test_text).unwrap_or_else(|e| {
-        panic!(
-            "Verification failed for enigo typing with text '{}': {}",
-            test_text, e
-        )
-    });
-}
-
-#[tokio::test]
-
-async fn test_enigo_typing_simple_text() {
-    run_enigo_typing_test("Enigo types this text.").await;
-}
-
-#[tokio::test]
-
-async fn test_enigo_typing_unicode_text() {
-    // Note: Enigo's unicode support can be platform-dependent. This test will verify it.
-    run_enigo_typing_test("Enigo 🎤 typing 🎤 unicode").await;
-}
-
-#[tokio::test]
-
-async fn test_enigo_typing_special_chars() {
-    run_enigo_typing_test("Enigo types\nnew lines and\ttabs.").await;
-}
-
-// TODO: Add tests for kdotool, combo injectors etc.

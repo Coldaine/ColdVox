@@ -1,212 +1,204 @@
-use crate::types::{InjectionConfig, InjectionResult};
-use crate::TextInjector;
-use async_trait::async_trait;
-use std::time::Instant;
+//! # AT-SPI Text Injector
+//!
+//! This module provides a text injection implementation using the AT-SPI
+//! (Assistive Technology Service Provider Interface) D-Bus API. It is the
+//! most reliable method for injecting text into native GUI applications on Linux.
+
+use crate::constants::{ATSPI_METHOD_TIMEOUT_MS, FOCUS_ACQUISITION_TIMEOUT_MS, READINESS_POLL_INTERVAL_MS};
+use crate::error::{InjectionError, UnavailableCause};
+use crate::outcome::InjectionOutcome;
+use crate::probe::BackendId;
+use crate::{async_trait, InjectionConfig, TextInjector};
+use atspi::connection::AccessibilityConnection;
+use atspi::proxy::collection::CollectionProxy;
+use atspi::proxy::editable_text::EditableTextProxy;
+use atspi::proxy::text::TextProxy;
+use atspi::{Interface, MatchType, ObjectAddress, ObjectMatchRule, SortOrder, State};
+use std::time::{Duration, Instant};
+use tokio::time::timeout;
 use tracing::{debug, trace, warn};
 
 pub struct AtspiInjector {
-    _config: InjectionConfig,
+    config: InjectionConfig,
 }
 
 impl AtspiInjector {
     pub fn new(config: InjectionConfig) -> Self {
-        Self { _config: config }
+        Self { config }
+    }
+}
+
+/// Waits for a focusable, editable element to become active.
+///
+/// This replaces fixed sleeps with a polling mechanism under a strict timeout,
+/// making focus acquisition more robust.
+async fn wait_for_editable_focus(
+    conn: &AccessibilityConnection,
+) -> Result<ObjectAddress, InjectionError> {
+    let deadline = Instant::now() + Duration::from_millis(FOCUS_ACQUISITION_TIMEOUT_MS);
+    let zbus_conn = conn.connection();
+
+    let collection = CollectionProxy::builder(zbus_conn)
+        .destination("org.a11y.atspi.Registry")
+        .path("/org/a11y/atspi/accessible/root")
+        .build()
+        .await
+        .map_err(|e| InjectionError::Unavailable {
+            backend: BackendId::Atspi,
+            cause: UnavailableCause::AtspiRegistry,
+        })?;
+
+    loop {
+        if Instant::now() > deadline {
+            return Err(InjectionError::Timeout {
+                backend: BackendId::Atspi,
+                phase: "focus",
+                elapsed_ms: FOCUS_ACQUISITION_TIMEOUT_MS as u32,
+            });
+        }
+
+        let mut rule = ObjectMatchRule::default();
+        rule.states = State::Focused.into();
+        rule.states_mt = MatchType::All;
+        rule.ifaces = Interface::EditableText.into();
+        rule.ifaces_mt = MatchType::All;
+
+        let get_matches = collection.get_matches(rule, SortOrder::Canonical, 1, false);
+        match timeout(Duration::from_millis(ATSPI_METHOD_TIMEOUT_MS), get_matches).await {
+            Ok(Ok(mut matches)) => {
+                if let Some(obj_ref) = matches.pop() {
+                    debug!("Found focused editable element: {:?}", obj_ref.name);
+                    return Ok(obj_ref);
+                }
+                // No match found yet, continue polling.
+            }
+            Ok(Err(e)) => {
+                // An error occurred during the D-Bus call.
+                return Err(InjectionError::Transient {
+                    reason: "Failed to get matches from AT-SPI registry",
+                    retryable: false, // This is likely a permanent issue.
+                });
+            }
+            Err(_) => {
+                // The D-Bus call timed out.
+                return Err(InjectionError::Timeout {
+                    backend: BackendId::Atspi,
+                    phase: "get_matches",
+                    elapsed_ms: ATSPI_METHOD_TIMEOUT_MS as u32,
+                });
+            }
+        }
+
+        tokio::time::sleep(Duration::from_millis(READINESS_POLL_INTERVAL_MS)).await;
     }
 }
 
 #[async_trait]
 impl TextInjector for AtspiInjector {
-    fn backend_name(&self) -> &'static str {
-        "atspi-insert"
-    }
-
-    fn backend_info(&self) -> Vec<(&'static str, String)> {
-        vec![
-            ("type", "AT-SPI accessibility".to_string()),
-            (
-                "description",
-                "Injects text directly into focused editable text fields using AT-SPI".to_string(),
-            ),
-            ("platform", "Linux".to_string()),
-            ("requires", "AT-SPI accessibility service".to_string()),
-        ]
+    fn backend_id(&self) -> BackendId {
+        BackendId::Atspi
     }
 
     async fn is_available(&self) -> bool {
-        #[cfg(feature = "atspi")]
+        match timeout(
+            Duration::from_millis(ATSPI_METHOD_TIMEOUT_MS),
+            AccessibilityConnection::new(),
+        )
+        .await
         {
-            use atspi::connection::AccessibilityConnection;
-            use tokio::time;
-
-            let timeout_duration = self._config.per_method_timeout();
-
-            let availability_check = async { AccessibilityConnection::new().await.is_ok() };
-
-            match time::timeout(timeout_duration, availability_check).await {
-                Ok(is_ok) => is_ok,
-                Err(_) => {
-                    warn!(
-                        "AT-SPI availability check timed out after {}ms",
-                        timeout_duration.as_millis()
-                    );
-                    false
-                }
-            }
-        }
-        #[cfg(not(feature = "atspi"))]
-        {
-            warn!("AT-SPI feature disabled; injector unavailable");
-            false
+            Ok(Ok(_)) => true,
+            _ => false,
         }
     }
 
-    async fn inject_text(&self, text: &str) -> InjectionResult<()> {
-        #[cfg(feature = "atspi")]
-        {
-            use crate::types::InjectionError;
-            use atspi::{
-                connection::AccessibilityConnection, proxy::collection::CollectionProxy,
-                proxy::editable_text::EditableTextProxy, proxy::text::TextProxy, Interface,
-                MatchType, ObjectMatchRule, SortOrder, State,
-            };
-            use tokio::time;
+    async fn inject_text(&self, text: &str) -> Result<InjectionOutcome, InjectionError> {
+        let start_time = Instant::now();
 
-            let per_method_timeout = self._config.per_method_timeout();
+        // 1. Establish AT-SPI connection.
+        let conn = timeout(
+            Duration::from_millis(ATSPI_METHOD_TIMEOUT_MS),
+            AccessibilityConnection::new(),
+        )
+        .await
+        .map_err(|_| InjectionError::Timeout {
+            backend: BackendId::Atspi,
+            phase: "connect",
+            elapsed_ms: ATSPI_METHOD_TIMEOUT_MS as u32,
+        })?
+        .map_err(|_| InjectionError::Unavailable {
+            backend: BackendId::Atspi,
+            cause: UnavailableCause::AtspiRegistry,
+        })?;
+        let zbus_conn = conn.connection();
 
-            let start = Instant::now();
-            trace!("AT-SPI injection starting for {} chars of text", text.len());
+        // 2. Wait for a focused, editable element.
+        let obj_ref = wait_for_editable_focus(&conn).await?;
+        debug!("Injecting into element: {:?}", obj_ref.name);
 
-            let conn = time::timeout(per_method_timeout, AccessibilityConnection::new())
-                .await
-                .map_err(|_| InjectionError::Timeout(per_method_timeout.as_millis() as u64))?
-                .map_err(|e| {
-                    warn!("AT-SPI connection failed: {}", e);
-                    InjectionError::Other(format!("AT-SPI connect failed: {e}"))
-                })?;
-            let zbus_conn = conn.connection();
-            trace!("AT-SPI connection established");
+        // 3. Build proxies for the target element.
+        let editable_proxy = EditableTextProxy::builder(zbus_conn)
+            .destination(obj_ref.name.clone())
+            .path(obj_ref.path.clone())
+            .build()
+            .await
+            .map_err(|_| InjectionError::PreconditionNotMet {
+                reason: "Failed to build EditableTextProxy for focused element",
+            })?;
 
-            let collection_fut = CollectionProxy::builder(zbus_conn)
-                .destination("org.a11y.atspi.Registry")
-                .map_err(|e| {
-                    InjectionError::Other(format!("CollectionProxy destination failed: {e}"))
-                })?
-                .path("/org/a11y/atspi/accessible/root")
-                .map_err(|e| InjectionError::Other(format!("CollectionProxy path failed: {e}")))?
-                .build();
-            let collection = time::timeout(per_method_timeout, collection_fut)
-                .await
-                .map_err(|_| InjectionError::Timeout(per_method_timeout.as_millis() as u64))?
-                .map_err(|e| InjectionError::Other(format!("CollectionProxy build failed: {e}")))?;
+        let text_proxy = TextProxy::builder(zbus_conn)
+            .destination(obj_ref.name.clone())
+            .path(obj_ref.path.clone())
+            .build()
+            .await
+            .map_err(|_| InjectionError::PreconditionNotMet {
+                reason: "Failed to build TextProxy for focused element",
+            })?;
 
-            let mut rule = ObjectMatchRule::default();
-            rule.states = State::Focused.into();
-            rule.states_mt = MatchType::All;
-            rule.ifaces = Interface::EditableText.into();
-            rule.ifaces_mt = MatchType::All;
+        // 4. Get caret position.
+        let caret_pos = timeout(
+            Duration::from_millis(ATSPI_METHOD_TIMEOUT_MS),
+            text_proxy.caret_offset(),
+        )
+        .await
+        .map_err(|_| InjectionError::Timeout {
+            backend: BackendId::Atspi,
+            phase: "get_caret",
+            elapsed_ms: ATSPI_METHOD_TIMEOUT_MS as u32,
+        })?
+        .unwrap_or(-1); // -1 indicates failure, we'll insert at the end.
 
-            // Try to find focused element, with one quick retry if needed
-            // Focus can be transient during window switches or UI updates
-            let get_matches = collection.get_matches(rule.clone(), SortOrder::Canonical, 1, false);
-            let mut matches = time::timeout(per_method_timeout, get_matches)
-                .await
-                .map_err(|_| InjectionError::Timeout(per_method_timeout.as_millis() as u64))?
-                .map_err(|e| {
-                    InjectionError::Other(format!("Collection.get_matches failed: {e}"))
-                })?;
+        let insertion_pos = if caret_pos < 0 {
+            warn!("Failed to get caret position, inserting at end.");
+            // As a fallback, get character count and insert at the end.
+            text_proxy.character_count().await.unwrap_or(0)
+        } else {
+            caret_pos
+        };
 
-            // If no match found, retry once after brief delay (focus can be transient)
-            if matches.is_empty() {
-                debug!("No focused EditableText found, retrying once after 30ms");
-                tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+        // 5. Insert the text.
+        let insert_fut = editable_proxy.insert_text(insertion_pos, text, text.chars().count() as i32);
+        timeout(
+            Duration::from_millis(ATSPI_METHOD_TIMEOUT_MS),
+            insert_fut,
+        )
+        .await
+        .map_err(|_| InjectionError::Timeout {
+            backend: BackendId::Atspi,
+            phase: "insert_text",
+            elapsed_ms: ATSPI_METHOD_TIMEOUT_MS as u32,
+        })?
+        .map_err(|e| InjectionError::Transient {
+            reason: "insert_text D-Bus call failed",
+            retryable: false,
+        })?;
 
-                let retry = collection.get_matches(rule, SortOrder::Canonical, 1, false);
-                matches = time::timeout(per_method_timeout, retry)
-                    .await
-                    .map_err(|_| InjectionError::Timeout(per_method_timeout.as_millis() as u64))?
-                    .map_err(|e| {
-                        InjectionError::Other(format!("Collection.get_matches retry failed: {e}"))
-                    })?;
-            }
+        let latency_ms = start_time.elapsed().as_millis() as u32;
+        trace!("AT-SPI injection successful in {}ms", latency_ms);
 
-            let Some(obj_ref) = matches.pop() else {
-                debug!(
-                    "No focused EditableText found after retry ({}ms elapsed)",
-                    start.elapsed().as_millis()
-                );
-                return Err(crate::types::InjectionError::NoEditableFocus);
-            };
-
-            debug!(
-                "Found editable element at path: {:?} in app: {:?}",
-                obj_ref.path, obj_ref.name
-            );
-
-            let editable_fut = EditableTextProxy::builder(zbus_conn)
-                .destination(obj_ref.name.clone())
-                .map_err(|e| {
-                    InjectionError::Other(format!("EditableTextProxy destination failed: {e}"))
-                })?
-                .path(obj_ref.path.clone())
-                .map_err(|e| InjectionError::Other(format!("EditableTextProxy path failed: {e}")))?
-                .build();
-            let editable = time::timeout(per_method_timeout, editable_fut)
-                .await
-                .map_err(|_| InjectionError::Timeout(per_method_timeout.as_millis() as u64))?
-                .map_err(|e| {
-                    InjectionError::Other(format!("EditableTextProxy build failed: {e}"))
-                })?;
-
-            let text_iface_fut = TextProxy::builder(zbus_conn)
-                .destination(obj_ref.name.clone())
-                .map_err(|e| InjectionError::Other(format!("TextProxy destination failed: {e}")))?
-                .path(obj_ref.path.clone())
-                .map_err(|e| InjectionError::Other(format!("TextProxy path failed: {e}")))?
-                .build();
-            let text_iface = time::timeout(per_method_timeout, text_iface_fut)
-                .await
-                .map_err(|_| InjectionError::Timeout(per_method_timeout.as_millis() as u64))?
-                .map_err(|e| InjectionError::Other(format!("TextProxy build failed: {e}")))?;
-
-            let caret_fut = text_iface.caret_offset();
-            let caret = time::timeout(per_method_timeout, caret_fut)
-                .await
-                .map_err(|_| InjectionError::Timeout(per_method_timeout.as_millis() as u64))?
-                .map_err(|e| {
-                    warn!("Failed to get caret offset from {:?}: {}", obj_ref.path, e);
-                    InjectionError::Other(format!("Text.caret_offset failed: {e}"))
-                })?;
-            trace!("Current caret position: {}", caret);
-
-            let insert_fut = editable.insert_text(caret, text, text.chars().count() as i32);
-            time::timeout(per_method_timeout, insert_fut)
-                .await
-                .map_err(|_| InjectionError::Timeout(per_method_timeout.as_millis() as u64))?
-                .map_err(|e| {
-                    warn!(
-                        "Failed to insert text at position {} in {:?}: {}",
-                        caret, obj_ref.path, e
-                    );
-                    InjectionError::Other(format!("EditableText.insert_text failed: {e}"))
-                })?;
-
-            let elapsed = start.elapsed();
-            debug!(
-                "Successfully injected {} chars via AT-SPI to {:?} in {}ms",
-                text.len(),
-                obj_ref.name,
-                elapsed.as_millis()
-            );
-
-            Ok(())
-        }
-
-        #[cfg(not(feature = "atspi"))]
-        {
-            warn!("AT-SPI injector compiled without 'atspi' feature");
-            Err(crate::types::InjectionError::Other(
-                "AT-SPI feature is disabled at compile time".to_string(),
-            ))
-        }
+        Ok(InjectionOutcome {
+            backend: BackendId::Atspi,
+            latency_ms,
+            degraded: caret_pos < 0, // Degraded if we couldn't get the caret pos.
+        })
     }
 }

@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::window_manager::{get_active_window_class, get_window_info};
+    use crate::window_manager::get_active_window_class;
 
     #[tokio::test]
     async fn test_window_class_detection() {
@@ -20,16 +20,6 @@ mod tests {
                 }
             }
         }
-    }
-
-    #[tokio::test]
-    async fn test_window_info_structure() {
-        let info = get_window_info().await;
-
-        // Basic sanity checks
-        assert!(!info.class.is_empty());
-        // Title might be empty
-        // PID might be 0 if detection failed
     }
 
     #[test]

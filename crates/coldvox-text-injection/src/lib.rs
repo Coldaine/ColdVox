@@ -1,31 +1,31 @@
 //! # ColdVox Text Injection Library
 //!
-//! This crate provides text injection capabilities for the ColdVox speech-to-text system.
-//! It supports multiple backends for text injection across different platforms and environments.
+//! This crate provides robust, resilient, and fast-failing text injection
+//! capabilities for the ColdVox speech-to-text system. It is designed to
+//! degrade gracefully in environments where desktop components are missing
+//! and to provide clear diagnostics.
 //!
-//! ## Backend Support Matrix
+//! ## Core Concepts
 //!
-//! | Backend      | Platform | Features           | Status |
-//! |--------------|----------|--------------------|--------|
-//! | AT-SPI       | Linux    | Accessibility API  | Stable |
-//! | Clipboard    | Linux    | wl-clipboard-rs    | Stable |
-//! | Enigo        | Cross    | Input simulation   | Beta   |
-//! | KDotool      | Linux    | X11 automation     | Beta   |
-//! | YDotool      | Linux    | uinput automation  | Beta   |
+//! - **Environment Probe**: Before any injection, a fast, async probe checks
+//!   for required components (D-Bus, AT-SPI, clipboard tools) with strict
+//!   timeouts.
+//! - **Structured Outcomes**: Injection attempts return `InjectionOutcome` on
+//!   success or a detailed `InjectionError` on failure, preventing hangs and
+//!   making failures easy to diagnose.
+//! - **Strict Timeouts**: Every potentially blocking operation, from a single
+//!   D-Bus call to a full injection attempt, is wrapped in a timeout to
+//!   prevent cascading failures and test hangs.
 
-//!
-//! ## Features
-//!
-//! - `atspi`: Linux AT-SPI accessibility backend
-//! - `wl_clipboard`: Clipboard-based injection via wl-clipboard-rs
-//! - `enigo`: Cross-platform input simulation
-//! - `ydotool`: Linux uinput automation
-//! - `kdotool`: KDE/X11 window activation assistance
+// New modules for the refactored design.
+pub mod constants;
+pub mod error;
+pub mod metrics;
+pub mod outcome;
+pub mod probe;
+pub mod subprocess;
 
-//! - `regex`: Precompile allow/block list patterns
-//! - `all-backends`: Enable all available backends
-//! - `linux-desktop`: Enable recommended Linux desktop backends
-
+// Existing modules that will be refactored.
 pub mod backend;
 pub mod focus;
 pub mod manager;
@@ -58,65 +58,43 @@ pub mod noop_injector;
 #[cfg(test)]
 mod tests;
 
-// Re-export key components for easy access
-pub use backend::Backend;
-pub use focus::{FocusProvider, FocusStatus};
+// Re-export key components for easy access by consumers of the crate.
+pub use async_trait::async_trait;
+pub use error::{InjectionError, UnavailableCause};
 pub use manager::StrategyManager;
-pub use processor::{AsyncInjectionProcessor, InjectionProcessor, ProcessorMetrics};
-pub use session::{InjectionSession, SessionConfig, SessionState};
-pub use types::{InjectionConfig, InjectionError, InjectionMethod, InjectionResult};
+pub use metrics::{InjectionMetrics, MetricsSink};
+pub use outcome::InjectionOutcome;
+pub use probe::{probe_environment, BackendId, ProbeState};
+pub use types::{InjectionConfig, InjectionMethod};
 
-/// Trait defining the core text injection interface
-#[async_trait::async_trait]
+/// # TextInjector Trait
+///
+/// This trait defines the core interface for a text injection backend.
+/// Each backend (AT-SPI, Clipboard, etc.) implements this trait.
+#[async_trait]
 pub trait TextInjector: Send + Sync {
-    /// Inject text into the currently focused application
-    async fn inject_text(&self, text: &str) -> InjectionResult<()>;
+    /// Returns the specific backend ID for this injector.
+    fn backend_id(&self) -> BackendId;
 
-    /// Check if the injector is available and functional
+    /// Performs a quick, non-blocking check to see if the backend is likely
+    /// to be available. This is a preliminary check before the main probe.
     async fn is_available(&self) -> bool;
 
-    /// Get the backend name for this injector
-    fn backend_name(&self) -> &'static str;
-
-    /// Get backend-specific configuration information
-    fn backend_info(&self) -> Vec<(&'static str, String)>;
-}
-
-/// Trait defining text injection session management
-#[async_trait::async_trait]
-pub trait TextInjectionSession: Send + Sync {
-    type Config;
-    type Error;
-
-    /// Start a new injection session
-    async fn start(&mut self, config: Self::Config) -> Result<(), Self::Error>;
-
-    /// Stop the current injection session
-    async fn stop(&mut self) -> Result<(), Self::Error>;
-
-    /// Check if session is currently active
-    fn is_active(&self) -> bool;
-
-    /// Get session statistics
-    fn get_stats(&self) -> SessionStats;
-}
-
-/// Statistics for text injection sessions
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct SessionStats {
-    pub injections_count: u64,
-    pub total_characters: u64,
-    pub session_duration: std::time::Duration,
-    pub last_injection: Option<chrono::DateTime<chrono::Utc>>,
-}
-
-impl Default for SessionStats {
-    fn default() -> Self {
-        Self {
-            injections_count: 0,
-            total_characters: 0,
-            session_duration: std::time::Duration::ZERO,
-            last_injection: None,
-        }
-    }
+    /// Injects the given text into the active application.
+    ///
+    /// This is the primary method for a backend. It should perform the injection
+    /// and return a structured outcome or a detailed error. Implementations
+    /// must be mindful of timeouts and resource cleanup.
+    ///
+    /// ## Arguments
+    ///
+    /// * `text` - The text string to inject.
+    ///
+    /// ## Returns
+    ///
+    /// * `Ok(InjectionOutcome)` - On success, provides details about the
+    ///   operation, including latency.
+    /// * `Err(InjectionError)` - On failure, provides a structured error
+    ///   indicating the cause (e.g., timeout, unavailable, precondition).
+    async fn inject_text(&self, text: &str) -> Result<InjectionOutcome, InjectionError>;
 }

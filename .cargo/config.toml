@@ -1,0 +1,9 @@
+# Cargo Alias for running real, hardware-dependent injection tests.
+#
+# This alias makes it convenient to run the full suite of integration tests
+# that interact with the desktop environment.
+#
+# Usage: cargo real-injection
+
+[alias]
+real-injection = "test -p coldvox-text-injection --features real-injection-tests -- --ignored --nocapture"

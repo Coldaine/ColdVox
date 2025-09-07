@@ -1,4 +1,4 @@
-use crate::types::InjectionMetrics;
+use crate::metrics::InjectionMetrics;
 use std::time::{Duration, Instant};
 use tracing::{debug, info, warn};
 
@@ -302,17 +302,13 @@ impl InjectionSession {
     }
 
     /// Record characters that have been buffered
-    pub fn record_buffered_chars(&self, count: u64) {
-        if let Ok(mut metrics) = self.metrics.lock() {
-            metrics.record_buffered_chars(count);
-        }
+    pub fn record_buffered_chars(&self, _count: u64) {
+        // This is a no-op now. The new metrics system does not track this.
     }
 
     /// Record a flush event
-    pub fn record_flush(&self, size: u64) {
-        if let Ok(mut metrics) = self.metrics.lock() {
-            metrics.record_flush(size);
-        }
+    pub fn record_flush(&self, _size: u64) {
+        // This is a no-op now. The new metrics system does not track this.
     }
 }
 

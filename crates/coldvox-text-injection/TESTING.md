@@ -1,74 +1,56 @@
 # Testing the ColdVox Text Injection Crate
 
-This document outlines the testing strategy for the `coldvox-text-injection` crate, covering both mock-based unit tests and real-world injection tests.
+This document outlines the testing strategy for `coldvox-text-injection`, which has been redesigned for robustness and reliability.
+
+## Test Philosophy: Fail Fast, No Hangs
+
+The entire test suite is built around a core philosophy: tests must never hang, even if the underlying system services are slow, misconfigured, or missing. This is achieved through several mechanisms:
+
+1.  **Environment Probe**: Before running any real injection logic, tests use the `probe_environment` function to check for necessary components. If the environment is not suitable, tests are skipped gracefully with a clear, structured JSON message indicating the reason.
+2.  **Watchdog Timeouts**: Every `#[tokio::test]` that performs real I/O is wrapped in a global timeout (e.g., 10 seconds). This acts as a watchdog to prevent any single test from hanging the entire suite.
+3.  **Deterministic Harness**: A new `TestApp` harness is used to launch a GTK test application. Instead of using fixed `sleep()` calls, tests use an async `wait_ready()` method that polls until the application is initialized, making the setup much more reliable.
+4.  **Robust Subprocess Calls**: All interactions with external command-line tools (like `wl-paste` or `xclip`) are wrapped in their own short timeouts to prevent hangs.
 
 ## Test Levels
 
-There are two levels of tests available for this crate, controlled by a feature flag.
+### 1. Unit & Smoke Tests (Always On)
 
-### 1. Mock Tests (Default)
+These are fast, lightweight tests that run on every `cargo test` command. They do not require a graphical environment and are safe for any CI pipeline.
 
-These are fast, lightweight unit tests that use mock injectors to verify the internal logic of the `StrategyManager`, configuration parsing, and fallback mechanisms. They do not perform any real text injection and do not require a graphical environment.
+-   **Unit Tests**: Verify the internal logic of individual components.
+-   **Smoke Test**: A crucial, always-on test (`smoke_test_manager_init_and_probe`) that initializes the `StrategyManager` and runs the `probe_environment` function. This ensures the core machinery is sound and that the probing logic itself doesn't hang, even in a minimal environment.
 
 **How to Run:**
-```bash
-cargo test -p coldvox-text-injection --lib
-```
-or simply:
 ```bash
 cargo test -p coldvox-text-injection
 ```
 
-These tests are executed by default and are designed to be run frequently by developers and in CI environments where a display server is not available.
+### 2. Real Injection Tests (Feature-Gated)
 
-### 2. Real Injection Tests
-
-These are full integration tests that launch real (but lightweight) test applications and verify that text is correctly injected by each of the supported backends (`atspi`, `ydotool`, etc.).
+These are full integration tests that perform real text injection into a live GTK application. They are gated behind the `real-injection-tests` feature.
 
 **Requirements:**
-*   A Linux environment with a running X11 or Wayland display server.
-*   Required development libraries for the test applications: `build-essential`, `libgtk-3-dev`.
-*   Required runtime dependencies for the injection backends: `at-spi2-core`, `ydotool` (with daemon running), etc. These are typically installed in the CI environment.
+- A Linux environment with a running X11 or Wayland display server.
+- `at-spi2-core`, `wl-clipboard`, `xclip` must be installed for the tests to pass.
+- `build-essential` and `libgtk-3-dev` are needed to compile the GTK test app.
 
 **How to Run:**
-To enable and run these tests, use the `--features real-injection-tests` flag:
+A convenient `cargo` alias has been created for running these tests.
+
 ```bash
-cargo test -p coldvox-text-injection --features real-injection-tests
+# This is the recommended way to run the full test suite.
+cargo real-injection
 ```
 
-**What it Does:**
-When this feature is enabled, the `build.rs` script for this crate will:
-1.  Compile a minimal GTK3 test application.
-2.  Compile a minimal terminal test application.
-
-The test suite will then:
-1.  Detect if a display server is available. If not, the tests will be skipped with a message.
-2.  Launch the test applications as needed for each test case.
-3.  Perform text injection using a specific backend.
-4.  Verify the injection by reading the content from a temporary file written by the test application.
-5.  Automatically clean up all application processes and temporary files.
+This alias expands to `cargo test -p coldvox-text-injection --features real-injection-tests -- --ignored --nocapture`, which ensures all tests run and their output is visible.
 
 ## Pre-commit Hook
 
-This repository includes a pre-commit hook to ensure that the core logic of the text injection crate remains sound.
+The pre-commit hook (`.git-hooks/pre-commit-injection-tests`) has been updated.
 
-**What it Does:**
-The pre-commit hook automatically runs the **mock-only tests** (`cargo test -p coldvox-text-injection --lib`). It is very fast and does not require a graphical environment. It serves as a quick sanity check before you commit your changes.
-
-**Installation:**
-To install the hook, run the following script from the repository root:
-```bash
-./scripts/setup_hooks.sh
-```
-
-This will create a symlink from `.git/hooks/pre-commit` to the script in the repository.
-
-**Opting Out:**
-You can skip the hook installation by setting the `COLDVOX_SKIP_HOOKS` environment variable:
-```bash
-COLDVOX_SKIP_HOOKS=1 ./scripts/setup_hooks.sh
-```
-You can also temporarily bypass the hook for a single commit using the `--no-verify` git flag:
-```bash
-git commit --no-verify -m "Your commit message"
-```
+- By default, it runs only the fast, mock-only unit tests.
+- You can optionally run the **full real injection suite** by setting an environment variable before committing:
+  ```bash
+  RUN_REAL_INJECTION_TESTS=1 git commit -m "Your message"
+  ```
+This provides an extra layer of validation for developers working directly on the text injection logic, while keeping the default pre-commit check fast for everyone else.

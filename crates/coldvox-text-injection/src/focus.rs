@@ -1,4 +1,5 @@
-use crate::types::{InjectionConfig, InjectionError};
+use crate::error::InjectionError;
+use crate::types::InjectionConfig;
 use std::time::{Duration, Instant};
 use tracing::debug;
 
@@ -23,7 +24,10 @@ pub struct FocusTracker {
 
 impl FocusTracker {
     pub fn new(config: InjectionConfig) -> Self {
-        let cache_duration = Duration::from_millis(config.focus_cache_duration_ms);
+        // NOTE: The detailed timing configs were removed from InjectionConfig.
+        // Using a hardcoded constant is acceptable for now as this logic is
+        // not on the critical path of the main refactoring.
+        let cache_duration = Duration::from_millis(200);
         Self {
             _config: config,
             last_check: None,

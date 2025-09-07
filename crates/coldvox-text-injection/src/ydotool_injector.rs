@@ -1,220 +1,126 @@
-use crate::types::{InjectionConfig, InjectionError, InjectionResult};
+use crate::constants::PER_BACKEND_SOFT_TIMEOUT_MS;
+use crate::error::InjectionError;
+use crate::outcome::InjectionOutcome;
+use crate::probe::BackendId;
+use crate::types::InjectionConfig;
 use crate::TextInjector;
-use anyhow::Result;
 use async_trait::async_trait;
 use std::process::Command;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::time::timeout;
 use tracing::{debug, info, warn};
 
 /// Ydotool injector for synthetic key events
 pub struct YdotoolInjector {
     config: InjectionConfig,
-    /// Whether ydotool is available on the system
-    is_available: bool,
 }
 
 impl YdotoolInjector {
     /// Create a new ydotool injector
     pub fn new(config: InjectionConfig) -> Self {
-        let is_available = Self::check_ydotool();
-
-        Self {
-            config,
-            is_available,
-        }
-    }
-
-    /// Check if ydotool is available on the system
-    fn check_ydotool() -> bool {
-        match Self::check_binary_permissions("ydotool") {
-            Ok(()) => {
-                // Check if the ydotool socket exists (most reliable check)
-                let user_id = std::env::var("UID").unwrap_or_else(|_| "1000".to_string());
-                let socket_path = format!("/run/user/{}/.ydotool_socket", user_id);
-                if !std::path::Path::new(&socket_path).exists() {
-                    warn!(
-                        "ydotool socket not found at {}, daemon may not be running",
-                        socket_path
-                    );
-                    return false;
-                }
-                true
-            }
-            Err(e) => {
-                warn!("ydotool not available: {}", e);
-                false
-            }
-        }
-    }
-
-    /// Check if a binary exists and has proper permissions
-    fn check_binary_permissions(binary_name: &str) -> Result<(), InjectionError> {
-        use std::os::unix::fs::PermissionsExt;
-
-        // Check if binary exists in PATH
-        let output = Command::new("which")
-            .arg(binary_name)
-            .output()
-            .map_err(|e| {
-                InjectionError::Process(format!("Failed to locate {}: {}", binary_name, e))
-            })?;
-
-        if !output.status.success() {
-            return Err(InjectionError::MethodUnavailable(format!(
-                "{} not found in PATH",
-                binary_name
-            )));
-        }
-
-        let binary_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-
-        // Check if binary is executable
-        let metadata = std::fs::metadata(&binary_path).map_err(InjectionError::Io)?;
-
-        let permissions = metadata.permissions();
-        if permissions.mode() & 0o111 == 0 {
-            return Err(InjectionError::PermissionDenied(format!(
-                "{} is not executable",
-                binary_name
-            )));
-        }
-
-        // For ydotool specifically, check uinput access
-        if binary_name == "ydotool" {
-            Self::check_uinput_access()?;
-        }
-
-        Ok(())
-    }
-
-    /// Check if we have access to /dev/uinput (required for ydotool)
-    fn check_uinput_access() -> Result<(), InjectionError> {
-        use std::fs::OpenOptions;
-
-        // Check if we can open /dev/uinput
-        match OpenOptions::new().write(true).open("/dev/uinput") {
-            Ok(_) => Ok(()),
-            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
-                // Check if user is in input group
-                let groups = Command::new("groups").output().map_err(|e| {
-                    InjectionError::Process(format!("Failed to check groups: {}", e))
-                })?;
-
-                let groups_str = String::from_utf8_lossy(&groups.stdout);
-                if !groups_str.contains("input") {
-                    return Err(InjectionError::PermissionDenied(
-                        "User not in 'input' group. Run: sudo usermod -a -G input $USER"
-                            .to_string(),
-                    ));
-                }
-
-                Err(InjectionError::PermissionDenied(
-                    "/dev/uinput access denied. ydotool daemon may not be running".to_string(),
-                ))
-            }
-            Err(e) => Err(InjectionError::Io(e)),
-        }
+        Self { config }
     }
 
     /// Trigger paste action using ydotool (Ctrl+V)
     async fn trigger_paste(&self) -> Result<(), InjectionError> {
-        let _start = std::time::Instant::now();
+        let cmd_fut = tokio::process::Command::new("ydotool")
+            .args(["key", "ctrl+v"])
+            .output();
 
-        // Use tokio to run the command with timeout
         let output = timeout(
-            Duration::from_millis(self.config.paste_action_timeout_ms),
-            tokio::process::Command::new("ydotool")
-                .args(["key", "ctrl+v"])
-                .output(),
+            Duration::from_millis(PER_BACKEND_SOFT_TIMEOUT_MS / 2),
+            cmd_fut,
         )
         .await
-        .map_err(|_| InjectionError::Timeout(self.config.paste_action_timeout_ms))?
-        .map_err(|e| InjectionError::Process(format!("{e}")))?;
+        .map_err(|_| InjectionError::Timeout {
+            backend: BackendId::Ydotool,
+            phase: "paste",
+            elapsed_ms: (PER_BACKEND_SOFT_TIMEOUT_MS / 2) as u32,
+        })?
+        .map_err(|e| InjectionError::Io {
+            backend: BackendId::Ydotool,
+            msg: e.to_string(),
+        })?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(InjectionError::MethodFailed(format!(
-                "ydotool key failed: {}",
-                stderr
-            )));
+            return Err(InjectionError::Transient {
+                reason: "ydotool paste command failed",
+                retryable: false,
+            });
         }
-
-        info!("Successfully triggered paste action via ydotool");
-
         Ok(())
     }
 
     /// Type text directly using ydotool
-    async fn _type_text(&self, text: &str) -> Result<(), InjectionError> {
-        let _start = std::time::Instant::now();
+    async fn type_text(&self, text: &str) -> Result<(), InjectionError> {
+        let cmd_fut = tokio::process::Command::new("ydotool")
+            .args(["type", "--delay", "10", text])
+            .output();
 
-        // Use tokio to run the command with timeout
         let output = timeout(
-            Duration::from_millis(self.config.per_method_timeout_ms),
-            tokio::process::Command::new("ydotool")
-                .args(["type", "--delay", "10", text])
-                .output(),
+            Duration::from_millis(PER_BACKEND_SOFT_TIMEOUT_MS),
+            cmd_fut,
         )
         .await
-        .map_err(|_| InjectionError::Timeout(self.config.per_method_timeout_ms))?
-        .map_err(|e| InjectionError::Process(format!("{e}")))?;
+        .map_err(|_| InjectionError::Timeout {
+            backend: BackendId::Ydotool,
+            phase: "type",
+            elapsed_ms: PER_BACKEND_SOFT_TIMEOUT_MS as u32,
+        })?
+        .map_err(|e| InjectionError::Io {
+            backend: BackendId::Ydotool,
+            msg: e.to_string(),
+        })?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(InjectionError::MethodFailed(format!(
-                "ydotool type failed: {}",
-                stderr
-            )));
+            return Err(InjectionError::Transient {
+                reason: "ydotool type command failed",
+                retryable: false,
+            });
         }
-
-        info!("Successfully typed text via ydotool ({} chars)", text.len());
-
         Ok(())
     }
 }
 
 #[async_trait]
 impl TextInjector for YdotoolInjector {
-    async fn inject_text(&self, text: &str) -> InjectionResult<()> {
-        if text.is_empty() {
-            return Ok(());
-        }
-
-        if !self.config.allow_ydotool {
-            return Err(InjectionError::MethodNotAvailable(
-                "Ydotool not allowed".to_string(),
-            ));
-        }
-
-        // First try paste action (more reliable for batch text)
-        match self.trigger_paste().await {
-            Ok(()) => Ok(()),
-            Err(e) => {
-                debug!("Paste action failed: {}", e);
-                // Fall back to direct typing
-                self._type_text(text).await
-            }
-        }
+    fn backend_id(&self) -> BackendId {
+        BackendId::Ydotool
     }
 
     async fn is_available(&self) -> bool {
-        self.is_available && self.config.allow_ydotool
+        if !self.config.allow_ydotool {
+            return false;
+        }
+        // A simple check. The full probe is more thorough.
+        Command::new("which")
+            .arg("ydotool")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
     }
 
-    fn backend_name(&self) -> &'static str {
-        "Ydotool"
-    }
+    async fn inject_text(&self, text: &str) -> Result<InjectionOutcome, InjectionError> {
+        if text.is_empty() {
+            return Ok(InjectionOutcome {
+                backend: self.backend_id(),
+                latency_ms: 0,
+                degraded: false,
+            });
+        }
 
-    fn backend_info(&self) -> Vec<(&'static str, String)> {
-        vec![
-            ("type", "uinput".to_string()),
-            ("requires_daemon", "true".to_string()),
-            (
-                "description",
-                "Ydotool uinput automation backend".to_string(),
-            ),
-            ("allowed", self.config.allow_ydotool.to_string()),
-        ]
+        let start_time = Instant::now();
+
+        // The primary method for ydotool is typing, as it's more direct.
+        // A paste would require setting the clipboard first, which is another backend's job.
+        self.type_text(text).await?;
+
+        Ok(InjectionOutcome {
+            backend: self.backend_id(),
+            latency_ms: start_time.elapsed().as_millis() as u32,
+            degraded: false,
+        })
     }
 }

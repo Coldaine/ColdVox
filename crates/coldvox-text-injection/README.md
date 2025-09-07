@@ -1,136 +1,60 @@
 # coldvox-text-injection
 
-Automated text injection system for ColdVox transcribed speech.
+A robust, resilient, and fast-failing text injection system for ColdVox.
 
-## What’s New (workspace v2.0.1)
+## Core Architecture
 
-- FocusProvider DI: inject focus detection for deterministic and safe tests
-- Combo clipboard+paste injector (`combo_clip_ydotool`) with async `ydotool` check
-- Comprehensive mock injectors and utilities for fallback and latency tests
-- Headless CI support using Xvfb + fluxbox + D-Bus; readiness loops (no fixed sleeps)
-- Allow/block list semantics: compiled regex path when `regex` is enabled; substring matching otherwise
+This crate provides text injection capabilities designed for reliability, especially in CI and diverse desktop environments. The architecture is built on three pillars:
 
-## Purpose
+1.  **Fast Environment Probe**: Before any injection attempt, a quick, asynchronous probe runs to detect available backends (`AT-SPI`, `wl-paste`, `xclip`) and essential services (`D-Bus`). This probe uses strict timeouts to prevent hangs and allows the system to gracefully skip injection if the environment is not suitable.
 
-This crate provides text injection capabilities that automatically type transcribed speech into applications:
+2.  **Strict Timeouts & Structured Errors**: Every potentially blocking operation is wrapped in a timeout, from a single D-Bus call to an entire injection attempt. Failures are returned as a structured `InjectionError` enum, making it easy to diagnose the root cause (e.g., `Timeout`, `Unavailable`, `PreconditionNotMet`).
 
-- **Multi-Backend Support**: Multiple text injection methods for different environments
-- **Focus Tracking**: Automatic detection of active application windows
-- **Smart Routing**: Application-specific injection method selection
-- **Cross-Platform**: Support for X11, Wayland, and other desktop environments
+3.  **Resilient Orchestration**: The `StrategyManager` uses the probe's results to select a backend. It no longer relies on complex success-rate caching, opting for a simpler, more predictable flow with a single retry for specific transient errors (like a temporary loss of focus).
 
 ## Key Components
 
-### Text Injection Backends
-- **Clipboard**: Copy transcription to clipboard and paste
-- **AT-SPI**: Accessibility API for direct text insertion (if enabled)
-- **Combo (Clipboard + Paste)**: Clipboard set plus AT-SPI paste or `ydotool` fallback
-- **YDotool**: uinput-based paste or key events (opt-in)
-- **KDotool Assist**: KDE/X11 window activation assistance (opt-in)
-- **Enigo**: Cross-platform input simulation (opt-in)
+### Injection Backends
+- **AT-SPI**: The preferred method for accessibility-compliant injection on Linux.
+- **Clipboard (Wayland & X11)**: A reliable fallback that uses `wl-clipboard` or `xclip` via robust, timeout-wrapped subprocess calls.
+- **Ydotool**: Can be used for synthetic input (feature-gated).
+- **NoOp**: A fallback that does nothing, ensuring the injection call never fails catastrophically.
 
-### Focus Detection
-- Active window detection and application identification
-- Application-specific method prioritization
-- Unknown application fallback strategies
-
-### Smart Injection Management
-- Latency optimization and timeout handling
-- Method fallback chains for reliability
-- Configurable injection strategies per application
+### Fail-Fast Testing
+The test suite has been overhauled for robustness:
+- All real-hardware tests are wrapped in a watchdog timeout to prevent hangs.
+- Tests use the environment probe to skip gracefully if the required backends are not available, providing clear JSON-formatted skip reasons.
+- Fixed `sleep()` calls have been replaced with asynchronous polling loops (`wait_ready`) for deterministic test setup.
 
 ## Features
 
-- `default`: Core text injection functionality with safe defaults
-- `atspi`: Linux AT-SPI accessibility backend
-- `wl_clipboard`: Clipboard-based injection via wl-clipboard-rs
-- `enigo`: Cross-platform input simulation
-- `ydotool`: Linux uinput automation
-- `kdotool` / `xdg_kdotool`: KDE/X11 window activation assistance (alias supported)
-- `regex`: Compiled allow/block list patterns (regex)
-- `all-backends`: Enable all available backends
-- `linux-desktop`: Enable recommended Linux desktop backends
+- `default`: Core text injection functionality.
+- `atspi`: Enables the Linux AT-SPI accessibility backend.
+- `wl_clipboard`: Enables the `wl-clipboard-rs` dependency (though the new implementation uses the CLI tools for robustness).
+- `ydotool`: Enables the `ydotool` injector.
+- `real-injection-tests`: Compiles the real hardware tests, which can be run with the `cargo real-injection` alias.
 
-## Backend Selection
+## Usage
 
-The system automatically selects the best available backend for each application:
+This crate is primarily used by the main ColdVox application.
 
-1. **AT-SPI** (preferred for accessibility compliance)
-2. **Clipboard + Paste** (AT-SPI paste when available; `ydotool` fallback)
-3. **Clipboard** (plain clipboard set)
-4. **Input Simulation** (YDotool/Enigo as opt-in fallbacks)
-5. **KDotool Assist** (window activation assistance)
-
-## Configuration
-
-### CLI Options
-
-- `--allow-kdotool`: Enable KDE-specific tools
-- `--allow-enigo`: Enable Enigo input simulation
-- `--restore-clipboard`: Restore clipboard contents after injection
-- `--inject-on-unknown-focus`: Inject even when focus detection fails
-
-### Timing Controls
-- `--max-total-latency-ms`: Maximum time allowed for injection
-- `--per-method-timeout-ms`: Timeout per backend attempt
-- `--cooldown-initial-ms`: Delay before first injection attempt
+To run the tests, including the real hardware tests (requires a graphical environment):
+```bash
+# This new alias runs all tests, including ignored ones, with output.
+cargo real-injection
+```
 
 ## System Requirements
 
 ### Linux
-```bash
-# For AT-SPI support
-sudo apt install libatk-bridge2.0-dev
-
-# For X11 helpers
-sudo apt install libxtst-dev wmctrl
-
-# For clipboard functionality
-sudo apt install xclip wl-clipboard
-
-# For ydotool-based paste (optional)
-sudo apt install ydotool
-```
-
-### Security Considerations
-
-Text injection requires various system permissions:
-- **X11**: Access to X server for input simulation
-- **Wayland**: May require special permissions for input
-- **AT-SPI**: Accessibility service access
-- **Clipboard**: Read/write access to system clipboard
-
-## Usage
-
-Enable through the main ColdVox application:
-
-```bash
-# Basic text injection
-cargo run --features text-injection
-
-# With specific backends
-cargo run --features text-injection -- --allow-ydotool --restore-clipboard
-```
+- **AT-SPI**: `at-spi2-core` and a running D-Bus session.
+- **Clipboard**: `wl-clipboard` (for Wayland) or `xclip` (for X11).
+- **Build**: `libgtk-3-dev` is required to build the test application.
 
 ## Dependencies
 
-- Backend-specific libraries (optional based on features)
-- Platform integration libraries for focus detection
-- Async runtime support for timeout handling
-
-## Testing
-
-Headless tests can be run under a session bus; CI uses Xvfb + fluxbox + D-Bus:
-
-```bash
-# Run crate tests (default)
-dbus-run-session -- cargo test -p coldvox-text-injection --locked
-
-# No-default-features
-dbus-run-session -- cargo test -p coldvox-text-injection --no-default-features --locked
-
-# Regex feature
-dbus-run-session -- cargo test -p coldvox-text-injection --no-default-features --features regex --locked
-```
-
-See `docs/testing.md` for details on live/CI testing and feature matrices.
+- `tokio`: For the async runtime.
+- `async-trait`: For the `TextInjector` trait.
+- `thiserror`: For structured error types.
+- `heapless`: For lightweight, allocation-free metrics collection.
+- `atspi` (optional): For the AT-SPI backend.

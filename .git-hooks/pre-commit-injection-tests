@@ -22,26 +22,23 @@ fi
 echo "Mock tests passed."
 echo "----------------------------------------------------------"
 
-# Optional real injection smoke test (non-blocking)
-if [[ "${RUN_REAL_INJECTION_SMOKE:-}" == "1" ]]; then
+# Optional: Run the full suite of real, hardware-dependent injection tests.
+# This requires a graphical environment and can be slow.
+# To enable, set the environment variable: RUN_REAL_INJECTION_TESTS=1
+if [[ "${RUN_REAL_INJECTION_TESTS:-}" == "1" ]]; then
+    echo "[real] Running full real injection test suite..."
     if [[ -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]; then
-        echo "[smoke] Skipping real injection smoke test (no display)"
-    else
-        echo "[smoke] Running real injection smoke test (non-blocking)"
-        # Enable common backends; missing ones will skip
-        set +e
-        cargo test -p coldvox-text-injection --features real-injection-tests,atspi,wl_clipboard,enigo,ydotool -- real_injection_smoke --test-threads=1 --quiet
-        rc=$?
-        if [[ $rc -ne 0 ]]; then
-            if [[ "${ENFORCE_REAL_SMOKE:-}" == "1" ]]; then
-                echo "[smoke] FAILURE (enforced)"
-                exit $rc
-            else
-                echo "[smoke] Warning: smoke test failed (rc=$rc) – continuing (set ENFORCE_REAL_SMOKE=1 to block)"
-            fi
-        else
-            echo "[smoke] Success"
-        fi
-        set -e
+        echo "[real] ERROR: Cannot run real injection tests without a display server (DISPLAY or WAYLAND_DISPLAY not set)."
+        exit 1
     fi
+
+    # Use the new cargo alias for convenience.
+    if ! cargo real-injection; then
+        echo "------------------------------------------------------------" >&2
+        echo "ERROR: Real injection tests failed." >&2
+        echo "Run 'cargo real-injection' for details." >&2
+        echo "------------------------------------------------------------" >&2
+        exit 1
+    fi
+    echo "[real] Real injection tests passed."
 fi
