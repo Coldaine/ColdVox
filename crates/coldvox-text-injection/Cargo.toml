@@ -2,6 +2,7 @@
 name = "coldvox-text-injection"
 version = "0.1.0"
 edition = "2021"
+build = "build.rs"
 description = "Text injection backends and session management for ColdVox"
 license = "MIT OR Apache-2.0"
 keywords = ["accessibility", "automation", "text-injection", "atspi", "clipboard"]
@@ -35,6 +36,7 @@ tempfile = "3.8"
 mockall = "0.12"
 tokio-test = "0.4"
 rand = "0.8"
+arboard = "3.2"
 
 [features]
 default = []
@@ -55,6 +57,11 @@ linux-desktop = ["atspi", "wl_clipboard", "kdotool"]
 
 # Test features
 live-hardware-tests = []
+real-injection-tests = []
 
 # Deprecated alias for xdg_kdotool. Will be removed in a future version.
 xdg_kdotool = ["kdotool"]
+
+[build-dependencies]
+cc = "1.0"
+pkg-config = "0.3"
