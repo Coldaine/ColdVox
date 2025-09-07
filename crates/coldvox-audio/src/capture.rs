@@ -104,7 +104,7 @@ impl AudioCaptureThread {
                         Ok(cfg) => {
                             tracing::info!("Audio stream started on device: {:?}", attempt);
                             capture.current_device_name = attempt.clone();
-                            
+
                             // Preflight: wait up to 3s for at least one frame
                             let start = Instant::now();
                             let mut ok = false;
@@ -142,13 +142,13 @@ impl AudioCaptureThread {
                 while running.load(Ordering::Relaxed) {
                     let mut needs_restart = false;
                     let mut restart_reason = "unknown";
-                    
+
                     // Check for device monitor events
                     match monitor_rx.try_recv() {
                         Ok(event) => {
                             tracing::debug!("Device event: {:?}", event);
                             let _ = capture.device_event_tx.as_ref().map(|tx| tx.send(event.clone()));
-                            
+
                             match event {
                                 DeviceEvent::CurrentDeviceDisconnected { name } => {
                                     if capture.current_device_name.as_ref() == Some(&name) {
@@ -180,13 +180,13 @@ impl AudioCaptureThread {
                             break;
                         }
                     }
-                    
+
                     // Check existing restart conditions
                     if capture.watchdog.is_triggered() {
                         needs_restart = true;
                         restart_reason = "watchdog timeout";
                     }
-                    
+
                     if capture.restart_needed.load(Ordering::SeqCst) {
                         needs_restart = true;
                         restart_reason = "stream error";
@@ -204,7 +204,7 @@ impl AudioCaptureThread {
                         let candidates = capture.device_manager.candidate_device_names();
                         for name in candidates { attempts.push(Some(name)); }
                         attempts.push(None);
-                        
+
                         for attempt in attempts {
                             match capture.start(attempt.as_deref()) {
                                 Ok(cfg) => {
@@ -212,14 +212,14 @@ impl AudioCaptureThread {
                                     let new_device = attempt.clone();
                                     capture.current_device_name = new_device.clone();
                                     *device_config_clone.write() = Some(cfg);
-                                    
+
                                     // Emit device switch event
                                     let switch_event = DeviceEvent::DeviceSwitched {
                                         from: old_device.clone(),
                                         to: new_device.unwrap_or_else(|| "default".to_string()),
                                     };
                                     let _ = capture.device_event_tx.as_ref().map(|tx| tx.send(switch_event));
-                                    
+
                                     restarted = true;
                                     break;
                                 }
@@ -261,12 +261,12 @@ impl AudioCaptureThread {
         })?;
 
         Ok((
-            Self { 
-                handle, 
+            Self {
+                handle,
                 shutdown,
                 device_monitor_handle: Some(monitor_handle),
-            }, 
-            cfg, 
+            },
+            cfg,
             config_rx,
             device_event_rx,
         ))

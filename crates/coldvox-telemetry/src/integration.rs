@@ -1,9 +1,9 @@
 //! Integration helpers for STT performance metrics
-//! 
+//!
 //! This module provides utilities to easily integrate STT performance metrics
 //! into existing applications with minimal code changes.
 
-use crate::stt_metrics::{SttPerformanceMetrics, PerformanceThresholds, PerformanceAlert};
+use crate::stt_metrics::{PerformanceAlert, PerformanceThresholds, SttPerformanceMetrics};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -105,10 +105,11 @@ impl SttMetricsManager {
         confidence_score: Option<f64>,
     ) {
         self.metrics.record_end_to_end_latency(end_to_end_latency);
-        self.metrics.record_engine_processing_time(engine_processing_time);
+        self.metrics
+            .record_engine_processing_time(engine_processing_time);
         self.metrics.record_transcription_success();
         self.metrics.record_final_transcription();
-        
+
         if let Some(confidence) = confidence_score {
             self.metrics.record_confidence_score(confidence);
         }
@@ -118,7 +119,7 @@ impl SttMetricsManager {
     pub fn record_failed_transcription(&self, error_latency: Option<Duration>) {
         self.metrics.record_transcription_failure();
         self.metrics.record_error();
-        
+
         if let Some(latency) = error_latency {
             self.metrics.record_end_to_end_latency(latency);
         }
@@ -126,18 +127,34 @@ impl SttMetricsManager {
 
     /// Get current performance summary
     pub fn get_performance_summary(&self) -> PerformanceSummary {
-        let latency_us = self.metrics.latency.end_to_end_us.load(std::sync::atomic::Ordering::Relaxed);
+        let latency_us = self
+            .metrics
+            .latency
+            .end_to_end_us
+            .load(std::sync::atomic::Ordering::Relaxed);
         let avg_confidence = self.metrics.get_average_confidence();
         let success_rate = self.metrics.get_success_rate();
-        let memory_usage = self.metrics.resources.memory_usage_bytes.load(std::sync::atomic::Ordering::Relaxed);
-        
+        let memory_usage = self
+            .metrics
+            .resources
+            .memory_usage_bytes
+            .load(std::sync::atomic::Ordering::Relaxed);
+
         PerformanceSummary {
             avg_latency_ms: latency_us as f64 / 1000.0,
             avg_confidence,
             success_rate,
             memory_usage_mb: memory_usage as f64 / (1024.0 * 1024.0),
-            total_requests: self.metrics.operational.requests_per_second.load(std::sync::atomic::Ordering::Relaxed),
-            total_errors: self.metrics.operational.error_rate_per_1k.load(std::sync::atomic::Ordering::Relaxed),
+            total_requests: self
+                .metrics
+                .operational
+                .requests_per_second
+                .load(std::sync::atomic::Ordering::Relaxed),
+            total_errors: self
+                .metrics
+                .operational
+                .error_rate_per_1k
+                .load(std::sync::atomic::Ordering::Relaxed),
         }
     }
 
@@ -146,7 +163,7 @@ impl SttMetricsManager {
         if !self.enable_alerts {
             return Vec::new();
         }
-        
+
         self.metrics.check_alerts(&self.thresholds)
     }
 
@@ -155,7 +172,7 @@ impl SttMetricsManager {
         if !self.enable_trending {
             return None;
         }
-        
+
         self.metrics.get_latency_trend().map(|slope| {
             if slope > 1000.0 {
                 LatencyTrend::Increasing
@@ -171,7 +188,7 @@ impl SttMetricsManager {
     pub fn format_metrics_report(&self) -> String {
         let summary = self.get_performance_summary();
         let alerts = self.check_alerts();
-        
+
         let mut report = format!(
             "STT Performance Report:\n\
              • Latency: {:.1}ms avg\n\
@@ -194,7 +211,7 @@ impl SttMetricsManager {
         if let Some(trend) = self.get_latency_trend() {
             let trend_str = match trend {
                 LatencyTrend::Increasing => "📈 Increasing",
-                LatencyTrend::Decreasing => "📉 Decreasing", 
+                LatencyTrend::Decreasing => "📉 Decreasing",
                 LatencyTrend::Stable => "➡️ Stable",
             };
             report.push_str(&format!("\n• Latency Trend: {}", trend_str));
@@ -254,9 +271,7 @@ impl SttMetricsBuilder {
 
     /// Testing configuration with very relaxed thresholds
     pub fn testing() -> Self {
-        Self::new()
-            .with_alerts(false)
-            .with_trending(false)
+        Self::new().with_alerts(false).with_trending(false)
     }
 }
 
@@ -270,7 +285,7 @@ mod tests {
             .with_max_latency(200)
             .with_min_confidence(0.8)
             .build();
-        
+
         assert_eq!(manager.thresholds.max_latency_us, 200_000);
         assert_eq!(manager.thresholds.min_confidence, 0.8);
     }
@@ -279,10 +294,10 @@ mod tests {
     fn test_preset_configurations() {
         let prod = SttMetricsBuilder::production().build();
         assert_eq!(prod.thresholds.max_latency_us, 500_000);
-        
+
         let dev = SttMetricsBuilder::development().build();
         assert_eq!(dev.thresholds.max_latency_us, 1_000_000);
-        
+
         let hp = SttMetricsBuilder::high_performance().build();
         assert_eq!(hp.thresholds.max_latency_us, 100_000);
     }
@@ -290,13 +305,13 @@ mod tests {
     #[test]
     fn test_performance_summary() {
         let manager = SttMetricsBuilder::testing().build();
-        
+
         manager.record_successful_transcription(
             Duration::from_millis(150),
             Duration::from_millis(100),
             Some(0.85),
         );
-        
+
         let summary = manager.get_performance_summary();
         assert!(summary.avg_latency_ms > 0.0);
         assert!(summary.avg_confidence > 0.0);
@@ -305,13 +320,13 @@ mod tests {
     #[test]
     fn test_metrics_report_formatting() {
         let manager = SttMetricsBuilder::testing().build();
-        
+
         manager.record_successful_transcription(
             Duration::from_millis(100),
             Duration::from_millis(80),
             Some(0.9),
         );
-        
+
         let report = manager.format_metrics_report();
         assert!(report.contains("STT Performance Report"));
         assert!(report.contains("Latency:"));

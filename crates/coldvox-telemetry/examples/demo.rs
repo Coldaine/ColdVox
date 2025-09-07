@@ -1,9 +1,9 @@
 //! Example demonstrating comprehensive STT performance metrics
-//! 
+//!
 //! This example shows how to use the enhanced STT telemetry system
 //! to monitor transcription performance, latency, accuracy, and resource usage.
 
-use coldvox_telemetry::{SttPerformanceMetrics, PerformanceThresholds, TimingMeasurement};
+use coldvox_telemetry::{PerformanceThresholds, SttPerformanceMetrics, TimingMeasurement};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -29,7 +29,7 @@ fn simulate_transcription_session(metrics: &Arc<SttPerformanceMetrics>) {
 
     for i in 1..=5 {
         println!("Processing utterance {}...", i);
-        
+
         // Simulate preprocessing
         let preprocessing = TimingMeasurement::start("preprocessing");
         std::thread::sleep(Duration::from_millis(5 + i * 2));
@@ -94,11 +94,23 @@ fn display_metrics_report(metrics: &Arc<SttPerformanceMetrics>) {
     println!("\n--- Performance Metrics Report ---");
 
     // Latency metrics
-    let e2e_latency = metrics.latency.end_to_end_us.load(std::sync::atomic::Ordering::Relaxed);
-    let engine_time = metrics.latency.engine_processing_us.load(std::sync::atomic::Ordering::Relaxed);
-    let preprocessing = metrics.latency.preprocessing_us.load(std::sync::atomic::Ordering::Relaxed);
-    let delivery = metrics.latency.result_delivery_us.load(std::sync::atomic::Ordering::Relaxed);
-    
+    let e2e_latency = metrics
+        .latency
+        .end_to_end_us
+        .load(std::sync::atomic::Ordering::Relaxed);
+    let engine_time = metrics
+        .latency
+        .engine_processing_us
+        .load(std::sync::atomic::Ordering::Relaxed);
+    let preprocessing = metrics
+        .latency
+        .preprocessing_us
+        .load(std::sync::atomic::Ordering::Relaxed);
+    let delivery = metrics
+        .latency
+        .result_delivery_us
+        .load(std::sync::atomic::Ordering::Relaxed);
+
     println!("📊 Latency Metrics:");
     println!("  End-to-End:      {:.1}ms", e2e_latency as f64 / 1000.0);
     println!("  Engine Processing: {:.1}ms", engine_time as f64 / 1000.0);
@@ -108,9 +120,15 @@ fn display_metrics_report(metrics: &Arc<SttPerformanceMetrics>) {
     // Accuracy metrics
     let avg_confidence = metrics.get_average_confidence();
     let success_rate = metrics.get_success_rate();
-    let final_count = metrics.accuracy.final_count.load(std::sync::atomic::Ordering::Relaxed);
-    let failure_count = metrics.accuracy.failure_count.load(std::sync::atomic::Ordering::Relaxed);
-    
+    let final_count = metrics
+        .accuracy
+        .final_count
+        .load(std::sync::atomic::Ordering::Relaxed);
+    let failure_count = metrics
+        .accuracy
+        .failure_count
+        .load(std::sync::atomic::Ordering::Relaxed);
+
     println!("\n🎯 Accuracy Metrics:");
     println!("  Average Confidence: {:.1}%", avg_confidence * 100.0);
     println!("  Success Rate:       {:.1}%", success_rate * 100.0);
@@ -118,17 +136,35 @@ fn display_metrics_report(metrics: &Arc<SttPerformanceMetrics>) {
     println!("  Failures:           {}", failure_count);
 
     // Resource metrics
-    let memory_usage = metrics.resources.memory_usage_bytes.load(std::sync::atomic::Ordering::Relaxed);
-    let peak_memory = metrics.resources.peak_memory_bytes.load(std::sync::atomic::Ordering::Relaxed);
-    
+    let memory_usage = metrics
+        .resources
+        .memory_usage_bytes
+        .load(std::sync::atomic::Ordering::Relaxed);
+    let peak_memory = metrics
+        .resources
+        .peak_memory_bytes
+        .load(std::sync::atomic::Ordering::Relaxed);
+
     println!("\n💾 Resource Usage:");
-    println!("  Current Memory: {:.1}MB", memory_usage as f64 / (1024.0 * 1024.0));
-    println!("  Peak Memory:    {:.1}MB", peak_memory as f64 / (1024.0 * 1024.0));
+    println!(
+        "  Current Memory: {:.1}MB",
+        memory_usage as f64 / (1024.0 * 1024.0)
+    );
+    println!(
+        "  Peak Memory:    {:.1}MB",
+        peak_memory as f64 / (1024.0 * 1024.0)
+    );
 
     // Operational metrics
-    let requests = metrics.operational.requests_per_second.load(std::sync::atomic::Ordering::Relaxed);
-    let errors = metrics.operational.error_rate_per_1k.load(std::sync::atomic::Ordering::Relaxed);
-    
+    let requests = metrics
+        .operational
+        .requests_per_second
+        .load(std::sync::atomic::Ordering::Relaxed);
+    let errors = metrics
+        .operational
+        .error_rate_per_1k
+        .load(std::sync::atomic::Ordering::Relaxed);
+
     println!("\n⚙️  Operational Metrics:");
     println!("  Total Requests: {}", requests);
     println!("  Error Count:    {}", errors);
@@ -139,19 +175,19 @@ fn check_performance_alerts(metrics: &Arc<SttPerformanceMetrics>) {
 
     // Use stricter thresholds for demo
     let thresholds = PerformanceThresholds {
-        max_latency_us: 150_000,  // 150ms
-        min_confidence: 0.8,      // 80%
-        max_error_rate_per_1k: 2, // 0.2%
+        max_latency_us: 150_000,            // 150ms
+        min_confidence: 0.8,                // 80%
+        max_error_rate_per_1k: 2,           // 0.2%
         max_memory_bytes: 40 * 1024 * 1024, // 40MB
     };
 
     let alerts = metrics.check_alerts(&thresholds);
-    
+
     if alerts.is_empty() {
         println!("✅ No performance alerts - all metrics within thresholds");
     } else {
         println!("⚠️  {} performance alert(s) detected:", alerts.len());
-        
+
         for (i, alert) in alerts.iter().enumerate() {
             println!("  {}. {}", i + 1, format_alert(alert));
         }
@@ -174,25 +210,44 @@ fn check_performance_alerts(metrics: &Arc<SttPerformanceMetrics>) {
 
 fn format_alert(alert: &coldvox_telemetry::PerformanceAlert) -> String {
     match alert {
-        coldvox_telemetry::PerformanceAlert::HighLatency { measured_us, threshold_us } => {
-            format!("High Latency: {:.1}ms > {:.1}ms threshold", 
-                   *measured_us as f64 / 1000.0, 
-                   *threshold_us as f64 / 1000.0)
+        coldvox_telemetry::PerformanceAlert::HighLatency {
+            measured_us,
+            threshold_us,
+        } => {
+            format!(
+                "High Latency: {:.1}ms > {:.1}ms threshold",
+                *measured_us as f64 / 1000.0,
+                *threshold_us as f64 / 1000.0
+            )
         }
-        coldvox_telemetry::PerformanceAlert::LowConfidence { measured, threshold } => {
-            format!("Low Confidence: {:.1}% < {:.1}% threshold", 
-                   measured * 100.0, 
-                   threshold * 100.0)
+        coldvox_telemetry::PerformanceAlert::LowConfidence {
+            measured,
+            threshold,
+        } => {
+            format!(
+                "Low Confidence: {:.1}% < {:.1}% threshold",
+                measured * 100.0,
+                threshold * 100.0
+            )
         }
-        coldvox_telemetry::PerformanceAlert::HighErrorRate { measured_per_1k, threshold_per_1k } => {
-            format!("High Error Rate: {}/1k > {}/1k threshold", 
-                   measured_per_1k, 
-                   threshold_per_1k)
+        coldvox_telemetry::PerformanceAlert::HighErrorRate {
+            measured_per_1k,
+            threshold_per_1k,
+        } => {
+            format!(
+                "High Error Rate: {}/1k > {}/1k threshold",
+                measured_per_1k, threshold_per_1k
+            )
         }
-        coldvox_telemetry::PerformanceAlert::HighMemoryUsage { measured_bytes, threshold_bytes } => {
-            format!("High Memory Usage: {:.1}MB > {:.1}MB threshold", 
-                   *measured_bytes as f64 / (1024.0 * 1024.0),
-                   *threshold_bytes as f64 / (1024.0 * 1024.0))
+        coldvox_telemetry::PerformanceAlert::HighMemoryUsage {
+            measured_bytes,
+            threshold_bytes,
+        } => {
+            format!(
+                "High Memory Usage: {:.1}MB > {:.1}MB threshold",
+                *measured_bytes as f64 / (1024.0 * 1024.0),
+                *threshold_bytes as f64 / (1024.0 * 1024.0)
+            )
         }
         coldvox_telemetry::PerformanceAlert::ProcessingStalled { last_activity } => {
             format!("Processing Stalled: No activity for {:?}", last_activity)
