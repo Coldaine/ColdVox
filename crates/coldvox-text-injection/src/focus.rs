@@ -53,11 +53,20 @@ impl FocusTracker {
                 connection::AccessibilityConnection, proxy::collection::CollectionProxy, Interface,
                 MatchType, ObjectMatchRule, SortOrder, State,
             };
+            use tokio::time;
 
-            let conn = match AccessibilityConnection::new().await {
-                Ok(c) => c,
-                Err(err) => {
+            let timeout_duration = Duration::from_millis(250);
+            let conn = match time::timeout(timeout_duration, AccessibilityConnection::new()).await {
+                Ok(Ok(c)) => c,
+                Ok(Err(err)) => {
                     debug!(error = ?err, "AT-SPI: failed to connect");
+                    return Ok(FocusStatus::Unknown);
+                }
+                Err(_) => {
+                    debug!(
+                        "AT-SPI: connection timeout after {}ms",
+                        timeout_duration.as_millis()
+                    );
                     return Ok(FocusStatus::Unknown);
                 }
             };

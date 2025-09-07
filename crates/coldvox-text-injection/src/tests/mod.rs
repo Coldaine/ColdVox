@@ -22,4 +22,4 @@ mod test_focus_enforcement;
 #[cfg(all(test, feature = "real-injection-tests"))]
 mod test_harness;
 #[cfg(test)]
-mod test_util;
+pub mod test_util;

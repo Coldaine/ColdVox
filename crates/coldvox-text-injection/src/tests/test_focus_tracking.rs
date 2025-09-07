@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::focus::{FocusStatus, FocusTracker};
+    use crate::tests::test_util::util::skip_if_headless_ci;
     use crate::types::InjectionConfig;
     use std::time::Duration;
     use tokio::time::sleep;
@@ -22,6 +23,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_focus_detection() {
+        if skip_if_headless_ci() {
+            eprintln!("Skipping test_focus_detection: headless CI environment detected");
+            return;
+        }
+
         init_test_tracing();
         info!("Starting test_focus_detection");
         let config = InjectionConfig::default();
@@ -37,6 +43,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_focus_cache_expiry() {
+        if skip_if_headless_ci() {
+            eprintln!("Skipping test_focus_cache_expiry: headless CI environment detected");
+            return;
+        }
+
         init_test_tracing();
         info!("Starting test_focus_cache_expiry");
         let config = InjectionConfig {
