@@ -1,0 +1,11 @@
+[package]
+name = "stt-metrics-demo"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+coldvox-telemetry = { path = "../crates/coldvox-telemetry" }
+
+[[bin]]
+name = "demo"
+path = "stt_performance_metrics_demo.rs"

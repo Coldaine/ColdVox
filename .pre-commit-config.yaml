@@ -105,6 +105,13 @@ repos:
   # Rust checks (blocking but can be bypassed with SKIP_RUST_CHECKS=1)
   - repo: local
     hooks:
+      - id: generate-dependency-graphs
+        name: Generate Dependency Graphs
+        language: system
+        entry: scripts/ci/update-dependency-graphs.sh
+        pass_filenames: false
+        # Run when dependencies change. The script will stage the generated files.
+        files: '(^|/)Cargo\.(toml|lock)$'
       - id: rustfmt
         name: Rust Format
         entry: bash -c 'if [[ "${SKIP_RUST_CHECKS:-}" == "1" ]]; then echo "⏭️ Skipping Rust format check"; exit 0; fi; cargo fmt --all'

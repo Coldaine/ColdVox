@@ -73,6 +73,8 @@ cargo run -p coldvox-app --bin tui_dashboard  # S=Start, A=Toggle VAD/PTT, R=Res
 **Optional features (via feature flags):**
 - **`vosk`**: Speech-to-text using Vosk engine (requires system dependencies)
 - **`text-injection`**: Automated text input for transcribed speech
+  - See `crates/coldvox-text-injection/README.md` for detailed backend comparison (AT-SPI vs ydotool)
+  - Run `./scripts/setup_text_injection.sh` for automated dependency setup
 - **`examples`**: Additional example programs and demos
 - **`live-hardware-tests`**: Hardware-specific test suites
 
@@ -111,6 +113,26 @@ Notes:
 - VAD and STT subscribe to a broadcast of chunked frames.
 
 See `crates/app` and `docs/` for deeper architecture notes.
+
+## System Dependencies & Setup
+
+ColdVox requires several system dependencies for full functionality. We've provided an automated setup script to handle the installation and configuration:
+
+```bash
+# Run the text injection setup script (handles ydotool, permissions, etc.)
+./scripts/setup_text_injection.sh
+```
+
+This script will:
+- Install required packages (`wl-clipboard`, `ydotool`, etc.)
+- Configure udev rules for uinput access
+- Set up proper user permissions
+- Enable and start the ydotool daemon
+- Test the configuration
+
+For manual installation or troubleshooting, see:
+- `docs/text_injection_platform_matrix.md` - Platform-specific setup guides
+- `crates/coldvox-text-injection/README.md` - Detailed dependency information
 
 ## License
 

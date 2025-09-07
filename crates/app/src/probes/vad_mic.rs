@@ -29,7 +29,7 @@ impl VadMicCheck {
         // Prepare ring buffer and spawn capture thread
         let rb = AudioRingBuffer::new(16_384);
         let (audio_producer, audio_consumer) = rb.split();
-        let (capture_thread, dev_cfg, _config_rx) =
+        let (capture_thread, dev_cfg, _config_rx, _device_event_rx) =
             AudioCaptureThread::spawn(config, audio_producer, device_name).map_err(|e| {
                 TestError {
                     kind: TestErrorKind::Setup,
