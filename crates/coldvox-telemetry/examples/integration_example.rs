@@ -1,9 +1,9 @@
 //! Simple integration example showing how to use STT performance metrics
-//! 
+//!
 //! This example demonstrates the easy integration API for adding
 //! comprehensive STT performance monitoring to existing applications.
 
-use coldvox_telemetry::{SttMetricsBuilder, SttMetricsManager, LatencyTrend};
+use coldvox_telemetry::{LatencyTrend, SttMetricsBuilder, SttMetricsManager};
 use std::time::Duration;
 
 fn main() {
@@ -17,9 +17,9 @@ fn main() {
     // Example 2: Custom configuration
     println!("2. Setting up custom configuration...");
     let _custom_manager = SttMetricsBuilder::new()
-        .with_max_latency(200)      // 200ms max latency
-        .with_min_confidence(0.85)  // 85% min confidence  
-        .with_max_memory_mb(256)    // 256MB max memory
+        .with_max_latency(200) // 200ms max latency
+        .with_min_confidence(0.85) // 85% min confidence
+        .with_max_memory_mb(256) // 256MB max memory
         .build();
     println!("✓ Custom metrics configured\n");
 
@@ -42,10 +42,14 @@ fn simulate_stt_activity(manager: &SttMetricsManager) {
         let latency = Duration::from_millis(150 + i * 50);
         let processing_time = Duration::from_millis(120 + i * 30);
         let confidence = 0.9 - (i as f64 * 0.05);
-        
+
         manager.record_successful_transcription(latency, processing_time, Some(confidence));
-        println!("  ✓ Recorded successful transcription {} ({}ms, {:.1}% confidence)", 
-                i, latency.as_millis(), confidence * 100.0);
+        println!(
+            "  ✓ Recorded successful transcription {} ({}ms, {:.1}% confidence)",
+            i,
+            latency.as_millis(),
+            confidence * 100.0
+        );
     }
 
     // Simulate a failure
@@ -58,7 +62,10 @@ fn monitor_performance(manager: &SttMetricsManager) {
     let summary = manager.get_performance_summary();
     println!("Performance Summary:");
     println!("  • Average Latency: {:.1}ms", summary.avg_latency_ms);
-    println!("  • Average Confidence: {:.1}%", summary.avg_confidence * 100.0);
+    println!(
+        "  • Average Confidence: {:.1}%",
+        summary.avg_confidence * 100.0
+    );
     println!("  • Success Rate: {:.1}%", summary.success_rate * 100.0);
     println!("  • Total Requests: {}", summary.total_requests);
 
@@ -119,7 +126,7 @@ mod tests {
         let manager = SttMetricsBuilder::testing().build();
         simulate_stt_activity(&manager);
         monitor_performance(&manager);
-        
+
         let summary = manager.get_performance_summary();
         assert!(summary.total_requests > 0);
         assert!(summary.total_errors > 0);

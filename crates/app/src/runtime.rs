@@ -181,7 +181,7 @@ pub async fn start(
     let audio_config = AudioConfig::default();
     let ring_buffer = AudioRingBuffer::new(16384 * 4);
     let (audio_producer, audio_consumer) = ring_buffer.split();
-    let (audio_capture, device_cfg, device_config_rx) =
+    let (audio_capture, device_cfg, device_config_rx, _device_event_rx) =
         AudioCaptureThread::spawn(audio_config, audio_producer, opts.device.clone())?;
 
     // 2) Chunker (with resampler)

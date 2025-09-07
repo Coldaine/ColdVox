@@ -49,7 +49,7 @@ pub struct AccuracyMetrics {
     pub confidence_count: Arc<AtomicU64>,
     /// Transcription success count
     pub success_count: Arc<AtomicU64>,
-    /// Transcription failure count  
+    /// Transcription failure count
     pub failure_count: Arc<AtomicU64>,
     /// Partial transcription count
     pub partial_count: Arc<AtomicU64>,
@@ -117,9 +117,9 @@ pub struct PerformanceThresholds {
 impl Default for PerformanceThresholds {
     fn default() -> Self {
         Self {
-            max_latency_us: 500_000, // 500ms
-            min_confidence: 0.7,     // 70%
-            max_error_rate_per_1k: 50, // 5%
+            max_latency_us: 500_000,              // 500ms
+            min_confidence: 0.7,                  // 70%
+            max_error_rate_per_1k: 50,            // 5%
             max_memory_bytes: 1024 * 1024 * 1024, // 1GB
         }
     }
@@ -128,11 +128,25 @@ impl Default for PerformanceThresholds {
 /// Performance alert types
 #[derive(Debug, Clone)]
 pub enum PerformanceAlert {
-    HighLatency { measured_us: u64, threshold_us: u64 },
-    LowConfidence { measured: f64, threshold: f64 },
-    HighErrorRate { measured_per_1k: u64, threshold_per_1k: u64 },
-    HighMemoryUsage { measured_bytes: u64, threshold_bytes: u64 },
-    ProcessingStalled { last_activity: Duration },
+    HighLatency {
+        measured_us: u64,
+        threshold_us: u64,
+    },
+    LowConfidence {
+        measured: f64,
+        threshold: f64,
+    },
+    HighErrorRate {
+        measured_per_1k: u64,
+        threshold_per_1k: u64,
+    },
+    HighMemoryUsage {
+        measured_bytes: u64,
+        threshold_bytes: u64,
+    },
+    ProcessingStalled {
+        last_activity: Duration,
+    },
 }
 
 impl SttPerformanceMetrics {
@@ -144,8 +158,10 @@ impl SttPerformanceMetrics {
     /// Record end-to-end latency measurement
     pub fn record_end_to_end_latency(&self, latency: Duration) {
         let latency_us = latency.as_micros() as u64;
-        self.latency.end_to_end_us.store(latency_us, Ordering::Relaxed);
-        
+        self.latency
+            .end_to_end_us
+            .store(latency_us, Ordering::Relaxed);
+
         // Add to history for trend analysis
         self.add_latency_snapshot(LatencySnapshot {
             timestamp: Instant::now(),
@@ -158,41 +174,42 @@ impl SttPerformanceMetrics {
 
     /// Record engine processing time
     pub fn record_engine_processing_time(&self, duration: Duration) {
-        self.latency.engine_processing_us.store(
-            duration.as_micros() as u64,
-            Ordering::Relaxed,
-        );
+        self.latency
+            .engine_processing_us
+            .store(duration.as_micros() as u64, Ordering::Relaxed);
     }
 
     /// Record preprocessing latency
     pub fn record_preprocessing_latency(&self, duration: Duration) {
-        self.latency.preprocessing_us.store(
-            duration.as_micros() as u64,
-            Ordering::Relaxed,
-        );
+        self.latency
+            .preprocessing_us
+            .store(duration.as_micros() as u64, Ordering::Relaxed);
     }
 
     /// Record result delivery latency
     pub fn record_result_delivery_latency(&self, duration: Duration) {
-        self.latency.result_delivery_us.store(
-            duration.as_micros() as u64,
-            Ordering::Relaxed,
-        );
+        self.latency
+            .result_delivery_us
+            .store(duration.as_micros() as u64, Ordering::Relaxed);
     }
 
     /// Record confidence score
     pub fn record_confidence_score(&self, confidence: f64) {
         // Convert to integer (0-1000) for atomic storage
         let confidence_int = (confidence * 1000.0) as u64;
-        
+
         // Update running average
-        self.accuracy.confidence_sum.fetch_add(confidence_int, Ordering::Relaxed);
-        self.accuracy.confidence_count.fetch_add(1, Ordering::Relaxed);
-        
+        self.accuracy
+            .confidence_sum
+            .fetch_add(confidence_int, Ordering::Relaxed);
+        self.accuracy
+            .confidence_count
+            .fetch_add(1, Ordering::Relaxed);
+
         // Store in history
         let mut history = self.accuracy.word_confidence_history.write();
         history.push_back(confidence);
-        
+
         // Keep only last 100 measurements
         if history.len() > 100 {
             history.pop_front();
@@ -221,40 +238,47 @@ impl SttPerformanceMetrics {
 
     /// Update memory usage
     pub fn update_memory_usage(&self, bytes: u64) {
-        self.resources.memory_usage_bytes.store(bytes, Ordering::Relaxed);
-        
+        self.resources
+            .memory_usage_bytes
+            .store(bytes, Ordering::Relaxed);
+
         // Update peak if higher
         let current_peak = self.resources.peak_memory_bytes.load(Ordering::Relaxed);
         if bytes > current_peak {
-            self.resources.peak_memory_bytes.store(bytes, Ordering::Relaxed);
+            self.resources
+                .peak_memory_bytes
+                .store(bytes, Ordering::Relaxed);
         }
     }
 
     /// Update buffer utilization percentage
     pub fn update_buffer_utilization(&self, utilization_pct: u64) {
-        self.resources.buffer_utilization_pct.store(
-            utilization_pct.min(100),
-            Ordering::Relaxed,
-        );
+        self.resources
+            .buffer_utilization_pct
+            .store(utilization_pct.min(100), Ordering::Relaxed);
     }
 
     /// Increment processing requests
     pub fn increment_requests(&self) {
         // This would be used with a rate calculator for requests per second
         // For now, just increment the operational counter
-        self.operational.requests_per_second.fetch_add(1, Ordering::Relaxed);
+        self.operational
+            .requests_per_second
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     /// Record processing error
     pub fn record_error(&self) {
-        self.operational.error_rate_per_1k.fetch_add(1, Ordering::Relaxed);
+        self.operational
+            .error_rate_per_1k
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     /// Get current average confidence score
     pub fn get_average_confidence(&self) -> f64 {
         let sum = self.accuracy.confidence_sum.load(Ordering::Relaxed);
         let count = self.accuracy.confidence_count.load(Ordering::Relaxed);
-        
+
         if count > 0 {
             (sum as f64) / (count as f64) / 1000.0
         } else {
@@ -267,7 +291,7 @@ impl SttPerformanceMetrics {
         let success = self.accuracy.success_count.load(Ordering::Relaxed) as f64;
         let failure = self.accuracy.failure_count.load(Ordering::Relaxed) as f64;
         let total = success + failure;
-        
+
         if total > 0.0 {
             success / total
         } else {
@@ -322,7 +346,7 @@ impl SttPerformanceMetrics {
     fn add_latency_snapshot(&self, snapshot: LatencySnapshot) {
         let mut history = self.latency.latency_history.write();
         history.push_back(snapshot);
-        
+
         // Keep only last 100 measurements
         if history.len() > 100 {
             history.pop_front();
@@ -332,7 +356,7 @@ impl SttPerformanceMetrics {
     /// Get latency trend (returns slope indicating improvement/degradation)
     pub fn get_latency_trend(&self) -> Option<f64> {
         let history = self.latency.latency_history.read();
-        
+
         if history.len() < 10 {
             return None;
         }
@@ -340,14 +364,16 @@ impl SttPerformanceMetrics {
         // Simple linear regression on recent latency measurements
         let recent: Vec<_> = history.iter().rev().take(10).collect();
         let n = recent.len() as f64;
-        
+
         let sum_x: f64 = (0..recent.len()).map(|i| i as f64).sum();
         let sum_y: f64 = recent.iter().map(|s| s.end_to_end_us as f64).sum();
-        let sum_xy: f64 = recent.iter().enumerate()
+        let sum_xy: f64 = recent
+            .iter()
+            .enumerate()
             .map(|(i, s)| i as f64 * s.end_to_end_us as f64)
             .sum();
         let sum_x2: f64 = (0..recent.len()).map(|i| (i as f64).powi(2)).sum();
-        
+
         let slope = (n * sum_xy - sum_x * sum_y) / (n * sum_x2 - sum_x.powi(2));
         Some(slope)
     }
@@ -375,8 +401,8 @@ impl TimingMeasurement {
     }
 
     /// End timing and record to metrics
-    pub fn end_and_record<F>(self, record_fn: F) 
-    where 
+    pub fn end_and_record<F>(self, record_fn: F)
+    where
         F: FnOnce(Duration),
     {
         let duration = self.start.elapsed();
@@ -392,7 +418,7 @@ mod tests {
     #[test]
     fn test_stt_performance_metrics_creation() {
         let metrics = SttPerformanceMetrics::new();
-        
+
         // Verify initial state
         assert_eq!(metrics.get_average_confidence(), 0.0);
         assert_eq!(metrics.get_success_rate(), 0.0);
@@ -401,22 +427,25 @@ mod tests {
     #[test]
     fn test_latency_recording() {
         let metrics = SttPerformanceMetrics::new();
-        
+
         let latency = Duration::from_millis(250);
         metrics.record_end_to_end_latency(latency);
-        
-        let recorded = metrics.latency.end_to_end_us.load(std::sync::atomic::Ordering::Relaxed);
+
+        let recorded = metrics
+            .latency
+            .end_to_end_us
+            .load(std::sync::atomic::Ordering::Relaxed);
         assert_eq!(recorded, 250_000); // 250ms in microseconds
     }
 
     #[test]
     fn test_confidence_tracking() {
         let metrics = SttPerformanceMetrics::new();
-        
+
         metrics.record_confidence_score(0.8);
         metrics.record_confidence_score(0.9);
         metrics.record_confidence_score(0.7);
-        
+
         let avg = metrics.get_average_confidence();
         assert!((avg - 0.8).abs() < 0.01, "Expected ~0.8, got {}", avg);
     }
@@ -424,11 +453,11 @@ mod tests {
     #[test]
     fn test_success_rate_calculation() {
         let metrics = SttPerformanceMetrics::new();
-        
+
         metrics.record_transcription_success();
         metrics.record_transcription_success();
         metrics.record_transcription_failure();
-        
+
         let rate = metrics.get_success_rate();
         assert!((rate - 0.666).abs() < 0.01, "Expected ~0.666, got {}", rate);
     }
@@ -442,21 +471,24 @@ mod tests {
             max_error_rate_per_1k: 10,
             max_memory_bytes: 1024,
         };
-        
+
         // Trigger high latency alert
         metrics.record_end_to_end_latency(Duration::from_millis(200));
-        
+
         // Trigger low confidence alert
         metrics.record_confidence_score(0.5);
-        
+
         let alerts = metrics.check_alerts(&thresholds);
-        assert!(alerts.len() >= 2, "Expected at least 2 alerts, got {}", alerts.len());
-        
+        assert!(
+            alerts.len() >= 2,
+            "Expected at least 2 alerts, got {}",
+            alerts.len()
+        );
+
         // Check for high latency alert
-        let has_latency_alert = alerts.iter().any(|alert| matches!(
-            alert, 
-            PerformanceAlert::HighLatency { .. }
-        ));
+        let has_latency_alert = alerts
+            .iter()
+            .any(|alert| matches!(alert, PerformanceAlert::HighLatency { .. }));
         assert!(has_latency_alert, "Expected high latency alert");
     }
 
@@ -465,33 +497,50 @@ mod tests {
         let timing = TimingMeasurement::start("test");
         std::thread::sleep(Duration::from_millis(10));
         let (label, duration) = timing.end();
-        
+
         assert_eq!(label, "test");
-        assert!(duration >= Duration::from_millis(9), "Duration too short: {:?}", duration);
-        assert!(duration <= Duration::from_millis(50), "Duration too long: {:?}", duration);
+        assert!(
+            duration >= Duration::from_millis(9),
+            "Duration too short: {:?}",
+            duration
+        );
+        assert!(
+            duration <= Duration::from_millis(50),
+            "Duration too long: {:?}",
+            duration
+        );
     }
 
     #[test]
     fn test_memory_usage_tracking() {
         let metrics = SttPerformanceMetrics::new();
-        
+
         metrics.update_memory_usage(1024);
         assert_eq!(
-            metrics.resources.memory_usage_bytes.load(std::sync::atomic::Ordering::Relaxed),
+            metrics
+                .resources
+                .memory_usage_bytes
+                .load(std::sync::atomic::Ordering::Relaxed),
             1024
         );
-        
+
         // Test peak tracking
         metrics.update_memory_usage(2048);
         assert_eq!(
-            metrics.resources.peak_memory_bytes.load(std::sync::atomic::Ordering::Relaxed),
+            metrics
+                .resources
+                .peak_memory_bytes
+                .load(std::sync::atomic::Ordering::Relaxed),
             2048
         );
-        
+
         // Lower usage shouldn't affect peak
         metrics.update_memory_usage(512);
         assert_eq!(
-            metrics.resources.peak_memory_bytes.load(std::sync::atomic::Ordering::Relaxed),
+            metrics
+                .resources
+                .peak_memory_bytes
+                .load(std::sync::atomic::Ordering::Relaxed),
             2048
         );
     }

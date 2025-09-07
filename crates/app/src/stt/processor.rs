@@ -51,7 +51,7 @@ pub struct SttMetrics {
     pub last_event_time: Option<Instant>,
     /// Performance metrics (streaming STT)
     pub perf: PerformanceMetrics,
-    
+
     // Enhanced telemetry metrics
     /// Last end-to-end processing latency (microseconds)
     pub last_e2e_latency_us: u64,
@@ -171,7 +171,10 @@ impl SttProcessor {
     }
 
     /// Set performance metrics for comprehensive monitoring
-    pub fn set_performance_metrics(&mut self, performance_metrics: Arc<crate::telemetry::SttPerformanceMetrics>) {
+    pub fn set_performance_metrics(
+        &mut self,
+        performance_metrics: Arc<crate::telemetry::SttPerformanceMetrics>,
+    ) {
         self.performance_metrics = Some(performance_metrics);
     }
 
@@ -276,7 +279,7 @@ impl SttProcessor {
         if let UtteranceState::SpeechActive {
             audio_buffer,
             frames_buffered,
-            started_at,
+            started_at: _,
         } = &self.state
         {
             let buffer_size = audio_buffer.len();
@@ -297,20 +300,20 @@ impl SttProcessor {
             if !audio_buffer.is_empty() {
                 // Time the preprocessing phase
                 let preprocessing_start = Instant::now();
-                
+
                 // Calculate buffer utilization (assuming max 10 seconds)
                 let max_samples = 16000 * 10;
-                let utilization = ((buffer_size * 100) / max_samples).min(100);
-                
+                let _utilization = ((buffer_size * 100) / max_samples).min(100);
+
                 let preprocessing_time = preprocessing_start.elapsed();
-                
+
                 // Retry logic with telemetry tracking
                 let mut attempts = 0;
                 let mut last_err: Option<String>;
                 loop {
                     // Time the STT engine processing
                     let engine_start = Instant::now();
-                    
+
                     let res = coldvox_stt::EventBasedTranscriber::accept_frame(
                         &mut self.transcriber,
                         audio_buffer,
@@ -319,15 +322,20 @@ impl SttProcessor {
                         Ok(Some(event)) => {
                             let engine_time = engine_start.elapsed();
                             let delivery_start = Instant::now();
-                            
+
                             self.send_event(event.clone()).await;
-                            
+
                             let delivery_time = delivery_start.elapsed();
                             let e2e_time = e2e_start.elapsed();
 
                             // Update comprehensive metrics
-                            self.update_timing_metrics(e2e_time, engine_time, preprocessing_time, delivery_time);
-                            
+                            self.update_timing_metrics(
+                                e2e_time,
+                                engine_time,
+                                preprocessing_time,
+                                delivery_time,
+                            );
+
                             // Extract confidence if available and update accuracy metrics
                             self.update_accuracy_metrics(&event, true);
 
@@ -344,7 +352,7 @@ impl SttProcessor {
                         Err(e) => {
                             let engine_time = engine_start.elapsed();
                             let e2e_time = e2e_start.elapsed();
-                            
+
                             last_err = Some(e.clone());
                             if attempts < 2 {
                                 attempts += 1;
@@ -358,10 +366,13 @@ impl SttProcessor {
                                 tracing::error!(target: "stt", "Failed to process buffered audio after retries: {}", msg);
 
                                 // Update error metrics
-                                self.update_accuracy_metrics(&TranscriptionEvent::Error {
-                                    code: "BUFFER_PROCESS_ERROR".to_string(),
-                                    message: e.clone(),
-                                }, false);
+                                self.update_accuracy_metrics(
+                                    &TranscriptionEvent::Error {
+                                        code: "BUFFER_PROCESS_ERROR".to_string(),
+                                        message: e.clone(),
+                                    },
+                                    false,
+                                );
 
                                 let error_event = TranscriptionEvent::Error {
                                     code: "BUFFER_PROCESS_ERROR".to_string(),
@@ -374,7 +385,7 @@ impl SttProcessor {
                                 metrics.error_count += 1;
                                 metrics.last_engine_time_us = engine_time.as_micros() as u64;
                                 metrics.last_e2e_latency_us = e2e_time.as_micros() as u64;
-                                
+
                                 if let Some(perf_metrics) = &self.performance_metrics {
                                     perf_metrics.record_transcription_failure();
                                     perf_metrics.record_error();
@@ -396,7 +407,7 @@ impl SttProcessor {
                     ) {
                         Ok(Some(event)) => {
                             self.send_event(event.clone()).await;
-                            
+
                             // Update accuracy metrics
                             self.update_accuracy_metrics(&event, true);
 
@@ -424,10 +435,13 @@ impl SttProcessor {
                                 tracing::error!(target: "stt", "Failed to finalize transcription after retries: {}", msg);
 
                                 // Update error metrics
-                                self.update_accuracy_metrics(&TranscriptionEvent::Error {
-                                    code: "FINALIZE_ERROR".to_string(),
-                                    message: e.clone(),
-                                }, false);
+                                self.update_accuracy_metrics(
+                                    &TranscriptionEvent::Error {
+                                        code: "FINALIZE_ERROR".to_string(),
+                                        message: e.clone(),
+                                    },
+                                    false,
+                                );
 
                                 let error_event = TranscriptionEvent::Error {
                                     code: "FINALIZE_ERROR".to_string(),
@@ -438,7 +452,7 @@ impl SttProcessor {
                                 // Update metrics
                                 let mut metrics = self.metrics.write();
                                 metrics.error_count += 1;
-                                
+
                                 if let Some(perf_metrics) = &self.performance_metrics {
                                     perf_metrics.record_transcription_failure();
                                     perf_metrics.record_error();
@@ -641,16 +655,16 @@ impl SttProcessor {
         if let Some(perf_metrics) = &self.performance_metrics {
             if success {
                 perf_metrics.record_transcription_success();
-                
+
                 // Extract confidence from transcription events
                 match event {
                     TranscriptionEvent::Final { words, .. } => {
                         // Calculate average confidence from word-level data if available
                         if let Some(word_list) = words {
                             if !word_list.is_empty() {
-                                let avg_confidence: f64 = word_list.iter()
-                                    .map(|w| w.conf as f64)
-                                    .sum::<f64>() / word_list.len() as f64;
+                                let avg_confidence: f64 =
+                                    word_list.iter().map(|w| w.conf as f64).sum::<f64>()
+                                        / word_list.len() as f64;
                                 perf_metrics.record_confidence_score(avg_confidence);
                             }
                         }
@@ -676,19 +690,21 @@ impl SttProcessor {
             match event {
                 TranscriptionEvent::Final { words, .. } => {
                     metrics.final_count += 1;
-                    
+
                     // Update confidence if available
                     if let Some(word_list) = words {
                         if !word_list.is_empty() {
-                            let avg_confidence: f64 = word_list.iter()
-                                .map(|w| w.conf as f64)
-                                .sum::<f64>() / word_list.len() as f64;
-                            
+                            let avg_confidence: f64 =
+                                word_list.iter().map(|w| w.conf as f64).sum::<f64>()
+                                    / word_list.len() as f64;
+
                             // Update running average (stored as x1000 for precision)
                             let confidence_x1000 = (avg_confidence * 1000.0) as u64;
-                            let current_sum = metrics.avg_confidence_x1000 * metrics.confidence_measurements;
+                            let current_sum =
+                                metrics.avg_confidence_x1000 * metrics.confidence_measurements;
                             metrics.confidence_measurements += 1;
-                            metrics.avg_confidence_x1000 = (current_sum + confidence_x1000) / metrics.confidence_measurements;
+                            metrics.avg_confidence_x1000 =
+                                (current_sum + confidence_x1000) / metrics.confidence_measurements;
                         }
                     }
                 }
