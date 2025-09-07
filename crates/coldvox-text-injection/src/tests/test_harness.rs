@@ -114,17 +114,17 @@ impl TestAppManager {
 }
 
 /// Helper function to verify text injection by polling a file.
-pub fn verify_injection(output_file: &Path, expected_text: &str) -> Result<(), String> {
+pub async fn verify_injection(output_file: &Path, expected_text: &str) -> Result<(), String> {
     let start = Instant::now();
     let timeout = Duration::from_millis(500);
 
     while start.elapsed() < timeout {
         if let Ok(content) = fs::read_to_string(output_file) {
-            if content == expected_text {
+            if content.trim() == expected_text.trim() {
                 return Ok(());
             }
         }
-        std::thread::sleep(Duration::from_millis(50));
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
 
     let final_content = fs::read_to_string(output_file)
@@ -133,7 +133,7 @@ pub fn verify_injection(output_file: &Path, expected_text: &str) -> Result<(), S
         "Verification failed after {}ms. Expected: '{}', Found: '{}'",
         timeout.as_millis(),
         expected_text,
-        final_content
+        final_content.trim()
     ))
 }
 

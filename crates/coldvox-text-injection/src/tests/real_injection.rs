@@ -19,6 +19,7 @@ use crate::ydotool_injector::YdotoolInjector;
 // Bring trait into scope so async trait methods (inject_text, is_available) resolve.
 use crate::TextInjector;
 
+use super::test_harness::{verify_injection, TestApp, TestAppManager, TestEnvironment};
 use super::test_harness::{verify_injection, TestAppManager, TestEnvironment};
 use std::time::Duration;
 
@@ -48,6 +49,24 @@ async fn harness_self_test_launch_gtk_app() {
     );
 }
 
+/// Waits for the test application to be ready by polling for its output file.
+/// This is much faster than a fixed-duration sleep.
+async fn wait_for_app_ready(app: &TestApp) {
+    let max_wait = Duration::from_secs(5);
+    let poll_interval = Duration::from_millis(50);
+    let start_time = std::time::Instant::now();
+
+    while start_time.elapsed() < max_wait {
+        if app.output_file.exists() {
+            // A small extra delay to ensure the app is fully interactive
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            return;
+        }
+        tokio::time::sleep(poll_interval).await;
+    }
+    panic!("Test application did not become ready within 5 seconds.");
+}
+
 //--- AT-SPI Tests ---
 
 /// Helper function to run a complete injection and verification test for the AT-SPI backend.
@@ -65,6 +84,8 @@ async fn run_atspi_test(test_text: &str) {
     // Allow time for the app to initialize and for the AT-SPI bus to register it.
     // This is a common requirement in UI testing.
     tokio::time::sleep(Duration::from_millis(500)).await;
+    // Wait for the app to be fully initialized before interacting with it.
+    wait_for_app_ready(&app).await;
 
     let injector = AtspiInjector::new(Default::default());
     if !injector.is_available().await {
@@ -79,12 +100,14 @@ async fn run_atspi_test(test_text: &str) {
         .await
         .unwrap_or_else(|e| panic!("AT-SPI injection failed for text '{}': {:?}", test_text, e));
 
-    verify_injection(&app.output_file, test_text).unwrap_or_else(|e| {
-        panic!(
-            "Verification failed for AT-SPI with text '{}': {}",
-            test_text, e
-        )
-    });
+    verify_injection(&app.output_file, test_text)
+        .await
+        .unwrap_or_else(|e| {
+            panic!(
+                "Verification failed for AT-SPI with text '{}': {}",
+                test_text, e
+            )
+        });
 }
 
 #[tokio::test]
@@ -151,6 +174,7 @@ async fn run_ydotool_test(test_text: &str) {
 
     let app = TestAppManager::launch_gtk_app().expect("Failed to launch GTK app.");
     tokio::time::sleep(Duration::from_millis(500)).await;
+    wait_for_app_ready(&app).await;
 
     // The inject_text for ydotool will trigger a paste (Ctrl+V).
     injector
@@ -158,12 +182,14 @@ async fn run_ydotool_test(test_text: &str) {
         .await
         .unwrap_or_else(|e| panic!("ydotool injection failed for text '{}': {:?}", test_text, e));
 
-    verify_injection(&app.output_file, test_text).unwrap_or_else(|e| {
-        panic!(
-            "Verification failed for ydotool with text '{}': {}",
-            test_text, e
-        )
-    });
+    verify_injection(&app.output_file, test_text)
+        .await
+        .unwrap_or_else(|e| {
+            panic!(
+                "Verification failed for ydotool with text '{}': {}",
+                test_text, e
+            )
+        });
 }
 
 #[tokio::test]
@@ -230,6 +256,7 @@ async fn run_clipboard_paste_test(test_text: &str) {
     // 2. Launch the app to paste into.
     let app = TestAppManager::launch_gtk_app().expect("Failed to launch GTK app.");
     tokio::time::sleep(Duration::from_millis(500)).await;
+    wait_for_app_ready(&app).await;
 
     // 3. Trigger a paste action. We can use enigo for this.
     enigo_injector
@@ -238,12 +265,14 @@ async fn run_clipboard_paste_test(test_text: &str) {
         .expect("Enigo paste action failed.");
 
     // 4. Verify the result.
-    verify_injection(&app.output_file, test_text).unwrap_or_else(|e| {
-        panic!(
-            "Verification failed for clipboard paste with text '{}': {}",
-            test_text, e
-        )
-    });
+    verify_injection(&app.output_file, test_text)
+        .await
+        .unwrap_or_else(|e| {
+            panic!(
+                "Verification failed for clipboard paste with text '{}': {}",
+                test_text, e
+            )
+        });
 }
 
 #[tokio::test]
@@ -276,6 +305,7 @@ async fn run_enigo_typing_test(test_text: &str) {
 
     let app = TestAppManager::launch_gtk_app().expect("Failed to launch GTK app.");
     tokio::time::sleep(Duration::from_millis(500)).await;
+    wait_for_app_ready(&app).await;
 
     // Use the test-only helper to force typing instead of pasting.
     injector
@@ -283,12 +313,14 @@ async fn run_enigo_typing_test(test_text: &str) {
         .await
         .unwrap_or_else(|e| panic!("Enigo typing failed for text '{}': {:?}", test_text, e));
 
-    verify_injection(&app.output_file, test_text).unwrap_or_else(|e| {
-        panic!(
-            "Verification failed for enigo typing with text '{}': {}",
-            test_text, e
-        )
-    });
+    verify_injection(&app.output_file, test_text)
+        .await
+        .unwrap_or_else(|e| {
+            panic!(
+                "Verification failed for enigo typing with text '{}': {}",
+                test_text, e
+            )
+        });
 }
 
 #[tokio::test]
