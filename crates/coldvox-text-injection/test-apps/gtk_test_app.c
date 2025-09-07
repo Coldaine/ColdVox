@@ -5,7 +5,7 @@
 
 // Callback function to handle text changes in the GtkEntry
 static void on_text_changed(GtkEditable *editable, gpointer user_data) {
-    const gchar *text = gtk_editable_get_text(editable);
+    const gchar *text = gtk_entry_get_text(GTK_ENTRY(editable));
     char filepath[256];
     snprintf(filepath, sizeof(filepath), "/tmp/coldvox_gtk_test_%d.txt", getpid());
 

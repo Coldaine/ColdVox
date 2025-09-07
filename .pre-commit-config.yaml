@@ -136,6 +136,12 @@ repos:
         language: system
         types: [rust]
         pass_filenames: false
+      - id: injection-smoke-test
+        name: Text Injection Smoke Test (Optional)
+        entry: bash -c 'if [[ "${SKIP_INJECTION_SMOKE:-}" == "1" ]]; then echo "⏭️ Skipping injection smoke test"; exit 0; elif [[ "${RUN_REAL_INJECTION_SMOKE:-}" != "1" ]]; then echo "⏭️ Skipping injection smoke test (set RUN_REAL_INJECTION_SMOKE=1 to enable)"; exit 0; fi; echo "🏃 Running injection smoke test..."; cargo test -p coldvox-text-injection --features real-injection-tests,atspi,wl_clipboard,enigo -- real_injection_smoke --nocapture'
+        language: system
+        types: [rust]
+        pass_filenames: false
       - id: notify-success
         name: CI Success Notification
         entry: bash -c 'if [[ "${SKIP_RUST_CHECKS:-}" == "1" ]]; then notify-send "⏭️ ColdVox" "Pre-commit checks skipped" --icon=dialog-warning; else notify-send "✅ ColdVox" "Pre-commit checks passed!" --icon=dialog-information; fi'

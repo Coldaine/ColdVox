@@ -7,13 +7,17 @@
 //! To run these tests, use the following command:
 //! `cargo test -p coldvox-text-injection --features real-injection-tests`
 
-use crate::atspi_injector::AtSpiInjector;
-use crate::backend::Backend;
+// NOTE: Struct name is AtspiInjector (lowercase 's'); previous version used AtSpiInjector causing build failure.
+#[cfg(feature = "atspi")]
+use crate::atspi_injector::AtspiInjector;
+#[cfg(feature = "wl_clipboard")]
 use crate::clipboard_injector::ClipboardInjector;
+#[cfg(feature = "enigo")]
 use crate::enigo_injector::EnigoInjector;
-use crate::manager::StrategyManager;
-use crate::types::{InjectionConfig, InjectionError, InjectionMethod};
+#[cfg(feature = "ydotool")]
 use crate::ydotool_injector::YdotoolInjector;
+// Bring trait into scope so async trait methods (inject_text, is_available) resolve.
+use crate::TextInjector;
 
 use super::test_harness::{verify_injection, TestAppManager, TestEnvironment};
 use std::time::Duration;
@@ -62,8 +66,7 @@ async fn run_atspi_test(test_text: &str) {
     // This is a common requirement in UI testing.
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    let injector =
-        AtSpiInjector::new(Default::default()).expect("Failed to create AT-SPI injector");
+    let injector = AtspiInjector::new(Default::default());
     if !injector.is_available().await {
         println!(
             "Skipping AT-SPI test: backend is not available (is at-spi-bus-launcher running?)."
@@ -114,6 +117,7 @@ async fn test_atspi_special_chars() {
 }
 
 //--- Ydotool Tests ---
+#[cfg(feature = "ydotool")]
 
 /// Helper function to run a complete injection and verification test for the ydotool backend.
 /// This test involves setting the clipboard, as ydotool's primary injection method is paste.
@@ -163,18 +167,21 @@ async fn run_ydotool_test(test_text: &str) {
 }
 
 #[tokio::test]
+#[cfg(feature = "ydotool")]
 
 async fn test_ydotool_simple_text() {
     run_ydotool_test("Hello from ydotool!").await;
 }
 
 #[tokio::test]
+#[cfg(feature = "ydotool")]
 
 async fn test_ydotool_unicode_text() {
     run_ydotool_test("Hello ColdVox 🎤 测试 (via ydotool)").await;
 }
 
 #[tokio::test]
+#[cfg(feature = "ydotool")]
 
 async fn test_ydotool_long_text() {
     let long_text = "This is a long string for ydotool. ".repeat(50);
@@ -183,6 +190,7 @@ async fn test_ydotool_long_text() {
 }
 
 #[tokio::test]
+#[cfg(feature = "ydotool")]
 
 async fn test_ydotool_special_chars() {
     run_ydotool_test("ydotool line 1\nydotool line 2\twith tab").await;
