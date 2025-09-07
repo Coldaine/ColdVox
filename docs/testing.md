@@ -3,6 +3,8 @@ ColdVox Text Injection — Testing Guide
 Overview
 - This guide covers how to run tests for the `coldvox-text-injection` crate across feature combinations, how compile-time mocking is approached, and how to run optional integration tests.
 
+ Scope Reminder: The active prototype targets Linux Nobara on KDE Plasma. Any environment-specific notes assume this desktop unless otherwise stated.
+
 Test Modes
 - Default: `cargo test -p coldvox-text-injection`
 - No-default-features: `cargo test -p coldvox-text-injection --no-default-features`

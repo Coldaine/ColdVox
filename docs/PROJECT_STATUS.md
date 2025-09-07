@@ -6,6 +6,8 @@ Most workspace refactoring is complete. The active focus is improving the STT la
 
 Note: The README status badge is manually maintained. When updating this phase, also update the badge in `README.md` to keep them in sync.
 
+Platform scope (prototype): Linux only, specifically Nobara (KDE Plasma). Cross‑platform goals remain, but validation and instructions currently assume this environment.
+
 ### Completed Work
 
 #### Phase 1: Critical Bug Fixes ✅

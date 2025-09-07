@@ -5,6 +5,10 @@
 
 Rust-based real-time audio capture and processing with robust recovery, VAD, and STT integration.
 
+## Platform Scope (Prototype)
+
+Current focus is Linux only, specifically the Nobara distribution running KDE Plasma. Documentation, scripts, and the new GUI prototype target this environment first. Cross‑platform support (Windows/macOS/other desktops) is out of scope for now and will follow later.
+
 ## What's New (v2.0.1)
 
 - Text Injection: FocusProvider dependency injection for reliable focus handling in tests and prod

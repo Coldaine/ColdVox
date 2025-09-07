@@ -34,6 +34,12 @@ impl VoskPlugin {
     }
 }
 
+impl Default for VoskPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[async_trait]
 impl SttPlugin for VoskPlugin {
     fn info(&self) -> PluginInfo {
@@ -198,6 +204,12 @@ impl VoskPluginFactory {
         Self {
             model_path: Some(path),
         }
+    }
+}
+
+impl Default for VoskPluginFactory {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

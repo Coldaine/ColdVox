@@ -1,10 +1,14 @@
 # ColdVox GUI
 
-This is a placeholder crate for the future ColdVox graphical user interface.
+This crate now includes groundwork for a Qt 6 + QML UI using CXX-Qt, gated behind a feature so default builds remain stub-only. Enable the `qt-ui` feature to link Qt and verify the setup.
 
 ## Current Status
 
-**This is a stub implementation.** The GUI framework has not yet been selected, and this crate currently only provides a minimal binary that prints information about the planned GUI.
+By default this remains a stub implementation and does not link Qt. With `--features qt-ui`, the binary constructs a minimal `QGuiApplication` to validate Qt linkage, then exits.
+
+## Platform Scope (Prototype)
+
+The GUI prototype targets Linux only for now, specifically Nobara (Fedora‑based) on KDE Plasma. Always‑on‑top overlay behavior, visuals, and any system integrations are validated against this environment first. Cross‑platform support will be addressed later.
 
 ## Goals
 
@@ -77,10 +81,16 @@ The GUI framework selection will be based on:
 
 ## Usage
 
-For now, this crate only provides a stub binary:
+Default (no Qt linkage):
 
 ```bash
 cargo run -p coldvox-gui
+```
+
+With Qt + CXX-Qt enabled (requires Qt 6 dev packages):
+
+```bash
+cargo run -p coldvox-gui --features qt-ui
 ```
 
 For actual ColdVox functionality, use the TUI dashboard:
@@ -88,6 +98,12 @@ For actual ColdVox functionality, use the TUI dashboard:
 ```bash
 cargo run -p coldvox-app --bin tui_dashboard
 ```
+
+## Prerequisites for `qt-ui`
+
+- Linux (Nobara/KDE Plasma): install Qt 6 development packages (Core, Gui, Qml, Quick):
+  - Fedora/Nobara: `sudo dnf install qt6-qtbase-devel qt6-qtdeclarative-devel qt6-qtquickcontrols2-devel`
+  - Other distros may require different package names; non‑Linux platforms are out of scope for this prototype.
 
 ## Contributing
 

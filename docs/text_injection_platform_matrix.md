@@ -2,6 +2,8 @@
 
 This document tracks platform-specific behavior and recommended backends for text injection across common Linux desktop environments and window managers. It complements docs/testing.md and text_injection_failover.md.
 
+Prototype scope reminder: Current development and validation target Linux Nobara on KDE Plasma. Other environments listed here are for planning/reference and are not actively supported yet in this phase.
+
 Target outcomes:
 - Document reproducible setup per environment.
 - Capture which backends work reliably and their caveats.
