@@ -113,13 +113,13 @@ repos:
         pass_filenames: false
       - id: clippy
         name: Rust Clippy
-        entry: bash -c 'if [[ "${SKIP_RUST_CHECKS:-}" == "1" ]]; then echo "⏭️ Skipping Clippy check"; exit 0; fi; cargo clippy --fix --allow-dirty --allow-staged --all-targets --no-default-features --features silero -- -D warnings'
+        entry: bash -c 'if [[ "${SKIP_RUST_CHECKS:-}" == "1" ]]; then echo "⏭️ Skipping Clippy check"; exit 0; fi; cargo clippy --fix --allow-dirty --allow-staged --all-targets --locked -- -D warnings'
         language: system
         types: [rust]
         pass_filenames: false
       - id: rust-check
         name: Rust Check
-        entry: bash -c 'if [[ "${SKIP_RUST_CHECKS:-}" == "1" ]]; then echo "⏭️ Skipping Rust type check"; exit 0; fi; cargo check --workspace --all-targets --no-default-features --features silero'
+        entry: bash -c 'if [[ "${SKIP_RUST_CHECKS:-}" == "1" ]]; then echo "⏭️ Skipping Rust type check"; exit 0; fi; cargo check --workspace --all-targets --locked'
         language: system
         types: [rust]
         pass_filenames: false
