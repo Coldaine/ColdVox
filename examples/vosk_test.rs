@@ -1,21 +1,25 @@
-use std::path::Path;
-
 use coldvox_stt::{Transcriber, TranscriptionConfig, TranscriptionEvent};
 #[cfg(feature = "vosk")]
-use coldvox_stt_vosk::VoskTranscriber;
+use coldvox_stt_vosk::{
+    model::{locate_model, log_model_resolution},
+    VoskTranscriber,
+};
 
 #[cfg(feature = "vosk")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Test with a small Vosk model (vendored in repo)
-    let model_path = "vosk-model-small-en-us-0.15";
+    // Locate the Vosk model using the standard resolution logic
+    let model_info = match locate_model(None) {
+        Ok(info) => {
+            log_model_resolution(&info);
+            info
+        }
+        Err(e) => {
+            eprintln!("Failed to locate Vosk model: {}", e);
+            return Ok(());
+        }
+    };
 
-    if !Path::new(model_path).exists() {
-        eprintln!("Vosk model not found at: {}", model_path);
-        eprintln!("The model should be vendored in the repository at vosk-model-small-en-us-0.15/");
-        eprintln!("Please ensure the directory exists.");
-        return Ok(());
-    }
-
+    let model_path = model_info.path.to_string_lossy();
     println!("Loading Vosk model from: {}", model_path);
 
     // Create configuration
@@ -152,7 +156,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Test backward compatibility with Transcriber trait
     println!("\n--- Testing backward compatibility ---");
-    let mut simple_transcriber = VoskTranscriber::new_with_default(model_path, 16000.0)?;
+    let mut simple_transcriber = VoskTranscriber::new_with_default(&model_path, 16000.0)?;
 
     // Test with smaller chunk
     let test_chunk = &test_audio[0..512];

@@ -146,7 +146,7 @@ UnifiedVadConfig {
 ```rust
 TranscriptionConfig {
   enabled: true, // app sets this true only if the model path exists
-  model_path: "vosk-model-small-en-us-0.15",
+  model_path: "models/vosk-model-small-en-us-0.15",
   partial_results: true,
   max_alternatives: 1,
   include_words: false,
@@ -236,7 +236,7 @@ STT is optional and compiled in with the `vosk` feature.
 - Integration: Via `crates/coldvox-stt-vosk/` (re-exported in `crates/app/src/stt/vosk.rs`)
 - Gating: Transcribes only during detected speech segments
 - Events: `TranscriptionEvent::{Partial, Final, Error}` via mpsc channels
-- Model path: `VOSK_MODEL_PATH` env var or default `vosk-model-small-en-us-0.15`
+- Model path: `VOSK_MODEL_PATH` env var or default `models/vosk-model-small-en-us-0.15`
 - Requirements: System libvosk library for compilation
 
 ## Hotkey System

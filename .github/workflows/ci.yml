@@ -72,18 +72,25 @@ jobs:
       - name: Verify vendored model exists
         run: |
           set -euo pipefail
-          MODEL_PATH="${{ github.workspace }}/vosk-model-small-en-us-0.15"
+          MODEL_PATH="${{ github.workspace }}/models/vosk-model-small-en-us-0.15"
           if [ ! -d "$MODEL_PATH" ]; then
             echo "FATAL: Vendored Vosk model not found at $MODEL_PATH" >&2
-            echo "Ensure 'vosk-model-small-en-us-0.15/' is committed to repo root." >&2
+            echo "Ensure 'models/vosk-model-small-en-us-0.15/' is committed to repository." >&2
             exit 1
           fi
           echo "Vosk model verified at: $MODEL_PATH"
+          # Verify required subdirectories exist (fail fast if missing)
+          echo "Verifying model structure..."
+          ls -1 "$MODEL_PATH"/{am,conf,graph,ivector} || {
+            echo "ERROR: Required model subdirectories missing" >&2
+            exit 1
+          }
+          echo "Model structure verified."
 
       - name: Output model path
         id: get-model-path
         run: |
-          echo "path=${{ github.workspace }}/vosk-model-small-en-us-0.15" >> $GITHUB_OUTPUT
+          echo "path=${{ github.workspace }}/models/vosk-model-small-en-us-0.15" >> $GITHUB_OUTPUT
 
   # Static checks, formatting, linting, type-check, build, and docs
   build_and_check:

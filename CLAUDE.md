@@ -133,7 +133,7 @@ cargo test -p coldvox-app
 cargo test integration
 
 # End-to-end WAV test (requires Vosk model)
-VOSK_MODEL_PATH=vosk-model-small-en-us-0.15 cargo test -p coldvox-app --features vosk test_end_to_end_wav -- --ignored --nocapture
+VOSK_MODEL_PATH=models/vosk-model-small-en-us-0.15 cargo test -p coldvox-app --features vosk test_end_to_end_wav -- --ignored --nocapture
 ```
 
 ### Linting & Formatting
@@ -176,7 +176,7 @@ Platform-specific text injection backends are automatically enabled at build tim
 
 ### STT Integration
 - **Vosk**: Offline recognition (feature `vosk`)
-- **Model**: `VOSK_MODEL_PATH` or `vosk-model-small-en-us-0.15/`
+- **Model**: `VOSK_MODEL_PATH` or `models/vosk-model-small-en-us-0.15/` (legacy root fallback supported temporarily)
 - **Events**: `TranscriptionEvent::{Partial, Final, Error}`
 
 ### Text Injection
@@ -258,6 +258,7 @@ Run `scripts/setup_text_injection.sh` to install:
 - Install libvosk system library
 - Download model from https://alphacephei.com/vosk/models
 - Set `VOSK_MODEL_PATH` or place in `models/vosk-model-small-en-us-0.15/`
+- **Deprecation note**: Root-level model path (`vosk-model-small-en-us-0.15/`) will be removed after two minor releases
 
 ## Maintenance Notes
 

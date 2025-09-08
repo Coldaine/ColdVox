@@ -109,9 +109,14 @@ pub fn locate_model(config_path: Option<&str>) -> Result<ModelInfo, ModelError> 
         });
     }
 
-    // 4. <MODEL_DIR_NAME> at repo root
+    // 4. <MODEL_DIR_NAME> at repo root (legacy layout)
     let root_candidate = Path::new(MODEL_DIR_NAME);
     if root_candidate.is_dir() {
+        tracing::warn!(
+            "Using legacy model layout at repo root '{}'. This will be removed after deprecation window. \
+             Please move to 'models/{}'" ,
+            MODEL_DIR_NAME, MODEL_DIR_NAME
+        );
         return Ok(ModelInfo {
             path: root_candidate.to_path_buf(),
             source: ModelSource::RepoRoot,
@@ -151,6 +156,22 @@ pub fn default_model_path() -> PathBuf {
         return candidate;
     }
     PathBuf::from(MODEL_DIR_NAME) // legacy fallback
+}
+
+/// Log model resolution information in a standardized format.
+/// Call this once during application startup where STT initializes.
+pub fn log_model_resolution(info: &ModelInfo) {
+    let source_desc = match info.source {
+        ModelSource::Env => "environment variable (VOSK_MODEL_PATH)",
+        ModelSource::Config => "configuration",
+        ModelSource::ModelsDir => "ModelsDir (preferred layout)",
+        ModelSource::RepoRoot => "RepoRoot (legacy layout)",
+    };
+    tracing::info!(
+        "Vosk model resolved: path={} source={}",
+        info.path.display(),
+        source_desc
+    );
 }
 
 #[cfg(test)]
