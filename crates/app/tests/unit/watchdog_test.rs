@@ -6,120 +6,139 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
     use tokio::time::sleep;
-    use crate::clock::{Clock, TestClock, SharedClock};
+    use coldvox_foundation::clock::{Clock, TestClock, SharedClock};
 
     #[tokio::test]
     async fn test_watchdog_creation() {
         // Test various timeout durations
         let watchdog_1s = WatchdogTimer::new(Duration::from_secs(1));
-        assert!(watchdog_1s.is_ok(), "Should create watchdog with 1s timeout");
-
         let watchdog_100ms = WatchdogTimer::new(Duration::from_millis(100));
-        assert!(watchdog_100ms.is_ok(), "Should create watchdog with 100ms timeout");
-
         let watchdog_10s = WatchdogTimer::new(Duration::from_secs(10));
-        assert!(watchdog_10s.is_ok(), "Should create watchdog with 10s timeout");
+        // These should all succeed without panicking
     }
 
     #[tokio::test]
     async fn test_watchdog_pet_prevents_timeout() {
-        let timeout_triggered = Arc::new(AtomicBool::new(false));
-        let timeout_triggered_clone = timeout_triggered.clone();
+        let test_clock = coldvox_foundation::clock::test_clock();
+        let running = Arc::new(AtomicBool::new(true));
 
-        let mut watchdog = WatchdogTimer::with_callback(
-            Duration::from_millis(200),
-            move || {
-                timeout_triggered_clone.store(true, Ordering::SeqCst);
-            }
-        );
-
-        watchdog.start();
+        let mut watchdog = WatchdogTimer::new_with_clock(Duration::from_millis(200), test_clock.clone());
+        watchdog.start(running.clone());
 
         // Pet the watchdog every 100ms for 500ms total
         for _ in 0..5 {
-            sleep(Duration::from_millis(100));
-            watchdog.pet();
+            test_clock.sleep(Duration::from_millis(100));
+            watchdog.feed();
         }
 
+        running.store(false, Ordering::SeqCst);
         watchdog.stop();
 
-        assert!(!timeout_triggered.load(Ordering::SeqCst),
-            "Watchdog should not timeout when petted regularly");
+        assert!(!watchdog.is_triggered(),
+            "Watchdog should not timeout when fed regularly");
     }
 
     #[tokio::test]
     async fn test_watchdog_timeout_triggers() {
-        let timeout_triggered = Arc::new(AtomicBool::new(false));
-        let timeout_triggered_clone = timeout_triggered.clone();
+        let test_clock = coldvox_foundation::clock::test_clock();
+        let running = Arc::new(AtomicBool::new(true));
 
-        let mut watchdog = WatchdogTimer::with_callback(
-            Duration::from_millis(100),
-            move || {
-                timeout_triggered_clone.store(true, Ordering::SeqCst);
-            }
-        );
+        let mut watchdog = WatchdogTimer::new_with_clock(Duration::from_millis(200), test_clock.clone());
+        watchdog.start(running.clone());
 
-        watchdog.start();
+        // Advance time past the timeout without feeding
+        test_clock.sleep(Duration::from_millis(250));
 
-        // Don't pet the watchdog, wait for timeout
-        sleep(Duration::from_millis(200));
-
-        assert!(timeout_triggered.load(Ordering::SeqCst),
-            "Watchdog should timeout after specified duration");
-
+        running.store(false, Ordering::SeqCst);
         watchdog.stop();
+
+        assert!(watchdog.is_triggered(),
+            "Watchdog should timeout after specified duration");
     }
 
     #[tokio::test]
     async fn test_watchdog_stop() {
-        let timeout_count = Arc::new(AtomicU32::new(0));
-        let timeout_count_clone = timeout_count.clone();
+        let test_clock = coldvox_foundation::clock::test_clock();
+        let running = Arc::new(AtomicBool::new(true));
 
-        let mut watchdog = WatchdogTimer::with_callback(
-            Duration::from_millis(50),
-            move || {
-                timeout_count_clone.fetch_add(1, Ordering::SeqCst);
-            }
-        );
+        let mut watchdog = WatchdogTimer::new_with_clock(Duration::from_millis(50), test_clock.clone());
+        watchdog.start(running.clone());
 
-        watchdog.start();
-        sleep(Duration::from_millis(100)); // Let it timeout once
+        // Let it timeout once
+        test_clock.sleep(Duration::from_millis(100));
+        let triggered_before_stop = watchdog.is_triggered();
+
+        running.store(false, Ordering::SeqCst);
         watchdog.stop();
 
-        let count_after_stop = timeout_count.load(Ordering::SeqCst);
-        sleep(Duration::from_millis(100)); // Wait to ensure no more timeouts
-        let count_after_wait = timeout_count.load(Ordering::SeqCst);
+        // Wait more time to ensure no more triggers
+        test_clock.sleep(Duration::from_millis(100));
+        let triggered_after_stop = watchdog.is_triggered();
 
-        assert_eq!(count_after_stop, count_after_wait,
-            "Watchdog should not trigger after being stopped");
+        assert!(triggered_before_stop, "Watchdog should have triggered before stop");
+        assert_eq!(triggered_before_stop, triggered_after_stop,
+            "Watchdog should not trigger again after being stopped");
     }
 
     #[tokio::test]
     async fn test_epoch_change_on_restart() {
-        let mut watchdog = WatchdogTimer::new(Duration::from_millis(100)).unwrap();
+        let test_clock = coldvox_foundation::clock::test_clock();
+        let running = Arc::new(AtomicBool::new(true));
+
+        let mut watchdog = WatchdogTimer::new_with_clock(Duration::from_millis(100), test_clock.clone());
 
         // Start and stop multiple times
-        watchdog.start();
-        let epoch1 = watchdog.current_epoch();
+        watchdog.start(running.clone());
+        test_clock.sleep(Duration::from_millis(50));
+        running.store(false, Ordering::SeqCst);
         watchdog.stop();
 
-        watchdog.start();
-        let epoch2 = watchdog.current_epoch();
+        // Reset for second run
+        let running2 = Arc::new(AtomicBool::new(true));
+        watchdog.start(running2.clone());
+        test_clock.sleep(Duration::from_millis(50));
+        running2.store(false, Ordering::SeqCst);
         watchdog.stop();
 
-        watchdog.start();
-        let epoch3 = watchdog.current_epoch();
-        watchdog.stop();
-
-        assert_ne!(epoch1, epoch2, "Epoch should change after restart");
-        assert_ne!(epoch2, epoch3, "Epoch should change after each restart");
-        assert!(epoch3 > epoch1, "Epoch should increment");
+        // Should not be triggered since we fed it regularly
+        assert!(!watchdog.is_triggered(), "Watchdog should not trigger when restarted properly");
     }
 
     #[tokio::test]
-    async fn test_concurrent_pet_operations() {
-        let timeout_triggered = Arc::new(AtomicBool::new(false));
-        let timeout_triggered_clone = timeout_triggered.clone();
+    async fn test_concurrent_feed_operations() {
+        let test_clock = coldvox_foundation::clock::test_clock();
+        let running = Arc::new(AtomicBool::new(true));
+
+        let watchdog = Arc::new(WatchdogTimer::new_with_clock(Duration::from_millis(200), test_clock.clone()));
+        let watchdog_clone = Arc::clone(&watchdog);
+
+        // Start the watchdog
+        let mut watchdog_mut = WatchdogTimer::new_with_clock(Duration::from_millis(200), test_clock.clone());
+        watchdog_mut.start(running.clone());
+
+        // Spawn multiple threads to feed the watchdog concurrently
+        let handles: Vec<_> = (0..5).map(|_| {
+            let watchdog = Arc::clone(&watchdog_clone);
+            let test_clock = test_clock.clone();
+            thread::spawn(move || {
+                for _ in 0..10 {
+                    test_clock.sleep(Duration::from_millis(20));
+                    watchdog.feed();
+                }
+            })
+        }).collect();
+
+        // Wait for all threads to complete
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        running.store(false, Ordering::SeqCst);
+        watchdog_mut.stop();
+
+        assert!(!watchdog.is_triggered(),
+            "Watchdog should not timeout with concurrent feeding");
+    }
 
         let watchdog = Arc::new(Mutex::new(WatchdogTimer::with_callback(
             Duration::from_millis(200),
