@@ -1,0 +1,34 @@
+# Diagnostic test to validate YAML syntax issues
+
+# Issue 1: Indentation problem around line 174
+test_job:
+  steps:
+    - name: Previous step
+      run: echo "previous"
+    # Problematic section - inconsistent indentation
+     - name: Upload test artifacts on failure  # Wrong indentation level
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-artifacts
+        path: |
+          target/debug/deps/
+          target/debug/build/
+        retention-days: 7  # Wrong indentation level
+
+# Issue 2: Shell command formatting problem around lines 327-333
+test_shell_commands:
+  steps:
+    - name: Test shell commands
+      run: |
+        # This works fine - proper multi-line string
+        echo "This works"
+        
+    - name: Problematic shell commands
+      run: 
+        # Set per-test timeout to prevent hanging
+        export RUST_TEST_TIME_UNIT="10000"  # YAML parser sees this as a key
+        export RUST_TEST_TIME_INTEGRATION="30000"  # This too
+        cargo test -p coldvox-text-injection \
+          --features real-injection-tests \
+          -- --nocapture --test-threads=1 --timeout 600
