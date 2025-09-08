@@ -96,10 +96,9 @@ async fn run_atspi_test(test_text: &str) {
             return;
         }
 
-        injector
-            .inject_text(test_text)
-            .await
-            .unwrap_or_else(|e| panic!("AT-SPI injection failed for text '{}': {:?}", test_text, e));
+        injector.inject_text(test_text).await.unwrap_or_else(|e| {
+            panic!("AT-SPI injection failed for text '{}': {:?}", test_text, e)
+        });
     }
 
     #[cfg(not(feature = "atspi"))]
