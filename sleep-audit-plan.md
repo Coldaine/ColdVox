@@ -4,10 +4,10 @@
 
 The ColdVox codebase contains 108 `sleep()` calls across 38 Rust files. While our recent CI fixes addressed the most critical hanging issues (infinite waits on AT-SPI connections), a comprehensive audit of all sleep operations is needed to:
 
-1. **Identify potential CI issues** - sleeps that could contribute to test execution time or flakiness
-2. **Assess necessity and timing** - whether each sleep is required and appropriately configured
+1. **Identify potential CI bottlenecks** - sleeps that could slow down test execution
+2. **Assess necessity and timing** - whether each sleep is required and optimally tuned
 3. **Risk assessment** - classify sleeps by potential for causing CI timeouts or flakiness
-4. **Understanding opportunities** - document sleeps that might benefit from alternative approaches
+4. **Optimization opportunities** - find sleeps that could be replaced with event-driven approaches
 
 ## Complete Sleep Inventory
 
@@ -15,7 +15,7 @@ The ColdVox codebase contains 108 `sleep()` calls across 38 Rust files. While ou
 
 #### `crates/app/src/stt/tests/end_to_end_wav.rs` - **13 sleeps**
 - **Risk Level**: HIGH - End-to-end tests with multiple timing dependencies
-- **Concern**: Longest test file with most sleeps, requires analysis of timing necessity
+- **Concern**: Longest test file with most sleeps, could accumulate significant CI time
 
 #### `crates/app/tests/unit/watchdog_test.rs` - **12 sleeps**
 - **Risk Level**: HIGH - Watchdog timing tests require precise delays
@@ -23,7 +23,7 @@ The ColdVox codebase contains 108 `sleep()` calls across 38 Rust files. While ou
 
 #### `crates/coldvox-text-injection/src/tests/real_injection.rs` - **7 sleeps**
 - **Risk Level**: MEDIUM - Real injection tests with app startup waits
-- **Concern**: UI synchronization delays, worth examining for necessity
+- **Concern**: UI synchronization delays, may be optimizable
 
 #### `crates/app/tests/integration/capture_integration_test.rs` - **7 sleeps**
 - **Risk Level**: MEDIUM - Audio capture integration timing
@@ -37,7 +37,7 @@ The ColdVox codebase contains 108 `sleep()` calls across 38 Rust files. While ou
 
 #### `crates/coldvox-text-injection/src/combo_clip_atspi.rs` - **3 sleeps**
 - **Risk Level**: MEDIUM - AT-SPI coordination delays
-- **Concern**: External service coordination timing
+- **Concern**: Could be optimized with event polling
 
 #### `crates/coldvox-text-injection/src/combo_clip_ydotool.rs` - **3 sleeps**
 - **Risk Level**: MEDIUM - Wayland tool coordination
@@ -88,7 +88,12 @@ Analyze each sleep operation in the following files, providing:
 2. **Timing Evaluation** - Is the duration appropriate and well-tuned?
 3. **CI Impact Score** - How much does this sleep affect CI execution time?
 4. **Risk Classification** - Potential for causing flakiness or timeouts
-5. **Optimization Opportunities** - Can this be improved or eliminated?
+5. **Optimization Analysis** - Detailed evaluation of potential improvements including:
+   - **Time savings estimate** - How much CI time could be saved
+   - **Implementation complexity** - How difficult would changes be (Low/Medium/High)
+   - **Risk/tradeoffs** - What could break or become less reliable
+   - **Alternative approaches** - Specific technical alternatives (event polling, condition variables, etc.)
+   - **Cost-benefit assessment** - Is the optimization worth the effort and risk?
 
 ## Analysis Framework
 
@@ -114,12 +119,21 @@ For each file, examine every `sleep()` call and categorize using this framework:
 - **RED** - High potential for CI flakiness or timeouts
 
 ### Optimization Categories
-- **Event-Driven** - Can be replaced with event polling/waiting
-- **Configurable** - Should respect environment variables (CI vs development)
-- **Conditional** - Only needed in certain conditions
-- **Hardware-Dependent** - Required for hardware coordination
-- **Test-Only** - Only affects test execution time
-- **User-Facing** - Impacts user experience if changed
+- **Event-Driven** - Can be replaced with event polling/waiting (assess complexity and reliability tradeoffs)
+- **Configurable** - Should respect environment variables (CI vs development - estimate time savings)
+- **Conditional** - Only needed in certain conditions (analyze when sleep can be skipped)
+- **Hardware-Dependent** - Required for hardware coordination (minimal optimization potential)
+- **Test-Only** - Only affects test execution time (quantify CI impact vs test reliability)
+- **User-Facing** - Impacts user experience if changed (balance performance vs UX)
+
+### Optimization Evaluation Requirements
+For each sleep identified for potential optimization, you MUST provide:
+
+1. **Quantified Benefits**: Specific time savings estimates (e.g., "Could reduce CI time by 2-5 seconds per test run")
+2. **Implementation Effort**: Realistic assessment of development time and complexity
+3. **Risk Analysis**: What functionality could break and likelihood of issues
+4. **Technical Alternatives**: Specific implementation suggestions with code examples where relevant
+5. **Return on Investment**: Clear recommendation on whether the optimization is worthwhile
 
 ## Detailed Analysis Instructions
 
@@ -181,7 +195,13 @@ For each file, provide:
 - **Necessity Grade**: A-F with justification
 - **CI Impact Score**: 1-10 with justification
 - **Risk**: GREEN/YELLOW/RED
-- **Optimization**: Category and suggestion
+- **Optimization Analysis**:
+  - **Category**: Event-Driven/Configurable/etc.
+  - **Time Savings**: Specific estimate (e.g., "100ms per test, 5s total per CI run")
+  - **Implementation Effort**: Low/Medium/High with explanation
+  - **Risks/Tradeoffs**: What could break or become unreliable
+  - **Technical Approach**: Specific alternative implementation
+  - **ROI Assessment**: Recommended priority and justification
 - **Context**: Code excerpt and explanation
 
 #### Sleep 2 (Line N): ...
@@ -218,11 +238,12 @@ Your analysis is successful if it:
 
 ## Key Questions to Answer
 
-1. **Which sleeps are the biggest CI bottlenecks?**
-2. **Which sleeps can be safely reduced or eliminated?**
-3. **Which sleeps should be configurable for CI vs development?**
-4. **Are there patterns of problematic sleep usage?**
-5. **What's the potential total CI time savings?**
+1. **Which sleeps are the biggest CI bottlenecks and what are the quantified time costs?**
+2. **Which sleeps can be safely reduced or eliminated, and what are the implementation tradeoffs?**
+3. **Which sleeps should be configurable for CI vs development, and what time savings would this provide?**
+4. **Are there patterns of problematic sleep usage that suggest systematic improvements?**
+5. **What is the realistic potential for CI time improvements, balanced against implementation complexity and risk?**
+6. **For each optimization opportunity, is the effort justified by the benefits?**
 
 ## Tools and Approach
 

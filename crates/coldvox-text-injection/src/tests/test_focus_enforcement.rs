@@ -4,9 +4,10 @@ mod tests {
 
     use crate::types::InjectionMetrics;
     use crate::{FocusProvider, FocusStatus, InjectionConfig, InjectionError, StrategyManager};
+    use serial_test::serial;
     use tracing::{debug, info};
 
-    /// Initialize tracing for tests with debug level
+    /// Initialize tracing for tests with debug level - resilient to multiple calls
     fn init_test_tracing() {
         use std::sync::Once;
         use tracing_subscriber::{fmt, EnvFilter};
@@ -16,7 +17,8 @@ mod tests {
             let filter =
                 EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("debug"));
 
-            fmt().with_env_filter(filter).with_test_writer().init();
+            // Try to init, but ignore if already set to avoid panic
+            let _ = fmt().with_env_filter(filter).with_test_writer().try_init();
         });
     }
 
@@ -32,6 +34,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_injection_blocked_on_non_editable_when_required() {
         init_test_tracing();
         let config = InjectionConfig {
@@ -52,6 +55,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_injection_blocked_on_unknown_when_disabled() {
         init_test_tracing();
         let config = InjectionConfig {
@@ -72,6 +76,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_injection_allowed_on_editable_focus() {
         init_test_tracing();
         info!("Starting test_injection_allowed_on_editable_focus");

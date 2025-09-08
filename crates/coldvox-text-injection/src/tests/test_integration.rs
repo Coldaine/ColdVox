@@ -2,10 +2,11 @@
 mod integration_tests {
     use crate::manager::StrategyManager;
     use crate::types::{InjectionConfig, InjectionMetrics};
+    use serial_test::serial;
     use std::sync::{Arc, Mutex};
     use tracing::{debug, info};
 
-    /// Initialize tracing for tests with debug level
+    /// Initialize tracing for tests with debug level - resilient to multiple calls
     fn init_test_tracing() {
         use std::sync::Once;
         use tracing_subscriber::{fmt, EnvFilter};
@@ -15,11 +16,13 @@ mod integration_tests {
             let filter =
                 EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("debug"));
 
-            fmt().with_env_filter(filter).with_test_writer().init();
+            // Try to init, but ignore if already set to avoid panic
+            let _ = fmt().with_env_filter(filter).with_test_writer().try_init();
         });
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_full_injection_flow() {
         init_test_tracing();
         info!("Starting test_full_injection_flow");

@@ -3,11 +3,12 @@ mod tests {
     use crate::focus::{FocusStatus, FocusTracker};
     use crate::tests::test_util::util::skip_if_headless_ci;
     use crate::types::InjectionConfig;
+    use serial_test::serial;
     use std::time::Duration;
     use tokio::time::sleep;
     use tracing::{debug, info};
 
-    /// Initialize tracing for tests with debug level
+    /// Initialize tracing for tests with debug level - resilient to multiple calls
     fn init_test_tracing() {
         use std::sync::Once;
         use tracing_subscriber::{fmt, EnvFilter};
@@ -17,11 +18,13 @@ mod tests {
             let filter =
                 EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("debug"));
 
-            fmt().with_env_filter(filter).with_test_writer().init();
+            // Try to init, but ignore if already set to avoid panic
+            let _ = fmt().with_env_filter(filter).with_test_writer().try_init();
         });
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_focus_detection() {
         if skip_if_headless_ci() {
             eprintln!("Skipping test_focus_detection: headless CI environment detected");
@@ -42,6 +45,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_focus_cache_expiry() {
         if skip_if_headless_ci() {
             eprintln!("Skipping test_focus_cache_expiry: headless CI environment detected");
