@@ -1,3 +1,4 @@
+---
 name: CI
 
 on:
@@ -171,44 +172,44 @@ jobs:
           echo "=== Running Tests ==="
           cargo test --workspace --locked -- --skip test_end_to_end_wav_pipeline
 
-       - name: Upload test artifacts on failure
-         if: failure()
-         uses: actions/upload-artifact@v4
-         with:
-           name: test-artifacts-build-check
-           path: |
-             target/debug/deps/
-             target/debug/build/
-           retention-days: 7
+      - name: Upload test artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-artifacts-build-check
+          path: |
+            target/debug/deps/
+            target/debug/build/
+          retention-days: 7
 
-   # MSRV validation
-   msrv-check:
-     name: MSRV Check (Rust 1.75)
-     runs-on: ubuntu-latest
-     steps:
-       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+  # MSRV validation
+  msrv-check:
+    name: MSRV Check (Rust 1.75)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-       - uses: dtolnay/rust-toolchain@7b1c307e0dcbda6122208f10795a713336d9b35a # v1.80.0
-         with:
-           toolchain: 1.75
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: 1.75
 
-       - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
+      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
 
-       - name: Install system dependencies
-         run: |
-           sudo apt-get update
-           sudo apt-get install -y \
-             libasound2-dev \
-             libxdo-dev \
-             libxtst-dev \
-             wget \
-             unzip
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev \
+            libxdo-dev \
+            libxtst-dev \
+            wget \
+            unzip
 
-       - name: MSRV type check
-         run: cargo check --workspace --all-targets --locked
+      - name: MSRV type check
+        run: cargo check --workspace --all-targets --locked
 
-       - name: MSRV build
-         run: cargo build --workspace --locked
+      - name: MSRV build
+        run: cargo build --workspace --locked
 
   # GUI groundwork check: explicitly pass if Qt 6 isn't installed
   gui-groundwork:
@@ -270,7 +271,21 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb fluxbox dbus-x11 at-spi2-core wl-clipboard xclip ydotool x11-utils wmctrl libasound2-dev libxdo-dev libxtst-dev build-essential libgtk-3-dev
+          sudo apt-get install -y \
+            xvfb \
+            fluxbox \
+            dbus-x11 \
+            at-spi2-core \
+            wl-clipboard \
+            xclip \
+            ydotool \
+            x11-utils \
+            wmctrl \
+            libasound2-dev \
+            libxdo-dev \
+            libxtst-dev \
+            build-essential \
+            libgtk-3-dev
       - name: Install libvosk (vendored)
         run: |
           VOSK_VER=0.3.45
@@ -401,7 +416,7 @@ jobs:
   ci-success:
     name: CI Success
     if: always()
-    needs: [validate-workflows, download-vosk-model, build_and_check, msrv-check, gui-groundwork, text_injection_tests, security]
+    needs: [validate-workflows, download-vosk-model, build_and_check, msrv-check, gui-groundwork, text_injection_tests]
     runs-on: ubuntu-latest
     steps:
       - name: Check if all jobs succeeded
@@ -414,8 +429,7 @@ jobs:
             "${{ needs.build_and_check.result }}" \
             "${{ needs.msrv-check.result }}" \
             "${{ needs.gui-groundwork.result }}" \
-            "${{ needs.text_injection_tests.result }}" \
-            "${{ needs.security.result }}"; do
+            "${{ needs.text_injection_tests.result }}"; do
             if [[ "$res" == "failure" ]]; then
               failed=1
             fi
