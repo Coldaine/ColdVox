@@ -5,7 +5,7 @@
 //! the `StrategyManager` to perform the injection.
 
 use crate::manager::StrategyManager;
-use crate::metrics::InjectionMetrics;
+use crate::metrics::{InjectionMetrics, MetricsSink};
 use crate::types::InjectionConfig;
 use coldvox_stt::TranscriptionEvent;
 use std::sync::{Arc, Mutex};
@@ -60,13 +60,20 @@ impl AsyncInjectionProcessor {
                             continue;
                         }
                         info!("Received final transcription, attempting injection...");
+                        // Don't hold the lock across the await
+                        let result = self.manager.inject_with_fail_fast(&text, &mut InjectionMetrics::default()).await;
+                        // Now update metrics with the result
                         let mut metrics_guard = self.metrics.lock().unwrap();
-                        match self.manager.inject_with_fail_fast(&text, &mut *metrics_guard).await {
+                        match result {
                             Ok(outcome) => {
                                 info!("Injection successful: {:?}", outcome);
+                                // Manually emit success metrics
+                                <InjectionMetrics as MetricsSink>::emit_success(&mut *metrics_guard, crate::probe::BackendId::Atspi, outcome.latency_ms);
                             }
                             Err(e) => {
                                 error!("Injection failed: {}", e);
+                                // Manually emit failure metrics
+                                <InjectionMetrics as MetricsSink>::emit_fail(&mut *metrics_guard, crate::probe::BackendId::Atspi, &e);
                             }
                         }
                     }

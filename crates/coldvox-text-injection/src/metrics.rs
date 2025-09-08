@@ -43,7 +43,7 @@ pub struct InjectionMetrics {
 ///
 /// This allows the core logic to emit metrics without being tied to a specific
 /// implementation.
-pub trait MetricsSink {
+pub trait MetricsSink: Send {
     /// Called when an attempt to use a backend starts.
     fn emit_start(&mut self, backend: BackendId);
 

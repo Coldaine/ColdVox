@@ -13,7 +13,7 @@ use atspi::connection::AccessibilityConnection;
 use atspi::proxy::collection::CollectionProxy;
 use atspi::proxy::editable_text::EditableTextProxy;
 use atspi::proxy::text::TextProxy;
-use atspi::{Interface, MatchType, ObjectAddress, ObjectMatchRule, SortOrder, State};
+use atspi::{Interface, MatchType, ObjectMatchRule, SortOrder, State};
 use std::time::{Duration, Instant};
 use tokio::time::timeout;
 use tracing::{debug, trace, warn};
@@ -34,13 +34,16 @@ impl AtspiInjector {
 /// making focus acquisition more robust.
 async fn wait_for_editable_focus(
     conn: &AccessibilityConnection,
-) -> Result<ObjectAddress, InjectionError> {
+) -> Result<(String, String), InjectionError> {
     let deadline = Instant::now() + Duration::from_millis(FOCUS_ACQUISITION_TIMEOUT_MS);
     let zbus_conn = conn.connection();
 
-    let collection = CollectionProxy::builder(zbus_conn)
+    let collection_builder = CollectionProxy::builder(zbus_conn)
         .destination("org.a11y.atspi.Registry")
+        .expect("Failed to set destination");
+    let collection = collection_builder
         .path("/org/a11y/atspi/accessible/root")
+        .expect("Failed to set path")
         .build()
         .await
         .map_err(|e| InjectionError::Unavailable {
@@ -68,7 +71,7 @@ async fn wait_for_editable_focus(
             Ok(Ok(mut matches)) => {
                 if let Some(obj_ref) = matches.pop() {
                     debug!("Found focused editable element: {:?}", obj_ref.name);
-                    return Ok(obj_ref);
+                    return Ok((obj_ref.name.to_string(), obj_ref.path.to_string()));
                 }
                 // No match found yet, continue polling.
             }
@@ -131,27 +134,31 @@ impl TextInjector for AtspiInjector {
         })?;
         let zbus_conn = conn.connection();
 
-        // 2. Wait for a focused, editable element.
-        let obj_ref = wait_for_editable_focus(&conn).await?;
-        debug!("Injecting into element: {:?}", obj_ref.name);
+                // 2. Wait for a focused, editable element.
+        let (name, path) = wait_for_editable_focus(&conn).await?;
+        debug!("Injecting into element: {:?}", name);
 
         // 3. Build proxies for the target element.
         let editable_proxy = EditableTextProxy::builder(zbus_conn)
-            .destination(obj_ref.name.clone())
-            .path(obj_ref.path.clone())
+            .destination(name.as_str())
+            .expect("Failed to set destination")
+            .path(path.as_str())
+            .expect("Failed to set path")
             .build()
             .await
             .map_err(|_| InjectionError::PreconditionNotMet {
-                reason: "Failed to build EditableTextProxy for focused element",
+                reason: "Failed to build EditableTextProxy for focused item",
             })?;
 
         let text_proxy = TextProxy::builder(zbus_conn)
-            .destination(obj_ref.name.clone())
-            .path(obj_ref.path.clone())
+            .destination(name.as_str())
+            .expect("Failed to set destination")
+            .path(path.as_str())
+            .expect("Failed to set path")
             .build()
             .await
             .map_err(|_| InjectionError::PreconditionNotMet {
-                reason: "Failed to build TextProxy for focused element",
+                reason: "Failed to build TextProxy for focused item",
             })?;
 
         // 4. Get caret position.
@@ -188,12 +195,12 @@ impl TextInjector for AtspiInjector {
             elapsed_ms: ATSPI_METHOD_TIMEOUT_MS as u32,
         })?
         .map_err(|e| InjectionError::Transient {
-            reason: "insert_text D-Bus call failed",
+            reason: "insert_text D-Bus operation problem",
             retryable: false,
         })?;
 
         let latency_ms = start_time.elapsed().as_millis() as u32;
-        trace!("AT-SPI injection successful in {}ms", latency_ms);
+        // success
 
         Ok(InjectionOutcome {
             backend: BackendId::Atspi,

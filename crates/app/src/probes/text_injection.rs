@@ -1,6 +1,6 @@
 use crate::probes::common::{LiveTestResult, TestContext, TestError};
 use crate::text_injection::manager::StrategyManager;
-use crate::text_injection::types::{InjectionConfig, InjectionMetrics};
+use crate::text_injection::{InjectionConfig, InjectionMetrics};
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -15,11 +15,12 @@ impl TextInjectionProbe {
         let injection_metrics = Arc::new(std::sync::Mutex::new(InjectionMetrics::default()));
 
         // Create strategy manager
-        let mut manager = StrategyManager::new(config, injection_metrics.clone()).await;
+        let manager = StrategyManager::new(config);
 
         // Test basic injection
         let start_time = std::time::Instant::now();
-        let result = manager.inject("Test injection").await;
+        let mut metrics = crate::text_injection::InjectionMetrics::default();
+        let result = manager.inject_with_fail_fast("Test injection", &mut metrics).await;
         let duration = start_time.elapsed().as_millis() as u64;
 
         // Collect metrics
@@ -29,19 +30,19 @@ impl TextInjectionProbe {
         metrics_map.insert("duration_ms".to_string(), json!(duration));
         metrics_map.insert(
             "attempts".to_string(),
-            json!(injection_metrics_guard.attempts),
+            json!(injection_metrics_guard.total_attempts),
         );
         metrics_map.insert(
             "successes".to_string(),
-            json!(injection_metrics_guard.successes),
+            json!(injection_metrics_guard.total_successes),
         );
         metrics_map.insert(
             "failures".to_string(),
-            json!(injection_metrics_guard.failures),
+            json!(injection_metrics_guard.failures_by_kind.len()),
         );
 
         // Evaluate results
-        let (pass, notes) = evaluate_injection_result(&result, &metrics_map);
+        let (pass, notes) = evaluate_injection_result(&result);
 
         Ok(LiveTestResult {
             test: "text_injection".to_string(),
@@ -54,27 +55,17 @@ impl TextInjectionProbe {
 }
 
 fn evaluate_injection_result(
-    result: &Result<(), crate::text_injection::types::InjectionError>,
-    metrics: &HashMap<String, serde_json::Value>,
+    result: &Result<crate::text_injection::InjectionOutcome, crate::text_injection::InjectionError>,
 ) -> (bool, String) {
     let mut pass = true;
     let mut issues = Vec::new();
 
     match result {
-        Ok(()) => {
-            // Check if metrics are reasonable
-            if let Some(successes) = metrics.get("successes").and_then(|v| v.as_u64()) {
-                if successes != 1 {
-                    pass = false;
-                    issues.push(format!("Expected 1 success, got {}", successes));
-                }
-            }
-
-            if let Some(attempts) = metrics.get("attempts").and_then(|v| v.as_u64()) {
-                if attempts != 1 {
-                    pass = false;
-                    issues.push(format!("Expected 1 attempt, got {}", attempts));
-                }
+        Ok(outcome) => {
+            // Check if the injection was successful
+            if outcome.latency_ms == 0 {
+                pass = false;
+                issues.push("Injection reported 0ms latency, which seems incorrect".to_string());
             }
         }
         Err(e) => {

@@ -18,6 +18,9 @@ use crate::stt::{processor::SttProcessor, TranscriptionEvent};
 #[cfg(feature = "vosk")]
 use coldvox_stt::TranscriptionConfig;
 
+#[cfg(feature = "text-injection")]
+use crate::text_injection::AsyncInjectionProcessor;
+
 /// Activation strategy for push-to-talk vs voice activation
 #[derive(PartialEq, Copy, Clone, Debug)]
 pub enum ActivationMode {
@@ -316,7 +319,7 @@ pub async fn start(
         let inj_opts = opts.injection.clone();
         if let (Some(inj), Some(stt_rx)) = (inj_opts, stt_transcription_rx_opt.take()) {
             if inj.enable {
-                let mut config = crate::text_injection::InjectionConfig {
+                let config = crate::text_injection::InjectionConfig {
                     allow_ydotool: inj.allow_ydotool,
                     allow_kdotool: inj.allow_kdotool,
                     allow_enigo: inj.allow_enigo,
@@ -324,29 +327,16 @@ pub async fn start(
                     restore_clipboard: inj.restore_clipboard,
                     ..Default::default()
                 };
-                if let Some(v) = inj.max_total_latency_ms {
-                    config.max_total_latency_ms = v;
-                }
-                if let Some(v) = inj.per_method_timeout_ms {
-                    config.per_method_timeout_ms = v;
-                }
-                if let Some(v) = inj.cooldown_initial_ms {
-                    config.cooldown_initial_ms = v;
-                }
 
                 let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>(1);
-                let processor = crate::text_injection::AsyncInjectionProcessor::new(
+                let processor = AsyncInjectionProcessor::new(
                     config,
                     stt_rx,
                     shutdown_rx,
-                    None,
-                )
-                .await;
+                );
 
                 Some(tokio::spawn(async move {
-                    if let Err(e) = processor.run().await {
-                        tracing::error!("Injection processor error: {}", e);
-                    }
+                    processor.run().await;
                     drop(shutdown_tx);
                 }))
             } else {

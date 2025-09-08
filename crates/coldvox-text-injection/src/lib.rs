@@ -65,6 +65,7 @@ pub use manager::StrategyManager;
 pub use metrics::{InjectionMetrics, MetricsSink};
 pub use outcome::InjectionOutcome;
 pub use probe::{probe_environment, BackendId, ProbeState};
+pub use processor::AsyncInjectionProcessor;
 pub use types::{InjectionConfig, InjectionMethod};
 
 /// # TextInjector Trait
