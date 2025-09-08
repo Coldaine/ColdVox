@@ -1,0 +1,82 @@
+graph LR
+    subgraph "coldvox-app (Cargo.toml)"
+        F_APP_SILERO[silero]:::default
+        F_APP_VOSK[vosk]:::optional
+        F_APP_TEXT_INJECTION[text-injection]:::optional
+        F_APP_GUI[gui]:::optional
+        F_APP_DEFAULT[default = ["silero", "vosk", "text-injection"]]:::default
+    end
+
+    subgraph "coldvox-audio (Cargo.toml)"
+        F_AUDIO_DEFAULT[default = []]:::default
+    end
+
+    subgraph "coldvox-foundation (Cargo.toml)"
+        F_FOUNDATION_DEFAULT[default = []]:::default
+    end
+
+    subgraph "coldvox-stt (Cargo.toml)"
+        F_STT_VOSK[vosk]:::optional
+        F_STT_WHISPER[whisper]:::optional
+        F_STT_DEFAULT[default = ["vosk"]]:::default
+    end
+
+    subgraph "coldvox-stt-vosk (Cargo.toml)"
+        F_STT_VOSK_DEFAULT[default = []]:::default
+    end
+
+    subgraph "coldvox-telemetry (Cargo.toml)"
+        F_TELEMETRY_DEFAULT[default = []]:::default
+    end
+
+    subgraph "coldvox-text-injection (Cargo.toml)"
+        F_TEXT_ATSPI[atspi]:::optional
+        F_TEXT_WL_CLIPBOARD[wl-clipboard]:::optional
+        F_TEXT_ENIGO[enigo]:::optional
+        F_TEXT_KDOTOOL[kdotool]:::optional
+        F_TEXT_DEFAULT[default = ["atspi", "wl-clipboard"]]:::default
+    end
+
+    subgraph "coldvox-vad (Cargo.toml)"
+        F_VAD_DEFAULT[default = []]:::default
+    end
+
+    subgraph "coldvox-vad-silero (Cargo.toml)"
+        F_VAD_SILERO_DEFAULT[default = []]:::default
+    end
+
+    subgraph "coldvox-gui (Cargo.toml)"
+        F_GUI_QT_UI[qt-ui]:::optional
+        F_GUI_DEFAULT[default = ["qt-ui"]]:::default
+    end
+
+    %% Feature Hierarchies and Dependencies
+    F_APP_DEFAULT -.-> F_APP_SILERO : "enables"
+    F_APP_DEFAULT -.-> F_APP_VOSK : "enables"
+    F_APP_DEFAULT -.-> F_APP_TEXT_INJECTION : "enables"
+    F_APP_DEFAULT -.-> F_APP_GUI : "enables"
+    F_STT_DEFAULT -.-> F_STT_VOSK : "enables"
+    F_TEXT_DEFAULT -.-> F_TEXT_ATSPI : "enables"
+    F_TEXT_DEFAULT -.-> F_TEXT_WL_CLIPBOARD : "enables"
+    F_GUI_DEFAULT -.-> F_GUI_QT_UI : "enables"
+
+    %% Cross-Crate Enablement
+    F_APP_VOSK -.-> F_STT_VOSK : "enables cross-crate"
+    F_APP_TEXT_INJECTION -.-> F_TEXT_ATSPI : "enables cross-crate"
+    F_APP_TEXT_INJECTION -.-> F_TEXT_WL_CLIPBOARD : "enables cross-crate"
+    F_APP_TEXT_INJECTION -.-> F_TEXT_ENIGO : "enables cross-crate"
+    F_APP_TEXT_INJECTION -.-> F_TEXT_KDOTOOL : "enables cross-crate"
+    F_APP_GUI -.-> F_GUI_QT_UI : "enables cross-crate"
+
+    %% Optional Dependencies
+    F_STT_WHISPER -.-> F_STT_VOSK : "alternative to"
+
+    classDef default-feature fill:#90EE90,stroke:#228B22,stroke-width:2px,color:#000
+    classDef optional-feature fill:#FFB6C1,stroke:#CD5C5C,stroke-width:2px,color:#fff
+    classDef cross-crate fill:#DDA0DD,stroke:#9932CC,stroke-width:2px,color:#fff
+    classDef hierarchy fill:#98FB98,stroke:#006400,stroke-width:2px,color:#000
+
+    class F_APP_DEFAULT,F_STT_DEFAULT,F_TEXT_DEFAULT,F_GUI_DEFAULT,F_AUDIO_DEFAULT,F_FOUNDATION_DEFAULT,F_TELEMETRY_DEFAULT,F_VAD_DEFAULT,F_VAD_SILERO_DEFAULT,F_STT_VOSK_DEFAULT default-feature
+    class F_APP_VOSK,F_APP_GUI,F_STT_VOSK,F_TEXT_ATSPI,F_TEXT_WL_CLIPBOARD,F_TEXT_ENIGO,F_TEXT_KDOTOOL,F_GUI_QT_UI optional-feature
+    class F_STT_WHISPER optional-feature
+    class F_APP_TEXT_INJECTION,F_APP_VOSK cross-crate

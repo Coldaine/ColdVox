@@ -96,4 +96,96 @@ pub mod util {
         let focus = Box::new(MockFocusProvider { status });
         StrategyManager::new_with_focus_provider(config, metrics, focus).await
     }
+
+    /// Determines if tests that require real GUI/AT-SPI should be skipped in CI environments.
+    ///
+    /// This function checks for CI environment indicators and verifies that AT-SPI is actually
+    /// responsive, not just that D-Bus is available.
+    pub fn skip_if_headless_ci() -> bool {
+        // Skip tests that require real GUI/AT-SPI in CI
+        if std::env::var("CI").is_ok() {
+            // First check: ensure D-Bus session is available
+            if std::env::var("DBUS_SESSION_BUS_ADDRESS").is_err() {
+                eprintln!("Skipping: No D-Bus session bus available in CI");
+                return true;
+            }
+
+            // Second check: verify AT-SPI is actually responding
+            if !is_atspi_responsive() {
+                eprintln!("Skipping: AT-SPI service not responsive in CI environment");
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Quick check if we can connect to AT-SPI within a short timeout.
+    ///
+    /// This function tests actual AT-SPI connectivity rather than just checking for
+    /// environment variables, preventing tests from hanging when AT-SPI is available
+    /// but unresponsive.
+    fn is_atspi_responsive() -> bool {
+        // Quick check if we can connect to AT-SPI within a short timeout
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => handle.block_on(async {
+                tokio::time::timeout(Duration::from_millis(100), test_atspi_connection())
+                    .await
+                    .unwrap_or(false)
+            }),
+            Err(_) => {
+                // No tokio runtime available, assume unresponsive
+                false
+            }
+        }
+    }
+
+    /// Minimal AT-SPI connection test that times out quickly.
+    ///
+    /// This function attempts a basic AT-SPI connection without any complex operations
+    /// to verify that the service is responsive.
+    async fn test_atspi_connection() -> bool {
+        #[cfg(feature = "atspi")]
+        {
+            use tokio::time;
+
+            // Try to create a connection with a very short timeout
+            match time::timeout(
+                Duration::from_millis(50),
+                atspi::connection::AccessibilityConnection::new(),
+            )
+            .await
+            {
+                Ok(Ok(_)) => true,
+                _ => false,
+            }
+        }
+        #[cfg(not(feature = "atspi"))]
+        {
+            // If AT-SPI feature is not enabled, consider it "responsive"
+            // (tests will be skipped for other reasons)
+            true
+        }
+    }
+
+    /// Determines if the current environment can run real injection tests.
+    ///
+    /// This is a more comprehensive check that considers display availability,
+    /// CI environment, and AT-SPI responsiveness.
+    pub fn can_run_real_tests() -> bool {
+        // Check for display server
+        let has_display =
+            std::env::var("DISPLAY").is_ok() || std::env::var("WAYLAND_DISPLAY").is_ok();
+
+        if !has_display {
+            eprintln!("Skipping: No display server available");
+            return false;
+        }
+
+        // Check CI-specific conditions
+        if skip_if_headless_ci() {
+            return false;
+        }
+
+        true
+    }
 }

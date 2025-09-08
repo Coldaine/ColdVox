@@ -12,3 +12,7 @@ members = [
     "crates/coldvox-gui",
 ]
 resolver = "2"
+
+# Minimum Supported Rust Version (MSRV)
+# All crates in this workspace require Rust 1.75 or later
+rust-version = "1.75"

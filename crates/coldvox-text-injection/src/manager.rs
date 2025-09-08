@@ -1116,6 +1116,7 @@ impl StrategyManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tests::test_util::util::skip_if_headless_ci;
     use async_trait::async_trait;
     use std::time::Duration;
 
@@ -1317,6 +1318,11 @@ mod tests {
     // Test injection with success
     #[tokio::test]
     async fn test_inject_success() {
+        if skip_if_headless_ci() {
+            eprintln!("Skipping test_inject_success: headless CI environment detected");
+            return;
+        }
+
         let config = InjectionConfig::default();
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
         let mut manager = StrategyManager::new(config, metrics).await;

@@ -41,7 +41,7 @@ The setup integrates with the broader app via `crates/app/src/text_injection/`, 
 This diagram uses subgraphs, backend branches, decision points, verification loops, and styling to provide a detailed and hierarchical representation of the parallel mock and real testing flows, highlighting the central role of StrategyManager in delegation.
 
 ```mermaid
-graph TD
+flowchart TD
     subgraph SG1 [Input Layer]
         A[Start Test Suite]
         U[InjectionProcessor Receives Text]

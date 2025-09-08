@@ -5,7 +5,7 @@ use std::process::Command;
 fn main() {
     // We only need to build the test applications if the `real-injection-tests` feature is enabled.
     // This avoids adding build-time dependencies for regular users.
-    if env::var("CARGO_CFG_FEATURE_REAL_INJECTION_TESTS").is_ok() {
+    if env::var("CARGO_FEATURE_REAL_INJECTION_TESTS").is_ok() {
         build_gtk_test_app();
         build_terminal_test_app();
     }

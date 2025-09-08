@@ -37,6 +37,8 @@ mockall = "0.12"
 tokio-test = "0.4"
 rand = "0.8"
 arboard = "3.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serial_test = "3.0"
 
 [features]
 default = []

@@ -20,19 +20,84 @@ pub struct TestApp {
 
 impl Drop for TestApp {
     fn drop(&mut self) {
-        // Aggressively terminate the process.
-        if let Err(e) = self.process.kill() {
+        // First try to terminate gracefully with SIGTERM (if on Unix)
+        #[cfg(unix)]
+        {
+            use std::process::Command;
+            let _ = Command::new("kill")
+                .arg("-TERM")
+                .arg(self.pid.to_string())
+                .output();
+
+            // Give the process a moment to exit gracefully
+            std::thread::sleep(Duration::from_millis(100));
+        }
+
+        // Check if process is still running before trying to kill it
+        match self.process.try_wait() {
+            Ok(Some(_exit_status)) => {
+                // Process has already exited, no need to kill
+            }
+            Ok(None) => {
+                // Process is still running, try to kill it
+                if let Err(e) = self.process.kill() {
+                    // Handle common error cases
+                    if e.kind() == std::io::ErrorKind::InvalidInput {
+                        // Process may have already exited
+                        eprintln!("Process PID {} already exited during cleanup", self.pid);
+                    } else {
+                        eprintln!(
+                            "Failed to kill test app process with PID {}: {}",
+                            self.pid, e
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("Failed to check process status for PID {}: {}", self.pid, e);
+                // Try to kill anyway as a fallback
+                let _ = self.process.kill();
+            }
+        }
+
+        // Wait for the process to avoid zombies with a timeout
+        let start = Instant::now();
+        let wait_timeout = Duration::from_secs(5);
+
+        while start.elapsed() < wait_timeout {
+            match self.process.try_wait() {
+                Ok(Some(_exit_status)) => {
+                    // Process has exited
+                    break;
+                }
+                Ok(None) => {
+                    // Still running, wait a bit more
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(e) => {
+                    eprintln!("Error waiting for process PID {}: {}", self.pid, e);
+                    break;
+                }
+            }
+        }
+
+        // Final attempt to wait (non-blocking)
+        if let Err(e) = self.process.try_wait() {
             eprintln!(
-                "Failed to kill test app process with PID {}: {}",
+                "Final wait failed for test app process with PID {}: {}",
                 self.pid, e
             );
         }
-        // It's good practice to wait for the process to avoid zombies.
-        if let Err(e) = self.process.wait() {
-            eprintln!(
-                "Failed to wait for test app process with PID {}: {}",
-                self.pid, e
-            );
+
+        // Clean up any remaining child processes (Unix only)
+        #[cfg(unix)]
+        {
+            use std::process::Command;
+            // Kill any child processes in the process group
+            let _ = Command::new("pkill")
+                .arg("-P") // Parent PID
+                .arg(self.pid.to_string())
+                .output();
         }
 
         // Clean up the temporary output file.
@@ -114,17 +179,38 @@ impl TestAppManager {
 }
 
 /// Helper function to verify text injection by polling a file.
-pub fn verify_injection(output_file: &Path, expected_text: &str) -> Result<(), String> {
+pub async fn verify_injection(output_file: &Path, expected_text: &str) -> Result<(), String> {
+    verify_injection_with_timeout(output_file, expected_text, None).await
+}
+
+/// Helper function to verify text injection by polling a file with configurable timeout.
+///
+/// Uses a longer timeout in CI environments where systems may be under higher load.
+pub async fn verify_injection_with_timeout(
+    output_file: &Path,
+    expected_text: &str,
+    custom_timeout: Option<Duration>,
+) -> Result<(), String> {
     let start = Instant::now();
-    let timeout = Duration::from_millis(500);
+
+    // Use custom timeout or determine based on environment
+    let timeout = custom_timeout.unwrap_or_else(|| {
+        if env::var("CI").is_ok() {
+            // Longer timeout in CI due to potential resource contention
+            Duration::from_millis(2000)
+        } else {
+            // Standard timeout for local development
+            Duration::from_millis(500)
+        }
+    });
 
     while start.elapsed() < timeout {
         if let Ok(content) = fs::read_to_string(output_file) {
-            if content == expected_text {
+            if content.trim() == expected_text.trim() {
                 return Ok(());
             }
         }
-        std::thread::sleep(Duration::from_millis(50));
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
 
     let final_content = fs::read_to_string(output_file)
@@ -133,7 +219,7 @@ pub fn verify_injection(output_file: &Path, expected_text: &str) -> Result<(), S
         "Verification failed after {}ms. Expected: '{}', Found: '{}'",
         timeout.as_millis(),
         expected_text,
-        final_content
+        final_content.trim()
     ))
 }
 

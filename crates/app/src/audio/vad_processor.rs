@@ -117,6 +117,13 @@ impl VadProcessor {
 
         self.frames_processed += 1;
 
+        if self.frames_processed % 100 == 0 {
+            tracing::debug!(
+                "VAD: Received {} frames, processing active",
+                self.frames_processed
+            );
+        }
+
         if self.frames_processed % 1000 == 0 {
             debug!(
                 "VAD processor: {} frames processed, {} events generated, current state: {:?}",
@@ -133,6 +140,7 @@ impl VadProcessor {
         event_tx: Sender<VadEvent>,
         metrics: Option<Arc<PipelineMetrics>>,
     ) -> Result<JoinHandle<()>, String> {
+        tracing::info!("VAD processor task spawning for mode: {:?}", config.mode);
         let processor = VadProcessor::new(config, audio_rx, event_tx, metrics)?;
 
         let handle = tokio::spawn(async move {

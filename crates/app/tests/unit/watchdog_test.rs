@@ -5,9 +5,11 @@ mod tests {
     use std::thread;
     use std::sync::{Arc, Mutex};
     use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+    use tokio::time::sleep;
+    use crate::clock::{Clock, TestClock, SharedClock};
 
-    #[test]
-    fn test_watchdog_creation() {
+    #[tokio::test]
+    async fn test_watchdog_creation() {
         // Test various timeout durations
         let watchdog_1s = WatchdogTimer::new(Duration::from_secs(1));
         assert!(watchdog_1s.is_ok(), "Should create watchdog with 1s timeout");
@@ -19,8 +21,8 @@ mod tests {
         assert!(watchdog_10s.is_ok(), "Should create watchdog with 10s timeout");
     }
 
-    #[test]
-    fn test_watchdog_pet_prevents_timeout() {
+    #[tokio::test]
+    async fn test_watchdog_pet_prevents_timeout() {
         let timeout_triggered = Arc::new(AtomicBool::new(false));
         let timeout_triggered_clone = timeout_triggered.clone();
 
@@ -35,7 +37,7 @@ mod tests {
 
         // Pet the watchdog every 100ms for 500ms total
         for _ in 0..5 {
-            thread::sleep(Duration::from_millis(100));
+            sleep(Duration::from_millis(100));
             watchdog.pet();
         }
 
@@ -45,8 +47,8 @@ mod tests {
             "Watchdog should not timeout when petted regularly");
     }
 
-    #[test]
-    fn test_watchdog_timeout_triggers() {
+    #[tokio::test]
+    async fn test_watchdog_timeout_triggers() {
         let timeout_triggered = Arc::new(AtomicBool::new(false));
         let timeout_triggered_clone = timeout_triggered.clone();
 
@@ -60,7 +62,7 @@ mod tests {
         watchdog.start();
 
         // Don't pet the watchdog, wait for timeout
-        thread::sleep(Duration::from_millis(200));
+        sleep(Duration::from_millis(200));
 
         assert!(timeout_triggered.load(Ordering::SeqCst),
             "Watchdog should timeout after specified duration");
@@ -68,8 +70,8 @@ mod tests {
         watchdog.stop();
     }
 
-    #[test]
-    fn test_watchdog_stop() {
+    #[tokio::test]
+    async fn test_watchdog_stop() {
         let timeout_count = Arc::new(AtomicU32::new(0));
         let timeout_count_clone = timeout_count.clone();
 
@@ -81,19 +83,19 @@ mod tests {
         );
 
         watchdog.start();
-        thread::sleep(Duration::from_millis(100)); // Let it timeout once
+        sleep(Duration::from_millis(100)); // Let it timeout once
         watchdog.stop();
 
         let count_after_stop = timeout_count.load(Ordering::SeqCst);
-        thread::sleep(Duration::from_millis(100)); // Wait to ensure no more timeouts
+        sleep(Duration::from_millis(100)); // Wait to ensure no more timeouts
         let count_after_wait = timeout_count.load(Ordering::SeqCst);
 
         assert_eq!(count_after_stop, count_after_wait,
             "Watchdog should not trigger after being stopped");
     }
 
-    #[test]
-    fn test_epoch_change_on_restart() {
+    #[tokio::test]
+    async fn test_epoch_change_on_restart() {
         let mut watchdog = WatchdogTimer::new(Duration::from_millis(100)).unwrap();
 
         // Start and stop multiple times
@@ -114,8 +116,8 @@ mod tests {
         assert!(epoch3 > epoch1, "Epoch should increment");
     }
 
-    #[test]
-    fn test_concurrent_pet_operations() {
+    #[tokio::test]
+    async fn test_concurrent_pet_operations() {
         let timeout_triggered = Arc::new(AtomicBool::new(false));
         let timeout_triggered_clone = timeout_triggered.clone();
 
@@ -134,7 +136,7 @@ mod tests {
                 let watchdog_clone = watchdog.clone();
                 thread::spawn(move || {
                     for _ in 0..10 {
-                        thread::sleep(Duration::from_millis(40));
+                        sleep(Duration::from_millis(40));
                         watchdog_clone.lock().unwrap().pet();
                     }
                 })
@@ -152,8 +154,8 @@ mod tests {
             "Concurrent petting should prevent timeout");
     }
 
-    #[test]
-    fn test_timeout_callback_execution() {
+    #[tokio::test]
+    async fn test_timeout_callback_execution() {
         let callback_count = Arc::new(AtomicU32::new(0));
         let callback_count_clone = callback_count.clone();
 
@@ -167,11 +169,11 @@ mod tests {
         watchdog.start();
 
         // Wait for exactly one timeout
-        thread::sleep(Duration::from_millis(75));
+        sleep(Duration::from_millis(75));
         watchdog.pet(); // Reset after first timeout
 
         // Wait for another timeout
-        thread::sleep(Duration::from_millis(75));
+        sleep(Duration::from_millis(75));
 
         watchdog.stop();
 
@@ -179,8 +181,8 @@ mod tests {
         assert_eq!(final_count, 2, "Callback should execute exactly twice");
     }
 
-    #[test]
-    fn test_rapid_start_stop() {
+    #[tokio::test]
+    async fn test_rapid_start_stop() {
         let timeout_triggered = Arc::new(AtomicBool::new(false));
         let timeout_triggered_clone = timeout_triggered.clone();
 
@@ -194,7 +196,7 @@ mod tests {
         // Rapidly start and stop
         for _ in 0..10 {
             watchdog.start();
-            thread::sleep(Duration::from_millis(10));
+            sleep(Duration::from_millis(10));
             watchdog.stop();
         }
 
@@ -202,8 +204,8 @@ mod tests {
             "Rapid start/stop should not trigger timeout");
     }
 
-    #[test]
-    fn test_pet_after_timeout() {
+    #[tokio::test]
+    async fn test_pet_after_timeout() {
         let timeout_count = Arc::new(AtomicU32::new(0));
         let timeout_count_clone = timeout_count.clone();
 
@@ -217,25 +219,25 @@ mod tests {
         watchdog.start();
 
         // Let it timeout
-        thread::sleep(Duration::from_millis(75));
+        sleep(Duration::from_millis(75));
         assert_eq!(timeout_count.load(Ordering::SeqCst), 1, "Should timeout once");
 
         // Pet after timeout should reset timer
         watchdog.pet();
 
         // Should not immediately timeout again
-        thread::sleep(Duration::from_millis(30));
+        sleep(Duration::from_millis(30));
         assert_eq!(timeout_count.load(Ordering::SeqCst), 1, "Should still be 1 timeout");
 
         // Wait for another timeout
-        thread::sleep(Duration::from_millis(30));
+        sleep(Duration::from_millis(30));
         assert_eq!(timeout_count.load(Ordering::SeqCst), 2, "Should timeout again");
 
         watchdog.stop();
     }
 
-    #[test]
-    fn test_watchdog_with_jitter() {
+    #[tokio::test]
+    async fn test_watchdog_with_jitter() {
         // Test that timeout includes jitter for recovery scenarios
         let timeout_times = Arc::new(Mutex::new(Vec::new()));
 
@@ -252,7 +254,7 @@ mod tests {
             );
 
             watchdog.start();
-            thread::sleep(Duration::from_millis(150));
+            sleep(Duration::from_millis(150));
             watchdog.stop();
         }
 
@@ -269,5 +271,41 @@ mod tests {
         // This test might be flaky due to timing, but demonstrates the concept
         assert!(!all_same || times.len() < 2,
             "Timeouts should have some variation with jitter");
+    }
+
+    #[tokio::test]
+    async fn test_watchdog_deterministic_with_test_clock() {
+        // Test using TestClock for deterministic behavior
+        let test_clock: SharedClock = std::sync::Arc::new(TestClock::new());
+        let start_time = test_clock.now();
+
+        let timeout_triggered = Arc::new(AtomicBool::new(false));
+        let timeout_triggered_clone = timeout_triggered.clone();
+
+        let mut watchdog = WatchdogTimer::with_callback(
+            Duration::from_millis(100),
+            move || {
+                timeout_triggered_clone.store(true, Ordering::SeqCst);
+            }
+        );
+
+        watchdog.start();
+
+        // Advance virtual time by 50ms - should not timeout
+        test_clock.advance(Duration::from_millis(50));
+        assert!(!timeout_triggered.load(Ordering::SeqCst),
+            "Should not timeout at 50ms");
+
+        // Advance another 60ms - should timeout
+        test_clock.advance(Duration::from_millis(60));
+        assert!(timeout_triggered.load(Ordering::SeqCst),
+            "Should timeout after 110ms total");
+
+        watchdog.stop();
+
+        // Verify the test clock advanced correctly
+        let elapsed = test_clock.now().duration_since(start_time);
+        assert_eq!(elapsed, Duration::from_millis(110),
+            "Test clock should have advanced by exactly the expected amount");
     }
 }

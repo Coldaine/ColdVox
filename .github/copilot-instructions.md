@@ -2,6 +2,10 @@
 
 Use these notes to help AI agents work effectively in this Rust workspace. Main application crate: `crates/app` (package `coldvox-app`). Core subsystems live in split crates and are re-exported by the app where convenient.
 
+## AI Assistant Response Guidelines
+
+**Prompt Response Format**: When asked to create a prompt for another agent, return ONLY the prompt content without any additional commentary, explanation, or wrapper text. Simply output the prompt as requested.
+
 Key defaults right now:
 - STT (Vosk) is NOT built by default. Enable with the `vosk` feature.
 - Default audio/VAD windowing is 512 samples at 16 kHz (32 ms).

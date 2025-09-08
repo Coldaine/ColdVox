@@ -13,7 +13,7 @@ These diagrams cover:
 This diagram shows ColdVox as a single system interacting with external users and hardware. It highlights the primary users (e.g., developers/end-users) and external systems (e.g., microphone, target applications for text injection).
 
 ```mermaid
-graph TD
+flowchart TD
     subgraph "External"
         User[User/Developer]
         Mic[Microphone Device]
@@ -33,7 +33,7 @@ graph TD
 This decomposes ColdVox into its main crates (containers) and their interactions. Based on Cargo.toml members and README structure, it shows dependencies like foundation shared across crates.
 
 ```mermaid
-graph TD
+flowchart TD
     subgraph "ColdVox Workspace"
         App["App Crate<br/>Main Binary/CLI<br/>Orchestrates Pipeline"]
         Foundation["Foundation Crate<br/>Core Types/Errors/Utilities"]

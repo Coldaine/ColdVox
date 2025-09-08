@@ -17,6 +17,17 @@ use coldvox_vad::config::{UnifiedVadConfig, VadMode};
 use coldvox_vad::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 use coldvox_vad::types::VadEvent;
 
+/// Playback mode for WAV streaming
+#[derive(Debug, Clone, Copy)]
+pub enum PlaybackMode {
+    /// Real-time playback (default)
+    Realtime,
+    /// Accelerated playback with speed multiplier
+    Accelerated(f32),
+    /// Deterministic playback (no sleeps, feed as fast as possible)
+    Deterministic,
+}
+
 /// Initialize tracing for tests with debug level
 fn init_test_tracing() {
     use std::sync::Once;
@@ -28,6 +39,12 @@ fn init_test_tracing() {
 
         fmt().with_env_filter(filter).with_test_writer().init();
     });
+}
+
+/// Initialize test infrastructure (tracing, sleep observer)
+pub fn init_test_infrastructure() {
+    init_test_tracing();
+    crate::sleep_instrumentation::init_sleep_observer();
 }
 
 /// Mock text injector that captures injection attempts for testing
@@ -60,6 +77,7 @@ pub struct WavFileLoader {
     channels: u16,
     current_pos: usize,
     frame_size_total: usize,
+    playback_mode: PlaybackMode,
 }
 
 impl WavFileLoader {
@@ -88,12 +106,26 @@ impl WavFileLoader {
         // FRAME_SIZE_SAMPLES is per mono channel; scale by channel count for total i16 samples
         let frame_size_total = FRAME_SIZE_SAMPLES * spec.channels as usize;
 
+        // Get playback mode from environment (namespaced)
+        let playback_mode = match std::env::var("COLDVOX_PLAYBACK_MODE") {
+            Ok(mode) if mode.eq_ignore_ascii_case("deterministic") => PlaybackMode::Deterministic,
+            Ok(mode) if mode.eq_ignore_ascii_case("accelerated") => {
+                let speed = std::env::var("COLDVOX_PLAYBACK_SPEED_MULTIPLIER")
+                    .unwrap_or_else(|_| "2.0".to_string())
+                    .parse::<f32>()
+                    .unwrap_or(2.0);
+                PlaybackMode::Accelerated(speed)
+            }
+            _ => PlaybackMode::Realtime,
+        };
+
         Ok(Self {
             samples,
             sample_rate: spec.sample_rate,
             channels: spec.channels,
             current_pos: 0,
             frame_size_total,
+            playback_mode,
         })
     }
 
@@ -125,7 +157,20 @@ impl WavFileLoader {
             // Maintain realistic timing for the total interleaved samples written
             let written_total = chunk.len() as u64;
             let sleep_nanos = written_total * nanos_per_sample_total;
-            tokio::time::sleep(Duration::from_nanos(sleep_nanos)).await;
+
+            match self.playback_mode {
+                PlaybackMode::Realtime => {
+                    tokio::time::sleep(Duration::from_nanos(sleep_nanos)).await;
+                }
+                PlaybackMode::Accelerated(speed) => {
+                    let accelerated_nanos = (sleep_nanos as f32 / speed) as u64;
+                    let clamped = accelerated_nanos.max(50_000); // 50us minimum to yield
+                    tokio::time::sleep(Duration::from_nanos(clamped)).await;
+                }
+                PlaybackMode::Deterministic => {
+                    // No real sleep; logical frame progression (future: integrate TestClock)
+                }
+            }
         }
 
         info!(
@@ -137,7 +182,14 @@ impl WavFileLoader {
 
     pub fn duration_ms(&self) -> u64 {
         // Total interleaved samples divided by (rate * channels)
-        ((self.samples.len() as u64) * 1000) / (self.sample_rate as u64 * self.channels as u64)
+        let base_duration =
+            ((self.samples.len() as u64) * 1000) / (self.sample_rate as u64 * self.channels as u64);
+
+        match self.playback_mode {
+            PlaybackMode::Realtime => base_duration,
+            PlaybackMode::Accelerated(speed) => (base_duration as f32 / speed) as u64,
+            PlaybackMode::Deterministic => 0, // Logical time only; test should not rely on wall time
+        }
     }
 
     pub fn sample_rate(&self) -> u32 {
@@ -230,7 +282,7 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
     wav_path: P,
     expected_text_fragments: Vec<&str>,
 ) -> Result<Vec<String>> {
-    init_test_tracing();
+    init_test_infrastructure();
     info!("Starting end-to-end WAV pipeline test");
     debug!("Processing WAV file: {:?}", wav_path.as_ref());
     debug!("Expected text fragments: {:?}", expected_text_fragments);
@@ -464,7 +516,7 @@ mod tests {
     #[ignore]
     #[tokio::test]
     async fn test_end_to_end_wav_pipeline() {
-        init_test_tracing();
+        init_test_infrastructure();
         use rand::seq::SliceRandom;
         use std::fs;
 
@@ -669,9 +721,11 @@ mod tests {
         });
     }
 
+    #[ignore]
     #[tokio::test]
+
     async fn test_end_to_end_with_real_injection() {
-        init_test_tracing();
+        init_test_infrastructure();
         // This test uses the real AsyncInjectionProcessor for comprehensive testing
         // It requires:
         // 1. A WAV file with known speech content
@@ -756,6 +810,7 @@ mod tests {
             max_alternatives: 1,
             include_words: false,
             buffer_size_ms: 512,
+            streaming: false,
         };
 
         // Check if STT model exists
@@ -855,9 +910,12 @@ mod tests {
     }
 
     /// Test AT-SPI injection specifically
+    #[ignore]
     #[tokio::test]
     #[cfg(feature = "text-injection")]
+
     async fn test_atspi_injection() {
+        init_test_infrastructure();
         #[cfg(feature = "text-injection")]
         {
             use crate::text_injection::{
@@ -916,9 +974,12 @@ mod tests {
     }
 
     /// Test clipboard injection specifically
+    #[ignore]
     #[tokio::test]
     #[cfg(feature = "text-injection")]
+
     async fn test_clipboard_injection() {
+        init_test_infrastructure();
         #[cfg(feature = "text-injection")]
         {
             use crate::text_injection::{

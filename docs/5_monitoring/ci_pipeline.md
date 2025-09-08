@@ -17,6 +17,60 @@ This document describes the current Continuous Integration (CI) and Release work
   - Release: `contents: write`, `pull-requests: write`, `issues: write`.
 - Global env (CI): `RUST_BACKTRACE=1`, `CARGO_TERM_COLOR=always`, `CARGO_INCREMENTAL=0`.
 
+## Environment Variables and Path Management
+
+### Global Environment Variables
+
+| Variable | Value | Purpose | Scope |
+|----------|-------|---------|-------|
+| `RUST_BACKTRACE` | `1` | Enable full backtraces for debugging panics and errors | All jobs |
+| `CARGO_TERM_COLOR` | `always` | Force colored output in CI logs | All jobs |
+| `CARGO_INCREMENTAL` | `0` | Disable incremental compilation for consistent builds | All jobs |
+
+### Job-Specific Environment Variables
+
+#### download-vosk-model Job
+- **GH_TOKEN**: `${{ github.token }}` - GitHub API access for workflow validation
+- **VOSK_MODEL_PATH**: Set in dependent jobs - Path to downloaded Vosk model
+
+#### text_injection_tests Job
+- **DISPLAY**: `:99` - X11 display for headless GUI testing
+- **DBUS_SESSION_BUS_ADDRESS**: Set by `dbus-launch` - D-Bus session for AT-SPI
+- **DBUS_SESSION_BUS_PID**: Set by `dbus-launch` - D-Bus daemon process ID
+
+### Environment Variable Propagation
+
+Environment variables are propagated between jobs through:
+
+1. **GitHub Actions outputs**: `download-vosk-model` outputs `model-path` and `download-outcome`
+2. **Dynamic env setting**: `dbus-launch` sets DBUS_* variables in text_injection_tests
+3. **Conditional usage**: VOSK_MODEL_PATH is only set when model download succeeds
+
+### Cross-Platform Path Considerations
+
+- **Model paths**: Use `${{ github.workspace }}` prefix for absolute paths
+- **Library paths**: `/usr/local/lib` for vendored libraries (Linux-specific)
+- **Executable paths**: `OUT_DIR` for build artifacts (build.rs)
+- **Cache paths**: `models/` directory for Vosk model storage
+
+### Path Resolution in Code
+
+The codebase uses cross-platform path handling:
+
+- **Rust std::path::Path**: For platform-agnostic path operations
+- **env::var()**: For environment variable access with proper error handling
+- **OUT_DIR**: Build-time artifact location (automatically set by Cargo)
+- **CARGO_MANIFEST_DIR**: Crate root directory for relative path resolution
+
+### Environment Validation
+
+CI includes validation steps for critical environment components:
+
+- **X11/Display**: Readiness checks with `xdpyinfo` and `wmctrl`
+- **D-Bus**: Process verification with `pgrep`
+- **Clipboard tools**: Availability checks for `xclip`, `wl-paste`
+- **Vosk model**: Existence verification before running dependent tests
+
 ## CI Jobs (`.github/workflows/ci.yml`)
 
 ### validate-workflows
@@ -74,6 +128,16 @@ This document describes the current Continuous Integration (CI) and Release work
   - A virtual X11 server (Xvfb) is started, along with the `fluxbox` window manager.
   - D-Bus session is configured.
   - Readiness checks are performed to ensure `dbus` and clipboard tools (`xclip`, `wl-paste`) are available.
+- Test isolation:
+  - Single-threaded test execution (`--test-threads=1`) to prevent conflicts
+  - Headless X11 environment with virtual display `:99`
+  - Isolated D-Bus session per test run
+  - Temporary directories for test artifacts
+- Prerequisites validation:
+  - GTK+ 3.0 development libraries
+  - Text injection backends (xdotool, ydotool, enigo)
+  - ALSA audio system
+  - Clipboard utilities (xclip, wl-clipboard)
 - Steps:
   - Installs system dependencies like `xvfb`, `at-spi2-core`, `xclip`, `wl-clipboard`, etc.
   - Installs `libvosk` from the vendored bundle.
@@ -81,13 +145,98 @@ This document describes the current Continuous Integration (CI) and Release work
   - Builds the main `coldvox-app` to ensure integration.
   - Runs the end-to-end WAV pipeline test (`test_end_to_end_wav_pipeline`), which is conditional on the successful download of the Vosk model.
 
-### security
+## Test Infrastructure and Isolation
+
+### Test Environment Setup
+
+**Headless GUI Testing:**
+- Xvfb virtual display server
+- Fluxbox window manager
+- D-Bus session daemon
+- Clipboard utilities (xclip, wl-clipboard)
+
+**System Dependencies:**
+- GTK+ 3.0 development libraries
+- ALSA audio libraries
+- X11 development libraries
+- Accessibility tools (at-spi2-core)
+
+### Test Isolation Mechanisms
+
+**Process Isolation:**
+- Single-threaded test execution to prevent race conditions
+- Isolated D-Bus sessions
+- Temporary directories for test artifacts
+
+**Resource Isolation:**
+- Virtual X11 display per test run
+- Separate audio device contexts
+- Isolated clipboard operations
+
+**Mock and Fallback Mechanisms:**
+- Graceful degradation when Vosk model download fails
+- Feature-gated test skipping
+- Optional system service mocking
+
+### Test Prerequisites Checklist
+
+- [ ] GTK+ 3.0 development libraries installed
+- [ ] X11 development libraries available
+- [ ] ALSA audio system functional
+- [ ] Text injection backends available (at least one)
+- [ ] Clipboard utilities installed
+- [ ] D-Bus session daemon running
+- [ ] Virtual display server (Xvfb) operational
+- [ ] Window manager (fluxbox) running
+- [ ] Vosk model downloaded (optional for some tests)
+
+## Security Audit
+
 - Purpose: Security audit of dependencies (via `rustsec/audit-check` / `cargo audit`).
 - Status: Disabled (`if: false`). Retained as a placeholder for future enablement.
 
 ### ci-success
 - Purpose: Aggregate success marker. Always runs and fails if any of the required jobs fail.
-- Needs: `validate-workflows`, `download-vosk-model`, `build_and_check`, `gui-groundwork`, `text_injection_tests`, `security`.
+- Needs: `validate-workflows`, `download-vosk-model`, `build_and_check`, `msrv-check`, `gui-groundwork`, `text_injection_tests`, `security`.
+- Enhanced failure handling: Checks each job result individually and provides detailed failure reporting.
+
+## Job Dependency Graph
+
+```mermaid
+graph TD
+    A[validate-workflows] --> H[ci-success]
+    B[download-vosk-model] --> C[build_and_check]
+    B --> F[text_injection_tests]
+    B --> H
+    C --> H
+    D[msrv-check] --> H
+    E[gui-groundwork] --> H
+    F --> H
+    G[security] --> H
+    
+    C --> I[Upload artifacts on failure]
+    F --> J[Upload artifacts on failure]
+```
+
+**Key Dependencies:**
+- `build_and_check` and `text_injection_tests` depend on `download-vosk-model` for the Vosk model
+- `ci-success` depends on all jobs for final status aggregation
+- No circular dependencies exist
+
+## Artifact Management
+
+### Current Artifacts
+- **test-artifacts-build-check**: Debug artifacts from build_and_check job failures
+  - Path: `target/debug/deps/`, `target/debug/build/`
+  - Retention: 7 days
+- **test-artifacts-text-injection**: Debug artifacts from text_injection_tests job failures
+  - Path: `target/debug/deps/`, `target/debug/build/`, `models/`
+  - Retention: 7 days
+
+### Artifact Upload Triggers
+- Only uploaded on job failure (`if: failure()`)
+- Include relevant debug information for troubleshooting
+- Automatic cleanup after retention period
 
 ## Release Workflow (`.github/workflows/release.yml`)
 
