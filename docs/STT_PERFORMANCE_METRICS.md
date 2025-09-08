@@ -7,7 +7,7 @@ This document describes the comprehensive STT performance metrics and monitoring
 The STT performance metrics system provides comprehensive monitoring of speech-to-text operations, including:
 
 - **Latency Tracking**: End-to-end, engine processing, preprocessing, and result delivery times
-- **Accuracy Monitoring**: Confidence scores, success rates, and transcription quality metrics  
+- **Accuracy Monitoring**: Confidence scores, success rates, and transcription quality metrics
 - **Resource Usage**: Memory consumption, buffer utilization, and processing resource tracking
 - **Operational Metrics**: Request rates, error rates, and processing throughput
 - **Performance Alerts**: Configurable thresholds with automated alert detection
@@ -36,7 +36,7 @@ stt_processor.set_performance_metrics(performance_metrics);
 let metrics_manager = SttMetricsBuilder::new()
     .with_max_latency(200)        // 200ms max latency
     .with_min_confidence(0.85)    // 85% min confidence
-    .with_max_memory_mb(256)      // 256MB max memory  
+    .with_max_memory_mb(256)      // 256MB max memory
     .with_max_error_rate(20)      // 2% max error rate
     .build();
 ```
@@ -52,7 +52,7 @@ if !alerts.is_empty() {
 
 // Get performance summary
 let summary = metrics_manager.get_performance_summary();
-info!("STT latency: {:.1}ms, confidence: {:.1}%", 
+info!("STT latency: {:.1}ms, confidence: {:.1}%",
       summary.avg_latency_ms, summary.avg_confidence * 100.0);
 
 // Get formatted report
@@ -73,7 +73,7 @@ The system provides several pre-configured setups for common use cases:
 let manager = SttMetricsBuilder::production().build();
 ```
 
-### Development Configuration  
+### Development Configuration
 - Max latency: 1000ms
 - Min confidence: 60%
 - Max error rate: 10%
@@ -182,7 +182,7 @@ The metrics system is designed for minimal integration impact:
 ### STT Processor Integration
 
 1. **Create metrics manager** during application startup
-2. **Set performance metrics** on STT processor instance  
+2. **Set performance metrics** on STT processor instance
 3. **Metrics are automatically collected** during transcription
 4. **Monitor periodically** for alerts and performance reports
 
@@ -212,7 +212,7 @@ The system includes comprehensive tests:
 cd crates/coldvox-telemetry
 cargo test
 
-# Run specific STT metrics tests  
+# Run specific STT metrics tests
 cargo test stt_metrics
 
 # Run integration tests
