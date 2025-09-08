@@ -6,6 +6,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
     use tokio::time::sleep;
+    use crate::clock::{Clock, TestClock, SharedClock};
 
     #[tokio::test]
     async fn test_watchdog_creation() {
@@ -21,7 +22,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async async fn test_watchdog_pet_prevents_timeout() {
+    async fn test_watchdog_pet_prevents_timeout() {
         let timeout_triggered = Arc::new(AtomicBool::new(false));
         let timeout_triggered_clone = timeout_triggered.clone();
 
@@ -47,7 +48,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async async fn test_watchdog_timeout_triggers() {
+    async fn test_watchdog_timeout_triggers() {
         let timeout_triggered = Arc::new(AtomicBool::new(false));
         let timeout_triggered_clone = timeout_triggered.clone();
 
@@ -70,7 +71,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async async async fn test_watchdog_stop() {
+    async fn test_watchdog_stop() {
         let timeout_count = Arc::new(AtomicU32::new(0));
         let timeout_count_clone = timeout_count.clone();
 
@@ -94,7 +95,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async async fn test_epoch_change_on_restart() {
+    async fn test_epoch_change_on_restart() {
         let mut watchdog = WatchdogTimer::new(Duration::from_millis(100)).unwrap();
 
         // Start and stop multiple times
@@ -116,7 +117,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async async fn test_concurrent_pet_operations() {
+    async fn test_concurrent_pet_operations() {
         let timeout_triggered = Arc::new(AtomicBool::new(false));
         let timeout_triggered_clone = timeout_triggered.clone();
 
@@ -154,7 +155,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async async fn test_timeout_callback_execution() {
+    async fn test_timeout_callback_execution() {
         let callback_count = Arc::new(AtomicU32::new(0));
         let callback_count_clone = callback_count.clone();
 
@@ -181,7 +182,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async async fn test_rapid_start_stop() {
+    async fn test_rapid_start_stop() {
         let timeout_triggered = Arc::new(AtomicBool::new(false));
         let timeout_triggered_clone = timeout_triggered.clone();
 
@@ -204,7 +205,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async async fn test_pet_after_timeout() {
+    async fn test_pet_after_timeout() {
         let timeout_count = Arc::new(AtomicU32::new(0));
         let timeout_count_clone = timeout_count.clone();
 
@@ -236,7 +237,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async async fn test_watchdog_with_jitter() {
+    async fn test_watchdog_with_jitter() {
         // Test that timeout includes jitter for recovery scenarios
         let timeout_times = Arc::new(Mutex::new(Vec::new()));
 
@@ -270,5 +271,41 @@ mod tests {
         // This test might be flaky due to timing, but demonstrates the concept
         assert!(!all_same || times.len() < 2,
             "Timeouts should have some variation with jitter");
+    }
+
+    #[tokio::test]
+    async fn test_watchdog_deterministic_with_test_clock() {
+        // Test using TestClock for deterministic behavior
+        let test_clock: SharedClock = std::sync::Arc::new(TestClock::new());
+        let start_time = test_clock.now();
+
+        let timeout_triggered = Arc::new(AtomicBool::new(false));
+        let timeout_triggered_clone = timeout_triggered.clone();
+
+        let mut watchdog = WatchdogTimer::with_callback(
+            Duration::from_millis(100),
+            move || {
+                timeout_triggered_clone.store(true, Ordering::SeqCst);
+            }
+        );
+
+        watchdog.start();
+
+        // Advance virtual time by 50ms - should not timeout
+        test_clock.advance(Duration::from_millis(50));
+        assert!(!timeout_triggered.load(Ordering::SeqCst),
+            "Should not timeout at 50ms");
+
+        // Advance another 60ms - should timeout
+        test_clock.advance(Duration::from_millis(60));
+        assert!(timeout_triggered.load(Ordering::SeqCst),
+            "Should timeout after 110ms total");
+
+        watchdog.stop();
+
+        // Verify the test clock advanced correctly
+        let elapsed = test_clock.now().duration_since(start_time);
+        assert_eq!(elapsed, Duration::from_millis(110),
+            "Test clock should have advanced by exactly the expected amount");
     }
 }

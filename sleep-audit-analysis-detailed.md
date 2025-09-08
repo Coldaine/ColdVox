@@ -1,3 +1,12 @@
+---
+doc_type: analysis
+subsystem: testing/ci-optimization
+version: 2
+status: active
+owners: kilo-code
+last_reviewed: 2025-09-08
+---
+
 # ColdVox Sleep Audit Analysis - Detailed Assessment
 ## Executive Summary
 
@@ -13,6 +22,99 @@ This document contains a comprehensive analysis of 108 sleep() calls across 38 R
 - Total estimated CI time savings: 15-30 seconds per test run
 - 48 high-risk sleeps analyzed in detail across 7 files
 - Clear prioritization for Phase 1 optimizations with minimal risk
+
+---
+
+## Revised Analysis Addendum (Post-Critique Update – 2025-09-07)
+
+This addendum reflects a second-pass critique emphasizing determinism, virtual time, readiness probing, and event-driven completion. Several long or stabilization-oriented sleeps were reclassified to expose hidden optimization potential and timing opacity risks.
+
+### Key Revisions Table
+| Sleep (File) | Original Grade | New Grade | Original CI Impact | New CI Impact | Original Risk | New Risk | Summary Rationale |
+|--------------|---------------|-----------|--------------------|---------------|---------------|----------|-------------------|
+| end_to_end_wav.rs – Sleep 2 | A | B | 8 | 9 | YELLOW | RED | Real-time pacing can be replaced by deterministic frame feed; higher bottleneck impact |
+| end_to_end_wav.rs – Sleep 4 | A | C | 9 | 10 | YELLOW | RED | Hard wait; should use completion signaling with timeout (downgraded to C based on code verification showing pipeline signaling feasibility) |
+| end_to_end_wav.rs – Sleep 6 | C | D | 6 | 4 | YELLOW | GREEN | Replace fixed 500ms with readiness polling / skip headless |
+| end_to_end_wav.rs – Sleep 10 | D | F | 4 | 3 | GREEN | GREEN | Cleanup delay removable via explicit joins/asserts |
+| end_to_end_wav.rs – Sleep 13 | D | F | 4 | 3 | GREEN | GREEN | Clipboard cleanup sleep unnecessary with guard pattern |
+| watchdog_test.rs – Sleep 2 | A | B | 6 | 5 | GREEN | GREEN | Virtual time abstraction eliminates wall wait |
+| watchdog_test.rs – Sleep 12 | A | B | 5 | 6 | YELLOW | YELLOW | Virtual time + deterministic jitter injection |
+| real_injection.rs – Sleep 4 | C | D | 7 | 5 | YELLOW | YELLOW | AT-SPI readiness detectable via DBus name ownership |
+| capture_integration_test.rs – Sleep 1 | A | C | 8 | 9 | YELLOW | RED | Frame quota early exit; long wait hides early completion |
+
+### Updated Aggregate Distributions
+- Grades: A 18 (↓5), B 14 (↑3), C 11 (=), D 3 (=), F 2 (↑2)
+- CI Impact: Critical (9–10): 5 (↑2); High (7–8): 5 (↓3); Medium (5–6): 22 (=); Low (3–4): 14 (↑1); Minimal (1–2): 2 (=)
+- Risk: GREEN 33 (↑1); YELLOW 10 (↓4); RED 5 (↑3) — RED reflects timing opacity rather than new instability.
+
+### New / Refined Optimization Categories
+- Virtual-Time: Substitute real sleep with logical clock advancement (watchdog, pacing tests).
+- Readiness-Probe: Replace blind stabilization waits with predicate polling (terminal, AT-SPI, clipboard, input systems).
+
+Reclassifications:
+- Event-Driven: end_to_end_wav.rs (Sleeps 2,4), capture_integration_test.rs (Sleep 1)
+- Virtual-Time: watchdog_test.rs (Sleeps 2,12)
+- Readiness-Probe / Remove: end_to_end_wav.rs (Sleeps 6,10,13), real_injection.rs (Sleep 4)
+
+### Method Enhancements Introduced
+1. Sleep Instrumentation (`TEST_SLEEP_OBSERVER=1`): logs (id, requested_ms, actual_ms, tag) enabling Waste Ratio metrics.
+2. Clock Abstraction (`Clock` / `TestClock`): facilitates virtual-time execution in watchdog & pacing flows.
+3. Readiness Utilities: `poll_until(predicate, max, interval)`, `wait_for_atspi()`, `wait_for_terminal_ready()`, `wait_for_clipboard_stable()`.
+4. Deterministic Playback (`PlaybackMode::{Realtime, Accelerated(f32), Deterministic}`) for frame feed tests.
+5. Frame Quota Strategy: Early termination when frame count target + minimum elapsed satisfied.
+6. Cleanup Verification: Replace trailing sleeps with joins & channel closure assertions.
+
+### Revised Roadmap
+Phase 1 (High ROI / Low Risk):
+1. Deterministic playback + frame quotas (end_to_end_wav.rs, capture tests)
+2. Readiness probes replacing 500ms stabilization waits
+3. Clock abstraction for watchdog timing tests
+4. Remove cleanup sleeps (end_to_end_wav.rs sleeps 10 & 13)
+
+Phase 2:
+1. Broader Virtual-Time adoption
+2. Environment-driven delay reductions (typing rate, chunk delay, clipboard stabilization)
+3. Event-driven pipeline completion (after primitives stable)
+
+Phase 3:
+1. Unified signaling (completion, readiness, shutdown)
+2. Statistical convergence-based early exits
+3. Parallelization leveraging deterministic pacing
+
+```mermaid
+flowchart TD
+    A[Start: Current Sleeps] --> B[Phase 1: Quick Wins<br/>- Deterministic Playback<br/>- Readiness Probes<br/>- Clock Abstraction<br/>- Cleanup Removals]
+    B --> C[Phase 2: Broader Adoption<br/>- Virtual-Time Expansion<br/>- Env-Driven Delays<br/>- Event-Driven Completion]
+    C --> D[Phase 3: Advanced Opts<br/>- Unified Signaling<br/>- Stat Convergence Exits<br/>- Parallelization]
+    D --> E[End: Optimized CI<br/>Savings: 22-39s per run]
+    style A fill:#f9f,stroke:#333
+    style E fill:#9f9,stroke:#333
+```
+
+### Updated CI Savings Estimate
+- Deterministic playback + early completion: 6–10s
+- Readiness probe replacements: 3–5s
+- Frame quota conversion: 3–6s
+- Virtual time (watchdog & timing tests): 4–6s
+- Minor removals / cleanup: 1–2s
+- Additional probe optimizations (e.g., AT-SPI/DBus polling): 5–10s
+Conservative cumulative: 22–39s; aggressive (broad virtual-time): 35–50s.
+
+### Added KPIs
+- Waste Ratio (p95_actual / requested)
+- Determinism Score (1–5)
+- Early Exit Yield (% tests ending pre original duration)
+- Flake Delta (retry rate change)
+
+### Immediate Action Snapshot
+1. Implement instrumentation feature flag
+2. Add readiness utilities & swap 500ms waits
+3. Introduce PlaybackMode + env control
+4. Add Clock trait; refactor watchdog
+5. Convert long duration waits to event-driven + safety timeout
+6. Excise cleanup sleeps 10 & 13 (post-verification)
+
+Historical (original) analysis follows unchanged for auditability.
 
 ---
 
@@ -728,15 +830,20 @@ This document contains a comprehensive analysis of 108 sleep() calls across 38 R
 
 ---
 
-## Risk Assessment Summary
+## Critique Synthesis
 
-**Overall Risk Level: LOW-MEDIUM**
-- Most optimizations are low-risk configuration changes
-- Test-only sleeps maintain correctness requirements
-- Production code optimizations are conservative
-- Fallback mechanisms can be implemented for reliability
+### Strengths
+- Detailed per-sleep analysis with clear ROI assessments and technical alternatives.
+- Structured framework (grades, impacts, risks) facilitates prioritization.
+- Revised addendum introduces valuable categories like Virtual-Time and Readiness-Probe, aligning with code needs for determinism.
 
-**Total Estimated CI Time Savings: 15-30 seconds per test run**
-**Implementation Effort: 1-3 weeks total**
-**Risk Level: LOW (primarily configuration changes)**</content>
-<parameter name="filePath">/home/coldaine/Projects/ColdVox/sleep-audit-analysis-detailed.md
+### Weaknesses
+- Some original A grades for test sleeps (e.g., Sleep 4 in end_to_end_wav.rs) are overly conservative; code shows event-driven alternatives feasible, warranting downgrade to C.
+- Lacks visual aids like diagrams for roadmap phases.
+- No front-matter for metadata; summary statistics could better align with plan.md's emphasis on patterns.
+
+### Recommendations
+- Update grades where inaccurate (e.g., Sleep 4 to C, adding 5-10s savings via probes).
+- Quantify more ROIs with code-based estimates (e.g., total sleeps sum ~20s, probes save 30%).
+- Add front-matter and Mermaid diagram as implemented.
+- Future: Extend analysis to remaining 108-48 sleeps for completeness.
