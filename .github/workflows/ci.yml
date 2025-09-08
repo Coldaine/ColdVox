@@ -28,7 +28,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@3df4ab11eba7bda6032a0b82a6bb43b11571feac # v4.1.7
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Validate with gh
         shell: bash
         run: |
@@ -70,7 +70,7 @@ jobs:
     steps:
       - name: Cache Vosk model
         id: cache-vosk-model
-        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        uses: actions/cache@6849a6489940f00c2f30c0fb92c6274307ccb58a # v4.1.2
         with:
           path: models/vosk-model-small-en-us-0.15
           key: vosk-model-small-en-us-0.15
@@ -117,7 +117,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [download-vosk-model]
     steps:
-      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v4.1.7
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
@@ -164,14 +164,58 @@ jobs:
         env:
           VOSK_MODEL_PATH: ${{ needs.download-vosk-model.outputs.model-path }}
         run: |
+          echo "=== Environment Validation ==="
+          echo "VOSK_MODEL_PATH: $VOSK_MODEL_PATH"
+          echo "Model directory contents:"
+          ls -la "$VOSK_MODEL_PATH" || echo "Model directory not accessible"
+          echo "=== Running Tests ==="
           cargo test --workspace --locked -- --skip test_end_to_end_wav_pipeline
+
+       - name: Upload test artifacts on failure
+         if: failure()
+         uses: actions/upload-artifact@v4
+         with:
+           name: test-artifacts-build-check
+           path: |
+             target/debug/deps/
+             target/debug/build/
+           retention-days: 7
+
+   # MSRV validation
+   msrv-check:
+     name: MSRV Check (Rust 1.75)
+     runs-on: ubuntu-latest
+     steps:
+       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+       - uses: dtolnay/rust-toolchain@7b1c307e0dcbda6122208f10795a713336d9b35a # v1.80.0
+         with:
+           toolchain: 1.75
+
+       - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
+
+       - name: Install system dependencies
+         run: |
+           sudo apt-get update
+           sudo apt-get install -y \
+             libasound2-dev \
+             libxdo-dev \
+             libxtst-dev \
+             wget \
+             unzip
+
+       - name: MSRV type check
+         run: cargo check --workspace --all-targets --locked
+
+       - name: MSRV build
+         run: cargo build --workspace --locked
 
   # GUI groundwork check: explicitly pass if Qt 6 isn't installed
   gui-groundwork:
     name: GUI Groundwork (Qt optional)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v4.1.7
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
@@ -216,7 +260,7 @@ jobs:
     env:
       DISPLAY: :99
     steps:
-      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v4.1.7
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: stable
@@ -257,12 +301,36 @@ jobs:
           # Verify D-Bus and clipboard tools
           if ! pgrep -x "dbus-daemon" >/dev/null; then echo "D-Bus daemon not running" >&2; exit 1; fi
           echo "D-Bus is running."
+          echo "DBUS_SESSION_BUS_ADDRESS: $DBUS_SESSION_BUS_ADDRESS"
+          echo "DBUS_SESSION_BUS_PID: $DBUS_SESSION_BUS_PID"
           if ! command -v xclip >/dev/null; then echo "xclip not found"; exit 1; fi
           if ! command -v wl-paste >/dev/null; then echo "wl-clipboard not found"; exit 1; fi
           echo "Clipboard utilities are available."
 
+      - name: Validate test prerequisites
+        run: |
+          echo "=== Test Environment Validation ==="
+          echo "Display: $DISPLAY"
+          echo "Available text injection backends:"
+          command -v xdotool >/dev/null && echo "  - xdotool: $(xdotool --version 2>/dev/null || echo 'available')"
+          command -v ydotool >/dev/null && echo "  - ydotool: available"
+          command -v enigo >/dev/null && echo "  - enigo: available (Rust crate)"
+          echo "GTK development libraries:"
+          pkg-config --exists gtk+-3.0 && echo "  - GTK+ 3.0: available" || echo "  - GTK+ 3.0: not found"
+          echo "System audio:"
+          command -v alsa-info >/dev/null && echo "  - ALSA: available" || echo "  - ALSA: not found"
+          echo "=== Validation Complete ==="
+
       - name: Test with real-injection-tests feature
-        run: dbus-run-session -- bash -lc 'cargo test -p coldvox-text-injection --features real-injection-tests -- --nocapture'
+        run: |
+          dbus-run-session -- bash -lc '
+            # Set per-test timeout to prevent hanging
+            export RUST_TEST_TIME_UNIT="10000"  # 10 second timeout per test
+            export RUST_TEST_TIME_INTEGRATION="30000"  # 30 second for integration tests
+            cargo test -p coldvox-text-injection \
+              --features real-injection-tests \
+              -- --nocapture --test-threads=1 --timeout 600
+          '
 
       - name: Build pipeline (default features)
         run: |
@@ -289,6 +357,17 @@ jobs:
         run: |
           cargo test -p coldvox-app --locked test_end_to_end_wav_pipeline -- --nocapture
 
+      - name: Upload test artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-artifacts-text-injection
+          path: |
+            target/debug/deps/
+            target/debug/build/
+            models/
+          retention-days: 7
+
       - name: Cleanup background processes
         if: always()
         run: |
@@ -310,7 +389,7 @@ jobs:
     if: false # temporarily disabled per request
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v4.t7
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - uses: rustsec/audit-check@v2.0.0 # pin to release tag
         with:
@@ -322,7 +401,7 @@ jobs:
   ci-success:
     name: CI Success
     if: always()
-    needs: [validate-workflows, download-vosk-model, build_and_check, gui-groundwork, text_injection_tests, security]
+    needs: [validate-workflows, download-vosk-model, build_and_check, msrv-check, gui-groundwork, text_injection_tests, security]
     runs-on: ubuntu-latest
     steps:
       - name: Check if all jobs succeeded
@@ -333,6 +412,7 @@ jobs:
             "${{ needs.validate-workflows.result }}" \
             "${{ needs.download-vosk-model.result }}" \
             "${{ needs.build_and_check.result }}" \
+            "${{ needs.msrv-check.result }}" \
             "${{ needs.gui-groundwork.result }}" \
             "${{ needs.text_injection_tests.result }}" \
             "${{ needs.security.result }}"; do
