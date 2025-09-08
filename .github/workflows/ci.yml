@@ -170,7 +170,7 @@ jobs:
           echo "Model directory contents:"
           ls -la "$VOSK_MODEL_PATH" || echo "Model directory not accessible"
           echo "=== Running Tests ==="
-          cargo test --workspace --locked -- --skip test_end_to_end_wav_pipeline
+          cargo test --workspace --locked --
 
       - name: Upload test artifacts on failure
         if: failure()

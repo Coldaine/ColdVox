@@ -1,3 +1,12 @@
+---
+doc_type: testing-guide
+subsystem: text-injection
+version: 1.0.0
+status: active
+owners: ColdVox Team
+last_reviewed: 2025-09-08
+---
+
 # Testing the ColdVox Text Injection Crate
 
 This document outlines the testing strategy for the `coldvox-text-injection` crate, covering both mock-based unit tests and real-world injection tests.
@@ -72,3 +81,21 @@ You can also temporarily bypass the hook for a single commit using the `--no-ver
 ```bash
 git commit --no-verify -m "Your commit message"
 ```
+
+## Known Issues and Limitations
+
+While the testing strategy provides a solid foundation, several critical issues persist that affect reliability and coverage:
+
+### Coverage Gaps
+As detailed in [TEST_COVERAGE_ANALYSIS.md](../docs/TEST_COVERAGE_ANALYSIS.md), the current mock-based tests bypass safety mechanisms and external dependencies, leading to false positives and incomplete validation of production behavior. Real injection paths have limited coverage, particularly for error handling and multi-backend fallbacks.
+
+### Hanging Tests in CI
+Certain tests in `processor.rs` and `manager.rs` hang (>60 seconds) during CI execution, likely due to async operations or external dependencies ([CItesting0907.md](../CItesting0907.md)). This impacts pipeline reliability and requires immediate fixes.
+
+### Feature Gating Inconsistencies
+Backend combinations have naming and gating issues, such as misnamed modules in combo injectors ([text-injection-testing-plan.md](../docs/tasks/text-injection-testing-plan.md)). Borrow-after-move errors in `StrategyManager::inject` prevent clean compilation in some configurations.
+
+### Recommendations for Improvement
+Refer to [testing-infrastructure-critique.md](../docs/testing-infrastructure-critique.md) for a detailed pushback and revised recommendations, including immediate fixes for hangs, enhanced mocks with validation, CI matrix testing, and expanded E2E suites with NoOp fallbacks.
+
+Future updates to this document will track resolution of these issues, with version bumps on substantive changes.

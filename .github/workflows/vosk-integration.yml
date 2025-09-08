@@ -4,14 +4,14 @@ on:
   # Run on PRs that modify STT-related code
   pull_request:
     paths:
-      - 'crates/coldvox-stt/**'
-      - 'crates/coldvox-stt-vosk/**'
-      - 'crates/app/**'
-      - 'examples/vosk_*.rs'
-      - '.github/workflows/vosk-integration.yml'
+      - "crates/coldvox-stt/**"
+      - "crates/coldvox-stt-vosk/**"
+      - "crates/app/**"
+      - "examples/vosk_*.rs"
+      - ".github/workflows/vosk-integration.yml"
   # Weekly scheduled run
   schedule:
-    - cron: '0 0 * * 0'
+    - cron: "0 0 * * 0"
   # Manual trigger
   workflow_dispatch:
 
@@ -89,7 +89,7 @@ jobs:
       - name: Run Vosk tests
         env:
           VOSK_MODEL_PATH: models/vosk-model-small-en-us-0.15
-          RUST_TEST_THREADS: 1  # Vosk may have threading issues
+          RUST_TEST_THREADS: 1 # Vosk may have threading issues
         run: |
           cargo nextest run --locked -p coldvox-stt-vosk --features vosk
 
