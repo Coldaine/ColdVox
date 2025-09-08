@@ -91,7 +91,7 @@ cargo run -p coldvox-app --bin tui_dashboard  # S=Start, A=Toggle VAD/PTT, R=Res
 - Watchdog triggers repeatedly: lower `--silence_threshold` or verify device sample format.
 - Frame drops: ensure a consumer drains the channel; long processing on the main thread can cause backpressure.
 - STT build fails: Install libvosk system library (see docs/vosk_integration_plan.md for details).
-- STT disabled at runtime: Download Vosk model files from https://alphacephei.com/vosk/models
+- STT disabled at runtime: The Vosk STT model is vendored in the repository at `vosk-model-small-en-us-0.15/`. No download required.
 
 ## Architecture
 

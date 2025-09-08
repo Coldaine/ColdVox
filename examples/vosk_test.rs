@@ -6,17 +6,13 @@ use coldvox_stt_vosk::VoskTranscriber;
 
 #[cfg(feature = "vosk")]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Test with a small Vosk model (download required)
-    let model_path = "models/vosk-model-small-en-us-0.15";
+    // Test with a small Vosk model (vendored in repo)
+    let model_path = "vosk-model-small-en-us-0.15";
 
     if !Path::new(model_path).exists() {
         eprintln!("Vosk model not found at: {}", model_path);
-        eprintln!("Download a model from https://alphacephei.com/vosk/models");
-        eprintln!("Extract to: {}", model_path);
-        eprintln!("\nFor example:");
-        eprintln!("  wget https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip");
-        eprintln!("  unzip vosk-model-small-en-us-0.15.zip");
-        eprintln!("  mv vosk-model-small-en-us-0.15 models/");
+        eprintln!("The model should be vendored in the repository at vosk-model-small-en-us-0.15/");
+        eprintln!("Please ensure the directory exists.");
         return Ok(());
     }
 

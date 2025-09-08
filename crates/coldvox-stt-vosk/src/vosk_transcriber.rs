@@ -32,7 +32,11 @@ impl VoskTranscriber {
 
         // Check if model path exists
         if !std::path::Path::new(&model_path).exists() {
-            return Err(format!("Vosk model not found at: {}", model_path));
+            return Err(format!(
+                "Vosk model not found at '{}'. This should not happen — model is vendored in repo. \
+                 Please ensure 'vosk-model-small-en-us-0.15/' directory exists.",
+                model_path
+            ));
         }
 
         // Load the model

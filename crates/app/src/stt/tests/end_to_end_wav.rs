@@ -349,7 +349,7 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
         enabled: true,
         streaming: true,
         model_path: std::env::var("VOSK_MODEL_PATH")
-            .unwrap_or_else(|_| "models/vosk-model-small-en-us-0.15".to_string()),
+            .unwrap_or_else(|_| "vosk-model-small-en-us-0.15".to_string()),
         partial_results: true,
         max_alternatives: 1,
         include_words: false,

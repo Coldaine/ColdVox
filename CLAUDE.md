@@ -133,7 +133,7 @@ cargo test -p coldvox-app
 cargo test integration
 
 # End-to-end WAV test (requires Vosk model)
-VOSK_MODEL_PATH=models/vosk-model-small-en-us-0.15 cargo test -p coldvox-app --features vosk test_end_to_end_wav -- --ignored --nocapture
+VOSK_MODEL_PATH=vosk-model-small-en-us-0.15 cargo test -p coldvox-app --features vosk test_end_to_end_wav -- --ignored --nocapture
 ```
 
 ### Linting & Formatting
@@ -176,7 +176,7 @@ Platform-specific text injection backends are automatically enabled at build tim
 
 ### STT Integration
 - **Vosk**: Offline recognition (feature `vosk`)
-- **Model**: `VOSK_MODEL_PATH` or `models/vosk-model-small-en-us-0.15/`
+- **Model**: `VOSK_MODEL_PATH` or `vosk-model-small-en-us-0.15/`
 - **Events**: `TranscriptionEvent::{Partial, Final, Error}`
 
 ### Text Injection

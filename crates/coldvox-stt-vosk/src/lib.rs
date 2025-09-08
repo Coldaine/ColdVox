@@ -17,8 +17,7 @@ pub use coldvox_stt::{
 
 /// Get default model path from environment or fallback
 pub fn default_model_path() -> String {
-    std::env::var("VOSK_MODEL_PATH")
-        .unwrap_or_else(|_| "models/vosk-model-small-en-us-0.15".to_string())
+    std::env::var("VOSK_MODEL_PATH").unwrap_or_else(|_| "vosk-model-small-en-us-0.15".to_string())
 }
 
 #[cfg(not(feature = "vosk"))]

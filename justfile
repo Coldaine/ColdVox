@@ -26,8 +26,8 @@ test:
 # Run tests with Vosk model if available
 test-full:
     #!/usr/bin/env bash
-    if [[ -d "models/vosk-model-small-en-us-0.15" ]]; then
-        export VOSK_MODEL_PATH="models/vosk-model-small-en-us-0.15"
+    if [[ -d "vosk-model-small-en-us-0.15" ]]; then
+        export VOSK_MODEL_PATH="vosk-model-small-en-us-0.15"
         cargo test --workspace --locked
     else
         echo "Vosk model not found, running without E2E tests"
