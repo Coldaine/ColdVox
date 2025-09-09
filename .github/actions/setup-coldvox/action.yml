@@ -11,14 +11,30 @@ runs:
     - name: Install system dependencies
       shell: bash
       run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          libasound2-dev \
-          libxdo-dev \
-          libxtst-dev \
-          wget \
-          unzip \
-          build-essential
+        # Detect package manager and install appropriate packages
+        if command -v dnf >/dev/null 2>&1; then
+          # Fedora/RHEL/Nobara
+          sudo dnf install -y \
+            alsa-lib-devel \
+            xdotool \
+            libXtst-devel \
+            wget \
+            unzip \
+            @development-tools
+        elif command -v apt-get >/dev/null 2>&1; then
+          # Ubuntu/Debian
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev \
+            libxdo-dev \
+            libxtst-dev \
+            wget \
+            unzip \
+            build-essential
+        else
+          echo "ERROR: Unsupported package manager" >&2
+          exit 1
+        fi
 
     - name: Install libvosk (vendored)
       shell: bash

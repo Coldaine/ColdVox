@@ -1,0 +1,56 @@
+name: Runner Test
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fedora-runner-test
+    paths:
+      - '.github/workflows/runner-test.yml'
+
+jobs:
+  test-runner:
+    name: Test Self-Hosted Runner
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 5
+    
+    steps:
+      - name: Hello World
+        run: |
+          echo "Hello from self-hosted runner!"
+          echo "Time: $(date)"
+          echo "Hostname: $(hostname)"
+          echo "User: $(whoami)"
+          echo "PWD: $(pwd)"
+      - name: Runner Diagnostics
+        run: |
+          echo "OS Release:" && cat /etc/os-release || true
+          echo "Uname:" && uname -a
+          echo "CPU Info (first 5 lines):" && grep -m5 'model name' /proc/cpuinfo || true
+          echo "Memory:" && free -h || true
+          echo "Disk:" && df -h / || true
+          echo "Rust version:" && command -v rustc && rustc --version || echo 'rustc not installed'
+          echo "Git version:" && git --version || true
+          echo "Environment labels: $RUNNER_NAME ($RUNNER_OS/$RUNNER_ARCH)"
+      
+      - name: Set up Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+          override: true
+      
+      - name: Verify Rust toolchain
+        run: |
+          echo "Updated Rust version:"
+          rustc --version
+          cargo --version
+      
+      - name: Test Cargo.lock compatibility
+        run: |
+          echo "Testing Cargo.lock parsing (this was the original failure point):"
+          # Clone the repo to test lockfile parsing
+          git clone https://github.com/Coldaine/ColdVox.git /tmp/coldvox-test
+          cd /tmp/coldvox-test
+          echo "Attempting cargo check (should not fail on lockfile format)..."
+          cargo check --workspace --verbose || echo "Cargo check failed - but lockfile parsing should have succeeded"

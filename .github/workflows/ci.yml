@@ -26,7 +26,7 @@ env:
 jobs:
   validate-workflows:
     name: Validate Workflow Definitions
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     continue-on-error: true # Optional validation
     env:
       GH_TOKEN: ${{ github.token }}
@@ -66,7 +66,7 @@ jobs:
 
   download-vosk-model:
     name: Use Vendored Vosk Model
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     outputs:
       model-path: ${{ steps.get-model-path.outputs.path }}
       download-outcome: success
@@ -107,13 +107,22 @@ jobs:
   # Static checks, formatting, linting, type-check, build, and docs
   build_and_check:
     name: Format, Lint, Typecheck, Build & Docs
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     needs: [download-vosk-model]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
+      - name: Set up Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+          override: true
+
       - name: Setup ColdVox
         uses: ./.github/actions/setup-coldvox
+        with:
+          skip-toolchain: 'true'
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -155,7 +164,7 @@ jobs:
   # MSRV validation
   msrv-check:
     name: MSRV Check (Rust 1.75)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
@@ -179,7 +188,7 @@ jobs:
   # GUI groundwork check: explicitly pass if Qt 6 isn't installed
   gui-groundwork:
     name: GUI Groundwork (Qt optional)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
@@ -222,7 +231,7 @@ jobs:
 
   text_injection_tests:
     name: Text Injection Tests
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     needs: [download-vosk-model]
     timeout-minutes: 30
     env:
@@ -241,18 +250,38 @@ jobs:
       # Install dependencies for text injection backends (AT-SPI, clipboard, ydotool)
       - name: Install additional system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            xvfb \
-            fluxbox \
-            dbus-x11 \
-            at-spi2-core \
-            wl-clipboard \
-            xclip \
-            ydotool \
-            x11-utils \
-            wmctrl \
-            libgtk-3-dev
+          # Detect package manager and install appropriate packages
+          if command -v dnf >/dev/null 2>&1; then
+            # Fedora/RHEL/Nobara
+            sudo dnf install -y \
+              xorg-x11-server-Xvfb \
+              fluxbox \
+              dbus-x11 \
+              at-spi2-core \
+              wl-clipboard \
+              xclip \
+              ydotool \
+              xorg-x11-utils \
+              wmctrl \
+              gtk3-devel
+          elif command -v apt-get >/dev/null 2>&1; then
+            # Ubuntu/Debian
+            sudo apt-get update
+            sudo apt-get install -y \
+              xvfb \
+              fluxbox \
+              dbus-x11 \
+              at-spi2-core \
+              wl-clipboard \
+              xclip \
+              ydotool \
+              x11-utils \
+              wmctrl \
+              libgtk-3-dev
+          else
+            echo "ERROR: Unsupported package manager" >&2
+            exit 1
+          fi
 
       - name: Start and verify headless environment
         run: |
@@ -362,9 +391,14 @@ jobs:
   security:
     name: Security Audit
     if: github.ref == 'refs/heads/main' # Only run on main
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
 
       - uses: rustsec/audit-check@v2.0.0 # pin to release tag
         with:
@@ -377,7 +411,7 @@ jobs:
     name: CI Success
     if: always()
     needs: [validate-workflows, download-vosk-model, build_and_check, msrv-check, gui-groundwork, text_injection_tests]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64]
     steps:
       - name: Check if all jobs succeeded
         run: |
