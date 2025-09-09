@@ -16,7 +16,7 @@ runs:
           # Fedora/RHEL/Nobara
           sudo dnf install -y \
             alsa-lib-devel \
-            xdotool-devel \
+            xdotool \
             libXtst-devel \
             wget \
             unzip \
