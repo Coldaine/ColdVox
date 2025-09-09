@@ -1,5 +1,10 @@
 name: Setup ColdVox Dependencies
 description: Install system deps, libvosk, and Rust toolchain
+inputs:
+  skip-toolchain:
+    description: Skip Rust toolchain setup (for jobs with custom toolchain)
+    required: false
+    default: 'false'
 runs:
   using: composite
   steps:
@@ -25,6 +30,7 @@ runs:
         sudo ldconfig
 
     - name: Setup Rust toolchain
+      if: inputs.skip-toolchain != 'true'
       uses: dtolnay/rust-toolchain@stable
       with:
         components: rustfmt, clippy

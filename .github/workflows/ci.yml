@@ -183,6 +183,8 @@ jobs:
 
       - name: Setup ColdVox
         uses: ./.github/actions/setup-coldvox
+        with:
+          skip-toolchain: 'true'
 
       - name: MSRV type check
         run: cargo check --workspace --all-targets --locked
