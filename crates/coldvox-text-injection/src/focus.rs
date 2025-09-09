@@ -55,7 +55,7 @@ impl FocusTracker {
             };
             use tokio::time;
 
-            let timeout_duration = Duration::from_millis(250);
+            let timeout_duration = Duration::from_millis(5000);
             let conn = match time::timeout(timeout_duration, AccessibilityConnection::new()).await {
                 Ok(Ok(c)) => c,
                 Ok(Err(err)) => {

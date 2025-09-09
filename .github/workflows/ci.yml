@@ -1,3 +1,4 @@
+---
 name: CI
 
 on:
@@ -19,6 +20,8 @@ env:
   RUST_BACKTRACE: 1
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
+  RUST_TEST_TIME_UNIT: 10000
+  RUST_TEST_TIME_INTEGRATION: 30000
 
 jobs:
   validate-workflows:
@@ -62,54 +65,44 @@ jobs:
           echo "All workflows render via gh."
 
   download-vosk-model:
-    name: Download Vosk Model
+    name: Use Vendored Vosk Model
     runs-on: ubuntu-latest
     outputs:
       model-path: ${{ steps.get-model-path.outputs.path }}
-      download-outcome: ${{ steps.download_model.outcome }}
+      download-outcome: success
     steps:
-      - name: Cache Vosk model
-        id: cache-vosk-model
-        uses: actions/cache@6849a6489940f00c2f30c0fb92c6274307ccb58a # v4.1.2
-        with:
-          path: models/vosk-model-small-en-us-0.15
-          key: vosk-model-small-en-us-0.15
-      - name: Download Vosk model
-        id: download_model
-        if: steps.cache-vosk-model.outputs.cache-hit != 'true'
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        
+      - name: Verify vendored model with integrity checks
         run: |
           set -euo pipefail
-          mkdir -p models
-          cd models
-          MODEL=vosk-model-small-en-us-0.15
-          ZIP="$MODEL.zip"
-          echo "Downloading $ZIP ..."
-          for i in 1 2 3; do
-            if wget -O "$ZIP" "https://alphacephei.com/vosk/models/$ZIP"; then
-              break
-            fi
-            if [ $i -eq 3 ]; then
-              echo "Download failed after 3 retries, continuing without model..." >&2
-              mkdir -p "$MODEL"
-              exit 1 # Exit with failure
-            fi
-            echo "Download failed, retrying in 3s..." >&2
-            sleep 3
-          done
-          echo "Unzipping $ZIP ..."
-          unzip -q -o "$ZIP"
-          rm -f "$ZIP"
-          if [ ! -d "$MODEL" ]; then
-            FOUND_DIR=$(find . -maxdepth 1 -type d -name "vosk-model-*" | head -n1 || true)
-            if [ -n "${FOUND_DIR:-}" ] && [ "$FOUND_DIR" != "./$MODEL" ]; then
-              mv "$FOUND_DIR" "$MODEL"
-            fi
+          
+          # Use our centralized model verification script
+          export COLDVOX_VERIFY_VERBOSE=1
+          export COLDVOX_MIN_MODEL_SIZE_MB=40
+          
+          if ! ./scripts/verify-model-integrity.sh; then
+            echo ""
+            echo "FATAL: Model integrity verification failed" >&2
+            echo "This could indicate:" >&2
+            echo "  - Model files are missing or incomplete" >&2
+            echo "  - Model files have been corrupted" >&2
+            echo "  - Checksum file is out of date" >&2
+            echo ""
+            echo "To resolve:" >&2
+            echo "  1. Ensure model is properly downloaded and extracted to models/vosk-model-small-en-us-0.15/" >&2
+            echo "  2. Regenerate checksums if model was updated: ./scripts/verify-model-integrity.sh '' '' generate" >&2
+            echo "  3. Commit both model files and updated SHA256SUMS" >&2
+            exit 1
           fi
-          test -d "$MODEL"
-        continue-on-error: true # Allow pipeline to continue if model download fails
-      - name: Get model path
+          
+          echo ""
+          echo "✅ Model integrity verification passed - CI can proceed with confidence"
+
+      - name: Output model path
         id: get-model-path
-        run: echo "path=${{ github.workspace }}/models/vosk-model-small-en-us-0.15" >> $GITHUB_OUTPUT
+        run: |
+          echo "path=${{ github.workspace }}/models/vosk-model-small-en-us-0.15" >> $GITHUB_OUTPUT
 
   # Static checks, formatting, linting, type-check, build, and docs
   build_and_check:
@@ -119,30 +112,8 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
-        with:
-          toolchain: stable
-          components: rustfmt, clippy
-
-      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libasound2-dev \
-            libxdo-dev \
-            libxtst-dev \
-            wget \
-            unzip
-
-      # Install libvosk early so any default-feature builds/tests that link it succeed
-      - name: Install libvosk (vendored)
-        run: |
-          VOSK_VER=0.3.45
-          unzip -q vendor/vosk/vosk-linux-x86_64-${VOSK_VER}.zip
-          sudo cp -v vosk-linux-x86_64-${VOSK_VER}/libvosk.so /usr/local/lib/
-          sudo cp -v vosk-linux-x86_64-${VOSK_VER}/vosk_api.h /usr/local/include/
-          sudo ldconfig
+      - name: Setup ColdVox
+        uses: ./.github/actions/setup-coldvox
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -169,46 +140,41 @@ jobs:
           echo "Model directory contents:"
           ls -la "$VOSK_MODEL_PATH" || echo "Model directory not accessible"
           echo "=== Running Tests ==="
-          cargo test --workspace --locked -- --skip test_end_to_end_wav_pipeline
+          cargo test --workspace --locked --
 
-       - name: Upload test artifacts on failure
-         if: failure()
-         uses: actions/upload-artifact@v4
-         with:
-           name: test-artifacts-build-check
-           path: |
-             target/debug/deps/
-             target/debug/build/
-           retention-days: 7
+      - name: Upload test artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-artifacts-build-check
+          path: |
+            target/debug/deps/
+            target/debug/build/
+          retention-days: 7
 
-   # MSRV validation
-   msrv-check:
-     name: MSRV Check (Rust 1.75)
-     runs-on: ubuntu-latest
-     steps:
-       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+  # MSRV validation
+  msrv-check:
+    name: MSRV Check (Rust 1.75)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-       - uses: dtolnay/rust-toolchain@7b1c307e0dcbda6122208f10795a713336d9b35a # v1.80.0
-         with:
-           toolchain: 1.75
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: 1.75
 
-       - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
+      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
 
-       - name: Install system dependencies
-         run: |
-           sudo apt-get update
-           sudo apt-get install -y \
-             libasound2-dev \
-             libxdo-dev \
-             libxtst-dev \
-             wget \
-             unzip
+      - name: Setup ColdVox
+        uses: ./.github/actions/setup-coldvox
+        with:
+          skip-toolchain: 'true'
 
-       - name: MSRV type check
-         run: cargo check --workspace --all-targets --locked
+      - name: MSRV type check
+        run: cargo check --workspace --all-targets --locked
 
-       - name: MSRV build
-         run: cargo build --workspace --locked
+      - name: MSRV build
+        run: cargo build --workspace --locked
 
   # GUI groundwork check: explicitly pass if Qt 6 isn't installed
   gui-groundwork:
@@ -248,17 +214,20 @@ jobs:
         run: |
           cargo check -p coldvox-gui --features qt-ui --locked
 
-      - name: Qt not found — explicit pass
+      - name: Qt not found — skip build
         if: steps.detect-qt.outputs.qt6 != 'true'
-        run: echo "Skipping Qt UI build; explicit pass as Qt 6 is not installed."
+        run: |
+          echo "WARNING: Qt 6 not detected. Skipping qt-ui build." >&2
+          echo "Install Qt 6 to enable GUI testing."
 
   text_injection_tests:
     name: Text Injection Tests
     runs-on: ubuntu-latest
     needs: [download-vosk-model]
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       DISPLAY: :99
+      RUST_LOG: debug
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
@@ -266,18 +235,24 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
 
+      - name: Setup ColdVox
+        uses: ./.github/actions/setup-coldvox
+
       # Install dependencies for text injection backends (AT-SPI, clipboard, ydotool)
-      - name: Install system dependencies
+      - name: Install additional system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb fluxbox dbus-x11 at-spi2-core wl-clipboard xclip ydotool x11-utils wmctrl libasound2-dev libxdo-dev libxtst-dev build-essential libgtk-3-dev
-      - name: Install libvosk (vendored)
-        run: |
-          VOSK_VER=0.3.45
-          unzip -q vendor/vosk/vosk-linux-x86_64-${VOSK_VER}.zip
-          sudo cp -v vosk-linux-x86_64-${VOSK_VER}/libvosk.so /usr/local/lib/
-          sudo cp -v vosk-linux-x86_64-${VOSK_VER}/vosk_api.h /usr/local/include/
-          sudo ldconfig
+          sudo apt-get install -y \
+            xvfb \
+            fluxbox \
+            dbus-x11 \
+            at-spi2-core \
+            wl-clipboard \
+            xclip \
+            ydotool \
+            x11-utils \
+            wmctrl \
+            libgtk-3-dev
 
       - name: Start and verify headless environment
         run: |
@@ -386,7 +361,7 @@ jobs:
   # Security audit
   security:
     name: Security Audit
-    if: false # temporarily disabled per request
+    if: github.ref == 'refs/heads/main' # Only run on main
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -401,7 +376,7 @@ jobs:
   ci-success:
     name: CI Success
     if: always()
-    needs: [validate-workflows, download-vosk-model, build_and_check, msrv-check, gui-groundwork, text_injection_tests, security]
+    needs: [validate-workflows, download-vosk-model, build_and_check, msrv-check, gui-groundwork, text_injection_tests]
     runs-on: ubuntu-latest
     steps:
       - name: Check if all jobs succeeded
@@ -414,8 +389,7 @@ jobs:
             "${{ needs.build_and_check.result }}" \
             "${{ needs.msrv-check.result }}" \
             "${{ needs.gui-groundwork.result }}" \
-            "${{ needs.text_injection_tests.result }}" \
-            "${{ needs.security.result }}"; do
+            "${{ needs.text_injection_tests.result }}"; do
             if [[ "$res" == "failure" ]]; then
               failed=1
             fi

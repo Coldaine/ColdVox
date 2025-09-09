@@ -30,41 +30,13 @@ pub fn feed_samples_to_ring_buffer(
 
 /// Calculate Word Error Rate (WER) between reference and hypothesis strings.
 /// Uses word-level Levenshtein distance divided by reference word count.
+/// 
+/// **Note:** This function is deprecated. Use `crate::stt::tests::wer_utils::calculate_wer` instead
+/// for enhanced functionality and consistent return types.
+#[deprecated(since = "0.1.0", note = "Use crate::stt::tests::wer_utils::calculate_wer instead")]
 pub fn calculate_wer(reference: &str, hypothesis: &str) -> f32 {
-    let ref_words: Vec<&str> = reference.split_whitespace().collect();
-    let hyp_words: Vec<&str> = hypothesis.split_whitespace().collect();
-
-    let n = ref_words.len();
-    let m = hyp_words.len();
-    if n == 0 {
-        return if m > 0 { 1.0 } else { 0.0 };
-    }
-
-    // dp[i][j]: min edits to transform first i ref words into first j hyp words
-    let mut dp = vec![vec![0usize; m + 1]; n + 1];
-    #[allow(clippy::needless_range_loop)]
-    for i in 0..=n {
-        dp[i][0] = i;
-    }
-    for j in 0..=m {
-        dp[0][j] = j;
-    }
-
-    for i in 1..=n {
-        for j in 1..=m {
-            let cost = if ref_words[i - 1] == hyp_words[j - 1] {
-                0
-            } else {
-                1
-            };
-            let sub = dp[i - 1][j - 1] + cost;
-            let del = dp[i - 1][j] + 1;
-            let ins = dp[i][j - 1] + 1;
-            dp[i][j] = sub.min(del).min(ins);
-        }
-    }
-
-    dp[n][m] as f32 / n as f32
+    use crate::stt::tests::wer_utils;
+    wer_utils::calculate_wer(reference, hypothesis) as f32
 }
 
 #[cfg(test)]

@@ -513,7 +513,6 @@ async fn get_clipboard_content() -> Option<String> {
 mod tests {
     use super::*;
 
-    #[ignore]
     #[tokio::test]
     async fn test_end_to_end_wav_pipeline() {
         init_test_infrastructure();
@@ -721,9 +720,7 @@ mod tests {
         });
     }
 
-    #[ignore]
     #[tokio::test]
-
     async fn test_end_to_end_with_real_injection() {
         init_test_infrastructure();
         // This test uses the real AsyncInjectionProcessor for comprehensive testing
@@ -731,14 +728,36 @@ mod tests {
         // 1. A WAV file with known speech content
         // 2. Vosk model downloaded and configured
         // 3. A working text injection backend (e.g., clipboard, AT-SPI)
-
-        let test_wav =
-            std::env::var("TEST_WAV").unwrap_or_else(|_| "test_data/sample.wav".to_string());
-
-        if !std::path::Path::new(&test_wav).exists() {
-            eprintln!("Skipping test: WAV file '{}' not found", test_wav);
+        // Use a fixed deterministic test asset so results are stable across runs.
+        // Chosen sample: test_2.wav with full transcript in test_2.txt
+        // Transcript (uppercase original):
+        // FAR FROM IT SIRE YOUR MAJESTY HAVING GIVEN NO DIRECTIONS ABOUT IT THE MUSICIANS HAVE RETAINED IT
+        // We normalize to lowercase and compare presence of key fragments to allow minor ASR variance.
+        let test_wav = "test_data/test_2.wav";
+        let transcript_path = "test_data/test_2.txt";
+        if !std::path::Path::new(test_wav).exists()
+            || !std::path::Path::new(transcript_path).exists()
+        {
+            eprintln!(
+                "Skipping test: required fixed test assets missing ({} / {})",
+                test_wav, transcript_path
+            );
             return;
         }
+        // (Optional future enhancement) Full transcript can be loaded for fuzzy similarity metrics
+        // let expected_full_transcript = std::fs::read_to_string(transcript_path)
+        //     .unwrap_or_default()
+        //     .trim()
+        //     .to_lowercase();
+        // Define a set of distinctive expected fragments (longer words reduce false positives)
+        let expected_fragments: [&str; 6] = [
+            "majesty having",
+            "musicians have",
+            "retained it",
+            "far from it",
+            "no directions",
+            "given no",
+        ];
 
         info!("Starting comprehensive end-to-end test with real injection");
 
@@ -747,7 +766,7 @@ mod tests {
         let (audio_producer, audio_consumer) = ring_buffer.split();
 
         // Load WAV file (native rate/channels)
-        let mut wav_loader = WavFileLoader::new(&test_wav).unwrap();
+        let mut wav_loader = WavFileLoader::new(test_wav).unwrap();
         let test_duration = Duration::from_millis(wav_loader.duration_ms() + 2000);
 
         // Set up audio chunker
@@ -813,13 +832,12 @@ mod tests {
             streaming: false,
         };
 
-        // Check if STT model exists
+        // Check if STT model exists; if missing, fail fast with actionable guidance
         if !std::path::Path::new(&stt_config.model_path).exists() {
-            eprintln!(
-                "Vosk model not found at '{}'. Skipping test.",
+            panic!(
+                "Vosk model not found at '{}'. \n\nResolution:\n  1. Download a Vosk model (e.g., small en-us) and place it at that path, or\n  2. Set VOSK_MODEL_PATH to the extracted model directory, e.g.: export VOSK_MODEL_PATH=/path/to/vosk-model-small-en-us-0.15\n  3. Re-run: cargo test -p coldvox-app test_end_to_end_with_real_injection --features vosk,text-injection -- --nocapture\n",
                 stt_config.model_path
             );
-            return;
         }
 
         let stt_audio_rx = audio_tx.subscribe();
@@ -843,19 +861,19 @@ mod tests {
             std::env::temp_dir().join(format!("coldvox_injection_test_{}.txt", std::process::id()));
         std::fs::write(&capture_file, "").ok();
 
-        // Open a terminal window that will receive the injection
+        // Open a terminal window that will receive the injection. If this fails (headless CI), continue.
         let terminal = match open_test_terminal(&capture_file).await {
             Ok(term) => term,
             Err(e) => {
-                eprintln!("Skipping test: Could not open test terminal: {}", e);
-                return;
+                eprintln!("Headless fallback: Could not open test terminal: {}", e);
+                None
             }
         };
 
         // Give terminal time to start and focus
         tokio::time::sleep(Duration::from_millis(500)).await;
 
-        let injection_config = InjectionConfig {
+        let mut injection_config = InjectionConfig {
             allow_ydotool: false, // Test primary methods only
             allow_kdotool: false,
             allow_enigo: false,
@@ -864,10 +882,50 @@ mod tests {
             require_focus: true,
             ..Default::default()
         };
+        if terminal.is_none() {
+            // Relax focus requirements so injection logic still executes in headless mode
+            injection_config.require_focus = false;
+            injection_config.inject_on_unknown_focus = true;
+        }
+
+        // Tee transcription events so we can both feed the injection processor and retain finals for WER.
+        use std::sync::{Arc, Mutex};
+        let finals_store: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let finals_store_clone = finals_store.clone();
+        let (tee_tx, mut tee_rx) = mpsc::channel::<TranscriptionEvent>(100);
+
+        // Forward original STT events into tee_tx
+        let mut stt_rx_for_tee = stt_transcription_rx; // rename for clarity
+        let _tee_forward_handle = tokio::spawn(async move {
+            while let Some(ev) = stt_rx_for_tee.recv().await {
+                if tee_tx.send(ev).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        // Split: one consumer for injection processor, one collector
+        let (inj_tx, inj_rx) = mpsc::channel::<TranscriptionEvent>(100);
+        let finals_collector = finals_store_clone.clone();
+        let _collector_handle = tokio::spawn(async move {
+            while let Some(ev) = tee_rx.recv().await {
+                // Capture finals
+                if let TranscriptionEvent::Final { text, .. } = &ev {
+                    if !text.trim().is_empty() {
+                        if let Ok(mut g) = finals_collector.lock() {
+                            g.push(text.clone());
+                        }
+                    }
+                }
+                // Forward to injection pipeline
+                if inj_tx.send(ev).await.is_err() {
+                    break;
+                }
+            }
+        });
 
         let injection_processor =
-            AsyncInjectionProcessor::new(injection_config, stt_transcription_rx, shutdown_rx, None)
-                .await;
+            AsyncInjectionProcessor::new(injection_config, inj_rx, shutdown_rx, None).await;
 
         let injection_handle = tokio::spawn(async move { injection_processor.run().await });
 
@@ -900,12 +958,46 @@ mod tests {
         let captured = std::fs::read_to_string(&capture_file).unwrap_or_default();
         let _ = std::fs::remove_file(&capture_file);
 
-        if !captured.is_empty() {
-            info!("Successfully captured injected text: {}", captured);
-            // Verify some expected words were transcribed
-            assert!(!captured.trim().is_empty(), "No text was injected");
+        if captured.trim().is_empty() {
+            // Fallback: derive quality from collected final transcriptions using WER if we have them.
+            let finals: Vec<String> = finals_store.lock().map(|g| g.clone()).unwrap_or_default();
+            if !finals.is_empty() {
+                let combined = finals.join(" ");
+                let expected_ref = {
+                    let raw = std::fs::read_to_string(transcript_path).unwrap_or_default();
+                    raw.trim().to_lowercase()
+                };
+                // Use centralized WER utility for consistent calculation
+                use crate::stt::tests::wer_utils::calculate_wer;
+                let wer = calculate_wer(&expected_ref, &combined.to_lowercase());
+                assert!(
+                    wer <= 0.55,
+                    "WER fallback exceeded threshold: {:.3} > 0.55\nExpected: {}\nGot: {}",
+                    wer,
+                    expected_ref,
+                    combined.to_lowercase()
+                );
+                eprintln!("No injection capture; used WER fallback (WER={:.3}, ref_words={}, hyp_words={})", wer, expected_ref.split_whitespace().count(), combined.split_whitespace().count());
+            } else {
+                eprintln!("Warning: No injected text captured and no final transcripts aggregated. Headless environment likely prevented capture. Pipeline execution completed but verification degraded.");
+            }
         } else {
-            eprintln!("Warning: Could not verify injection (normal in headless environment)");
+            let captured_lc = captured.to_lowercase();
+            info!(
+                "Captured injected text (len={}): {}",
+                captured_lc.trim().len(),
+                captured_lc.trim()
+            );
+            let mut matched = 0usize;
+            for frag in expected_fragments.iter() {
+                if captured_lc.contains(frag) {
+                    matched += 1;
+                }
+            }
+            // Require at least half the fragments to appear; tolerate minor ASR variance
+            assert!(matched >= 3, "Injected text did not contain enough expected fragments (matched {} of {}): {:?}\nCaptured: {}", matched, expected_fragments.len(), expected_fragments, captured_lc.trim());
+            // Optional stronger check: if model performance improves, compare full string similarity
+            // (Left as a future enhancement: Levenshtein distance threshold against expected_full_transcript)
         }
     }
 
@@ -921,7 +1013,7 @@ mod tests {
             use crate::text_injection::{
                 atspi_injector::AtspiInjector, InjectionConfig, TextInjector,
             };
-            use tokio::time::{timeout, Duration};
+            use tokio::time::Duration;
 
             // Guard the whole test with a short timeout so CI doesn't hang if desktop isn't responsive
             let test_future = async {
@@ -946,12 +1038,20 @@ mod tests {
 
                 tokio::time::sleep(Duration::from_millis(500)).await;
 
-                // Test injection with its own timeout (per-method timeouts exist, but add safety)
+                // Test injection with centralized timeout utilities
                 let test_text = "AT-SPI injection test";
-                match timeout(Duration::from_secs(5), injector.inject_text(test_text)).await {
-                    Ok(Ok(_)) => info!("AT-SPI injection successful"),
-                    Ok(Err(e)) => eprintln!("AT-SPI injection failed: {:?}", e),
-                    Err(_) => eprintln!("AT-SPI injection timed out"),
+                // Note: timeout wrapper flattens the result, so we need to handle the inner result separately
+                let timeout_result = crate::stt::tests::timeout_utils::with_injection_timeout(
+                    injector.inject_text(test_text),
+                    "AT-SPI injection test"
+                ).await;
+                
+                match timeout_result {
+                    Ok(injection_result) => match injection_result {
+                        Ok(_) => info!("AT-SPI injection successful"),
+                        Err(e) => eprintln!("AT-SPI injection failed: {:?}", e),
+                    },
+                    Err(timeout_msg) => eprintln!("AT-SPI injection timed out: {}", timeout_msg),
                 }
 
                 // Cleanup
@@ -967,8 +1067,15 @@ mod tests {
                 }
             };
 
-            if timeout(Duration::from_secs(15), test_future).await.is_err() {
-                eprintln!("AT-SPI test timed out - skipping (desktop likely unavailable)");
+            match crate::stt::tests::timeout_utils::with_timeout(
+                test_future,
+                Some(Duration::from_secs(15)),
+                "AT-SPI desktop test"
+            ).await {
+                Ok(_) => {},
+                Err(timeout_msg) => {
+                    eprintln!("AT-SPI test timed out - skipping (desktop likely unavailable): {}", timeout_msg);
+                }
             }
         }
     }

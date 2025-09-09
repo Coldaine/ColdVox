@@ -2,6 +2,12 @@
 pub mod end_to_end_wav;
 
 #[cfg(test)]
+pub mod wer_utils;
+
+#[cfg(test)]
+pub mod timeout_utils;
+
+#[cfg(test)]
 mod vosk_tests {
     use super::super::*;
 
@@ -94,7 +100,7 @@ mod vosk_tests {
             let result = VoskTranscriber::new(config, 16000.0);
             assert!(result.is_err());
             if let Err(e) = result {
-                assert!(e.contains("not found"));
+                assert!(e.contains("does not exist"));
             }
         }
 

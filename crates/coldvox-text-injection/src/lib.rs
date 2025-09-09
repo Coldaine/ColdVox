@@ -28,6 +28,7 @@
 
 pub mod backend;
 pub mod focus;
+pub mod log_throttle;
 pub mod manager;
 pub mod processor;
 pub mod session;

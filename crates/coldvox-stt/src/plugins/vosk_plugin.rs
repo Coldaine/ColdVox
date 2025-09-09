@@ -190,11 +190,24 @@ impl VoskPluginFactory {
                 .ok()
                 .map(PathBuf::from)
                 .or_else(|| {
-                    let default = PathBuf::from("models/vosk-model-small-en-us-0.15");
-                    if default.exists() {
-                        Some(default)
-                    } else {
-                        None
+                    // Use new model locator to find vendored model
+                    #[cfg(feature = "vosk")]
+                    {
+                        if let Ok(model_info) = coldvox_stt_vosk::model::locate_model(None) {
+                            Some(model_info.path)
+                        } else {
+                            None
+                        }
+                    }
+                    #[cfg(not(feature = "vosk"))]
+                    {
+                        // Fallback for when vosk feature is not enabled
+                        let default = PathBuf::from("models/vosk-model-small-en-us-0.15");
+                        if default.exists() {
+                            Some(default)
+                        } else {
+                            None
+                        }
                     }
                 }),
         }

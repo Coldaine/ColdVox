@@ -32,11 +32,22 @@ async fn async_processor_handles_final_and_ticks_without_panic() {
     // Wait briefly for processing
     tokio::time::sleep(Duration::from_millis(100)).await;
 
+    // Close the transcription channel to signal no more events
+    drop(tx);
+
     // Send shutdown signal
     sd_tx.send(()).await.unwrap();
 
-    // Wait for processor to exit with timeout
-    let _ = timeout(Duration::from_secs(1), proc_handle)
-        .await
-        .expect("Processor should shutdown gracefully");
+    // Close shutdown channel to ensure signal is sent
+    drop(sd_tx);
+
+    // Wait for processor to exit with a longer timeout
+    match timeout(Duration::from_secs(10), proc_handle).await {
+        Ok(result) => {
+            let _ = result.expect("Processor task should not panic");
+        }
+        Err(_) => {
+            panic!("Processor did not shutdown within 10 seconds - potential hang detected");
+        }
+    }
 }

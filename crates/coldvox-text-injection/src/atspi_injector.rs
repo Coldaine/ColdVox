@@ -1,3 +1,4 @@
+use crate::log_throttle::log_atspi_connection_failure;
 use crate::types::{InjectionConfig, InjectionResult};
 use crate::TextInjector;
 use async_trait::async_trait;
@@ -80,7 +81,7 @@ impl TextInjector for AtspiInjector {
                 .await
                 .map_err(|_| InjectionError::Timeout(per_method_timeout.as_millis() as u64))?
                 .map_err(|e| {
-                    warn!("AT-SPI connection failed: {}", e);
+                    log_atspi_connection_failure(&e.to_string());
                     InjectionError::Other(format!("AT-SPI connect failed: {e}"))
                 })?;
             let zbus_conn = conn.connection();

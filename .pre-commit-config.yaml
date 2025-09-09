@@ -40,6 +40,11 @@ repos:
   # Server-side validation of GitHub workflows via gh CLI
   - repo: local
     hooks:
+      - id: verify-vosk-model
+        name: Verify Vosk Model Structure
+        entry: scripts/verify_vosk_model.sh
+        language: script
+        stages: [commit]
       - id: gh-validate-workflows
         name: gh validate workflows (server-side)
         language: system
