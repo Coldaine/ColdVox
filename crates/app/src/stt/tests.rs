@@ -94,7 +94,7 @@ mod vosk_tests {
             let result = VoskTranscriber::new(config, 16000.0);
             assert!(result.is_err());
             if let Err(e) = result {
-                assert!(e.contains("not found"));
+                assert!(e.contains("does not exist"));
             }
         }
 

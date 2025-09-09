@@ -165,15 +165,14 @@ pub mod util {
             use tokio::time;
 
             // Try to create a connection with a very short timeout
-            match time::timeout(
-                Duration::from_millis(500),
-                atspi::connection::AccessibilityConnection::new(),
+            matches!(
+                time::timeout(
+                    Duration::from_millis(500),
+                    atspi::connection::AccessibilityConnection::new(),
+                )
+                .await,
+                Ok(Ok(_))
             )
-            .await
-            {
-                Ok(Ok(_)) => true,
-                _ => false,
-            }
         }
         #[cfg(not(feature = "atspi"))]
         {

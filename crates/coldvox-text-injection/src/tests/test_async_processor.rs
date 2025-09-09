@@ -44,7 +44,7 @@ async fn async_processor_handles_final_and_ticks_without_panic() {
     // Wait for processor to exit with a longer timeout
     match timeout(Duration::from_secs(10), proc_handle).await {
         Ok(result) => {
-            result.expect("Processor task should not panic");
+            let _ = result.expect("Processor task should not panic");
         }
         Err(_) => {
             panic!("Processor did not shutdown within 10 seconds - potential hang detected");

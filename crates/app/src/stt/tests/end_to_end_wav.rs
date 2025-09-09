@@ -977,6 +977,7 @@ mod tests {
                     let n = ref_words.len();
                     let m = hyp_words.len();
                     let mut dp = vec![vec![0usize; m + 1]; n + 1];
+                    #[allow(clippy::needless_range_loop)]
                     for i in 0..=n {
                         dp[i][0] = i;
                     }
