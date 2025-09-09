@@ -1,0 +1,19 @@
+name: Runner Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-runner:
+    name: Test Self-Hosted Runner
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 5
+    
+    steps:
+      - name: Hello World
+        run: |
+          echo "Hello from self-hosted runner!"
+          echo "Time: $(date)"
+          echo "Hostname: $(hostname)"
+          echo "User: $(whoami)"
+          echo "PWD: $(pwd)"
