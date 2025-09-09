@@ -2,6 +2,11 @@ name: Runner Test
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - fedora-runner-test
+    paths:
+      - '.github/workflows/runner-test.yml'
 
 jobs:
   test-runner:
@@ -17,3 +22,13 @@ jobs:
           echo "Hostname: $(hostname)"
           echo "User: $(whoami)"
           echo "PWD: $(pwd)"
+      - name: Runner Diagnostics
+        run: |
+          echo "OS Release:" && cat /etc/os-release || true
+          echo "Uname:" && uname -a
+          echo "CPU Info (first 5 lines):" && grep -m5 'model name' /proc/cpuinfo || true
+          echo "Memory:" && free -h || true
+          echo "Disk:" && df -h / || true
+          echo "Rust version:" && command -v rustc && rustc --version || echo 'rustc not installed'
+          echo "Git version:" && git --version || true
+          echo "Environment labels: $RUNNER_NAME ($RUNNER_OS/$RUNNER_ARCH)"
