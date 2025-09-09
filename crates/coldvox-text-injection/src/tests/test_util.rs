@@ -102,19 +102,35 @@ pub mod util {
     /// This function checks for CI environment indicators and verifies that AT-SPI is actually
     /// responsive, not just that D-Bus is available.
     pub fn skip_if_headless_ci() -> bool {
-        // Skip tests that require real GUI/AT-SPI in CI
-        if std::env::var("CI").is_ok() {
+        // Check for various CI environment indicators
+        let is_ci = std::env::var("CI").is_ok()
+            || std::env::var("CONTINUOUS_INTEGRATION").is_ok()
+            || std::env::var("GITHUB_ACTIONS").is_ok()
+            || std::env::var("GITLAB_CI").is_ok()
+            || std::env::var("BUILD_NUMBER").is_ok(); // Jenkins
+
+        if is_ci {
+            eprintln!("CI environment detected, checking GUI availability...");
+
             // First check: ensure D-Bus session is available
             if std::env::var("DBUS_SESSION_BUS_ADDRESS").is_err() {
                 eprintln!("Skipping: No D-Bus session bus available in CI");
                 return true;
             }
 
-            // Second check: verify AT-SPI is actually responding
+            // Second check: ensure display is available
+            if std::env::var("DISPLAY").is_err() && std::env::var("WAYLAND_DISPLAY").is_err() {
+                eprintln!("Skipping: No display server available in CI");
+                return true;
+            }
+
+            // Third check: verify AT-SPI is actually responding
             if !is_atspi_responsive() {
                 eprintln!("Skipping: AT-SPI service not responsive in CI environment");
                 return true;
             }
+
+            eprintln!("CI environment has GUI support, proceeding with test");
         }
         false
     }
@@ -128,7 +144,7 @@ pub mod util {
         // Quick check if we can connect to AT-SPI within a short timeout
         match tokio::runtime::Handle::try_current() {
             Ok(handle) => handle.block_on(async {
-                tokio::time::timeout(Duration::from_millis(100), test_atspi_connection())
+                tokio::time::timeout(Duration::from_millis(1000), test_atspi_connection())
                     .await
                     .unwrap_or(false)
             }),
@@ -150,7 +166,7 @@ pub mod util {
 
             // Try to create a connection with a very short timeout
             match time::timeout(
-                Duration::from_millis(50),
+                Duration::from_millis(500),
                 atspi::connection::AccessibilityConnection::new(),
             )
             .await

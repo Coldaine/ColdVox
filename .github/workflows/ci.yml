@@ -20,6 +20,8 @@ env:
   RUST_BACKTRACE: 1
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
+  RUST_TEST_TIME_UNIT: 10000
+  RUST_TEST_TIME_INTEGRATION: 30000
 
 jobs:
   validate-workflows:
@@ -79,13 +81,39 @@ jobs:
             exit 1
           fi
           echo "Vosk model verified at: $MODEL_PATH"
+
           # Verify required subdirectories exist (fail fast if missing)
           echo "Verifying model structure..."
-          ls -1 "$MODEL_PATH"/{am,conf,graph,ivector} || {
-            echo "ERROR: Required model subdirectories missing" >&2
+          for dir in am conf graph ivector; do
+            if [ ! -d "$MODEL_PATH/$dir" ]; then
+              echo "ERROR: Required model subdirectory '$dir' missing" >&2
+              exit 1
+            fi
+          done
+
+          # Verify critical model files
+          echo "Verifying critical model files..."
+          test -f "$MODEL_PATH/am/final.mdl" || {
+            echo "ERROR: Critical model file 'am/final.mdl' missing" >&2
             exit 1
           }
-          echo "Model structure verified."
+          test -f "$MODEL_PATH/conf/mfcc.conf" || {
+            echo "ERROR: Critical model file 'conf/mfcc.conf' missing" >&2
+            exit 1
+          }
+          test -f "$MODEL_PATH/ivector/final.ie" || {
+            echo "ERROR: Critical model file 'ivector/final.ie' missing" >&2
+            exit 1
+          }
+
+          # Check model size (ensure it's not empty/corrupt)
+          model_size=$(du -sm "$MODEL_PATH" | cut -f1)
+          if [ "$model_size" -lt 40 ]; then
+            echo "ERROR: Model appears incomplete - size is only ${model_size}MB (expected 40MB+)" >&2
+            exit 1
+          fi
+
+          echo "Model structure and integrity verified (${model_size}MB)."
 
       - name: Output model path
         id: get-model-path
@@ -210,9 +238,10 @@ jobs:
     name: Text Injection Tests
     runs-on: ubuntu-latest
     needs: [download-vosk-model]
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       DISPLAY: :99
+      RUST_LOG: debug
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
