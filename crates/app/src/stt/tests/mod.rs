@@ -1,15 +1,17 @@
-#[cfg(test)]
+/// STT test utilities and end-to-end tests
+/// 
+/// This module provides utilities for testing speech-to-text functionality,
+/// including WER calculation, timeout handling, and integration tests.
+
+pub mod wer_utils;
+pub mod timeout_utils;
+
+#[cfg(feature = "vosk")]
 pub mod end_to_end_wav;
 
 #[cfg(test)]
-pub mod wer_utils;
-
-#[cfg(test)]
-pub mod timeout_utils;
-
-#[cfg(test)]
 mod vosk_tests {
-    use super::super::*;
+    use crate::stt::*;
 
     #[test]
     fn test_transcription_config_default() {
@@ -82,8 +84,8 @@ mod vosk_tests {
     mod vosk_integration_tests {
         use coldvox_stt::EventBasedTranscriber;
 
-        use super::super::super::vosk::VoskTranscriber;
-        use super::super::super::TranscriptionConfig;
+        use crate::stt::vosk::VoskTranscriber;
+        use crate::stt::TranscriptionConfig;
 
         #[test]
         fn test_vosk_transcriber_missing_model() {
@@ -117,7 +119,7 @@ mod vosk_tests {
                 streaming: false,
             };
 
-            let default_path = super::super::super::vosk::default_model_path();
+            let default_path = crate::stt::vosk::default_model_path();
             let default_exists = std::path::Path::new(&default_path).exists();
 
             let result = VoskTranscriber::new(config, 16000.0);

@@ -53,22 +53,6 @@ pub fn format_wer_percentage(wer: f64) -> String {
     format!("{:.1}%", wer * 100.0)
 }
 
-/// Assert that WER is below a given threshold with detailed error message.
-pub fn assert_wer_below_threshold(reference: &str, hypothesis: &str, threshold: f64) {
-    let wer = calculate_wer(reference, hypothesis);
-    
-    if wer > threshold {
-        panic!(
-            "WER {} exceeds threshold {}\n  Reference:  '{}'\n  Hypothesis: '{}'\n  Reference words: {}, Hypothesis words: {}",
-            format_wer_percentage(wer),
-            format_wer_percentage(threshold),
-            reference,
-            hypothesis,
-            reference.split_whitespace().count(),
-            hypothesis.split_whitespace().count()
-        );
-    }
-}
 
 #[cfg(test)]
 mod tests {

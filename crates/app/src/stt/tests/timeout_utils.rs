@@ -6,8 +6,6 @@ use tokio::time::timeout;
 /// Default timeout for most test operations (30 seconds)
 pub const DEFAULT_TEST_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Extended timeout for complex operations like STT model loading (60 seconds)
-pub const EXTENDED_TEST_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Wrap an async operation with a timeout and provide clear error messaging.
 pub async fn with_timeout<F, T>(

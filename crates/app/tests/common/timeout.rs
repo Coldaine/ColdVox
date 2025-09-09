@@ -92,28 +92,6 @@ where
     }
 }
 
-/// Timeout wrapper for audio processing tests
-/// Uses default timeout but adds audio-specific guidance
-pub async fn with_audio_timeout<F, T>(
-    future: F,
-    operation_name: &str,
-) -> Result<T, String>
-where
-    F: std::future::Future<Output = T>,
-{
-    let result = with_timeout(future, Some(DEFAULT_TEST_TIMEOUT), operation_name).await;
-    
-    match result {
-        Err(timeout_msg) => Err(format!(
-            "{}. Audio tests require:\n  \
-            - Audio system availability (ALSA/PulseAudio)\n  \
-            - Proper audio device permissions\n  \
-            - Non-headless environment for full testing",
-            timeout_msg
-        )),
-        Ok(value) => Ok(value),
-    }
-}
 
 /// Test timeout configuration based on environment variables
 /// 
@@ -167,21 +145,21 @@ impl TimeoutConfig {
 #[macro_export]
 macro_rules! timeout_test {
     ($future:expr) => {
-        $crate::tests::common::timeout::with_timeout(
+        $crate::common::timeout::with_timeout(
             $future,
             None,
             stringify!($future)
         )
     };
     ($future:expr, $duration:expr) => {
-        $crate::tests::common::timeout::with_timeout(
+        $crate::common::timeout::with_timeout(
             $future,
             Some($duration),
             stringify!($future)
         )
     };
     ($future:expr, $duration:expr, $name:expr) => {
-        $crate::tests::common::timeout::with_timeout(
+        $crate::common::timeout::with_timeout(
             $future,
             Some($duration),
             $name
