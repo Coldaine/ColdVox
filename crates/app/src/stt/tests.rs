@@ -2,6 +2,12 @@
 pub mod end_to_end_wav;
 
 #[cfg(test)]
+pub mod wer_utils;
+
+#[cfg(test)]
+pub mod timeout_utils;
+
+#[cfg(test)]
 mod vosk_tests {
     use super::super::*;
 

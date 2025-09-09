@@ -71,49 +71,33 @@ jobs:
       model-path: ${{ steps.get-model-path.outputs.path }}
       download-outcome: success
     steps:
-      - name: Verify vendored model exists
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        
+      - name: Verify vendored model with integrity checks
         run: |
           set -euo pipefail
-          MODEL_PATH="${{ github.workspace }}/models/vosk-model-small-en-us-0.15"
-          if [ ! -d "$MODEL_PATH" ]; then
-            echo "FATAL: Vendored Vosk model not found at $MODEL_PATH" >&2
-            echo "Ensure 'models/vosk-model-small-en-us-0.15/' is committed to repository." >&2
+          
+          # Use our centralized model verification script
+          export COLDVOX_VERIFY_VERBOSE=1
+          export COLDVOX_MIN_MODEL_SIZE_MB=40
+          
+          if ! ./scripts/verify-model-integrity.sh; then
+            echo ""
+            echo "FATAL: Model integrity verification failed" >&2
+            echo "This could indicate:" >&2
+            echo "  - Model files are missing or incomplete" >&2
+            echo "  - Model files have been corrupted" >&2
+            echo "  - Checksum file is out of date" >&2
+            echo ""
+            echo "To resolve:" >&2
+            echo "  1. Ensure model is properly downloaded and extracted to models/vosk-model-small-en-us-0.15/" >&2
+            echo "  2. Regenerate checksums if model was updated: ./scripts/verify-model-integrity.sh '' '' generate" >&2
+            echo "  3. Commit both model files and updated SHA256SUMS" >&2
             exit 1
           fi
-          echo "Vosk model verified at: $MODEL_PATH"
-
-          # Verify required subdirectories exist (fail fast if missing)
-          echo "Verifying model structure..."
-          for dir in am conf graph ivector; do
-            if [ ! -d "$MODEL_PATH/$dir" ]; then
-              echo "ERROR: Required model subdirectory '$dir' missing" >&2
-              exit 1
-            fi
-          done
-
-          # Verify critical model files
-          echo "Verifying critical model files..."
-          test -f "$MODEL_PATH/am/final.mdl" || {
-            echo "ERROR: Critical model file 'am/final.mdl' missing" >&2
-            exit 1
-          }
-          test -f "$MODEL_PATH/conf/mfcc.conf" || {
-            echo "ERROR: Critical model file 'conf/mfcc.conf' missing" >&2
-            exit 1
-          }
-          test -f "$MODEL_PATH/ivector/final.ie" || {
-            echo "ERROR: Critical model file 'ivector/final.ie' missing" >&2
-            exit 1
-          }
-
-          # Check model size (ensure it's not empty/corrupt)
-          model_size=$(du -sm "$MODEL_PATH" | cut -f1)
-          if [ "$model_size" -lt 40 ]; then
-            echo "ERROR: Model appears incomplete - size is only ${model_size}MB (expected 40MB+)" >&2
-            exit 1
-          fi
-
-          echo "Model structure and integrity verified (${model_size}MB)."
+          
+          echo ""
+          echo "✅ Model integrity verification passed - CI can proceed with confidence"
 
       - name: Output model path
         id: get-model-path

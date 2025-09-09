@@ -967,39 +967,9 @@ mod tests {
                     let raw = std::fs::read_to_string(transcript_path).unwrap_or_default();
                     raw.trim().to_lowercase()
                 };
-                // Local helper: word-level WER (duplicate of shared util to avoid cross-crate test visibility issues)
-                fn word_levenshtein(ref_text: &str, hyp_text: &str) -> f32 {
-                    let ref_words: Vec<&str> = ref_text.split_whitespace().collect();
-                    let hyp_words: Vec<&str> = hyp_text.split_whitespace().collect();
-                    if ref_words.is_empty() {
-                        return if hyp_words.is_empty() { 0.0 } else { 1.0 };
-                    }
-                    let n = ref_words.len();
-                    let m = hyp_words.len();
-                    let mut dp = vec![vec![0usize; m + 1]; n + 1];
-                    #[allow(clippy::needless_range_loop)]
-                    for i in 0..=n {
-                        dp[i][0] = i;
-                    }
-                    for j in 0..=m {
-                        dp[0][j] = j;
-                    }
-                    for i in 1..=n {
-                        for j in 1..=m {
-                            let cost = if ref_words[i - 1] == hyp_words[j - 1] {
-                                0
-                            } else {
-                                1
-                            };
-                            let sub = dp[i - 1][j - 1] + cost;
-                            let del = dp[i - 1][j] + 1;
-                            let ins = dp[i][j - 1] + 1;
-                            dp[i][j] = sub.min(del).min(ins);
-                        }
-                    }
-                    dp[n][m] as f32 / n as f32
-                }
-                let wer = word_levenshtein(&expected_ref, &combined.to_lowercase());
+                // Use centralized WER utility for consistent calculation
+                use crate::stt::tests::wer_utils::calculate_wer;
+                let wer = calculate_wer(&expected_ref, &combined.to_lowercase());
                 assert!(
                     wer <= 0.55,
                     "WER fallback exceeded threshold: {:.3} > 0.55\nExpected: {}\nGot: {}",
@@ -1043,7 +1013,7 @@ mod tests {
             use crate::text_injection::{
                 atspi_injector::AtspiInjector, InjectionConfig, TextInjector,
             };
-            use tokio::time::{timeout, Duration};
+            use tokio::time::Duration;
 
             // Guard the whole test with a short timeout so CI doesn't hang if desktop isn't responsive
             let test_future = async {
@@ -1068,12 +1038,20 @@ mod tests {
 
                 tokio::time::sleep(Duration::from_millis(500)).await;
 
-                // Test injection with its own timeout (per-method timeouts exist, but add safety)
+                // Test injection with centralized timeout utilities
                 let test_text = "AT-SPI injection test";
-                match timeout(Duration::from_secs(5), injector.inject_text(test_text)).await {
-                    Ok(Ok(_)) => info!("AT-SPI injection successful"),
-                    Ok(Err(e)) => eprintln!("AT-SPI injection failed: {:?}", e),
-                    Err(_) => eprintln!("AT-SPI injection timed out"),
+                // Note: timeout wrapper flattens the result, so we need to handle the inner result separately
+                let timeout_result = crate::stt::tests::timeout_utils::with_injection_timeout(
+                    injector.inject_text(test_text),
+                    "AT-SPI injection test"
+                ).await;
+                
+                match timeout_result {
+                    Ok(injection_result) => match injection_result {
+                        Ok(_) => info!("AT-SPI injection successful"),
+                        Err(e) => eprintln!("AT-SPI injection failed: {:?}", e),
+                    },
+                    Err(timeout_msg) => eprintln!("AT-SPI injection timed out: {}", timeout_msg),
                 }
 
                 // Cleanup
@@ -1089,8 +1067,15 @@ mod tests {
                 }
             };
 
-            if timeout(Duration::from_secs(15), test_future).await.is_err() {
-                eprintln!("AT-SPI test timed out - skipping (desktop likely unavailable)");
+            match crate::stt::tests::timeout_utils::with_timeout(
+                test_future,
+                Some(Duration::from_secs(15)),
+                "AT-SPI desktop test"
+            ).await {
+                Ok(_) => {},
+                Err(timeout_msg) => {
+                    eprintln!("AT-SPI test timed out - skipping (desktop likely unavailable): {}", timeout_msg);
+                }
             }
         }
     }

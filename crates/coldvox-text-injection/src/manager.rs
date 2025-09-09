@@ -1,5 +1,6 @@
 use crate::backend::{Backend, BackendDetector};
 use crate::focus::{FocusProvider, FocusStatus, FocusTracker};
+use crate::log_throttle::LogThrottle;
 use crate::types::{InjectionConfig, InjectionError, InjectionMethod, InjectionMetrics};
 use crate::TextInjector;
 
@@ -182,6 +183,8 @@ pub struct StrategyManager {
     /// Cached compiled blocklist regex patterns
     #[cfg(feature = "regex")]
     blocklist_regexes: Vec<regex::Regex>,
+    /// Log throttle to reduce backend selection noise
+    log_throttle: Mutex<LogThrottle>,
 }
 
 impl StrategyManager {
@@ -198,10 +201,22 @@ impl StrategyManager {
         focus_provider: Box<dyn FocusProvider>,
     ) -> Self {
         let backend_detector = BackendDetector::new(config.clone());
+        let log_throttle = Mutex::new(LogThrottle::new());
+        
         if let Some(backend) = backend_detector.get_preferred_backend() {
-            info!("Selected backend: {:?}", backend);
+            // Throttle backend selection logs to reduce noise
+            if let Ok(mut throttle) = log_throttle.lock() {
+                if throttle.should_log("backend_selected") {
+                    info!("Selected backend: {:?}", backend);
+                }
+            }
         } else {
-            warn!("No suitable backend found for text injection");
+            // Throttle backend warning logs
+            if let Ok(mut throttle) = log_throttle.lock() {
+                if throttle.should_log("no_backend_warning") {
+                    warn!("No suitable backend found for text injection");
+                }
+            }
             if let Ok(mut m) = metrics.lock() {
                 m.record_backend_denied();
             }
@@ -264,6 +279,7 @@ impl StrategyManager {
             allowlist_regexes,
             #[cfg(feature = "regex")]
             blocklist_regexes,
+            log_throttle,
         }
     }
 
@@ -1084,6 +1100,14 @@ impl StrategyManager {
         map: std::collections::HashMap<InjectionMethod, Box<dyn TextInjector>>,
     ) {
         self.injectors = InjectorRegistry { injectors: map };
+    }
+
+    /// Clean up old log throttle entries to prevent memory growth
+    /// Should be called periodically during long-running sessions
+    pub fn cleanup_log_throttle(&self) {
+        if let Ok(mut throttle) = self.log_throttle.lock() {
+            throttle.cleanup_old_entries();
+        }
     }
 
     /// Print injection statistics for debugging
