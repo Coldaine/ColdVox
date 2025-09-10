@@ -330,7 +330,8 @@ mod tests {
     #[test]
     fn test_wer_metrics_deletion() {
         let metrics = WerMetrics::new("hello world", "hello");
-        assert_eq!(metrics.wer, 1.0);
+        // One deletion out of two reference words is a 50% error rate.
+        assert_eq!(metrics.wer, 0.5);
         assert_eq!(metrics.deletions, 1);
         assert_eq!(metrics.insertions, 0);
         assert_eq!(metrics.substitutions, 0);
