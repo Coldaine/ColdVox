@@ -32,7 +32,7 @@ regex = { version = "1.10", optional = true }
 # Note: previously depended on x11/arboard/mouse-keyboard-input, but they are not used.
 
 [dev-dependencies]
-tempfile = "3.8"
+tempfile = "3.22"
 mockall = "0.12"
 tokio-test = "0.4"
 rand = "0.8"
