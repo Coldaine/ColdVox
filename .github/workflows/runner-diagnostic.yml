@@ -7,7 +7,7 @@ on:
 jobs:
   diagnose:
     name: Run Diagnostic Checks
-    runs-on: [self-hosted, Linux, X64] # Ensure this matches my runner's labels
+    runs-on: [self-hosted, Linux, X64, fedora, nobara] # Ensure this matches my runner's labels
 
     steps:
       - name: 1. Print Runner Environment Details

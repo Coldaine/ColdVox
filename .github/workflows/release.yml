@@ -17,7 +17,7 @@ concurrency:
 jobs:
   release-plz:
     name: Release Please
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, X64, fedora, nobara]
     if: github.event_name == 'workflow_dispatch'
     steps:
       - name: Checkout repository
@@ -44,7 +44,7 @@ jobs:
   # Auto-release when the Release PR is merged into main
   release:
     name: Create Release
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, Linux, X64, fedora, nobara]
     if: github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main'
     steps:
       - name: Checkout repository
