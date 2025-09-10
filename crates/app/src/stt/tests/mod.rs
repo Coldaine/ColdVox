@@ -89,9 +89,16 @@ mod vosk_tests {
 
         #[test]
         fn test_vosk_transcriber_missing_model() {
+            // Ensure the environment variable is not set for this test
+            std::env::remove_var("VOSK_MODEL_PATH");
+
+            // Create a path that is guaranteed not to exist
+            let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
+            let non_existent_path = temp_dir.path().join("non_existent_model");
+
             let config = TranscriptionConfig {
                 enabled: true,
-                model_path: "/nonexistent/model/path".to_string(),
+                model_path: non_existent_path.to_str().unwrap().to_string(),
                 partial_results: true,
                 max_alternatives: 1,
                 include_words: false,
@@ -100,9 +107,16 @@ mod vosk_tests {
             };
 
             let result = VoskTranscriber::new(config, 16000.0);
-            assert!(result.is_err());
+            assert!(
+                result.is_err(),
+                "Expected an error for a missing model path, but got Ok"
+            );
             if let Err(e) = result {
-                assert!(e.contains("does not exist"));
+                assert!(
+                    e.contains("does not exist or is not a directory"),
+                    "Error message was: {}",
+                    e
+                );
             }
         }
 

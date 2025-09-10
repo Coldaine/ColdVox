@@ -17,9 +17,15 @@ impl Default for VadMode {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SileroConfig {
+    /// Speech probability threshold.
     pub threshold: f32,
+    /// Minimum duration of speech to trigger a speech event.
     pub min_speech_duration_ms: u32,
+    /// Minimum duration of silence to treat as a pause.
+    /// A longer duration can help "stitch" together utterances separated by short pauses,
+    /// but increases latency. The application may override this default (see issue #61).
     pub min_silence_duration_ms: u32,
+    /// The number of samples in a single processing window.
     pub window_size_samples: usize,
 }
 

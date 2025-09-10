@@ -24,23 +24,29 @@ Window {
   property int level: 0
   property string transcript: ""
 
-  // Persist window position and state
+  // Persist window position, size, and state
   Settings {
     id: settings
     category: "coldvox"
     property real x: (Screen.width - 240) / 2
     property real y: (Screen.height - 48) / 2
     property bool expanded: false
+    property int expandedWidth: 600
+    property int expandedHeight: 200
   }
 
   x: settings.x
   y: settings.y
-  width: expanded ? Math.min(Math.max(600, Screen.width * 0.4), Screen.width * 0.6) : 240
-  height: expanded ? Math.min(Math.max(200, Screen.height * 0.2), Screen.height * 0.4) : 48
+  width: expanded ? settings.expandedWidth : 240
+  height: expanded ? settings.expandedHeight : 48
 
+  // Save changes back to settings
   onXChanged: settings.x = x
   onYChanged: settings.y = y
   onExpandedChanged: settings.expanded = expanded
+  // Only save dimensions when in the expanded state
+  onWidthChanged: if (expanded) settings.expandedWidth = width
+  onHeightChanged: if (expanded) settings.expandedHeight = height
 
   // Drag anywhere in top activity area or collapsed bar
   property point dragStart

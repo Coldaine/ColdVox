@@ -143,6 +143,29 @@ impl AppHandle {
         // Spawn new trigger
         let new_handle = match mode {
             ActivationMode::Vad => {
+                // VAD (Voice Activity Detection) Configuration
+                //
+                // The VAD is configured to detect speech segments from the audio stream.
+                // Key parameters for the Silero VAD engine are set here.
+                //
+                // Of particular note is `min_silence_duration_ms`. This value was
+                // intentionally increased from a default of 100ms to 500ms.
+                //
+                // Rationale for 500ms silence duration (see issue #61):
+                // - **Problem:** Shorter silence durations (e.g., 100-200ms) can cause the
+                //   VAD to split a single logical utterance into multiple speech events
+                //   during natural pauses in speech.
+                // - **Impact:** This fragmentation leads to disjointed transcriptions and
+                //   can prevent the STT engine from understanding the full context of a
+                //   sentence. It also increases overhead from starting and stopping the
+                //   STT process multiple times.
+                // - **Solution:** A longer duration of 500ms acts as a buffer, "stitching"
+                //   together speech segments that are separated by short pauses. This
+                //   results in more coherent, sentence-like chunks being sent to the STT
+                //   engine, significantly improving transcription quality.
+                // - **Trade-off:** The primary trade-off is a slight increase in latency,
+                //   as the system waits longer to confirm the end of an utterance. For
+                //   dictation, this is an acceptable trade-off for the gain in accuracy.
                 let vad_cfg = UnifiedVadConfig {
                     mode: VadMode::Silero,
                     frame_size_samples: FRAME_SIZE_SAMPLES,
@@ -150,7 +173,7 @@ impl AppHandle {
                     silero: SileroConfig {
                         threshold: 0.3,
                         min_speech_duration_ms: 250,
-                        min_silence_duration_ms: 500, // Increased from 100ms to 500ms for better stitching
+                        min_silence_duration_ms: 500,
                         window_size_samples: FRAME_SIZE_SAMPLES,
                     },
                 };
@@ -207,6 +230,29 @@ pub async fn start(
     let (raw_vad_tx, raw_vad_rx) = mpsc::channel::<VadEvent>(200);
     let trigger_handle = match opts.activation_mode {
         ActivationMode::Vad => {
+            // VAD (Voice Activity Detection) Configuration
+            //
+            // The VAD is configured to detect speech segments from the audio stream.
+            // Key parameters for the Silero VAD engine are set here.
+            //
+            // Of particular note is `min_silence_duration_ms`. This value was
+            // intentionally increased from a default of 100ms to 500ms.
+            //
+            // Rationale for 500ms silence duration (see issue #61):
+            // - **Problem:** Shorter silence durations (e.g., 100-200ms) can cause the
+            //   VAD to split a single logical utterance into multiple speech events
+            //   during natural pauses in speech.
+            // - **Impact:** This fragmentation leads to disjointed transcriptions and
+            //   can prevent the STT engine from understanding the full context of a
+            //   sentence. It also increases overhead from starting and stopping the
+            //   STT process multiple times.
+            // - **Solution:** A longer duration of 500ms acts as a buffer, "stitching"
+            //   together speech segments that are separated by short pauses. This
+            //   results in more coherent, sentence-like chunks being sent to the STT
+            //   engine, significantly improving transcription quality.
+            // - **Trade-off:** The primary trade-off is a slight increase in latency,
+            //   as the system waits longer to confirm the end of an utterance. For
+            //   dictation, this is an acceptable trade-off for the gain in accuracy.
             let vad_cfg = UnifiedVadConfig {
                 mode: VadMode::Silero,
                 frame_size_samples: FRAME_SIZE_SAMPLES,
@@ -214,7 +260,7 @@ pub async fn start(
                 silero: SileroConfig {
                     threshold: 0.3,
                     min_speech_duration_ms: 250,
-                    min_silence_duration_ms: 500, // Increased from 100ms to 500ms for better stitching
+                    min_silence_duration_ms: 500,
                     window_size_samples: FRAME_SIZE_SAMPLES,
                 },
             };
