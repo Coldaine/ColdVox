@@ -1,0 +1,473 @@
+{
+  "repository": {
+    "name": "ColdVox",
+    "primary_language": "Rust",
+    "secondary_languages": ["Markdown", "Shell", "QML"],
+    "frameworks": ["Tokio", "CPAL", "Vosk", "CXX-Qt"],
+    "build_system": "Cargo",
+    "package_manager": "cargo",
+    "workspace_structure": "workspace",
+    "estimated_complexity": "complex",
+    "file_stats": {
+      "total_files": 415,
+      "source_files": 147,
+      "test_files": 31,
+      "config_files": 35,
+      "by_extension": {
+        ".rs": 147,
+        ".toml": 16,
+        ".md": 84,
+        ".sh": 13,
+        ".yml": 8,
+        ".qml": 7,
+        ".wav": 16
+      }
+    }
+  },
+  "architecture": {
+    "pattern": "Modular real-time audio pipeline",
+    "package_structure": "Multiple crates for foundation, audio capture, VAD, STT, text injection, telemetry, GUI, and application binaries",
+    "layers": [
+      {
+        "name": "Input",
+        "purpose": "Audio capture and device management",
+        "main_directories": ["crates/coldvox-audio/src", "crates/app/src/audio"],
+        "key_files": ["crates/coldvox-audio/src/capture.rs", "crates/coldvox-audio/src/device.rs"],
+        "characteristics": ["threads", "real-time"]
+      },
+      {
+        "name": "Processing",
+        "purpose": "Voice activity detection and speech-to-text",
+        "main_directories": ["crates/coldvox-vad/src", "crates/coldvox-vad-silero/src", "crates/coldvox-stt/src", "crates/coldvox-stt-vosk/src"],
+        "key_files": ["crates/coldvox-vad/src/engine.rs", "crates/coldvox-stt-vosk/src/vosk_transcriber.rs"],
+        "characteristics": ["async", "feature-gated", "ffi"]
+      },
+      {
+        "name": "Output",
+        "purpose": "Text injection into applications",
+        "main_directories": ["crates/coldvox-text-injection/src"],
+        "key_files": ["crates/coldvox-text-injection/src/manager.rs", "crates/coldvox-text-injection/src/backend.rs"],
+        "characteristics": ["async", "platform-specific"]
+      },
+      {
+        "name": "Infrastructure",
+        "purpose": "State management, error handling, metrics",
+        "main_directories": ["crates/coldvox-foundation/src", "crates/coldvox-telemetry/src"],
+        "key_files": ["crates/coldvox-foundation/src/state.rs", "crates/coldvox-telemetry/src/pipeline_metrics.rs"],
+        "characteristics": ["channels", "metrics"]
+      },
+      {
+        "name": "Application",
+        "purpose": "Runtime orchestration and CLI entry points",
+        "main_directories": ["crates/app/src"],
+        "key_files": ["crates/app/src/main.rs", "crates/app/src/runtime.rs"],
+        "characteristics": ["async", "cli"]
+      },
+      {
+        "name": "GUI",
+        "purpose": "Qt-based graphical frontend",
+        "main_directories": ["crates/coldvox-gui/src"],
+        "key_files": ["crates/coldvox-gui/src/main.rs", "crates/coldvox-gui/src/bridge.rs"],
+        "characteristics": ["ffi", "qt"]
+      }
+    ],
+    "entry_points": [
+      {"type": "binary", "path": "crates/app/src/main.rs", "purpose": "ColdVox CLI application", "platform_restrictions": []},
+      {"type": "binary", "path": "crates/app/src/bin/tui_dashboard.rs", "purpose": "Terminal UI dashboard", "platform_restrictions": []},
+      {"type": "binary", "path": "crates/app/src/bin/mic_probe.rs", "purpose": "Microphone probe utility", "platform_restrictions": []},
+      {"type": "binary", "path": "crates/coldvox-gui/src/main.rs", "purpose": "Qt GUI application", "platform_restrictions": []},
+      {"type": "library", "path": "crates/coldvox-foundation/src/lib.rs", "purpose": "Foundation utilities", "platform_restrictions": []},
+      {"type": "library", "path": "crates/coldvox-audio/src/lib.rs", "purpose": "Audio processing", "platform_restrictions": []},
+      {"type": "library", "path": "crates/coldvox-vad/src/lib.rs", "purpose": "VAD engine", "platform_restrictions": []},
+      {"type": "library", "path": "crates/coldvox-vad-silero/src/lib.rs", "purpose": "Silero VAD wrapper", "platform_restrictions": []},
+      {"type": "library", "path": "crates/coldvox-stt/src/lib.rs", "purpose": "STT abstraction", "platform_restrictions": []},
+      {"type": "library", "path": "crates/coldvox-stt-vosk/src/lib.rs", "purpose": "Vosk STT implementation", "platform_restrictions": []},
+      {"type": "library", "path": "crates/coldvox-text-injection/src/lib.rs", "purpose": "Text injection backends", "platform_restrictions": []},
+      {"type": "library", "path": "crates/coldvox-telemetry/src/lib.rs", "purpose": "Telemetry metrics", "platform_restrictions": []}
+    ],
+    "data_flow": {
+      "pipeline_stages": ["audio capture", "chunking", "vad", "stt", "text injection"],
+      "concurrency_model": "threads for audio capture, async tasks with Tokio for processing",
+      "state_management": "crossbeam channels and atomic state machine"
+    }
+  },
+  "features": [
+    {
+      "name": "Audio capture and chunking",
+      "type": "core",
+      "description": "Capture audio from devices, chunk and resample for processing",
+      "implementation_details": "Uses CPAL for device I/O, rtrb ring buffers, and Rubato resampler",
+      "main_modules": ["crates/coldvox-audio/src/capture.rs", "crates/coldvox-audio/src/chunker.rs"],
+      "test_files": ["crates/coldvox-audio/tests/device_hotplug_tests.rs"],
+      "dependencies": ["cpal", "rtrb", "rubato"],
+      "external_resources": ["audio devices"],
+      "configuration_keys": ["COLDVOX_DEVICE", "COLDVOX_RESAMPLER_QUALITY"],
+      "platform_specific": false,
+      "performance_characteristics": ["real-time"]
+    },
+    {
+      "name": "Voice activity detection",
+      "type": "core",
+      "description": "Detect speech segments in audio stream",
+      "implementation_details": "Core engine with optional Silero ONNX backend",
+      "main_modules": ["crates/coldvox-vad/src/engine.rs", "crates/coldvox-vad-silero/src/silero_wrapper.rs"],
+      "test_files": [],
+      "dependencies": ["voice_activity_detector"],
+      "external_resources": ["onnx models"],
+      "configuration_keys": ["FRAME_DURATION_MS"],
+      "platform_specific": false,
+      "performance_characteristics": ["cpu-intensive"]
+    },
+    {
+      "name": "Speech to text",
+      "type": "core",
+      "description": "Transcribe audio into text using plugin-based STT",
+      "implementation_details": "Abstract STT layer with Vosk implementation",
+      "main_modules": ["crates/coldvox-stt/src/lib.rs", "crates/coldvox-stt-vosk/src/vosk_transcriber.rs"],
+      "test_files": ["crates/app/src/stt/tests"],
+      "dependencies": ["vosk", "tokio"],
+      "external_resources": ["vosk model files"],
+      "configuration_keys": ["VOSK_MODEL_PATH", "save_transcriptions"],
+      "platform_specific": false,
+      "performance_characteristics": ["cpu-intensive"]
+    },
+    {
+      "name": "Text injection",
+      "type": "supporting",
+      "description": "Inject transcribed text into focused applications",
+      "implementation_details": "Multiple backends (AT-SPI, wl-clipboard, enigo, kdotool, ydotool)",
+      "main_modules": ["crates/coldvox-text-injection/src/manager.rs", "crates/coldvox-text-injection/src/backend.rs"],
+      "test_files": ["crates/coldvox-text-injection/src/tests"] ,
+      "dependencies": ["atspi", "wl-clipboard-rs", "enigo", "regex"],
+      "external_resources": ["clipboard", "window manager"],
+      "configuration_keys": ["COLDVOX_ENABLE_TEXT_INJECTION", "COLDVOX_ALLOW_YDOTOOL", "COLDVOX_ALLOW_KDOTOOL", "COLDVOX_ALLOW_ENIGO"],
+      "platform_specific": true,
+      "performance_characteristics": []
+    },
+    {
+      "name": "Telemetry metrics",
+      "type": "supporting",
+      "description": "Collect pipeline and STT metrics",
+      "implementation_details": "Lightweight metrics via parking_lot and custom structs",
+      "main_modules": ["crates/coldvox-telemetry/src/pipeline_metrics.rs"],
+      "test_files": [],
+      "dependencies": ["parking_lot"],
+      "external_resources": [],
+      "configuration_keys": [],
+      "platform_specific": false,
+      "performance_characteristics": []
+    },
+    {
+      "name": "User interface",
+      "type": "utility",
+      "description": "Terminal dashboard and experimental Qt GUI",
+      "implementation_details": "TUI with ratatui/crossterm, GUI via cxx-qt and QML",
+      "main_modules": ["crates/app/src/bin/tui_dashboard.rs", "crates/coldvox-gui/src/main.rs"],
+      "test_files": [],
+      "dependencies": ["ratatui", "crossterm", "cxx-qt"],
+      "external_resources": ["QML files"],
+      "configuration_keys": [],
+      "platform_specific": false,
+      "performance_characteristics": []
+    }
+  ],
+  "modules": [
+    {
+      "path": "crates/app/src/main.rs",
+      "name": "coldvox-main",
+      "type": "binary",
+      "purpose": "CLI entry point that starts the runtime pipeline",
+      "public_interface": ["main"],
+      "dependencies": {
+        "internal": ["coldvox_app::runtime"],
+        "external": ["clap", "tokio", "tracing", "cpal"]
+      },
+      "characteristics": {
+        "lines_of_code": 249,
+        "has_tests": false,
+        "has_benchmarks": false,
+        "uses_unsafe": false,
+        "uses_ffi": false,
+        "platform_specific": false
+      }
+    },
+    {
+      "path": "crates/app/src/runtime.rs",
+      "name": "runtime",
+      "type": "module",
+      "purpose": "Orchestrates audio capture, VAD, STT, and text injection",
+      "public_interface": ["start", "AppRuntimeOptions", "AppHandle"],
+      "dependencies": {
+        "internal": ["coldvox_audio", "coldvox_vad", "coldvox_text_injection", "coldvox_stt"],
+        "external": ["tokio"]
+      },
+      "characteristics": {
+        "lines_of_code": 386,
+        "has_tests": false,
+        "has_benchmarks": false,
+        "uses_unsafe": false,
+        "uses_ffi": false,
+        "platform_specific": false
+      }
+    },
+    {
+      "path": "crates/coldvox-foundation/src/lib.rs",
+      "name": "coldvox-foundation",
+      "type": "library",
+      "purpose": "Shared error types, state machine, health monitoring",
+      "public_interface": ["clock", "error", "health", "shutdown", "state"],
+      "dependencies": {
+        "internal": [],
+        "external": ["thiserror", "tokio", "parking_lot", "crossbeam-channel"]
+      },
+      "characteristics": {
+        "lines_of_code": 11,
+        "has_tests": false,
+        "has_benchmarks": false,
+        "uses_unsafe": false,
+        "uses_ffi": false,
+        "platform_specific": false
+      }
+    },
+    {
+      "path": "crates/coldvox-audio/src/lib.rs",
+      "name": "coldvox-audio",
+      "type": "library",
+      "purpose": "Audio capture, chunking, device management, resampling",
+      "public_interface": ["AudioCaptureThread", "AudioChunker", "DeviceManager", "FrameReader", "DeviceMonitor", "AudioRingBuffer", "WatchdogTimer"],
+      "dependencies": {
+        "internal": ["coldvox-foundation", "coldvox-telemetry"],
+        "external": ["cpal", "rtrb", "dasp", "rubato", "tokio"]
+      },
+      "characteristics": {
+        "lines_of_code": 18,
+        "has_tests": true,
+        "has_benchmarks": false,
+        "uses_unsafe": false,
+        "uses_ffi": false,
+        "platform_specific": false
+      }
+    },
+    {
+      "path": "crates/coldvox-vad/src/lib.rs",
+      "name": "coldvox-vad",
+      "type": "library",
+      "purpose": "Voice activity detection engine and configuration",
+      "public_interface": ["UnifiedVadConfig", "VadEngine", "VadEvent", "VadState"],
+      "dependencies": {
+        "internal": [],
+        "external": ["serde"]
+      },
+      "characteristics": {
+        "lines_of_code": 20,
+        "has_tests": false,
+        "has_benchmarks": false,
+        "uses_unsafe": false,
+        "uses_ffi": false,
+        "platform_specific": false
+      }
+    },
+    {
+      "path": "crates/coldvox-vad-silero/src/lib.rs",
+      "name": "coldvox-vad-silero",
+      "type": "library",
+      "purpose": "Silero ONNX voice activity detection wrapper",
+      "public_interface": ["SileroConfig", "SileroEngine"],
+      "dependencies": {
+        "internal": ["coldvox-vad"],
+        "external": ["voice_activity_detector"]
+      },
+      "characteristics": {
+        "lines_of_code": 8,
+        "has_tests": false,
+        "has_benchmarks": false,
+        "uses_unsafe": false,
+        "uses_ffi": false,
+        "platform_specific": false
+      }
+    },
+    {
+      "path": "crates/coldvox-text-injection/src/lib.rs",
+      "name": "coldvox-text-injection",
+      "type": "library",
+      "purpose": "Manage text injection strategies and backends",
+      "public_interface": ["Backend", "StrategyManager", "InjectionSession", "AsyncInjectionProcessor"],
+      "dependencies": {
+        "internal": ["coldvox-stt"],
+        "external": ["tokio", "anyhow", "thiserror", "atspi", "wl-clipboard-rs", "enigo", "regex"]
+      },
+      "characteristics": {
+        "lines_of_code": 123,
+        "has_tests": true,
+        "has_benchmarks": false,
+        "uses_unsafe": false,
+        "uses_ffi": false,
+        "platform_specific": true
+      }
+    },
+    {
+      "path": "crates/coldvox-stt/src/lib.rs",
+      "name": "coldvox-stt",
+      "type": "library",
+      "purpose": "Speech-to-text abstraction and traits",
+      "public_interface": ["Transcriber", "EventBasedTranscriber", "next_utterance_id", "TranscriptionEvent"],
+      "dependencies": {
+        "internal": [],
+        "external": ["tokio", "tracing", "parking_lot", "async-trait", "thiserror"]
+      },
+      "characteristics": {
+        "lines_of_code": 52,
+        "has_tests": false,
+        "has_benchmarks": false,
+        "uses_unsafe": false,
+        "uses_ffi": false,
+        "platform_specific": false
+      }
+    },
+    {
+      "path": "crates/coldvox-stt-vosk/src/lib.rs",
+      "name": "coldvox-stt-vosk",
+      "type": "library",
+      "purpose": "Vosk-based transcription implementation",
+      "public_interface": ["VoskTranscriber", "default_model_path"],
+      "dependencies": {
+        "internal": ["coldvox-stt"],
+        "external": ["vosk", "tracing"]
+      },
+      "characteristics": {
+        "lines_of_code": 38,
+        "has_tests": false,
+        "has_benchmarks": false,
+        "uses_unsafe": false,
+        "uses_ffi": true,
+        "platform_specific": false
+      }
+    },
+    {
+      "path": "crates/coldvox-telemetry/src/lib.rs",
+      "name": "coldvox-telemetry",
+      "type": "library",
+      "purpose": "Telemetry integration and metrics collection",
+      "public_interface": ["metrics", "pipeline_metrics", "stt_metrics"],
+      "dependencies": {
+        "internal": ["coldvox-text-injection"],
+        "external": ["parking_lot"]
+      },
+      "characteristics": {
+        "lines_of_code": 9,
+        "has_tests": false,
+        "has_benchmarks": false,
+        "uses_unsafe": false,
+        "uses_ffi": false,
+        "platform_specific": false
+      }
+    },
+    {
+      "path": "crates/coldvox-gui/src/main.rs",
+      "name": "coldvox-gui",
+      "type": "binary",
+      "purpose": "Qt-based experimental GUI entry point",
+      "public_interface": ["main"],
+      "dependencies": {
+        "internal": [],
+        "external": ["cxx-qt", "cxx-qt-lib"]
+      },
+      "characteristics": {
+        "lines_of_code": 54,
+        "has_tests": false,
+        "has_benchmarks": false,
+        "uses_unsafe": true,
+        "uses_ffi": true,
+        "platform_specific": false
+      }
+    }
+  ],
+  "system_integration": {
+    "hardware_access": ["microphone devices", "clipboard"],
+    "system_apis": ["ALSA via CPAL", "DBus (zbus)", "Qt"],
+    "permission_requirements": ["microphone", "clipboard"],
+    "platform_implementations": {
+      "windows": {"present": true, "modules": ["coldvox-text-injection (enigo)"]},
+      "linux": {"present": true, "modules": ["coldvox-text-injection", "hotkey"]},
+      "macos": {"present": true, "modules": ["coldvox-text-injection (enigo)"]}
+    },
+    "external_bindings": [
+      {"library": "cpal", "binding_type": "wrapper", "purpose": "cross-platform audio"},
+      {"library": "vosk", "binding_type": "ffi", "purpose": "speech recognition"},
+      {"library": "cxx-qt", "binding_type": "ffi", "purpose": "Qt GUI integration"},
+      {"library": "voice_activity_detector", "binding_type": "ffi", "purpose": "silero VAD"}
+    ]
+  },
+  "operations": {
+    "development": {
+      "setup_requirements": ["Rust 1.75", "just", "pre-commit", "pkg-config", "ALSA headers"],
+      "build_commands": {"cargo build --workspace --locked": "build all crates", "cargo build --workspace --locked --release": "build optimized release"},
+      "test_commands": {"cargo test --workspace --locked": "run all tests"},
+      "required_tools": ["cargo", "just", "pre-commit"],
+      "environment_variables": ["COLDVOX_DEVICE", "COLDVOX_RESAMPLER_QUALITY", "VOSK_MODEL_PATH", "COLDVOX_ENABLE_TEXT_INJECTION", "COLDVOX_ALLOW_YDOTOOL", "COLDVOX_ALLOW_KDOTOOL", "COLDVOX_ALLOW_ENIGO"]
+    },
+    "build_configuration": {
+      "profiles": ["debug", "release"],
+      "optimization_settings": {},
+      "feature_flags": ["vosk", "whisper", "text-injection", "silero", "sleep-observer"],
+      "conditional_compilation": ["cfg(target_os=\"linux\")", "cfg(feature=\"vosk\")", "cfg(feature=\"text-injection\")"]
+    },
+    "deployment": {
+      "target_platforms": ["linux", "windows", "macos"],
+      "build_artifacts": ["coldvox", "tui_dashboard", "mic_probe", "coldvox-gui"],
+      "distribution_method": "source builds",
+      "ci_platform": "github-actions",
+      "deployment_files": ["runner-diagnostic.yml", "scripts/setup_vosk.rs"]
+    },
+    "testing": {
+      "frameworks": ["tokio-test", "mockall", "proptest", "serial_test"],
+      "test_organization": "Unit tests alongside modules and integration tests in tests/ directories",
+      "test_types": {
+        "unit": {"count": 30, "location": "crates/**/src/**/*tests*"},
+        "integration": {"count": 1, "location": "crates/coldvox-audio/tests"},
+        "benchmarks": {"count": 0, "location": "none"}
+      },
+      "test_data": "wav files and generated fixtures",
+      "coverage_tool": "none"
+    }
+  },
+  "code_characteristics": {
+    "performance_optimizations": [
+      {"type": "ring-buffer", "location": "crates/coldvox-audio/src/ring_buffer.rs", "purpose": "real-time audio without allocations"},
+      {"type": "watchdog", "location": "crates/coldvox-audio/src/watchdog.rs", "purpose": "monitor audio thread responsiveness"}
+    ],
+    "error_handling": {
+      "strategy": "Custom error enums with thiserror and state transitions",
+      "custom_types": ["AppError", "AudioError"],
+      "recovery_mechanisms": ["state transitions", "retry on transient errors"]
+    },
+    "concurrency": {
+      "model": "both",
+      "primitives": ["tokio mpsc", "tokio broadcast", "crossbeam-channel", "mutexes", "atomics"],
+      "runtime": "tokio"
+    }
+  },
+  "technical_decisions": [
+    {"category": "library", "decision": "Use CPAL for cross-platform audio", "evidence": "crates/coldvox-audio/Cargo.toml", "context": "Provides unified audio device interface"},
+    {"category": "library", "decision": "Adopt Vosk for speech recognition", "evidence": "crates/coldvox-stt-vosk/Cargo.toml", "context": "Offline STT support"},
+    {"category": "optimization", "decision": "Real-time safe ring buffer", "evidence": "crates/coldvox-audio/src/ring_buffer.rs", "context": "Avoid allocations in audio callback"},
+    {"category": "pattern", "decision": "State management via channels", "evidence": "crates/coldvox-foundation/src/state.rs", "context": "Allow observers of app state"},
+    {"category": "library", "decision": "Use cxx-qt for GUI integration", "evidence": "crates/coldvox-gui/Cargo.toml", "context": "Future Qt-based GUI"}
+  ],
+  "documentation_needs": {
+    "critical_gaps": ["Root README is minimal; lacks setup and build instructions"],
+    "complex_areas": [
+      {"area": "Text injection", "reason": "multiple backends and platform-specific behavior", "indicators": ["extensive tests", "platform-specific"]},
+      {"area": "Runtime pipeline", "reason": "concurrency and multi-stage processing", "indicators": ["async", "threads"]}
+    ],
+    "operational_gaps": ["Missing system dependency setup instructions (e.g., ALSA)", "Unclear feature-specific build process"]
+  },
+  "metadata": {
+    "analysis_timestamp": "2025-09-10T02:41:18+00:00",
+    "files_analyzed": 415,
+    "directories_analyzed": 118,
+    "packages_analyzed": 10,
+    "time_taken_seconds": 0,
+    "confidence_notes": ["cargo test failed due to missing alsa library"]
+  }
+}
