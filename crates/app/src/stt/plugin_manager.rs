@@ -33,6 +33,23 @@ impl SttPluginManager {
         }
     }
 
+    /// Update plugin selection configuration at runtime
+    pub async fn set_selection_config(&mut self, cfg: PluginSelectionConfig) {
+        self.selection_config = cfg;
+        info!("Updated STT plugin selection configuration");
+    }
+
+    /// (Planned) Garbage collect inactive plugin models.
+    /// NOTE: Actual periodic invocation should be scheduled by runtime layer.
+    /// This placeholder allows future integration once plugins implement
+    /// model unloading semantics.
+    pub async fn gc_inactive_models(&self) {
+        // TODO: Iterate over registered factories / cached plugin state and
+        // unload models exceeding inactivity TTL. Currently a no-op because
+        // plugins do not expose model residency metadata yet.
+        tracing::debug!("gc_inactive_models(): no-op (pending implementation)");
+    }
+
     /// Register all built-in plugins
     fn register_builtin_plugins(registry: &mut SttPluginRegistry) {
         use coldvox_stt::plugins::noop::NoOpPluginFactory;
