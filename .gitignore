@@ -64,3 +64,15 @@ actionlint.tar.gz
 
 # Generated documentation
 man/
+
+# External tool documentation (actionlint, etc)
+LICENSE.txt
+package.json
+package-lock.json
+docs/README.md
+docs/api.md
+docs/checks.md
+docs/config.md
+docs/install.md
+docs/reference.md
+docs/usage.md
