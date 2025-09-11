@@ -30,6 +30,52 @@ pub enum SttPluginError {
 
     #[error("Backend error: {0}")]
     BackendError(Box<dyn std::error::Error + Send + Sync>),
+
+    // New error classification for retry logic
+    #[error("Model not found: {path}")]
+    ModelNotFound { path: String },
+
+    #[error("Model corrupt: {reason}")]
+    ModelCorrupt { reason: String },
+
+    #[error("Invalid configuration: {reason}")]
+    InvalidConfig { reason: String },
+
+    #[error("Decode timeout after {timeout_ms}ms")]
+    DecodeTimeout { timeout_ms: u64 },
+
+    #[error("Resource exhausted: {reason}")]
+    ResourceExhausted { reason: String },
+
+    #[error("IO error: {0}")]
+    IoError(#[from] std::io::Error),
+
+    #[error("Backend unavailable")]
+    BackendUnavailable,
+}
+
+impl SttPluginError {
+    /// Check if this is a transient error that should be retried
+    pub fn is_transient(&self) -> bool {
+        matches!(
+            self,
+            SttPluginError::DecodeTimeout { .. } 
+            | SttPluginError::ResourceExhausted { .. }
+            | SttPluginError::IoError(_)
+        )
+    }
+
+    /// Check if this error should trigger failover to another plugin
+    pub fn should_failover(&self) -> bool {
+        matches!(
+            self,
+            SttPluginError::InitializationFailed(_)
+            | SttPluginError::BackendUnavailable
+            | SttPluginError::ModelLoadFailed(_)
+            | SttPluginError::ModelNotFound { .. }
+            | SttPluginError::ModelCorrupt { .. }
+        )
+    }
 }
 
 /// Metadata about an STT plugin
@@ -117,6 +163,22 @@ pub trait SttPlugin: Send + Sync + Debug {
     async fn load_model(&mut self, _model_path: Option<&Path>) -> Result<(), SttPluginError> {
         // Default implementation for plugins that don't need models
         Ok(())
+    }
+
+    /// Unload model to free memory (resource lifecycle management)
+    async fn unload_model(&mut self) -> Result<(), SttPluginError> {
+        // Default implementation: no-op
+        Ok(())
+    }
+
+    /// Get estimated memory usage in bytes
+    fn memory_usage_bytes(&self) -> Option<u64> {
+        None
+    }
+
+    /// Check if model is currently loaded
+    fn is_model_loaded(&self) -> bool {
+        false
     }
 }
 

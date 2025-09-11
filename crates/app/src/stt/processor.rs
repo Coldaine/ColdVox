@@ -94,16 +94,15 @@ pub struct PerformanceMetrics {
     pub processing_time_ns: u128,
 }
 
-#[cfg(feature = "vosk")]
-pub struct SttProcessor {
+pub struct SttProcessor<T: coldvox_stt::StreamingStt> {
     /// Audio frame receiver (broadcast from pipeline)
     audio_rx: broadcast::Receiver<AudioFrame>,
     /// VAD event receiver
     vad_event_rx: mpsc::Receiver<VadEvent>,
     /// Transcription event sender
     event_tx: mpsc::Sender<TranscriptionEvent>,
-    /// Vosk transcriber instance
-    transcriber: VoskTranscriber,
+    /// Generic STT implementation
+    transcriber: T,
     /// Current utterance state
     state: UtteranceState,
     /// Metrics
@@ -114,22 +113,19 @@ pub struct SttProcessor {
     performance_metrics: Option<Arc<crate::telemetry::SttPerformanceMetrics>>,
 }
 
-#[cfg(feature = "vosk")]
-impl SttProcessor {
-    /// Create a new STT processor
+impl<T: coldvox_stt::StreamingStt> SttProcessor<T> {
+    /// Create a new STT processor with any StreamingStt implementation
     pub fn new(
         audio_rx: broadcast::Receiver<AudioFrame>,
         vad_event_rx: mpsc::Receiver<VadEvent>,
         event_tx: mpsc::Sender<TranscriptionEvent>,
+        transcriber: T,
         config: TranscriptionConfig,
     ) -> Result<Self, String> {
         // Check if STT is enabled
         if !config.enabled {
             tracing::info!("STT processor disabled in configuration");
         }
-
-        // Create Vosk transcriber with configuration
-        let transcriber = VoskTranscriber::new(config.clone(), 16000.0)?;
 
         Ok(Self {
             audio_rx,
@@ -144,25 +140,14 @@ impl SttProcessor {
     }
 
     /// Create with default configuration (backward compatibility)
+    #[deprecated(note = "Use new() with a proper StreamingStt implementation")]
     pub fn new_with_default(
         audio_rx: broadcast::Receiver<AudioFrame>,
         vad_event_rx: mpsc::Receiver<VadEvent>,
     ) -> Result<Self, String> {
-        // Create a simple event channel for compatibility
-        let (event_tx, _event_rx) = mpsc::channel(100);
-
-        // Use default config with the default model path
-        let config = TranscriptionConfig {
-            enabled: true,
-            model_path: crate::stt::vosk::default_model_path(),
-            partial_results: true,
-            max_alternatives: 1,
-            include_words: false,
-            buffer_size_ms: 512,
-            streaming: false,
-        };
-
-        Self::new(audio_rx, vad_event_rx, event_tx, config)
+        // This is now a stub for backward compatibility
+        // In practice, runtime.rs should use the plugin manager
+        return Err("new_with_default is deprecated. Use plugin manager instead.".to_string());
     }
 
     /// Get current metrics
@@ -256,9 +241,7 @@ impl SttProcessor {
         };
 
         // Reset transcriber for new utterance
-        if let Err(e) = coldvox_stt::EventBasedTranscriber::reset(&mut self.transcriber) {
-            tracing::warn!(target: "stt", "Failed to reset transcriber: {}", e);
-        }
+        self.transcriber.reset().await;
 
         tracing::info!(target: "stt", "Started buffering audio for new utterance");
     }
@@ -307,160 +290,53 @@ impl SttProcessor {
 
                 let preprocessing_time = preprocessing_start.elapsed();
 
-                // Retry logic with telemetry tracking
-                let mut attempts = 0;
-                let mut last_err: Option<String>;
-                loop {
-                    // Time the STT engine processing
-                    let engine_start = Instant::now();
+                // Retry logic with telemetry tracking - simplified for StreamingStt
+                // Time the STT engine processing
+                let engine_start = Instant::now();
 
-                    let res = coldvox_stt::EventBasedTranscriber::accept_frame(
-                        &mut self.transcriber,
-                        audio_buffer,
+                if let Some(event) = self.transcriber.on_speech_frame(audio_buffer).await {
+                    let engine_time = engine_start.elapsed();
+                    let delivery_start = Instant::now();
+
+                    self.send_event(event.clone()).await;
+
+                    let delivery_time = delivery_start.elapsed();
+                    let e2e_time = e2e_start.elapsed();
+
+                    // Update comprehensive metrics
+                    self.update_timing_metrics(
+                        e2e_time,
+                        engine_time,
+                        preprocessing_time,
+                        delivery_time,
                     );
-                    match res {
-                        Ok(Some(event)) => {
-                            let engine_time = engine_start.elapsed();
-                            let delivery_start = Instant::now();
 
-                            self.send_event(event.clone()).await;
+                    // Extract confidence if available and update accuracy metrics
+                    self.update_accuracy_metrics(&event, true);
 
-                            let delivery_time = delivery_start.elapsed();
-                            let e2e_time = e2e_start.elapsed();
-
-                            // Update comprehensive metrics
-                            self.update_timing_metrics(
-                                e2e_time,
-                                engine_time,
-                                preprocessing_time,
-                                delivery_time,
-                            );
-
-                            // Extract confidence if available and update accuracy metrics
-                            self.update_accuracy_metrics(&event, true);
-
-                            // Update basic metrics
-                            let mut metrics = self.metrics.write();
-                            metrics.frames_out += frames_buffered;
-                            metrics.last_event_time = Some(Instant::now());
-                            break;
-                        }
-                        Ok(None) => {
-                            tracing::debug!(target: "stt", "No transcription from buffered audio");
-                            break;
-                        }
-                        Err(e) => {
-                            let engine_time = engine_start.elapsed();
-                            let e2e_time = e2e_start.elapsed();
-
-                            last_err = Some(e.clone());
-                            if attempts < 2 {
-                                attempts += 1;
-                                let _ = coldvox_stt::EventBasedTranscriber::reset(
-                                    &mut self.transcriber,
-                                );
-                                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                                continue;
-                            } else {
-                                let msg = last_err.unwrap_or_else(|| "unknown error".to_string());
-                                tracing::error!(target: "stt", "Failed to process buffered audio after retries: {}", msg);
-
-                                // Update error metrics
-                                self.update_accuracy_metrics(
-                                    &TranscriptionEvent::Error {
-                                        code: "BUFFER_PROCESS_ERROR".to_string(),
-                                        message: e.clone(),
-                                    },
-                                    false,
-                                );
-
-                                let error_event = TranscriptionEvent::Error {
-                                    code: "BUFFER_PROCESS_ERROR".to_string(),
-                                    message: msg,
-                                };
-                                self.send_event(error_event).await;
-
-                                // Update metrics including timing even for errors
-                                let mut metrics = self.metrics.write();
-                                metrics.error_count += 1;
-                                metrics.last_engine_time_us = engine_time.as_micros() as u64;
-                                metrics.last_e2e_latency_us = e2e_time.as_micros() as u64;
-
-                                if let Some(perf_metrics) = &self.performance_metrics {
-                                    perf_metrics.record_transcription_failure();
-                                    perf_metrics.record_error();
-                                }
-                                break;
-                            }
-                        }
-                    }
+                    // Update basic metrics
+                    let mut metrics = self.metrics.write();
+                    metrics.frames_out += frames_buffered;
+                    metrics.last_event_time = Some(Instant::now());
+                } else {
+                    tracing::debug!(target: "stt", "No transcription from buffered audio");
                 }
             }
 
             // Finalize to get any remaining transcription
             {
-                let mut attempts = 0;
-                let mut last_err: Option<String>;
-                loop {
-                    match coldvox_stt::EventBasedTranscriber::finalize_utterance(
-                        &mut self.transcriber,
-                    ) {
-                        Ok(Some(event)) => {
-                            self.send_event(event.clone()).await;
+                if let Some(event) = self.transcriber.on_speech_end().await {
+                    self.send_event(event.clone()).await;
 
-                            // Update accuracy metrics
-                            self.update_accuracy_metrics(&event, true);
+                    // Update accuracy metrics
+                    self.update_accuracy_metrics(&event, true);
 
-                            // Update metrics
-                            let mut metrics = self.metrics.write();
-                            metrics.final_count += 1;
-                            metrics.last_event_time = Some(Instant::now());
-                            break;
-                        }
-                        Ok(None) => {
-                            tracing::debug!(target: "stt", "No final transcription available");
-                            break;
-                        }
-                        Err(e) => {
-                            last_err = Some(e.clone());
-                            if attempts < 2 {
-                                attempts += 1;
-                                let _ = coldvox_stt::EventBasedTranscriber::reset(
-                                    &mut self.transcriber,
-                                );
-                                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                                continue;
-                            } else {
-                                let msg = last_err.unwrap_or_else(|| "unknown error".to_string());
-                                tracing::error!(target: "stt", "Failed to finalize transcription after retries: {}", msg);
-
-                                // Update error metrics
-                                self.update_accuracy_metrics(
-                                    &TranscriptionEvent::Error {
-                                        code: "FINALIZE_ERROR".to_string(),
-                                        message: e.clone(),
-                                    },
-                                    false,
-                                );
-
-                                let error_event = TranscriptionEvent::Error {
-                                    code: "FINALIZE_ERROR".to_string(),
-                                    message: msg,
-                                };
-                                self.send_event(error_event).await;
-
-                                // Update metrics
-                                let mut metrics = self.metrics.write();
-                                metrics.error_count += 1;
-
-                                if let Some(perf_metrics) = &self.performance_metrics {
-                                    perf_metrics.record_transcription_failure();
-                                    perf_metrics.record_error();
-                                }
-                                break;
-                            }
-                        }
-                    }
+                    // Update metrics
+                    let mut metrics = self.metrics.write();
+                    metrics.final_count += 1;
+                    metrics.last_event_time = Some(Instant::now());
+                } else {
+                    tracing::debug!(target: "stt", "No final transcription available");
                 }
             }
         }
@@ -486,59 +362,11 @@ impl SttProcessor {
                 .map(|&sample| (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
                 .collect();
 
-            let event_result = coldvox_stt::EventBasedTranscriber::accept_frame(
-                &mut self.transcriber,
-                &i16_samples,
-            );
-
-            match event_result {
-                Ok(Some(event)) => {
-                    self.send_event(event).await;
-                    let mut metrics = self.metrics.write();
-                    metrics.frames_out += 1;
-                    metrics.last_event_time = Some(Instant::now());
-                }
-                Ok(None) => {}
-                Err(e) => {
-                    let mut attempts = 0;
-                    let mut last_err: Option<String> = Some(e);
-                    let mut handled = false;
-                    while attempts < 2 {
-                        attempts += 1;
-                        let _ = coldvox_stt::EventBasedTranscriber::reset(&mut self.transcriber);
-                        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                        match coldvox_stt::EventBasedTranscriber::accept_frame(
-                            &mut self.transcriber,
-                            &i16_samples,
-                        ) {
-                            Ok(Some(event)) => {
-                                self.send_event(event).await;
-                                let mut metrics = self.metrics.write();
-                                metrics.frames_out += 1;
-                                metrics.last_event_time = Some(Instant::now());
-                                handled = true;
-                                break;
-                            }
-                            Ok(None) => {
-                                handled = true;
-                                break;
-                            }
-                            Err(e2) => {
-                                last_err = Some(e2);
-                            }
-                        }
-                    }
-                    if !handled {
-                        let msg = last_err.unwrap_or_else(|| "unknown error".to_string());
-                        tracing::error!(target: "stt", "Failed to process streaming audio chunk after retries: {}", msg);
-                        let error_event = TranscriptionEvent::Error {
-                            code: "STREAMING_PROCESS_ERROR".to_string(),
-                            message: msg,
-                        };
-                        self.send_event(error_event).await;
-                        self.metrics.write().error_count += 1;
-                    }
-                }
+            if let Some(event) = self.transcriber.on_speech_frame(&i16_samples).await {
+                self.send_event(event).await;
+                let mut metrics = self.metrics.write();
+                metrics.frames_out += 1;
+                metrics.last_event_time = Some(Instant::now());
             }
 
             // Update frame count for streaming mode
@@ -719,46 +547,4 @@ impl SttProcessor {
     }
 }
 
-#[cfg(not(feature = "vosk"))]
-pub struct SttProcessor;
-
-#[cfg(not(feature = "vosk"))]
-impl SttProcessor {
-    /// Create a stub STT processor when Vosk feature is disabled
-    pub fn new(
-        _audio_rx: broadcast::Receiver<AudioFrame>,
-        _vad_event_rx: mpsc::Receiver<VadEvent>,
-        _event_tx: mpsc::Sender<TranscriptionEvent>,
-        _config: TranscriptionConfig,
-    ) -> Result<Self, String> {
-        tracing::info!("STT processor disabled - Vosk feature not enabled");
-        Ok(Self)
-    }
-
-    /// Stub method for backward compatibility
-    pub fn new_with_default(
-        _audio_rx: broadcast::Receiver<AudioFrame>,
-        _vad_event_rx: mpsc::Receiver<VadEvent>,
-    ) -> Result<Self, String> {
-        Self::new(
-            _audio_rx,
-            _vad_event_rx,
-            mpsc::channel(1).0,
-            TranscriptionConfig::default(),
-        )
-    }
-
-    /// Get stub metrics
-    pub fn metrics(&self) -> SttMetrics {
-        SttMetrics::default()
-    }
-
-    /// Run stub processor
-    pub async fn run(self) {
-        tracing::info!("STT processor stub running - no actual processing (Vosk feature disabled)");
-        // Just sleep forever since there's nothing to do
-        loop {
-            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
-        }
-    }
-}
+// No longer need separate stub implementation since we're generic over StreamingStt

@@ -12,6 +12,9 @@ use coldvox_vad::config::SileroConfig;
 use coldvox_vad::{UnifiedVadConfig, VadEvent, VadMode, FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 
 use crate::hotkey::spawn_hotkey_listener;
+use crate::stt::plugin_manager::{SttPluginManager, FailoverConfig};
+use coldvox_stt::plugin::{PluginSelectionConfig};
+use coldvox_stt::plugin_adapter::PluginAdapter;
 
 #[cfg(feature = "vosk")]
 use crate::stt::{processor::SttProcessor, TranscriptionEvent};
@@ -46,12 +49,28 @@ pub struct AppRuntimeOptions {
     pub device: Option<String>,
     pub resampler_quality: ResamplerQuality,
     pub activation_mode: ActivationMode,
+    
+    // Legacy Vosk options (for backward compatibility)
     /// Optional model path override for Vosk; when None, uses env/defaults
     #[cfg(feature = "vosk")]
     pub vosk_model_path: Option<String>,
     /// Optional explicit enable for STT (overrides auto-detect)
     #[cfg(feature = "vosk")]
     pub stt_enabled: Option<bool>,
+
+    // New STT plugin options
+    pub stt_backend: Option<String>,
+    pub stt_fallback: Vec<String>,
+    pub stt_max_mem_mb: Option<u64>,
+    pub stt_max_retries: usize,
+
+    #[cfg(feature = "whisper")]
+    pub whisper_model_path: Option<String>,
+    #[cfg(feature = "whisper")]
+    pub whisper_mode: String,
+    #[cfg(feature = "whisper")]
+    pub whisper_quant: String,
+
     #[cfg(feature = "text-injection")]
     pub injection: Option<InjectionOptions>,
 }
@@ -62,10 +81,25 @@ impl Default for AppRuntimeOptions {
             device: None,
             resampler_quality: ResamplerQuality::Balanced,
             activation_mode: ActivationMode::Vad,
+            
             #[cfg(feature = "vosk")]
             vosk_model_path: None,
             #[cfg(feature = "vosk")]
             stt_enabled: None,
+
+            // New STT options with defaults
+            stt_backend: Some("auto".to_string()),
+            stt_fallback: vec!["whisper".to_string(), "vosk".to_string(), "mock".to_string(), "noop".to_string()],
+            stt_max_mem_mb: None,
+            stt_max_retries: 3,
+
+            #[cfg(feature = "whisper")]
+            whisper_model_path: None,
+            #[cfg(feature = "whisper")]
+            whisper_mode: "balanced".to_string(),
+            #[cfg(feature = "whisper")]
+            whisper_quant: "q5_1".to_string(),
+
             #[cfg(feature = "text-injection")]
             injection: None,
         }
@@ -79,14 +113,12 @@ pub struct AppHandle {
     raw_vad_tx: mpsc::Sender<VadEvent>,
     audio_tx: broadcast::Sender<coldvox_audio::AudioFrame>,
     current_mode: std::sync::Arc<parking_lot::RwLock<ActivationMode>>,
-    #[cfg(feature = "vosk")]
     pub stt_rx: Option<mpsc::Receiver<TranscriptionEvent>>,
 
     audio_capture: AudioCaptureThread,
     chunker_handle: JoinHandle<()>,
     trigger_handle: JoinHandle<()>,
     vad_fanout_handle: JoinHandle<()>,
-    #[cfg(feature = "vosk")]
     stt_handle: Option<JoinHandle<()>>,
     #[cfg(feature = "text-injection")]
     injection_handle: Option<JoinHandle<()>>,
@@ -107,7 +139,6 @@ impl AppHandle {
         self.chunker_handle.abort();
         self.trigger_handle.abort();
         self.vad_fanout_handle.abort();
-        #[cfg(feature = "vosk")]
         if let Some(h) = &self.stt_handle {
             h.abort();
         }
@@ -120,7 +151,6 @@ impl AppHandle {
         let _ = self.chunker_handle.await;
         let _ = self.trigger_handle.await;
         let _ = self.vad_fanout_handle.await;
-        #[cfg(feature = "vosk")]
         if let Some(h) = self.stt_handle {
             let _ = h.await;
         }
@@ -288,56 +318,33 @@ pub async fn start(
     // 4) Fan-out raw VAD mpsc -> broadcast for UI, and to STT when enabled
     let (vad_bcast_tx, _) = broadcast::channel::<VadEvent>(256);
 
-    // 5) Optional STT processor
-    #[cfg(feature = "vosk")]
+    // 5) STT processor using plugin manager
     let mut stt_transcription_rx_opt: Option<mpsc::Receiver<TranscriptionEvent>> = None;
-    #[cfg(feature = "vosk")]
     let mut stt_handle_opt: Option<JoinHandle<()>> = None;
-    #[cfg(feature = "vosk")]
     let stt_vad_tx_opt: Option<mpsc::Sender<VadEvent>> = {
-        // Determine model path and whether STT is enabled
-        let model_path = if let Some(p) = &opts.vosk_model_path {
-            p.clone()
-        } else {
-            std::env::var("VOSK_MODEL_PATH")
-                .unwrap_or_else(|_| "models/vosk-model-small-en-us-0.15".to_string())
-        };
-        let autodetect_enabled = std::path::Path::new(&model_path).exists();
-        let stt_enabled = opts.stt_enabled.unwrap_or(autodetect_enabled);
+        // Determine if STT is enabled and create plugin manager
+        let stt_enabled = should_enable_stt(&opts);
 
         if stt_enabled {
-            let stt_audio_rx = audio_tx.subscribe();
-            let (stt_transcription_tx, stt_transcription_rx) =
-                mpsc::channel::<TranscriptionEvent>(100);
-            let (stt_vad_tx, stt_vad_rx) = mpsc::channel::<VadEvent>(200);
-
-            let stt_config = TranscriptionConfig {
-                enabled: true,
-                model_path,
-                partial_results: true,
-                max_alternatives: 1,
-                include_words: false,
-                buffer_size_ms: 512,
-                streaming: true,
-            };
-            let stt_processor =
-                SttProcessor::new(stt_audio_rx, stt_vad_rx, stt_transcription_tx, stt_config)
-                    .map_err(|e| format!("Failed to create STT: {}", e))?;
-            let stt_handle = tokio::spawn(async move { stt_processor.run().await });
-
-            stt_transcription_rx_opt = Some(stt_transcription_rx);
-            stt_handle_opt = Some(stt_handle);
-            Some(stt_vad_tx)
+            match create_stt_processor(&opts, &metrics, audio_tx.subscribe()).await {
+                Ok((stt_transcription_rx, stt_vad_tx, stt_handle)) => {
+                    stt_transcription_rx_opt = Some(stt_transcription_rx);
+                    stt_handle_opt = Some(stt_handle);
+                    Some(stt_vad_tx)
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to initialize STT: {}. Continuing without STT.", e);
+                    None
+                }
+            }
         } else {
+            tracing::info!("STT disabled");
             None
         }
     };
-    #[cfg(not(feature = "vosk"))]
-    let _stt_vad_tx_opt: Option<mpsc::Sender<VadEvent>> = None;
 
     // Fanout task
     let vad_bcast_tx_clone = vad_bcast_tx.clone();
-    #[cfg(feature = "vosk")]
     let stt_vad_tx_clone = stt_vad_tx_opt.clone();
     let vad_fanout_handle = tokio::spawn(async move {
         let mut rx = raw_vad_rx;
@@ -345,7 +352,6 @@ pub async fn start(
             tracing::debug!("Fanout: Received VAD event: {:?}", ev);
             let _ = vad_bcast_tx_clone.send(ev);
             tracing::debug!("Fanout: Forwarded to broadcast channel");
-            #[cfg(feature = "vosk")]
             if let Some(stt_tx) = &stt_vad_tx_clone {
                 if let Err(e) = stt_tx.send(ev).await {
                     tracing::warn!("Fanout: Failed to send to STT: {}", e);
@@ -409,7 +415,7 @@ pub async fn start(
         true, // audio_capture is always initialized
         true, // chunker_handle is always initialized
         matches!(opts.activation_mode, ActivationMode::Vad),
-        cfg!(feature = "vosk") && stt_handle_opt.is_some()
+        stt_handle_opt.is_some()
     );
 
     Ok(AppHandle {
@@ -418,15 +424,173 @@ pub async fn start(
         raw_vad_tx,
         audio_tx,
         current_mode: std::sync::Arc::new(parking_lot::RwLock::new(opts.activation_mode)),
-        #[cfg(feature = "vosk")]
         stt_rx: stt_transcription_rx_opt,
         audio_capture,
         chunker_handle,
         trigger_handle,
         vad_fanout_handle,
-        #[cfg(feature = "vosk")]
         stt_handle: stt_handle_opt,
         #[cfg(feature = "text-injection")]
         injection_handle,
     })
+}
+
+/// Determine if STT should be enabled based on options
+fn should_enable_stt(opts: &AppRuntimeOptions) -> bool {
+    // Check legacy stt_enabled option first
+    #[cfg(feature = "vosk")]
+    if let Some(enabled) = opts.stt_enabled {
+        if enabled {
+            return true;
+        }
+    }
+
+    // Check if backend is explicitly disabled
+    if let Some(ref backend) = opts.stt_backend {
+        if backend == "none" || backend == "noop" {
+            return false;
+        }
+    }
+
+    // Auto-enable logic: check if any STT backend/model is available
+    #[cfg(feature = "vosk")]
+    {
+        let vosk_model_path = opts.vosk_model_path
+            .clone()
+            .or_else(|| std::env::var("VOSK_MODEL_PATH").ok())
+            .unwrap_or_else(|| "models/vosk-model-small-en-us-0.15".to_string());
+        
+        if std::path::Path::new(&vosk_model_path).exists() {
+            return true;
+        }
+    }
+
+    #[cfg(feature = "whisper")]
+    {
+        if let Some(ref path) = opts.whisper_model_path {
+            if std::path::Path::new(path).exists() {
+                return true;
+            }
+        }
+        
+        if std::env::var("WHISPER_MODEL_PATH").is_ok() {
+            return true;
+        }
+    }
+
+    // Default: try to enable (will fall back to mock/noop if nothing works)
+    true
+}
+
+/// Create STT processor with plugin manager
+async fn create_stt_processor(
+    opts: &AppRuntimeOptions,
+    metrics: &Arc<PipelineMetrics>,
+    audio_rx: broadcast::Receiver<coldvox_audio::AudioFrame>,
+) -> Result<(mpsc::Receiver<TranscriptionEvent>, mpsc::Sender<VadEvent>, JoinHandle<()>), String> {
+    // Create plugin selection config
+    let mut plugin_selection = PluginSelectionConfig::default();
+    
+    // Set preferred backend
+    if let Some(ref backend) = opts.stt_backend {
+        if backend != "auto" {
+            plugin_selection.preferred_plugin = Some(backend.clone());
+        }
+    }
+
+    // Handle legacy vosk-model-path flag for backward compatibility
+    #[cfg(feature = "vosk")]
+    if opts.vosk_model_path.is_some() && opts.stt_backend.as_deref() == Some("auto") {
+        tracing::warn!("--vosk-model-path is deprecated. Use --stt-backend=vosk instead.");
+        plugin_selection.preferred_plugin = Some("vosk".to_string());
+    }
+
+    // Set fallback order
+    plugin_selection.fallback_plugins = opts.stt_fallback.clone();
+    
+    // Set constraints
+    if let Some(max_mem) = opts.stt_max_mem_mb {
+        plugin_selection.max_memory_mb = Some(max_mem as u32);
+    }
+
+    // Create failover config
+    let failover_config = FailoverConfig {
+        max_retries: opts.stt_max_retries,
+        failover_cooldown_secs: 2,
+        model_ttl_seconds: 300, // 5 minutes
+        max_memory_mb: opts.stt_max_mem_mb,
+    };
+
+    // Create plugin manager
+    let mut plugin_manager = SttPluginManager::with_config(plugin_selection, failover_config);
+    plugin_manager.set_metrics(metrics.clone());
+    
+    // Initialize plugin manager
+    let active_backend = plugin_manager.initialize().await
+        .map_err(|e| format!("Failed to initialize STT plugin manager: {}", e))?;
+
+    tracing::info!("STT initialized with backend: {}", active_backend);
+    
+    // Update metrics with active backend
+    metrics.set_stt_backend(active_backend);
+
+    // Create transcription config
+    let stt_config = create_stt_config(opts);
+
+    // Get the selected plugin and wrap it in an adapter  
+    let plugin = plugin_manager.current_plugin_instance().await
+        .ok_or_else(|| "No STT plugin selected".to_string())?;
+    
+    let mut adapter = PluginAdapter::new(plugin);
+    adapter.initialize(stt_config.clone()).await
+        .map_err(|e| format!("Failed to initialize STT plugin: {}", e))?;
+
+    // Create channels
+    let (stt_transcription_tx, stt_transcription_rx) = mpsc::channel::<TranscriptionEvent>(100);
+    let (stt_vad_tx, stt_vad_rx) = mpsc::channel::<VadEvent>(200);
+
+    // Create processor with adapter
+    let stt_processor = crate::stt::processor::SttProcessor::new(
+        audio_rx,
+        stt_vad_rx,
+        stt_transcription_tx,
+        adapter,
+        stt_config,
+    )?;
+
+    // Spawn processor task
+    let stt_handle = tokio::spawn(async move { 
+        stt_processor.run().await 
+    });
+
+    Ok((stt_transcription_rx, stt_vad_tx, stt_handle))
+}
+
+/// Create transcription configuration from options
+fn create_stt_config(opts: &AppRuntimeOptions) -> TranscriptionConfig {
+    // Start with default model path logic
+    let default_model_path = {
+        #[cfg(feature = "vosk")]
+        {
+            opts.vosk_model_path
+                .clone()
+                .or_else(|| std::env::var("VOSK_MODEL_PATH").ok())
+                .unwrap_or_else(|| "models/vosk-model-small-en-us-0.15".to_string())
+        }
+        
+        #[cfg(not(feature = "vosk"))]
+        {
+            "models/vosk-model-small-en-us-0.15".to_string()
+        }
+    };
+
+    TranscriptionConfig {
+        enabled: true,
+        model_path: default_model_path,
+        partial_results: true,
+        max_alternatives: 1,
+        include_words: false,
+        buffer_size_ms: 512,
+        streaming: false, // Use batch mode by default
+    }
 }

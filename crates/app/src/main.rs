@@ -78,6 +78,42 @@ struct Cli {
     #[arg(long = "activation-mode", default_value = "hotkey", value_enum)]
     activation_mode: ActivationMode,
 
+    /// STT backend selection: "auto", "whisper", "vosk", "mock", "noop"
+    #[arg(long = "stt-backend", default_value = "auto", env = "COLDVOX_STT_BACKEND")]
+    stt_backend: String,
+
+    /// STT fallback order (comma-separated)
+    #[arg(long = "stt-fallback", default_value = "whisper,vosk,mock,noop", env = "COLDVOX_STT_FALLBACK")]
+    stt_fallback: String,
+
+    /// Maximum memory usage for STT plugins (MB)
+    #[arg(long = "stt-max-mem-mb", env = "COLDVOX_STT_MAX_MEM_MB")]
+    stt_max_mem_mb: Option<u64>,
+
+    /// Maximum retries before failover
+    #[arg(long = "stt-max-retries", default_value = "3", env = "COLDVOX_STT_MAX_RETRIES")]
+    stt_max_retries: usize,
+
+    #[cfg(feature = "whisper")]
+    /// Path to Whisper model file
+    #[arg(long = "whisper-model-path", env = "WHISPER_MODEL_PATH")]
+    whisper_model_path: Option<String>,
+
+    #[cfg(feature = "whisper")]
+    /// Whisper mode: "fast" (tiny), "balanced" (small), "quality" (medium)
+    #[arg(long = "whisper-mode", default_value = "balanced", env = "COLDVOX_WHISPER_MODE")]
+    whisper_mode: String,
+
+    #[cfg(feature = "whisper")]
+    /// Whisper quantization: "q5_1", "q8_0", "fp16"
+    #[arg(long = "whisper-quant", default_value = "q5_1", env = "COLDVOX_WHISPER_QUANT")]
+    whisper_quant: String,
+
+    #[cfg(feature = "vosk")]
+    /// Legacy Vosk model path (use --stt-backend=vosk and config instead)
+    #[arg(long = "vosk-model-path", env = "VOSK_MODEL_PATH")]
+    vosk_model_path: Option<String>,
+
     #[cfg(feature = "text-injection")]
     #[command(flatten)]
     injection: InjectionArgs,
@@ -185,10 +221,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ActivationMode::Vad => RuntimeMode::Vad,
             ActivationMode::Hotkey => RuntimeMode::Hotkey,
         },
+        
+        // Legacy Vosk options
         #[cfg(feature = "vosk")]
-        vosk_model_path: None,
+        vosk_model_path: cli.vosk_model_path,
         #[cfg(feature = "vosk")]
         stt_enabled: None,
+
+        // New STT plugin options
+        stt_backend: Some(cli.stt_backend),
+        stt_fallback: cli.stt_fallback.split(',').map(|s| s.trim().to_string()).collect(),
+        stt_max_mem_mb: cli.stt_max_mem_mb,
+        stt_max_retries: cli.stt_max_retries,
+
+        #[cfg(feature = "whisper")]
+        whisper_model_path: cli.whisper_model_path,
+        #[cfg(feature = "whisper")]
+        whisper_mode: cli.whisper_mode,
+        #[cfg(feature = "whisper")]
+        whisper_quant: cli.whisper_quant,
+
         #[cfg(feature = "text-injection")]
         injection: if cfg!(feature = "text-injection") {
             Some(coldvox_app::runtime::InjectionOptions {

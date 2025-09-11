@@ -52,6 +52,13 @@ pub struct PipelineMetrics {
     // Text Injection Metrics
     #[cfg(feature = "text-injection")]
     pub injection: Arc<Mutex<InjectionMetrics>>,
+
+    // STT Metrics (as required by problem statement)
+    pub active_stt_backend: Arc<RwLock<String>>,
+    pub last_stt_decode_ms: Arc<AtomicU64>,
+    pub last_stt_audio_duration_ms: Arc<AtomicU64>, 
+    pub last_stt_rt_factor: Arc<AtomicU64>, // Stored as x1000 for precision
+    pub stt_failover_count: Arc<AtomicU64>,
 }
 
 impl PipelineMetrics {
@@ -128,6 +135,31 @@ impl PipelineMetrics {
 
     pub fn increment_chunker_frames(&self) {
         self.chunker_frames.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Update STT backend name
+    pub fn set_stt_backend(&self, backend: String) {
+        *self.active_stt_backend.write() = backend;
+    }
+
+    /// Update STT decode timing
+    pub fn update_stt_decode_ms(&self, decode_ms: u64) {
+        self.last_stt_decode_ms.store(decode_ms, Ordering::Relaxed);
+    }
+
+    /// Update STT audio duration
+    pub fn update_stt_audio_duration_ms(&self, duration_ms: u64) {
+        self.last_stt_audio_duration_ms.store(duration_ms, Ordering::Relaxed);
+    }
+
+    /// Update Real-Time Factor (RTF = decode_time / audio_duration)
+    pub fn update_stt_rt_factor(&self, rt_factor: f32) {
+        self.last_stt_rt_factor.store((rt_factor * 1000.0) as u64, Ordering::Relaxed);
+    }
+
+    /// Increment STT failover counter
+    pub fn increment_stt_failover(&self) {
+        self.stt_failover_count.fetch_add(1, Ordering::Relaxed);
     }
 }
 

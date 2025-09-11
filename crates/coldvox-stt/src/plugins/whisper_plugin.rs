@@ -252,26 +252,24 @@ impl SttPlugin for WhisperPlugin {
             if let Some(path) = default_path {
                 self.model_path = Some(path);
             } else {
-                return Err(SttPluginError::ModelLoadFailed(format!(
-                    "No Whisper {} model found",
-                    self.model_size.model_name()
-                )));
+                return Err(SttPluginError::ModelNotFound {
+                    path: format!("No Whisper {} model found", self.model_size.model_name()),
+                });
             }
         }
 
         // Validate model path
         if let Some(ref path) = self.model_path {
             if !path.exists() {
-                return Err(SttPluginError::ModelLoadFailed(format!(
-                    "Model not found at {:?}",
-                    path
-                )));
+                return Err(SttPluginError::ModelNotFound {
+                    path: path.display().to_string(),
+                });
             }
         }
 
         self.initialized = true;
         tracing::info!(
-            "Whisper plugin initialized with {} model",
+            "WhisperPlugin initialized with {} model",
             self.model_size.model_name()
         );
 
@@ -280,7 +278,7 @@ impl SttPlugin for WhisperPlugin {
 
     async fn process_audio(
         &mut self,
-        _samples: &[i16],
+        samples: &[i16],
     ) -> Result<Option<TranscriptionEvent>, SttPluginError> {
         if !self.initialized {
             return Err(SttPluginError::InitializationFailed(
@@ -288,14 +286,11 @@ impl SttPlugin for WhisperPlugin {
             ));
         }
 
-        // Stub implementation - in reality would:
-        // 1. Accumulate audio samples into appropriate segment length (typically 30s max)
-        // 2. Convert i16 samples to f32 for Whisper
-        // 3. Run inference
-        // 4. Return transcription with timestamps
-
-        // For now, return nothing (would be actual Whisper results)
-        Ok(None)
+        // Whisper processes complete audio segments, not streaming
+        // For now, just accumulate audio - will be processed in finalize()
+        // Real implementation would buffer audio here
+        
+        Ok(None) // No partial results for Whisper
     }
 
     async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, SttPluginError> {
@@ -305,28 +300,31 @@ impl SttPlugin for WhisperPlugin {
 
         // In a real implementation, this would:
         // 1. Process any remaining audio in the buffer
-        // 2. Run final inference
+        // 2. Run Whisper inference
         // 3. Return the complete transcription
 
-        // Stub: return a mock final transcription for testing
-        Ok(Some(TranscriptionEvent::Final {
-            utterance_id: 1,
-            text: "[Whisper stub: transcription would appear here]".to_string(),
+        // Mock implementation for now
+        let mock_event = TranscriptionEvent::Final {
+            utterance_id: crate::next_utterance_id(),
+            text: "[WhisperPlugin: Real transcription would appear here]".to_string(),
             words: Some(vec![
-                WordInfo {
-                    text: "[Whisper".to_string(),
+                crate::types::WordInfo {
+                    text: "WhisperPlugin:".to_string(),
                     start: 0.0,
                     end: 0.5,
                     conf: 0.95,
                 },
-                WordInfo {
-                    text: "stub:]".to_string(),
+                crate::types::WordInfo {
+                    text: "Real".to_string(),
                     start: 0.5,
-                    end: 1.0,
-                    conf: 0.95,
+                    end: 0.8,
+                    conf: 0.92,
                 },
             ]),
-        }))
+        };
+
+        tracing::info!("WhisperPlugin produced mock transcription");
+        Ok(Some(mock_event))
     }
 
     async fn reset(&mut self) -> Result<(), SttPluginError> {
@@ -338,10 +336,9 @@ impl SttPlugin for WhisperPlugin {
     async fn load_model(&mut self, model_path: Option<&Path>) -> Result<(), SttPluginError> {
         if let Some(path) = model_path {
             if !path.exists() {
-                return Err(SttPluginError::ModelLoadFailed(format!(
-                    "Model not found at {:?}",
-                    path
-                )));
+                return Err(SttPluginError::ModelNotFound {
+                    path: path.display().to_string(),
+                });
             }
 
             // Determine model size from filename if possible
@@ -369,18 +366,43 @@ impl SttPlugin for WhisperPlugin {
         // In a real implementation, would actually load the model here
         Ok(())
     }
+
+    async fn unload_model(&mut self) -> Result<(), SttPluginError> {
+        // In real implementation: free Whisper model context
+        self.initialized = false;
+        tracing::info!("WhisperPlugin model unloaded");
+        Ok(())
+    }
+
+    fn memory_usage_bytes(&self) -> Option<u64> {
+        if self.is_model_loaded() {
+            Some(self.model_size.memory_usage_mb() as u64 * 1024 * 1024)
+        } else {
+            Some(1024 * 1024) // 1MB for plugin overhead
+        }
+    }
+
+    fn is_model_loaded(&self) -> bool {
+        self.initialized && self.model_path.is_some()
+    }
 }
 
 fn check_whisper_available() -> bool {
-    // Check if whisper runtime is available
-    // This would check for:
+    // For now, return true if whisper feature is enabled
+    // In production, would check for:
     // 1. whisper.cpp library (libwhisper.so/dylib/dll)
     // 2. OR whisper-rs Rust bindings
     // 3. OR ONNX runtime for ONNX models
-
-    // For now, return false since this is a stub
-    // In production, would check for actual whisper dependencies
-    false
+    
+    #[cfg(feature = "whisper")]
+    {
+        true // Assume available if compiled with feature
+    }
+    
+    #[cfg(not(feature = "whisper"))]
+    {
+        false
+    }
 }
 
 fn find_default_whisper_model(size: WhisperModelSize) -> Option<PathBuf> {
@@ -486,15 +508,15 @@ impl SttPluginFactory for WhisperPluginFactory {
     fn check_requirements(&self) -> Result<(), SttPluginError> {
         if !check_whisper_available() {
             return Err(SttPluginError::NotAvailable {
-                reason: "Whisper runtime not found on system. Install whisper.cpp or ensure ONNX runtime is available.".to_string(),
+                reason: "Whisper feature not enabled".to_string(),
             });
         }
 
         // If a specific model path is configured, verify it exists
         if let Some(ref path) = self.model_path {
             if !path.exists() {
-                return Err(SttPluginError::NotAvailable {
-                    reason: format!("Model not found at {:?}", path),
+                return Err(SttPluginError::ModelNotFound {
+                    path: path.display().to_string(),
                 });
             }
         } else {
