@@ -58,7 +58,7 @@ path = "../../examples/device_hotplug_demo.rs"
 required-features = ["examples"]
 
 [dependencies]
-zbus = { version = "5.10.0" }
+zbus = { version = "5.11.0" }
 tokio = { version = "1", features = ["full"] }
 anyhow = "1.0"
 thiserror = "2.0"
