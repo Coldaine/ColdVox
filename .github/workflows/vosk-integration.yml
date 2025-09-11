@@ -26,7 +26,8 @@ concurrency:
 jobs:
   vosk-tests:
     name: Vosk STT Integration
-    runs-on: ubuntu-latest
+    # Runner currently labeled 'nobara' (Fedora derivative); avoid mixing distro labels.
+    runs-on: [self-hosted, Linux, X64, nobara]
     timeout-minutes: 30
     env:
       RUST_TEST_TIME_UNIT: 10000
@@ -41,7 +42,7 @@ jobs:
       - name: Setup ColdVox
         uses: ./.github/actions/setup-coldvox
 
-      - name: Setup Vosk Model Cache
+      - name: Setup Vosk Model Cache (cache-as-contract)
         run: |
           # Export LD_LIBRARY_PATH for Vosk
           export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
@@ -54,14 +55,13 @@ jobs:
           mkdir -p $MODEL_DIR
           
           # Link the small model for tests (remove existing if present)
-          if [ -d "$CACHE_DIR/vosk-model-small-en-us-0.15" ]; then
-            rm -rf "$MODEL_DIR/vosk-model-small-en-us-0.15"
-            ln -sf "$CACHE_DIR/vosk-model-small-en-us-0.15" "$MODEL_DIR/"
-            echo "✅ Linked cached vosk-model-small-en-us-0.15"
-          else
-            echo "❌ Error: Vosk model not found in cache at $CACHE_DIR"
+          if [ ! -d "$CACHE_DIR/vosk-model-small-en-us-0.15" ]; then
+            echo "❌ Required model missing: $CACHE_DIR/vosk-model-small-en-us-0.15" >&2
             exit 1
           fi
+          rm -rf "$MODEL_DIR/vosk-model-small-en-us-0.15"
+          ln -sf "$CACHE_DIR/vosk-model-small-en-us-0.15" "$MODEL_DIR/"
+          echo "✅ Linked cached vosk-model-small-en-us-0.15"
           
           # Link the production model if tests need it
           if [ -d "$CACHE_DIR/vosk-model-en-us-0.22" ]; then
@@ -71,6 +71,14 @@ jobs:
           fi
           
           ls -la $MODEL_DIR/
+          echo "Running model structure verification..."
+          bash scripts/verify_vosk_model.sh "$MODEL_DIR/vosk-model-small-en-us-0.15"
+          if [ -f "models/SHA256SUMS" ]; then
+            echo "Running checksum integrity verification..."
+            bash scripts/verify-model-integrity.sh "$MODEL_DIR/vosk-model-small-en-us-0.15" models/SHA256SUMS verify
+          else
+            echo "No models/SHA256SUMS file present; skipping checksum verification."
+          fi
 
       - name: Install cargo-nextest
         run: cargo install cargo-nextest --locked
