@@ -4,8 +4,10 @@
 //! including transcription events, configuration, and the base Transcriber trait.
 
 use std::sync::atomic::{AtomicU64, Ordering};
+use async_trait::async_trait;
 
 pub mod plugin;
+pub mod plugin_adapter;
 pub mod plugins;
 pub mod processor;
 pub mod types;
@@ -18,6 +20,23 @@ static UTTERANCE_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 /// Generate a unique utterance ID
 pub fn next_utterance_id() -> u64 {
     UTTERANCE_ID_COUNTER.fetch_add(1, Ordering::SeqCst)
+}
+
+/// Streaming STT interface - adapter layer between plugins and processor
+/// 
+/// This trait provides a simplified interface for the SttProcessor to work with
+/// any STT plugin implementation. It acts as an adapter between the plugin system
+/// and the existing processor logic.
+#[async_trait]
+pub trait StreamingStt: Send + Sync {
+    /// Process audio frame during active speech
+    async fn on_speech_frame(&mut self, samples: &[i16]) -> Option<TranscriptionEvent>;
+    
+    /// Finalize transcription at end of speech segment
+    async fn on_speech_end(&mut self) -> Option<TranscriptionEvent>;
+    
+    /// Reset state for new utterance
+    async fn reset(&mut self);
 }
 
 /// Core transcription interface
