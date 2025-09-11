@@ -53,3 +53,14 @@ vosk-linux-x86_64-*/
 !.coldvox/.gitkeep
 crates/app/.coldvox/*
 !crates/app/.coldvox/.gitkeep
+
+# Node.js dependencies
+node_modules/
+
+# Binary executables and archives
+actionlint
+actionlint.tar.gz
+*.tar.gz
+
+# Generated documentation
+man/

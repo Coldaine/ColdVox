@@ -1,0 +1,4 @@
+config:
+  runner-label:
+    - fedora
+    - nobara

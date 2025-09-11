@@ -36,6 +36,36 @@
 /home/coldaine/actions-runner/
 ```
 
+---
+
+## (Appended) CI Cache-as-Contract Policy Summary
+
+The CI system now relies on an immutable, pre-provisioned asset cache on the self-hosted runner.
+
+| Asset | Location | Required | CI Action if Missing |
+|-------|----------|----------|----------------------|
+| Small Vosk Model (`vosk-model-small-en-us-0.15`) | `/home/coldaine/ActionRunnerCache/vosk-models/vosk-model-small-en-us-0.15` | Yes | Fail fast (runner-health) |
+| Large Vosk Model (`vosk-model-en-us-0.22`) | `/home/coldaine/ActionRunnerCache/vosk-models/vosk-model-en-us-0.22` | No | Continue with info log |
+| libvosk Shared Library | `/usr/local/lib/libvosk.so` | Yes | Fail fast |
+| libvosk Header | `/usr/local/include/vosk_api.h` | No | Warn only |
+
+Workflow Guarantees:
+- No network downloads of models or libvosk occur in any workflow.
+- `runner-health` job runs first (uses `scripts/runner_health_check.sh`).
+- Model setup steps only create symlinks into cached model directories.
+- Structure & optional checksum verification: `scripts/verify_vosk_model.sh`, `scripts/verify-model-integrity.sh`.
+- Library verification: `scripts/verify_libvosk.sh`.
+
+Operational Process:
+1. Provision / update assets outside CI.
+2. Re-run workflows; failures indicate drift from contract.
+3. Never edit workflows to re-enable downloads; fix the runner instead.
+
+Change Control:
+- Any modification to provisioning paths or asset names must update both the health script and README policy.
+
+End of appended policy section.
+
 ### Runner Labels
 ```
 [self-hosted, Linux, X64, fedora, nobara]
