@@ -38,6 +38,31 @@ jobs:
       - name: Setup ColdVox
         uses: ./.github/actions/setup-coldvox
 
+      - name: Setup Vosk Model Cache
+        run: |
+          # Use pre-cached models from permanent cache location
+          CACHE_DIR="/home/coldaine/ActionRunnerCache/vosk-models"
+          MODEL_DIR="models"
+          
+          mkdir -p $MODEL_DIR
+          
+          # Link the small model for tests
+          if [ -d "$CACHE_DIR/vosk-model-small-en-us-0.15" ]; then
+            ln -sf "$CACHE_DIR/vosk-model-small-en-us-0.15" "$MODEL_DIR/"
+            echo "✅ Linked cached vosk-model-small-en-us-0.15"
+          else
+            echo "❌ Error: Vosk model not found in cache at $CACHE_DIR"
+            exit 1
+          fi
+          
+          # Link the production model if tests need it
+          if [ -d "$CACHE_DIR/vosk-model-en-us-0.22" ]; then
+            ln -sf "$CACHE_DIR/vosk-model-en-us-0.22" "$MODEL_DIR/"
+            echo "✅ Linked cached vosk-model-en-us-0.22"
+          fi
+          
+          ls -la $MODEL_DIR/
+
       - name: Install cargo-nextest
         run: cargo install cargo-nextest --locked
 

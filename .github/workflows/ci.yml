@@ -64,8 +64,8 @@ jobs:
           fi
           echo "All workflows render via gh."
 
-  download-vosk-model:
-    name: Use Vendored Vosk Model
+  setup-vosk-model:
+    name: Setup Vosk Model from Cache
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
     outputs:
       model-path: ${{ steps.get-model-path.outputs.path }}
@@ -73,31 +73,36 @@ jobs:
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         
-      - name: Verify vendored model with integrity checks
+      - name: Setup Vosk Model from Cache
         run: |
           set -euo pipefail
           
-          # Use our centralized model verification script
-          export COLDVOX_VERIFY_VERBOSE=1
-          export COLDVOX_MIN_MODEL_SIZE_MB=40
+          # Use pre-cached models from permanent cache location
+          CACHE_DIR="/home/coldaine/ActionRunnerCache/vosk-models"
+          MODEL_DIR="models"
           
-          if ! ./scripts/verify-model-integrity.sh; then
-            echo ""
-            echo "FATAL: Model integrity verification failed" >&2
-            echo "This could indicate:" >&2
-            echo "  - Model files are missing or incomplete" >&2
-            echo "  - Model files have been corrupted" >&2
-            echo "  - Checksum file is out of date" >&2
-            echo ""
-            echo "To resolve:" >&2
-            echo "  1. Ensure model is properly downloaded and extracted to models/vosk-model-small-en-us-0.15/" >&2
-            echo "  2. Regenerate checksums if model was updated: ./scripts/verify-model-integrity.sh '' '' generate" >&2
-            echo "  3. Commit both model files and updated SHA256SUMS" >&2
+          mkdir -p $MODEL_DIR
+          
+          # Link the small model for tests
+          if [ -d "$CACHE_DIR/vosk-model-small-en-us-0.15" ]; then
+            ln -sf "$CACHE_DIR/vosk-model-small-en-us-0.15" "$MODEL_DIR/"
+            echo "✅ Linked cached vosk-model-small-en-us-0.15"
+          else
+            echo "❌ Error: Vosk model not found in cache at $CACHE_DIR"
             exit 1
           fi
           
+          # Link the production model if available
+          if [ -d "$CACHE_DIR/vosk-model-en-us-0.22" ]; then
+            ln -sf "$CACHE_DIR/vosk-model-en-us-0.22" "$MODEL_DIR/"
+            echo "✅ Linked cached vosk-model-en-us-0.22"
+          fi
+          
           echo ""
-          echo "✅ Model integrity verification passed - CI can proceed with confidence"
+          echo "Model directory contents:"
+          ls -la $MODEL_DIR/
+          echo ""
+          echo "✅ Model setup complete - using cached models"
 
       - name: Output model path
         id: get-model-path
@@ -108,7 +113,7 @@ jobs:
   build_and_check:
     name: Format, Lint, Typecheck, Build & Docs
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
-    needs: [download-vosk-model]
+    needs: [setup-vosk-model]
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
@@ -140,9 +145,9 @@ jobs:
         run: cargo doc --workspace --no-deps --locked
 
       - name: Run unit and integration tests (skip E2E)
-        if: needs.download-vosk-model.outputs.download-outcome == 'success'
+        if: needs.setup-vosk-model.outputs.download-outcome == 'success'
         env:
-          VOSK_MODEL_PATH: ${{ needs.download-vosk-model.outputs.model-path }}
+          VOSK_MODEL_PATH: ${{ needs.setup-vosk-model.outputs.model-path }}
         run: |
           echo "=== Environment Validation ==="
           echo "VOSK_MODEL_PATH: $VOSK_MODEL_PATH"
@@ -301,7 +306,7 @@ jobs:
   text_injection_tests:
     name: Text Injection Tests
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
-    needs: [download-vosk-model]
+    needs: [setup-vosk-model]
     timeout-minutes: 30
     env:
       DISPLAY: :99
