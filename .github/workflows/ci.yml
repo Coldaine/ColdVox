@@ -26,7 +26,7 @@ env:
 jobs:
   validate-workflows:
     name: Validate Workflow Definitions
-    runs-on: ${{ contains(github.event.inputs.runner, 'self-hosted') && fromJSON('["self-hosted", "Linux", "X64", "fedora", "nobara"]') || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     continue-on-error: true # Optional validation
     env:
       GH_TOKEN: ${{ github.token }}
@@ -66,7 +66,7 @@ jobs:
 
   setup-vosk-model:
     name: Setup Vosk Model from Cache
-    runs-on: ${{ contains(github.event.inputs.runner, 'self-hosted') && fromJSON('["self-hosted", "Linux", "X64", "fedora", "nobara"]') || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     outputs:
       model-path: ${{ steps.get-model-path.outputs.path }}
       download-outcome: success
@@ -79,34 +79,39 @@ jobs:
           export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
           sudo ldconfig
           
-          # Use pre-cached models from permanent cache location
+          # Use pre-cached models from permanent cache location (only on self-hosted)
           CACHE_DIR="/home/coldaine/ActionRunnerCache/vosk-models"
           MODEL_DIR="models"
           
           mkdir -p $MODEL_DIR
           
-          # Link the small model for tests (remove existing if present)
+          # Check if we're on self-hosted runner with cache
           if [ -d "$CACHE_DIR/vosk-model-small-en-us-0.15" ]; then
+            # Self-hosted runner: use cached models
             rm -rf "$MODEL_DIR/vosk-model-small-en-us-0.15"
             ln -sf "$CACHE_DIR/vosk-model-small-en-us-0.15" "$MODEL_DIR/"
             echo "✅ Linked cached vosk-model-small-en-us-0.15"
+            
+            if [ -d "$CACHE_DIR/vosk-model-en-us-0.22" ]; then
+              rm -rf "$MODEL_DIR/vosk-model-en-us-0.22"
+              ln -sf "$CACHE_DIR/vosk-model-en-us-0.22" "$MODEL_DIR/"
+              echo "✅ Linked cached vosk-model-en-us-0.22"
+            fi
           else
-            echo "❌ Error: Vosk model not found in cache at $CACHE_DIR"
-            exit 1
-          fi
-          
-          # Link the production model if available
-          if [ -d "$CACHE_DIR/vosk-model-en-us-0.22" ]; then
-            rm -rf "$MODEL_DIR/vosk-model-en-us-0.22"
-            ln -sf "$CACHE_DIR/vosk-model-en-us-0.22" "$MODEL_DIR/"
-            echo "✅ Linked cached vosk-model-en-us-0.22"
+            # GitHub-hosted runner: download model
+            echo "📥 Downloading Vosk model (cache not available)..."
+            wget -q -O vosk-model-small-en-us-0.15.zip "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip"
+            unzip -q vosk-model-small-en-us-0.15.zip
+            mv vosk-model-small-en-us-0.15 "$MODEL_DIR/"
+            rm vosk-model-small-en-us-0.15.zip
+            echo "✅ Downloaded vosk-model-small-en-us-0.15"
           fi
           
           echo ""
           echo "Model directory contents:"
           ls -la $MODEL_DIR/
           echo ""
-          echo "✅ Model setup complete - using cached models"
+          echo "✅ Model setup complete"
 
       - name: Output model path
         id: get-model-path
@@ -116,7 +121,7 @@ jobs:
   # Static checks, formatting, linting, type-check, build, and docs
   build_and_check:
     name: Format, Lint, Typecheck, Build & Docs
-    runs-on: ${{ contains(github.event.inputs.runner, 'self-hosted') && fromJSON('["self-hosted", "Linux", "X64", "fedora", "nobara"]') || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     needs: [setup-vosk-model]
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
@@ -173,7 +178,7 @@ jobs:
   # MSRV validation
   msrv-check:
     name: MSRV Check (Rust 1.75)
-    runs-on: ${{ contains(github.event.inputs.runner, 'self-hosted') && fromJSON('["self-hosted", "Linux", "X64", "fedora", "nobara"]') || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
@@ -197,7 +202,7 @@ jobs:
   # GUI groundwork check: explicitly pass if Qt 6 isn't installed
   gui-groundwork:
     name: GUI Groundwork (Qt optional)
-    runs-on: ${{ contains(github.event.inputs.runner, 'self-hosted') && fromJSON('["self-hosted", "Linux", "X64", "fedora", "nobara"]') || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
@@ -309,7 +314,7 @@ jobs:
 
   text_injection_tests:
     name: Text Injection Tests
-    runs-on: ${{ contains(github.event.inputs.runner, 'self-hosted') && fromJSON('["self-hosted", "Linux", "X64", "fedora", "nobara"]') || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     needs: [setup-vosk-model]
     timeout-minutes: 30
     env:
@@ -464,7 +469,7 @@ jobs:
   security:
     name: Security Audit
     if: github.ref == 'refs/heads/main' # Only run on main
-    runs-on: ${{ contains(github.event.inputs.runner, 'self-hosted') && fromJSON('["self-hosted", "Linux", "X64", "fedora", "nobara"]') || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
@@ -484,7 +489,7 @@ jobs:
     name: CI Success
     if: always()
     needs: [validate-workflows, setup-vosk-model, build_and_check, msrv-check, gui-groundwork, text_injection_tests]
-    runs-on: ${{ contains(github.event.inputs.runner, 'self-hosted') && fromJSON('["self-hosted", "Linux", "X64", "fedora", "nobara"]') || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     steps:
       - name: Check if all jobs succeeded
         run: |

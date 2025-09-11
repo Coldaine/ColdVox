@@ -41,19 +41,46 @@ runs:
       run: |
         echo "Validating pre-installed libvosk..."
         if [ ! -f "/usr/local/lib/libvosk.so" ]; then
-          echo "ERROR: libvosk.so not found, run setup-permanent-libvosk.sh on runner"
-          exit 1
+          echo "⚠️  libvosk.so not found, downloading and installing..."
+          
+          # Download and extract libvosk
+          wget -q -O libvosk.zip "https://github.com/alphacep/vosk-api/releases/download/v0.3.45/vosk-linux-x86_64-0.3.45.zip"
+          unzip -q libvosk.zip
+          
+          # Install libvosk
+          sudo cp vosk-linux-x86_64-0.3.45/libvosk.so /usr/local/lib/
+          sudo cp -r vosk-linux-x86_64-0.3.45/include/* /usr/local/include/ 2>/dev/null || true
+          
+          # Clean up
+          rm -rf vosk-linux-x86_64-0.3.45 libvosk.zip
+          
+          # Update linker cache
+          sudo ldconfig
+          
+          echo "✅ Downloaded and installed libvosk"
+        else
+          echo "✅ Found pre-installed libvosk"
         fi
+        
         if [ ! -f "/usr/local/include/vosk_api.h" ]; then
-          echo "ERROR: vosk_api.h not found, run setup-permanent-libvosk.sh on runner"
-          exit 1
+          echo "⚠️  vosk_api.h not found, downloading headers..."
+          
+          # Download headers if not present
+          wget -q -O vosk-headers.zip "https://github.com/alphacep/vosk-api/releases/download/v0.3.45/vosk-linux-x86_64-0.3.45.zip"
+          unzip -q vosk-headers.zip
+          sudo cp -r vosk-linux-x86_64-0.3.45/include/* /usr/local/include/ 2>/dev/null || true
+          rm -rf vosk-linux-x86_64-0.3.45 vosk-headers.zip
+          
+          echo "✅ Downloaded vosk headers"
         fi
+        
         # Ensure libvosk is in dynamic linker cache
         export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
         if ! ldconfig -p | grep -q vosk; then
-          echo "WARNING: libvosk not in linker cache, refreshing..."
+          echo "🔄 Refreshing linker cache for libvosk..."
           sudo ldconfig
         fi
+        
         echo "✅ libvosk available at /usr/local/lib/libvosk.so"
         echo "✅ libvosk cached in dynamic linker"
 
