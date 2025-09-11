@@ -101,7 +101,7 @@ cpal = "0.16.0"
 tempfile = "3.22"
 mockall = "0.12"
 tokio-test = "0.4"
-ctrlc = "3.4"
+ctrlc = "3.5"
 proptest = "1.4"
 rand = "0.8"
 
