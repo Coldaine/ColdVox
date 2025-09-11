@@ -329,7 +329,7 @@ jobs:
           # Detect package manager and install appropriate packages
           if command -v dnf >/dev/null 2>&1; then
             # Fedora/RHEL/Nobara
-            sudo dnf install -y \
+            sudo dnf install -y --skip-unavailable \
               xorg-x11-server-Xvfb \
               fluxbox \
               dbus-x11 \

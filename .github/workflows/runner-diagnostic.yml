@@ -44,7 +44,7 @@ jobs:
           if sudo -n true 2>/dev/null; then
             echo "Sudo access without password confirmed."
             echo "--- Attempting to install 'xdotool' (as a test) ---"
-            sudo dnf install -y xdotool || echo "xdotool install failed"
+            sudo dnf install -y --skip-unavailable xdotool || echo "xdotool install failed"
             echo "--- Verifying xdotool installation ---"            
             command -v xdotool && xdotool --version || echo "xdotool not available"
           else
