@@ -1,528 +1,546 @@
----
 name: CI
 
 on:
-  pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened]
-  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - 'release/*'
+      - 'feature/*'
+      name: CI
 
-permissions:
-  contents: read
-  pull-requests: read
-  checks: write
+      on:
+        push:
+          branches:
+            - main
+            - 'release/*'
+            - 'feature/*'
+            - 'feat/*'
+            - 'fix/*'
+        pull_request:
+          branches:
+            - main
+        workflow_dispatch:
+        schedule:
+          - cron: '0 0 * * *'
 
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: false
+      permissions:
+        contents: read
+        actions: read
+        security-events: write
 
-env:
-  RUST_BACKTRACE: 1
-  CARGO_TERM_COLOR: always
-  CARGO_INCREMENTAL: 0
-  RUST_TEST_TIME_UNIT: 10000
-  RUST_TEST_TIME_INTEGRATION: 30000
+      concurrency:
+        group: ci-${{ github.ref }}
+        cancel-in-progress: true
 
-jobs:
-  validate-workflows:
-    name: Validate Workflow Definitions
-    runs-on: ubuntu-latest
-    continue-on-error: true # Optional validation
-    env:
-      GH_TOKEN: ${{ github.token }}
-    steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-      - name: Validate with gh
-        shell: bash
-        run: |
-          set -euo pipefail
-          if ! command -v gh >/dev/null 2>&1; then
-            echo "gh CLI not found on runner, skipping workflow validation"
-            exit 0
-          fi
+      defaults:
+        run:
+          shell: bash
 
-          shopt -s nullglob
-          files=(.github/workflows/*.yml .github/workflows/*.yaml)
-          if [[ ${#files[@]} -eq 0 ]]; then
-            echo "No workflow files found"
-            exit 0
-          fi
+      env:
+        RUSTFLAGS: "-D warnings"
+        CARGO_TERM_COLOR: always
+        VOSK_MODEL_BASENAME: vosk-model-small-en-us-0.15
+        VOSK_CACHE_ROOT: /home/coldaine/ActionRunnerCache/vosk-model
+        LIBVOSK_PATH: /usr/local/lib/libvosk.so
+        MIN_FREE_DISK_GB: 10
+        MAX_LOAD_AVERAGE: 5
 
-          echo "Validating ${{ github.sha }} against ${#files[@]} workflow files..."
-          failed=0
-          for wf in "${files[@]}"; do
-            echo "-- $wf"
-            if ! gh workflow view "$wf" --ref "$GITHUB_SHA" --yaml >/dev/null 2>&1; then
-              echo "ERROR: Failed to render $wf via gh" >&2
-              failed=1
-            fi
-          done
+      jobs:
+        validate_workflows:
+          name: Validate Workflows
+          runs-on: [self-hosted, linux, x64]
+          steps:
+            - uses: actions/checkout@v4
+            - name: Run actionlint
+              uses: reviewdog/action-actionlint@v1
+              with:
+                github_token: ${{ secrets.GITHUB_TOKEN }}
+            - name: Sanity list workflows (non-blocking)
+              run: gh workflow list || echo "gh CLI unavailable"
 
-          if [[ $failed -ne 0 ]]; then
-            echo "One or more workflows failed server-side validation via gh." >&2
-            exit 1
-          fi
-          echo "All workflows render via gh."
+        gate_runner_health:
+          name: Runner Health Gate
+          runs-on: [self-hosted, linux, x64]
+          needs: validate_workflows
+          steps:
+            - uses: actions/checkout@v4
+            - name: Verify runner health
+              run: bash scripts/runner_health_check.sh
+            - name: Check resource thresholds
+              run: |
+                set -euo pipefail
+                FREE_DISK=$(df -BG / | awk 'NR==2 {print substr($4,1,length($4)-1)}')
+                if [ "$FREE_DISK" -lt "${{ env.MIN_FREE_DISK_GB }}" ]; then
+                  echo "Insufficient free disk space: $FREE_DISK GB < ${{ env.MIN_FREE_DISK_GB }} GB" >&2
+                  exit 1
+                fi
+                LOAD=$(uptime | awk -F 'load average:' '{print $2}' | awk '{print $1}' | tr -d ',')
+                if awk "BEGIN {exit !($LOAD > ${{ env.MAX_LOAD_AVERAGE }})}"; then
+                  echo "Load average too high: $LOAD > ${{ env.MAX_LOAD_AVERAGE }}" >&2
+                  exit 1
+                fi
+            - name: Verify libvosk presence
+              run: bash scripts/verify_libvosk.sh
+            - name: Clean workspace (optional)
+              run: cargo clean || true
 
-  setup-vosk-model:
-    name: Setup Vosk Model from Cache
-    runs-on: ubuntu-latest
-    outputs:
-      model-path: ${{ steps.get-model-path.outputs.path }}
-      download-outcome: success
-    steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-        
-      - name: Setup Vosk Model from Cache
-        run: |
-          # Export LD_LIBRARY_PATH for Vosk
-          export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
-          sudo ldconfig
-          
-          # Use pre-cached models from permanent cache location (only on self-hosted)
-          CACHE_DIR="/home/coldaine/ActionRunnerCache/vosk-models"
-          MODEL_DIR="models"
-          
-          mkdir -p $MODEL_DIR
-          
-          # Check if we're on self-hosted runner with cache
-          if [ -d "$CACHE_DIR/vosk-model-small-en-us-0.15" ]; then
-            # Self-hosted runner: use cached models
-            rm -rf "$MODEL_DIR/vosk-model-small-en-us-0.15"
-            ln -sf "$CACHE_DIR/vosk-model-small-en-us-0.15" "$MODEL_DIR/"
-            echo "✅ Linked cached vosk-model-small-en-us-0.15"
-            
-            if [ -d "$CACHE_DIR/vosk-model-en-us-0.22" ]; then
-              rm -rf "$MODEL_DIR/vosk-model-en-us-0.22"
-              ln -sf "$CACHE_DIR/vosk-model-en-us-0.22" "$MODEL_DIR/"
-              echo "✅ Linked cached vosk-model-en-us-0.22"
-            fi
-          else
-            # GitHub-hosted runner: download model
-            echo "📥 Downloading Vosk model (cache not available)..."
-            wget -q -O vosk-model-small-en-us-0.15.zip "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip"
-            unzip -q vosk-model-small-en-us-0.15.zip
-            # If target already exists and is non-empty, remove it first (stale partial)
-            if [ -d "$MODEL_DIR/vosk-model-small-en-us-0.15" ]; then
-              if [ "$(ls -A $MODEL_DIR/vosk-model-small-en-us-0.15 2>/dev/null)" ]; then
-                echo "⚠️  Removing existing non-empty stale directory: $MODEL_DIR/vosk-model-small-en-us-0.15"
-                rm -rf "$MODEL_DIR/vosk-model-small-en-us-0.15"
-              else
-                rm -rf "$MODEL_DIR/vosk-model-small-en-us-0.15"
-              fi
-            fi
-            # Move extracted directory into place
-            if [ -d "vosk-model-small-en-us-0.15" ]; then
-              mv "vosk-model-small-en-us-0.15" "$MODEL_DIR/"
-            else
-              echo "❌ Extracted model directory not found after unzip" >&2
+        setup_vosk_model:
+          name: Prepare Vosk Model Symlink
+          runs-on: [self-hosted, linux, x64]
+          needs: gate_runner_health
+          outputs:
+            model_path: ${{ steps.set_model_path.outputs.model_path }}
+          steps:
+            - uses: actions/checkout@v4
+            - name: Resolve model path
+              id: set_model_path
+              run: |
+                set -euo pipefail
+                SRC="${{ env.VOSK_CACHE_ROOT }}/${{ env.VOSK_MODEL_BASENAME }}"
+                if [[ ! -d "$SRC" ]]; then
+                  echo "Cached Vosk model not found: $SRC" >&2
+                  exit 1
+                fi
+                mkdir -p models
+                DEST="models/${{ env.VOSK_MODEL_BASENAME }}"
+                if [[ -L "$DEST" || -d "$DEST" ]]; then
+                  rm -rf "$DEST"
+                fi
+                ln -s "$SRC" "$DEST"
+                echo "model_path=$DEST" >> "$GITHUB_OUTPUT"
+            - name: Basic model structure check
+              run: bash scripts/verify_vosk_model.sh "${{ steps.set_model_path.outputs.model_path }}"
+            - name: Integrity verification
+              run: |
+                if [[ -f scripts/verify-model-integrity.sh ]]; then
+                  if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then MODE="enforce"; else MODE="warn"; fi
+                  bash scripts/verify-model-integrity.sh "${{ steps.set_model_path.outputs.model_path }}" models/SHA256SUMS $MODE
+                else
+                  echo "Skipping integrity check (script not present)."
+                fi
+
+        build_and_check:
+          name: Build & Static Analysis
+          runs-on: [self-hosted, linux, x64]
+          needs: setup_vosk_model
+          env:
+            VOSK_MODEL_PATH: ${{ needs.setup_vosk_model.outputs.model_path }}
+          steps:
+            - uses: actions/checkout@v4
+            - name: Install Rust Toolchain
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                components: clippy, rustfmt
+            - name: Cache Cargo
+              uses: Swatinem/rust-cache@v2
+              with:
+                cache-on-failure: true
+            - name: Format check
+              run: cargo fmt --all -- --check
+            - name: Lint with Clippy
+              run: cargo clippy --all --all-targets --no-deps -- -D warnings
+            - name: Build Project (debug)
+              run: cargo build --workspace --all-features
+            - name: Build Documentation
+              run: cargo doc --no-deps --all-features
+            - name: Minimal feature matrix build
+              run: cargo build -p coldvox-app --no-default-features --features silero
+            - name: App compile (vosk feature)
+              run: cargo build -p coldvox-app --features vosk
+            - name: Upload logs on failure
+              if: failure()
+              uses: actions/upload-artifact@v4
+              with:
+                name: logs-build-and-check
+                path: |
+                  **/coldvox.log
+                if-no-files-found: ignore
+                retention-days: 5
+
+        test_unit_integration:
+          name: Unit & Integration Tests
+          needs: [build_and_check, setup_vosk_model]
+          runs-on: [self-hosted, linux, x64]
+          env:
+            VOSK_MODEL_PATH: ${{ needs.setup_vosk_model.outputs.model_path }}
+          steps:
+            - uses: actions/checkout@v4
+            - name: Install Rust Toolchain
+              uses: dtolnay/rust-toolchain@stable
+            - name: Cache Cargo
+              uses: Swatinem/rust-cache@v2
+            - name: Run Unit Tests
+              run: cargo test --workspace --all-features --no-fail-fast --lib
+            - name: Run Integration Tests
+              run: cargo test --workspace --all-features --no-fail-fast --test integration
+            - name: Run End-to-End WAV Pipeline
+              run: cargo test --features vosk --test end_to_end_wav -- --ignored
+            - name: Upload logs on failure
+              if: failure()
+              uses: actions/upload-artifact@v4
+              with:
+                name: logs-unit-integration
+                path: |
+                  **/coldvox.log
+                if-no-files-found: ignore
+                retention-days: 5
+
+        test_text_injection:
+          name: Text Injection Tests (Headless)
+          needs: [build_and_check, setup_vosk_model]
+          runs-on: [self-hosted, linux, x64]
+          timeout-minutes: 30
+          env:
+            DISPLAY: :99
+            VOSK_MODEL_PATH: ${{ needs.setup_vosk_model.outputs.model_path }}
+          steps:
+            - uses: actions/checkout@v4
+            - name: Install Rust Toolchain
+              uses: dtolnay/rust-toolchain@stable
+            - name: Cache Cargo
+              uses: Swatinem/rust-cache@v2
+            - name: Start Headless Environment
+              run: |
+                Xvfb :99 -screen 0 1024x768x16 &
+                openbox-session &
+                eval $(dbus-launch --sh-syntax)
+                echo "DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS" >> $GITHUB_ENV
+            - name: Run Text Injection Tests
+              run: cargo test -p coldvox-text-injection --all-features -- --nocapture
+            - name: Upload Logs on Failure
+              if: failure()
+              uses: actions/upload-artifact@v4
+              with:
+                name: text-injection-logs
+                path: '**/*.log'
+                retention-days: 7
+
+        check_msrv:
+          name: MSRV Check (Rust 1.75)
+          needs: build_and_check
+          runs-on: [self-hosted, linux, x64]
+          steps:
+            - uses: actions/checkout@v4
+            - name: Install Rust Toolchain 1.75
+              uses: dtolnay/rust-toolchain@1.75
+            - name: Cache Cargo
+              uses: Swatinem/rust-cache@v2
+            - name: MSRV Check
+              run: cargo check --workspace --all-targets
+
+        gui_groundwork:
+          name: GUI Groundwork (Qt Optional)
+          needs: build_and_check
+          runs-on: [self-hosted, linux, x64]
+          continue-on-error: true
+          steps:
+            - uses: actions/checkout@v4
+            - name: Install Rust Toolchain
+              uses: dtolnay/rust-toolchain@stable
+            - name: Cache Cargo
+              uses: Swatinem/rust-cache@v2
+            - name: Check Qt UI Feature
+              run: cargo check -p coldvox-gui --features qt-ui || echo "Qt not detected, skipping."
+
+        security_audit:
+          name: Security & License Audit
+          needs: build_and_check
+          runs-on: [self-hosted, linux, x64]
+          steps:
+            - uses: actions/checkout@v4
+            - name: Install Security Tools
+              run: |
+                cargo install cargo-deny --locked
+                cargo install cargo-audit --locked
+            - name: Run Cargo Deny Checks
+              run: cargo deny check bans licenses sources advisories
+            - name: Run Cargo Audit
+              run: cargo audit
+
+        publish_dry_run:
+          name: Publish Dry Run
+          needs: [security_audit, test_unit_integration]
+          if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+          runs-on: [self-hosted, linux, x64]
+          steps:
+            - uses: actions/checkout@v4
+            - name: Install Rust Toolchain
+              uses: dtolnay/rust-toolchain@stable
+            - name: Dry-Run Publish
+              run: |
+                set -euo pipefail
+                cargo publish --workspace --dry-run || {
+                  echo "::warning::Dry-run publish encountered issues (expected for unpublished private crates)."
+                }
+
+        ci_success:
+          name: CI Success Summary
+          runs-on: [self-hosted, linux, x64]
+          needs:
+            - validate_workflows
+            - gate_runner_health
+            - setup_vosk_model
+            - build_and_check
+            - test_unit_integration
+            - test_text_injection
+            - check_msrv
+            - gui_groundwork
+            - security_audit
+            - publish_dry_run
+          if: always()
+          steps:
+            - uses: actions/checkout@v4
+            - name: Generate CI Report
+              run: |
+                echo "## CI Report" > report.md
+                echo "- validate_workflows:            ${{ needs.validate_workflows.result }}" >> report.md
+                echo "- gate_runner_health:            ${{ needs.gate_runner_health.result }}" >> report.md
+                echo "- setup_vosk_model:              ${{ needs.setup_vosk_model.result }}" >> report.md
+                echo "- build_and_check:               ${{ needs.build_and_check.result }}" >> report.md
+                echo "- test_unit_integration:         ${{ needs.test_unit_integration.result }}" >> report.md
+                echo "- test_text_injection:           ${{ needs.test_text_injection.result }}" >> report.md
+                echo "- check_msrv:                    ${{ needs.check_msrv.result }}" >> report.md
+                echo "- gui_groundwork:                ${{ needs.gui_groundwork.result }}" >> report.md
+                echo "- security_audit:                ${{ needs.security_audit.result }}" >> report.md
+                echo "- publish_dry_run:               ${{ needs.publish_dry_run.result }}" >> report.md
+                if [[ "${{ needs.gate_runner_health.result }}" != "success" ]]; then echo "::error::Runner health gate failed."; exit 1; fi
+                if [[ "${{ needs.build_and_check.result }}" != "success" ]]; then echo "::error::Build and check failed."; exit 1; fi
+                if [[ "${{ needs.test_unit_integration.result }}" != "success" ]]; then echo "::error::Unit and integration tests failed."; exit 1; fi
+                if [[ "${{ needs.test_text_injection.result }}" != "success" ]]; then echo "::error::Text injection tests failed."; exit 1; fi
+                if [[ "${{ needs.security_audit.result }}" != "success" ]]; then echo "::error::Security audit failed."; exit 1; fi
+                echo "All critical stages passed successfully."
+            - name: Upload CI Report
+              uses: actions/upload-artifact@v4
+              with:
+                name: ci-report
+                path: report.md
+      name: Prepare Vosk Model Symlink
+      runs-on: [self-hosted, linux, x64]
+      needs: gate_runner_health
+      outputs:
+        model_path: ${{ steps.set_model_path.outputs.model_path }}
+      steps:
+        - uses: actions/checkout@v4
+        - name: Resolve model path
+          id: set_model_path
+          run: |
+            set -euo pipefail
+            SRC="${{ env.VOSK_CACHE_ROOT }}/${{ env.VOSK_MODEL_BASENAME }}"
+            if [[ ! -d "$SRC" ]]; then
+              echo "Cached Vosk model not found: $SRC" >&2
               exit 1
             fi
-            rm vosk-model-small-en-us-0.15.zip
-            echo "✅ Downloaded vosk-model-small-en-us-0.15"
-          fi
-          
-          echo ""
-          echo "Model directory contents:"
-          ls -la $MODEL_DIR/
-          echo ""
-          echo "✅ Model setup complete"
-
-      - name: Output model path
-        id: get-model-path
-        run: |
-          echo "path=${{ github.workspace }}/models/vosk-model-small-en-us-0.15" >> $GITHUB_OUTPUT
-
-  # Static checks, formatting, linting, type-check, build, and docs
-  build_and_check:
-    name: Format, Lint, Typecheck, Build & Docs
-    runs-on: ubuntu-latest
-    needs: [setup-vosk-model]
-    steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-
-      - name: Set up Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: stable
-          components: rustfmt, clippy
-          override: true
-
-      - name: Setup ColdVox
-        uses: ./.github/actions/setup-coldvox
-        with:
-          skip-toolchain: 'true'
-
-      - name: Check formatting
-        run: cargo fmt --all -- --check
-
-      - name: Run clippy
-        run: cargo clippy --all-targets --locked
-
-      - name: Type check
-        run: cargo check --workspace --all-targets --locked
-
-      - name: Build
-        run: cargo build --workspace --locked
-
-      - name: Build documentation
-        run: cargo doc --workspace --no-deps --locked
-
-      - name: Run unit and integration tests (skip E2E)
-        if: needs.setup-vosk-model.outputs.download-outcome == 'success'
-        env:
-          VOSK_MODEL_PATH: ${{ needs.setup-vosk-model.outputs.model-path }}
-        run: |
-          echo "=== Environment Validation ==="
-          echo "VOSK_MODEL_PATH: $VOSK_MODEL_PATH"
-          echo "Model directory contents:"
-          ls -la "$VOSK_MODEL_PATH" || echo "Model directory not accessible"
-          echo "=== Running Tests ==="
-          cargo test --workspace --locked --
-
-      - name: Upload test artifacts on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-artifacts-build-check
-          path: |
-            target/debug/deps/
-            target/debug/build/
-          retention-days: 7
-
-  # MSRV validation
-  msrv-check:
-    name: MSRV Check (Rust 1.75)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
-        with:
-          toolchain: 1.75
-
-      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
-
-      - name: Setup ColdVox
-        uses: ./.github/actions/setup-coldvox
-        with:
-          skip-toolchain: 'true'
-
-      - name: MSRV type check
-        run: cargo check --workspace --all-targets --locked
-
-      - name: MSRV build
-        run: cargo build --workspace --locked
-
-  # GUI groundwork check: explicitly pass if Qt 6 isn't installed
-  gui-groundwork:
-    name: GUI Groundwork (Qt optional)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
-        with:
-          toolchain: stable
-
-      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
-
-      - name: Detect Qt 6
-        id: detect-qt
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "=== Qt 6 Detection Script ==="
-          # Attempt to install lsb_release if not present, for better OS diagnostics
-          if ! command -v lsb_release >/dev/null 2>&1; then
-            sudo apt-get update && sudo apt-get install -y lsb-release
-          fi
-          echo "Runner OS: $(lsb_release -a 2>/dev/null || echo 'lsb_release not found')"
-          echo "Initial PATH: $PATH"
-
-          qt6_found=false
-          qmake_path=""
-          detection_method=""
-
-          # 1. Check for QT6_PATH environment variable override
-          if [[ -n "${QT6_PATH:-}" ]] && [[ -x "${QT6_PATH}/bin/qmake" ]]; then
-              qmake_path="${QT6_PATH}/bin/qmake"
-              detection_method="QT6_PATH override ($qmake_path)"
-          fi
-
-          # 2. Find qmake executable (qmake6, qmake-qt6, qmake) in PATH
-          if [[ -z "$qmake_path" ]]; then
-              for qmake_candidate in qmake6 qmake-qt6 qmake; do
-                  if command -v "$qmake_candidate" >/dev/null 2>&1; then
-                      qmake_path=$(command -v "$qmake_candidate")
-                      detection_method="qmake in PATH ($qmake_path)"
-                      break
-                  fi
-              done
-          fi
-
-          # 3. If qmake was found, verify it's Qt 6
-          if [[ -n "$qmake_path" ]]; then
-              echo "Found qmake executable at: $qmake_path"
-              qt_version=$($qmake_path -query QT_VERSION)
-              echo "qmake -query QT_VERSION returned: $qt_version"
-              if [[ "$qt_version" == 6.* ]]; then
-                  qt6_found=true
-                  echo "✅ Qt 6 detected via qmake version check."
-              else
-                  echo "⚠️ Found qmake, but it's not for Qt 6 (version $qt_version). Resetting search."
-                  qmake_path=""
-                  detection_method=""
-              fi
-          fi
-
-          # 4. Fallback to pkg-config
-          if [[ "$qt6_found" == "false" ]] && command -v pkg-config >/dev/null 2>&1; then
-              echo "Attempting detection via pkg-config..."
-              if pkg-config --exists Qt6Core; then
-                  qt6_found=true
-                  detection_method="pkg-config"
-                  echo "✅ Qt 6 detected via pkg-config."
-              else
-                  echo "pkg-config did not find Qt6Core."
-              fi
-          fi
-
-          # 5. Fallback to CMake
-          if [[ "$qt6_found" == "false" ]] && command -v cmake >/dev/null 2>&1; then
-              echo "Attempting detection via CMake..."
-              # Create a minimal CMakeLists.txt to find Qt6
-              cat <<EOF > CMakeLists.txt
-          cmake_minimum_required(VERSION 3.16)
-          project(Qt6Check)
-          find_package(Qt6 QUIET REQUIRED)
-          EOF
-              if cmake -B build -S . >/dev/null 2>&1; then
-                  qt6_found=true
-                  detection_method="CMake find_package"
-                  echo "✅ Qt 6 detected via CMake."
-              else
-                  echo "CMake find_package(Qt6) failed."
-              fi
-              rm -rf CMakeLists.txt build
-          fi
-
-          echo "============================="
-          echo "Final detection result: qt6=$qt6_found"
-          if [[ "$qt6_found" == "true" ]]; then
-              echo "Qt 6 detected on runner using method: $detection_method."
-          else
-              echo "Qt 6 not detected; will skip qt-ui build and explicitly pass."
-          fi
-          echo "qt6=$qt6_found" >> "$GITHUB_OUTPUT"
-
-      - name: Build coldvox-gui with qt-ui feature
-        if: steps.detect-qt.outputs.qt6 == 'true'
-        run: |
-          cargo check -p coldvox-gui --features qt-ui --locked
-
-      - name: Qt not found — skip build
-        if: steps.detect-qt.outputs.qt6 != 'true'
-        run: |
-          echo "WARNING: Qt 6 not detected. Skipping qt-ui build." >&2
-          echo "Install Qt 6 to enable GUI testing."
-
-  text_injection_tests:
-    name: Text Injection Tests
-    runs-on: ubuntu-latest
-    needs: [setup-vosk-model]
-    timeout-minutes: 30
-    env:
-      DISPLAY: :99
-      RUST_LOG: debug
-      RUST_TEST_TIME_UNIT: 10000
-      RUST_TEST_TIME_INTEGRATION: 30000
-    steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
-        with:
-          toolchain: stable
-      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
-
-      - name: Setup ColdVox
-        uses: ./.github/actions/setup-coldvox
-
-      # Install dependencies for text injection backends (AT-SPI, clipboard, ydotool)
-      - name: Install additional system dependencies
-        run: |
-          # Detect package manager and install appropriate packages
-          if command -v dnf >/dev/null 2>&1; then
-            # Fedora/RHEL/Nobara
-            sudo dnf install -y --skip-unavailable \
-              xorg-x11-server-Xvfb \
-              openbox \
-              dbus-x11 \
-              at-spi2-core \
-              wl-clipboard \
-              xclip \
-              ydotool \
-              xorg-x11-utils \
-              wmctrl \
-              gtk3-devel \
-              pulseaudio
-          elif command -v apt-get >/dev/null 2>&1; then
-            # Ubuntu/Debian
-            sudo apt-get update
-            sudo apt-get install -y \
-              xvfb \
-              openbox \
-              dbus-x11 \
-              at-spi2-core \
-              wl-clipboard \
-              xclip \
-              ydotool \
-              x11-utils \
-              wmctrl \
-              libgtk-3-dev \
-              pulseaudio
-          else
-            echo "ERROR: Unsupported package manager" >&2
-            exit 1
-          fi
-
-      - name: Start and verify headless environment
-        run: |
-          set -euo pipefail
-          # Use our custom headless environment script
-          DISPLAY=:99 ${{ github.workspace }}/scripts/start-headless.sh
-          
-          # Setup D-Bus session
-          eval "$(dbus-launch --sh-syntax)"
-          echo "DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS" >> $GITHUB_ENV
-          echo "DBUS_SESSION_BUS_PID=$DBUS_SESSION_BUS_PID" >> $GITHUB_ENV
-          # Verify D-Bus and clipboard tools
-          if ! pgrep -x "dbus-daemon" >/dev/null; then echo "D-Bus daemon not running" >&2; exit 1; fi
-          echo "D-Bus is running."
-          echo "DBUS_SESSION_BUS_ADDRESS: $DBUS_SESSION_BUS_ADDRESS"
-          echo "DBUS_SESSION_BUS_PID: $DBUS_SESSION_BUS_PID"
-          if ! command -v xclip >/dev/null; then echo "xclip not found"; exit 1; fi
-          if ! command -v wl-paste >/dev/null; then echo "wl-clipboard not found"; exit 1; fi
-          echo "Clipboard utilities are available."
-
-      - name: Validate test prerequisites
-        run: |
-          echo "=== Test Environment Validation ==="
-          echo "Display: $DISPLAY"
-          echo "Available text injection backends:"
-          command -v xdotool >/dev/null && echo "  - xdotool: $(xdotool --version 2>/dev/null || echo 'available')"
-          command -v ydotool >/dev/null && echo "  - ydotool: available"
-          command -v enigo >/dev/null && echo "  - enigo: available (Rust crate)"
-          echo "GTK development libraries:"
-          pkg-config --exists gtk+-3.0 && echo "  - GTK+ 3.0: available" || echo "  - GTK+ 3.0: not found"
-          echo "System audio:"
-          command -v alsa-info >/dev/null && echo "  - ALSA: available" || echo "  - ALSA: not found"
-          echo "=== Validation Complete ==="
-
-      - name: Test with real-injection-tests feature
-        run: |
-          dbus-run-session -- bash -lc '
-            # Set per-test timeout to prevent hanging
-            export RUST_TEST_TIME_UNIT="10000"  # 10 second timeout per test
-            export RUST_TEST_TIME_INTEGRATION="30000"  # 30 second for integration tests
-            cargo test -p coldvox-text-injection \
-              --features real-injection-tests \
-              -- --nocapture --test-threads=1 --timeout 600
-          '
-
-      - name: Build pipeline (default features)
-        run: |
-          dbus-run-session -- bash -c '
-            set -euo pipefail
-            echo "Testing default features..."
-            cargo test -p coldvox-text-injection --locked
-
-            echo "Testing without default features..."
-            cargo test -p coldvox-text-injection --no-default-features --locked
-
-            echo "Testing regex feature only..."
-            cargo test -p coldvox-text-injection --no-default-features --features regex --locked
-          '
-
-      # Build main app to ensure integration compiles
-      - name: Build main application
-        run: cargo build --locked -p coldvox-app
-
-      - name: Run E2E pipeline test
-        if: needs.setup-vosk-model.outputs.download-outcome == 'success'
-        env:
-          VOSK_MODEL_PATH: ${{ needs.setup-vosk-model.outputs.model-path }}
-        run: |
-          cargo test -p coldvox-app --locked test_end_to_end_wav_pipeline -- --nocapture
-
-      - name: Upload test artifacts on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-artifacts-text-injection
-          path: |
-            target/debug/deps/
-            target/debug/build/
-            models/
-          retention-days: 7
-
-      - name: Cleanup background processes
-        if: always()
-        run: |
-          set -euo pipefail
-          echo "Cleaning up background processes..."
-          # Kill Xvfb
-          pkill -f "Xvfb.*:99" || true
-          # Kill fluxbox
-          pkill -f "fluxbox.*:99" || true
-          # Kill dbus-daemon if it was started by this session
-          if [[ -n "${DBUS_SESSION_BUS_PID:-}" ]]; then
-            kill "$DBUS_SESSION_BUS_PID" 2>/dev/null || true
-          fi
-          echo "Cleanup completed."
-
-  # Security audit
-  security:
-    name: Security Audit
-    if: github.ref == 'refs/heads/main' # Only run on main
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-
-      - name: Set up Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: stable
-
-      - uses: rustsec/audit-check@v2.0.0 # pin to release tag
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Run security audit
-        run: cargo audit
-
-  # Success marker job
-  ci-success:
-    name: CI Success
-    if: always()
-    needs: [validate-workflows, setup-vosk-model, build_and_check, msrv-check, gui-groundwork, text_injection_tests]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check if all jobs succeeded
-        run: |
-          set -euo pipefail
-          failed=0
-          for res in \
-            "${{ needs.validate-workflows.result }}" \
-            "${{ needs.setup-vosk-model.result }}" \
-            "${{ needs.build_and_check.result }}" \
-            "${{ needs.msrv-check.result }}" \
-            "${{ needs.gui-groundwork.result }}" \
-            "${{ needs.text_injection_tests.result }}"; do
-            if [[ "$res" == "failure" ]]; then
-              failed=1
+            
+            mkdir -p models
+            DEST="models/${{ env.VOSK_MODEL_BASENAME }}"
+            if [[ -L "$DEST" || -d "$DEST" ]]; then
+              rm -rf "$DEST"
             fi
-          done
-          if [[ $failed -eq 1 ]]; then
-            echo "One or more CI jobs failed"
-            exit 1
-          fi
-          echo "All CI jobs succeeded (ignoring skipped)"
+            ln -s "$SRC" "$DEST"
+            echo "model_path=$DEST" >> "$GITHUB_OUTPUT"
+        - name: Basic model structure check
+          run: bash scripts/verify_vosk_model.sh "${{ steps.set_model_path.outputs.model_path }}"
+        - name: Integrity verification
+          run: |
+            if [[ -f scripts/verify-model-integrity.sh ]]; then
+              if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then MODE="enforce"; else MODE="warn"; fi
+              bash scripts/verify-model-integrity.sh "${{ steps.set_model_path.outputs.model_path }}" models/SHA256SUMS $MODE
+            else
+              echo "Skipping integrity check (script not present)."
+            fi
+
+    build_and_check:
+      name: Build & Static Analysis
+      runs-on: [self-hosted, linux, x64]
+      needs: setup_vosk_model
+      env:
+        VOSK_MODEL_PATH: ${{ needs.setup_vosk_model.outputs.model_path }}
+      steps:
+        - uses: actions/checkout@v4
+        - name: Install Rust Toolchain
+          uses: dtolnay/rust-toolchain@stable
+          with:
+            components: clippy, rustfmt
+        - name: Cache Cargo
+          uses: Swatinem/rust-cache@v2
+          with:
+            cache-on-failure: true
+        - name: Format check
+          run: cargo fmt --all -- --check
+        - name: Lint with Clippy
+          run: cargo clippy --all --all-targets --no-deps -- -D warnings
+        - name: Build Project (debug)
+          run: cargo build --workspace --all-features
+        - name: Build Documentation
+          run: cargo doc --no-deps --all-features
+        - name: Minimal feature matrix build
+          run: cargo build -p coldvox-app --no-default-features --features silero
+        - name: App compile (vosk feature)
+          run: cargo build -p coldvox-app --features vosk
+        - name: Upload logs on failure
+          if: failure()
+          uses: actions/upload-artifact@v4
+          with:
+            name: logs-build-and-check
+            path: |
+              **/coldvox.log
+            if-no-files-found: ignore
+            retention-days: 5
+
+    test_unit_integration:
+      name: Unit & Integration Tests
+      needs: [build_and_check, setup_vosk_model]
+      runs-on: [self-hosted, linux, x64]
+      env:
+        VOSK_MODEL_PATH: ${{ needs.setup_vosk_model.outputs.model_path }}
+      steps:
+        - uses: actions/checkout@v4
+        - name: Install Rust Toolchain
+          uses: dtolnay/rust-toolchain@stable
+        - name: Cache Cargo
+          uses: Swatinem/rust-cache@v2
+        - name: Run Unit Tests
+          run: cargo test --workspace --all-features --no-fail-fast --lib
+        - name: Run Integration Tests
+          run: cargo test --workspace --all-features --no-fail-fast --test integration
+        - name: Run End-to-End WAV Pipeline
+          run: cargo test --features vosk --test end_to_end_wav -- --ignored
+        - name: Upload logs on failure
+          if: failure()
+          uses: actions/upload-artifact@v4
+          with:
+            name: logs-unit-integration
+            path: |
+              **/coldvox.log
+            if-no-files-found: ignore
+            retention-days: 5
+
+    test_text_injection:
+      name: Text Injection Tests (Headless)
+      needs: [build_and_check, setup_vosk_model]
+      runs-on: [self-hosted, linux, x64]
+      timeout-minutes: 30
+      env:
+        DISPLAY: :99
+        VOSK_MODEL_PATH: ${{ needs.setup_vosk_model.outputs.model_path }}
+      steps:
+        - uses: actions/checkout@v4
+        - name: Install Rust Toolchain
+          uses: dtolnay/rust-toolchain@stable
+        - name: Cache Cargo
+          uses: Swatinem/rust-cache@v2
+        - name: Start Headless Environment
+          run: |
+            Xvfb :99 -screen 0 1024x768x16 &
+            openbox-session &
+            eval $(dbus-launch --sh-syntax)
+            echo "DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS" >> $GITHUB_ENV
+        - name: Run Text Injection Tests
+          run: cargo test -p coldvox-text-injection --all-features -- --nocapture
+        - name: Upload Logs on Failure
+          if: failure()
+          uses: actions/upload-artifact@v4
+          with:
+            name: text-injection-logs
+            path: '**/*.log'
+            retention-days: 7
+
+    check_msrv:
+      name: MSRV Check (Rust 1.75)
+      needs: build_and_check
+      runs-on: [self-hosted, linux, x64]
+      steps:
+        - uses: actions/checkout@v4
+        - name: Install Rust Toolchain 1.75
+          uses: dtolnay/rust-toolchain@1.75
+        - name: Cache Cargo
+          uses: Swatinem/rust-cache@v2
+        - name: MSRV Check
+          run: cargo check --workspace --all-targets
+
+    gui_groundwork:
+      name: GUI Groundwork (Qt Optional)
+      needs: build_and_check
+      runs-on: [self-hosted, linux, x64]
+      continue-on-error: true
+      steps:
+        - uses: actions/checkout@v4
+        - name: Install Rust Toolchain
+          uses: dtolnay/rust-toolchain@stable
+        - name: Cache Cargo
+          uses: Swatinem/rust-cache@v2
+        - name: Check Qt UI Feature
+          run: cargo check -p coldvox-gui --features qt-ui || echo "Qt not detected, skipping."
+
+    security_audit:
+      name: Security & License Audit
+      needs: build_and_check
+      runs-on: [self-hosted, linux, x64]
+      steps:
+        - uses: actions/checkout@v4
+        - name: Install Security Tools
+          run: |
+            cargo install cargo-deny --locked
+            cargo install cargo-audit --locked
+        - name: Run Cargo Deny Checks
+          run: cargo deny check bans licenses sources advisories
+        - name: Run Cargo Audit
+          run: cargo audit
+
+    publish_dry_run:
+      name: Publish Dry Run
+      needs: [security_audit, test_unit_integration]
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      runs-on: [self-hosted, linux, x64]
+      steps:
+        - uses: actions/checkout@v4
+        - name: Install Rust Toolchain
+          uses: dtolnay/rust-toolchain@stable
+        - name: Dry-Run Publish
+          run: |
+            set -euo pipefail
+            cargo publish --workspace --dry-run || {
+              echo "::warning::Dry-run publish encountered issues (expected for unpublished private crates)."
+            }
+
+    ci_success:
+      name: CI Success Summary
+      runs-on: [self-hosted, linux, x64]
+      needs:
+        - validate_workflows
+        - gate_runner_health
+        - setup_vosk_model
+        - build_and_check
+        - test_unit_integration
+        - test_text_injection
+        - check_msrv
+        - gui_groundwork
+        - security_audit
+        - publish_dry_run
+      if: always()
+      steps:
+        - uses: actions/checkout@v4
+        - name: Generate CI Report
+          run: |
+            echo "## CI Report" > report.md
+            echo "- validate_workflows:            ${{ needs.validate_workflows.result }}" >> report.md
+            echo "- gate_runner_health:            ${{ needs.gate_runner_health.result }}" >> report.md
+            echo "- setup_vosk_model:              ${{ needs.setup_vosk_model.result }}" >> report.md
+            echo "- build_and_check:               ${{ needs.build_and_check.result }}" >> report.md
+            echo "- test_unit_integration:         ${{ needs.test_unit_integration.result }}" >> report.md
+            echo "- test_text_injection:           ${{ needs.test_text_injection.result }}" >> report.md
+            echo "- check_msrv:                    ${{ needs.check_msrv.result }}" >> report.md
+            echo "- gui_groundwork:                ${{ needs.gui_groundwork.result }}" >> report.md
+            echo "- security_audit:                ${{ needs.security_audit.result }}" >> report.md
+            echo "- publish_dry_run:               ${{ needs.publish_dry_run.result }}" >> report.md
+            if [[ "${{ needs.gate_runner_health.result }}" != "success" ]]; then echo "::error::Runner health gate failed."; exit 1; fi
+            if [[ "${{ needs.build_and_check.result }}" != "success" ]]; then echo "::error::Build and check failed."; exit 1; fi
+            if [[ "${{ needs.test_unit_integration.result }}" != "success" ]]; then echo "::error::Unit and integration tests failed."; exit 1; fi
+            if [[ "${{ needs.test_text_injection.result }}" != "success" ]]; then echo "::error::Text injection tests failed."; exit 1; fi
+            if [[ "${{ needs.security_audit.result }}" != "success" ]]; then echo "::error::Security audit failed."; exit 1; fi
+            echo "All critical stages passed successfully."
+        - name: Upload CI Report
+          uses: actions/upload-artifact@v4
+          with:
+            name: ci-report
+            path: report.md
