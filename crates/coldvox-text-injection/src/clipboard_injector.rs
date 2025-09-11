@@ -55,7 +55,7 @@ impl TextInjector for ClipboardInjector {
             let source = Source::Bytes(text_clone.into_bytes().into());
             let options = Options::new();
 
-            wl_clipboard_rs::copy::copy(options, source, MimeType::Text)
+            options.copy(source, MimeType::Text)
         })
         .await;
 

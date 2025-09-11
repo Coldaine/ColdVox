@@ -3,22 +3,13 @@ use std::env;
 fn main() {
     // Declare custom cfg names for the compiler
     println!("cargo::rustc-check-cfg=cfg(kde_globalaccel)");
-    println!("cargo::rustc-check-cfg=cfg(text_injection_linux)");
+
     println!("cargo::rustc-check-cfg=cfg(wayland_session)");
     println!("cargo::rustc-check-cfg=cfg(x11_session)");
-    println!("cargo::rustc-check-cfg=cfg(text_injection_atspi)");
-    println!("cargo::rustc-check-cfg=cfg(text_injection_clipboard)");
-    println!("cargo::rustc-check-cfg=cfg(text_injection_ydotool)");
-    println!("cargo::rustc-check-cfg=cfg(text_injection_kdotool)");
-    println!("cargo::rustc-check-cfg=cfg(text_injection_mki)");
-    println!("cargo::rustc-check-cfg=cfg(text_injection_enigo)");
-    println!("cargo::rustc-check-cfg=cfg(text_injection_windows)");
-    println!("cargo::rustc-check-cfg=cfg(text_injection_macos)");
 
     // Detect Linux desktop environment at compile time
     if cfg!(target_os = "linux") {
         // Enable Linux-specific text injection features
-        println!("cargo:rustc-cfg=text_injection_linux");
 
         // Check for KDE Plasma and enable KGlobalAccel backend
         if env::var("KDE_FULL_SESSION").is_ok()
@@ -37,9 +28,6 @@ fn main() {
                 .unwrap_or(false)
         {
             println!("cargo:rustc-cfg=wayland_session");
-            println!("cargo:rustc-cfg=text_injection_atspi");
-            println!("cargo:rustc-cfg=text_injection_clipboard");
-            println!("cargo:rustc-cfg=text_injection_ydotool");
         }
 
         // Check for X11
@@ -49,9 +37,6 @@ fn main() {
                 .unwrap_or(false)
         {
             println!("cargo:rustc-cfg=x11_session");
-            println!("cargo:rustc-cfg=text_injection_atspi");
-            println!("cargo:rustc-cfg=text_injection_clipboard");
-            println!("cargo:rustc-cfg=text_injection_kdotool");
         }
 
         // If neither detected, enable all Linux backends
@@ -60,28 +45,13 @@ fn main() {
             && env::var("XDG_SESSION_TYPE").is_err()
         {
             // Build environment might not have display vars, enable all
-            println!("cargo:rustc-cfg=text_injection_atspi");
-            println!("cargo:rustc-cfg=text_injection_clipboard");
-            println!("cargo:rustc-cfg=text_injection_ydotool");
-            println!("cargo:rustc-cfg=text_injection_kdotool");
         }
 
         // Always enable these on Linux
-        println!("cargo:rustc-cfg=text_injection_mki");
-        println!("cargo:rustc-cfg=text_injection_enigo");
     }
 
-    // Windows
-    if cfg!(target_os = "windows") {
-        println!("cargo:rustc-cfg=text_injection_windows");
-        println!("cargo:rustc-cfg=text_injection_enigo");
-        println!("cargo:rustc-cfg=text_injection_mki");
-    }
+    // Windows - 2025-09-04: Currently not targeting Windows builds
 
     // macOS
-    if cfg!(target_os = "macos") {
-        println!("cargo:rustc-cfg=text_injection_macos");
-        println!("cargo:rustc-cfg=text_injection_enigo");
-        println!("cargo:rustc-cfg=text_injection_mki");
-    }
+    if cfg!(target_os = "macos") {}
 }

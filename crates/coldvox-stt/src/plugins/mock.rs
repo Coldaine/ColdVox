@@ -1,22 +1,22 @@
 //! Mock STT plugin for testing
 
+use crate::plugin::*;
+use crate::types::{TranscriptionConfig, TranscriptionEvent, WordInfo};
 use async_trait::async_trait;
 use std::sync::{Arc, Mutex};
-use crate::plugin::*;
-use crate::types::{TranscriptionEvent, TranscriptionConfig, WordInfo};
 
 /// Configuration for mock transcriptions
 #[derive(Debug, Clone)]
 pub struct MockConfig {
     /// Text to return after N audio chunks
     pub transcription_after_chunks: Option<(usize, String)>,
-    
+
     /// Immediate transcription to return
     pub immediate_transcription: Option<String>,
-    
+
     /// Simulate processing delay in ms
     pub processing_delay_ms: u64,
-    
+
     /// Simulate failure after N calls
     pub fail_after_calls: Option<usize>,
 }
@@ -57,14 +57,14 @@ impl MockPlugin {
             })),
         }
     }
-    
+
     pub fn with_transcription(text: String) -> Self {
         Self::new(MockConfig {
             immediate_transcription: Some(text),
             ..Default::default()
         })
     }
-    
+
     pub fn with_delayed_transcription(chunks: usize, text: String) -> Self {
         Self::new(MockConfig {
             transcription_after_chunks: Some((chunks, text)),
@@ -94,7 +94,7 @@ impl SttPlugin for MockPlugin {
             memory_usage_mb: Some(1),
         }
     }
-    
+
     fn capabilities(&self) -> PluginCapabilities {
         PluginCapabilities {
             streaming: true,
@@ -106,57 +106,57 @@ impl SttPlugin for MockPlugin {
             custom_vocabulary: false,
         }
     }
-    
+
     async fn is_available(&self) -> Result<bool, SttPluginError> {
         Ok(true)
     }
-    
+
     async fn initialize(&mut self, _config: TranscriptionConfig) -> Result<(), SttPluginError> {
         let mut state = self.state.lock().unwrap();
         state.initialized = true;
         Ok(())
     }
-    
-    async fn process_audio(&mut self, _samples: &[i16]) -> Result<Option<TranscriptionEvent>, SttPluginError> {
+
+    async fn process_audio(
+        &mut self,
+        _samples: &[i16],
+    ) -> Result<Option<TranscriptionEvent>, SttPluginError> {
         // Get state and check failure conditions
         let should_fail = {
             let mut state = self.state.lock().unwrap();
             state.calls_made += 1;
-            
+
             if let Some(fail_after) = self.config.fail_after_calls {
-                if state.calls_made > fail_after {
-                    true
-                } else {
-                    false
-                }
+                state.calls_made > fail_after
             } else {
                 false
             }
         };
-        
+
         if should_fail {
             return Err(SttPluginError::TranscriptionFailed(
-                "Simulated failure".to_string()
+                "Simulated failure".to_string(),
             ));
         }
-        
+
         // Simulate processing delay
         if self.config.processing_delay_ms > 0 {
             tokio::time::sleep(tokio::time::Duration::from_millis(
-                self.config.processing_delay_ms
-            )).await;
+                self.config.processing_delay_ms,
+            ))
+            .await;
         }
-        
+
         // Check for immediate transcription
         if let Some(ref text) = self.config.immediate_transcription {
             return Ok(Some(create_mock_event(text.clone())));
         }
-        
+
         // Check for delayed transcription
         let should_transcribe = {
             let mut state = self.state.lock().unwrap();
             state.chunks_processed += 1;
-            
+
             if let Some((chunks, _)) = self.config.transcription_after_chunks {
                 if state.chunks_processed >= chunks {
                     state.chunks_processed = 0; // Reset for next transcription
@@ -168,29 +168,29 @@ impl SttPlugin for MockPlugin {
                 false
             }
         };
-        
+
         if should_transcribe {
             if let Some((_, ref text)) = self.config.transcription_after_chunks {
                 return Ok(Some(create_mock_event(text.clone())));
             }
         }
-        
+
         Ok(None)
     }
-    
+
     async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, SttPluginError> {
         let state = self.state.lock().unwrap();
-        
+
         // Return any pending transcription on finalize
         if state.chunks_processed > 0 {
             if let Some((_, ref text)) = self.config.transcription_after_chunks {
                 return Ok(Some(create_mock_event(format!("{} (partial)", text))));
             }
         }
-        
+
         Ok(None)
     }
-    
+
     async fn reset(&mut self) -> Result<(), SttPluginError> {
         let mut state = self.state.lock().unwrap();
         state.chunks_processed = 0;
@@ -210,7 +210,7 @@ fn create_mock_event(text: String) -> TranscriptionEvent {
             conf: 0.95,
         })
         .collect();
-    
+
     TranscriptionEvent::Final {
         utterance_id: crate::next_utterance_id(),
         text,
@@ -239,11 +239,11 @@ impl SttPluginFactory for MockPluginFactory {
     fn create(&self) -> Result<Box<dyn SttPlugin>, SttPluginError> {
         Ok(Box::new(MockPlugin::new(self.config.clone())))
     }
-    
+
     fn plugin_info(&self) -> PluginInfo {
         MockPlugin::default().info()
     }
-    
+
     fn check_requirements(&self) -> Result<(), SttPluginError> {
         Ok(())
     }

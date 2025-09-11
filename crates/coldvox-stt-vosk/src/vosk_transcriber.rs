@@ -23,17 +23,14 @@ impl VoskTranscriber {
             );
         }
 
-        // Use model path from config, or get default
-        let model_path = if config.model_path.is_empty() {
-            crate::default_model_path()
+        // Resolve / validate model path via centralized model manager
+        let model_info = crate::model::locate_model(if config.model_path.is_empty() {
+            None
         } else {
-            config.model_path.clone()
-        };
-
-        // Check if model path exists
-        if !std::path::Path::new(&model_path).exists() {
-            return Err(format!("Vosk model not found at: {}", model_path));
-        }
+            Some(&config.model_path)
+        })
+        .map_err(|e| format!("Failed to locate Vosk model: {}", e))?;
+        let model_path = model_info.path.to_string_lossy().to_string();
 
         // Load the model
         let model = Model::new(&model_path)
@@ -72,6 +69,7 @@ impl VoskTranscriber {
             max_alternatives: 1,
             include_words: false,
             buffer_size_ms: 512,
+            streaming: false,
         };
         Self::new(config, sample_rate)
     }

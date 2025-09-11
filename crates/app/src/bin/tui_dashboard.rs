@@ -3,22 +3,10 @@
 // - Controlled via RUST_LOG (e.g., "info", "debug").
 // - File output uses a non-blocking writer; logs/ is created if missing.
 // - Useful for post-session analysis even when the TUI is active.
-use clap::Parser;
-use coldvox_app::audio::vad_processor::VadProcessor;
-use coldvox_audio::capture::AudioCaptureThread;
-use coldvox_audio::chunker::{AudioChunker, ChunkerConfig};
-use coldvox_audio::frame_reader::FrameReader;
-use coldvox_audio::ring_buffer::AudioRingBuffer;
-use coldvox_foundation::error::AudioConfig;
+use clap::{Parser, ValueEnum};
+use coldvox_app::runtime::{self as app_runtime, ActivationMode};
 #[cfg(feature = "vosk")]
-use coldvox_stt::{
-    processor::SttProcessor, TranscriptionConfig, TranscriptionEvent,
-};
-#[cfg(feature = "vosk")]
-use coldvox_stt_vosk::VoskTranscriber;
-use coldvox_telemetry::pipeline_metrics::{PipelineMetrics, PipelineStage};
-use coldvox_vad::config::{UnifiedVadConfig, VadMode};
-use coldvox_vad::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
+use coldvox_app::stt::TranscriptionEvent;
 use coldvox_vad::types::VadEvent;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
@@ -36,10 +24,8 @@ use ratatui::{
 use std::collections::VecDeque;
 use std::io;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{broadcast, mpsc};
-use tokio::task::JoinHandle;
+use tokio::sync::mpsc;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
@@ -84,17 +70,32 @@ struct Cli {
     /// Audio device name
     #[arg(short = 'D', long)]
     device: Option<String>,
+    /// Activation mode: vad or hotkey
+    #[arg(long = "activation-mode", default_value = "hotkey", value_enum)]
+    activation_mode: CliActivationMode,
+    /// Resampler quality: fast, balanced, quality
+    #[arg(long = "resampler-quality", default_value = "balanced")]
+    resampler_quality: String,
     /// Log level filter (overrides RUST_LOG)
-    #[arg(long = "log-level", default_value = "debug")]
+    #[arg(
+        long = "log-level",
+        default_value = "info,stt=debug,coldvox_audio=debug,coldvox_app=debug,coldvox_vad=debug"
+    )]
     log_level: String,
 }
 
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum CliActivationMode {
+    Vad,
+    Hotkey,
+}
+
+#[allow(dead_code)]
 enum AppEvent {
     Log(LogLevel, String),
     Vad(VadEvent),
-    UpdateMetrics(PipelineMetricsSnapshot),
-    PipelineStarted,
-    PipelineStopped,
+    /// Internal control signal: runtime replaced (after restart)
+    AppReplaced(app_runtime::AppHandle),
     #[cfg(feature = "vosk")]
     Transcription(TranscriptionEvent),
 }
@@ -128,7 +129,9 @@ struct DashboardState {
     start_time: Instant,
     vad_frames: u64,
     logs: VecDeque<LogEntry>,
-    pipeline_handle: Option<JoinHandle<()>>,
+    app: Option<app_runtime::AppHandle>,
+    activation_mode: ActivationMode,
+    resampler_quality: coldvox_audio::ResamplerQuality,
     metrics: PipelineMetricsSnapshot,
     has_metrics_snapshot: bool,
     /// Last final transcript (if STT enabled)
@@ -180,7 +183,9 @@ impl Default for DashboardState {
             start_time: Instant::now(),
             vad_frames: 0,
             logs,
-            pipeline_handle: None,
+            app: None,
+            activation_mode: ActivationMode::Vad,
+            resampler_quality: coldvox_audio::ResamplerQuality::Balanced,
             metrics: PipelineMetricsSnapshot {
                 current_rms: 0,
                 current_peak: 0,
@@ -219,8 +224,9 @@ impl DashboardState {
     }
 
     fn update_level_history(&mut self) {
-        let rms = self.metrics.current_rms;
-        let level = ((rms as f64 / 32768.0) * 100.0).min(100.0) as u8;
+        // current_rms is stored as RMS * 1000
+        let rms = self.metrics.current_rms as f64 / 1000.0;
+        let level = ((rms / 32768.0) * 100.0).min(100.0) as u8;
 
         let peak = self.metrics.current_peak;
         let peak_level = ((peak as f64 / 32768.0) * 100.0).min(100.0) as u8;
@@ -236,6 +242,23 @@ impl DashboardState {
         self.vad_frames = 0;
         self.speech_segments = 0;
         self.log(LogLevel::Info, "Metrics reset".to_string());
+    }
+
+    fn toggle_activation_mode(&mut self) {
+        self.activation_mode = match self.activation_mode {
+            ActivationMode::Vad => ActivationMode::Hotkey,
+            ActivationMode::Hotkey => ActivationMode::Vad,
+        };
+        self.log(
+            LogLevel::Info,
+            format!(
+                "Switched activation mode to {}",
+                match self.activation_mode {
+                    ActivationMode::Vad => "VAD",
+                    ActivationMode::Hotkey => "Push-to-talk",
+                }
+            ),
+        );
     }
 }
 
@@ -256,6 +279,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(device) = cli.device {
         state.selected_device = device;
     }
+    // Map CLI activation mode and resampler quality
+    state.activation_mode = match cli.activation_mode {
+        CliActivationMode::Vad => ActivationMode::Vad,
+        CliActivationMode::Hotkey => ActivationMode::Hotkey,
+    };
+    state.resampler_quality = match cli.resampler_quality.to_lowercase().as_str() {
+        "fast" => coldvox_audio::ResamplerQuality::Fast,
+        "quality" => coldvox_audio::ResamplerQuality::Quality,
+        _ => coldvox_audio::ResamplerQuality::Balanced,
+    };
 
     let res = run_app(&mut terminal, &mut state, tx, rx).await;
 
@@ -297,8 +330,9 @@ async fn run_app(
                     match key.code {
                         KeyCode::Char('q') | KeyCode::Char('Q') => {
                             if state.is_running {
-                                if let Some(handle) = state.pipeline_handle.take() {
-                                    handle.abort();
+                                if let Some(app) = state.app.take() {
+                                    // Best-effort shutdown
+                                    tokio::spawn(async move { app.shutdown().await; });
                                 }
                             }
                             return Ok(());
@@ -306,9 +340,66 @@ async fn run_app(
                         KeyCode::Char('s') | KeyCode::Char('S') => {
                             if !state.is_running {
                                 state.log(LogLevel::Info, "Starting audio pipeline...".to_string());
-                                let pipeline_tx = tx.clone();
-                                let device = state.selected_device.clone();
-                                state.pipeline_handle = Some(tokio::spawn(run_audio_pipeline(pipeline_tx, device)));
+                                // Build runtime options
+                                let opts = app_runtime::AppRuntimeOptions {
+                                    device: if state.selected_device == "default" || state.selected_device.is_empty() { None } else { Some(state.selected_device.clone()) },
+                                    activation_mode: state.activation_mode,
+                                    resampler_quality: state.resampler_quality,
+                                    #[cfg(feature = "vosk")]
+                                    vosk_model_path: None,
+                                    #[cfg(feature = "vosk")]
+                                    stt_enabled: None,
+                                    #[cfg(feature = "text-injection")]
+                                    injection: None,
+                                };
+
+                                let ui_tx = tx.clone();
+                                // Start runtime synchronously and then wire up event forwarders
+                                match app_runtime::start(opts).await {
+                                    Ok(app) => {
+                                        #[allow(unused_mut)]
+                                        let mut app = app;
+                                        // Forward VAD events to UI
+                                        let mut vad_rx = app.subscribe_vad();
+                                        tokio::spawn(async move {
+                                            while let Ok(ev) = vad_rx.recv().await {
+                                                let _ = ui_tx.send(AppEvent::Vad(ev)).await;
+                                            }
+                                        });
+
+                                        // Forward STT events to UI (if enabled)
+                                        #[cfg(feature = "vosk")]
+                                        if let Some(mut stt_rx) = app.stt_rx.take() {
+                                            let ui_tx2 = tx.clone();
+                                            tokio::spawn(async move {
+                                                while let Some(ev) = stt_rx.recv().await {
+                                                    let _ = ui_tx2.send(AppEvent::Transcription(ev)).await;
+                                                }
+                                            });
+                                        }
+
+                                        state.app = Some(app);
+                                        state.is_running = true;
+                                        state.log(LogLevel::Success, "Pipeline fully started".to_string());
+                                    }
+                                    Err(e) => {
+                                        state.log(LogLevel::Error, format!("Failed to start runtime: {}", e));
+                                    }
+                                }
+                            }
+                        }
+                        KeyCode::Char('a') | KeyCode::Char('A') => {
+                            // Toggle activation mode; if running, reconfigure runtime without restart
+                            state.toggle_activation_mode();
+                            if state.is_running {
+                                if let Some(app) = &mut state.app {
+                                    let new_mode = state.activation_mode;
+                                    if let Err(e) = app.set_activation_mode(new_mode).await {
+                                        state.log(LogLevel::Error, format!("Failed to set activation mode: {}", e));
+                                    } else {
+                                        state.log(LogLevel::Info, "Activation mode updated".to_string());
+                                    }
+                                }
                             }
                         }
                         KeyCode::Char('r') | KeyCode::Char('R') => {
@@ -338,18 +429,9 @@ async fn run_app(
                             }
                         }
                     }
-                    AppEvent::UpdateMetrics(snapshot) => {
-                        state.metrics = snapshot;
-                        state.has_metrics_snapshot = true;
-                    }
-                    AppEvent::PipelineStarted => {
+                    AppEvent::AppReplaced(app) => {
+                        state.app = Some(app);
                         state.is_running = true;
-                        state.log(LogLevel::Success, "Pipeline fully started".to_string());
-                    }
-                    AppEvent::PipelineStopped => {
-                        state.is_running = false;
-                        state.pipeline_handle = None;
-                        state.log(LogLevel::Success, "Pipeline stopped".to_string());
                     }
                         #[cfg(feature = "vosk")]
                         AppEvent::Transcription(tevent) => {
@@ -375,241 +457,33 @@ async fn run_app(
 
             _ = ui_update_interval.tick() => {
                 if state.is_running {
-                    state.update_level_history();
-                }
-            }
-        }
-    }
-}
-
-async fn run_audio_pipeline(tx: mpsc::Sender<AppEvent>, device: String) {
-    let metrics = Arc::new(PipelineMetrics::default());
-
-    // Convert "default" device to None for proper OS default selection
-    let device_option = if device == "default" || device.is_empty() {
-        None
-    } else {
-        Some(device)
-    };
-
-    let audio_config = AudioConfig::default();
-    let rb_capacity = 16_384;
-    let rb = AudioRingBuffer::new(rb_capacity);
-    let (audio_producer, audio_consumer) = rb.split();
-    let (audio_thread, device_cfg, _config_rx) =
-        match AudioCaptureThread::spawn(audio_config, audio_producer, device_option) {
-            Ok(thread_tuple) => thread_tuple,
-            Err(e) => {
-                let _ = tx
-                    .send(AppEvent::Log(
-                        LogLevel::Error,
-                        format!("Failed to create audio thread: {}", e),
-                    ))
-                    .await;
-                let _ = tx.send(AppEvent::PipelineStopped).await;
-                return;
-            }
-        };
-
-    let _ = tx
-        .send(AppEvent::Log(
-            LogLevel::Success,
-            "Audio capture started".to_string(),
-        ))
-        .await;
-
-    // Broadcast channel for audio frames from the chunker
-    let (chunker_audio_tx, _) = broadcast::channel::<coldvox_audio::AudioFrame>(200);
-    let (event_tx, raw_vad_rx) = mpsc::channel(200);
-
-    let chunker_cfg = ChunkerConfig {
-        frame_size_samples: FRAME_SIZE_SAMPLES,
-        sample_rate_hz: SAMPLE_RATE_HZ,
-        resampler_quality: coldvox_audio::chunker::ResamplerQuality::Balanced,
-    };
-    let frame_reader = FrameReader::new(
-        audio_consumer,
-        device_cfg.sample_rate,
-        device_cfg.channels,
-        rb_capacity,
-        Some(metrics.clone()),
-    );
-    let chunker = AudioChunker::new(frame_reader, chunker_audio_tx.clone(), chunker_cfg)
-        .with_metrics(metrics.clone());
-    let _chunker_handle = chunker.spawn();
-
-    let vad_cfg = UnifiedVadConfig {
-        mode: VadMode::Silero,
-        frame_size_samples: FRAME_SIZE_SAMPLES,
-        sample_rate_hz: SAMPLE_RATE_HZ,
-        ..Default::default()
-    };
-
-    let vad_audio_rx = chunker_audio_tx.subscribe();
-    let _vad_thread =
-        match VadProcessor::spawn(vad_cfg, vad_audio_rx, event_tx, Some(metrics.clone())) {
-            Ok(h) => h,
-            Err(e) => {
-                let _ = tx
-                    .send(AppEvent::Log(
-                        LogLevel::Error,
-                        format!("Failed to spawn VAD: {}", e),
-                    ))
-                    .await;
-                let _ = tx.send(AppEvent::PipelineStopped).await;
-                return;
-            }
-        };
-
-    let _ = tx.send(AppEvent::PipelineStarted).await;
-
-    let mut metrics_update_interval = tokio::time::interval(Duration::from_millis(100));
-
-    // --- Optional STT setup (vosk feature) ---
-    #[cfg(feature = "vosk")]
-    let (mut stt_transcription_rx_opt, stt_vad_tx_opt) = {
-        let model_path = std::env::var("VOSK_MODEL_PATH")
-            .unwrap_or_else(|_| "models/vosk-model-small-en-us-0.15".to_string());
-        if std::path::Path::new(&model_path).exists() {
-            let (stt_transcription_tx, stt_transcription_rx) =
-                mpsc::channel::<TranscriptionEvent>(100);
-            let (stt_vad_tx, stt_vad_rx) = mpsc::channel::<coldvox_stt::processor::VadEvent>(100);
-
-            // --- Conversion Layer for Audio Frames ---
-            let (stt_audio_tx, stt_audio_rx) =
-                broadcast::channel::<coldvox_stt::processor::AudioFrame>(200);
-            let mut chunker_rx_for_stt = chunker_audio_tx.subscribe();
-            let start_time = std::time::Instant::now();
-            tokio::spawn(async move {
-                while let Ok(frame) = chunker_rx_for_stt.recv().await {
-                    // Convert f32 samples to i16 samples
-                    let i16_samples: Vec<i16> = frame
-                        .samples
-                        .iter()
-                        .map(|&sample| (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
-                        .collect();
-
-                    // Convert Instant to milliseconds since start of processing
-                    let timestamp_ms =
-                        frame.timestamp.duration_since(start_time).as_millis() as u64;
-
-                    let stt_frame = coldvox_stt::processor::AudioFrame {
-                        data: i16_samples,
-                        timestamp_ms,
-                        sample_rate: frame.sample_rate,
-                    };
-                    let _ = stt_audio_tx.send(stt_frame);
-                }
-            });
-
-            let stt_config = TranscriptionConfig {
-                enabled: true,
-                model_path,
-                partial_results: true,
-                max_alternatives: 1,
-                include_words: false,
-                buffer_size_ms: 512,
-            };
-            let transcriber =
-                VoskTranscriber::new(stt_config.clone(), SAMPLE_RATE_HZ as f32).unwrap();
-            let stt_processor = SttProcessor::new(
-                stt_audio_rx,
-                stt_vad_rx,
-                stt_transcription_tx,
-                transcriber,
-                stt_config,
-            );
-            tokio::spawn(async move {
-                stt_processor.run().await;
-            });
-            (Some(stt_transcription_rx), Some(stt_vad_tx))
-        } else {
-            (None, None)
-        }
-    };
-
-    // Relay VAD events
-    let (ui_vad_tx, mut ui_vad_rx) = mpsc::channel::<VadEvent>(200);
-    let mut raw_vad_rx_task = raw_vad_rx;
-    #[cfg(feature = "vosk")]
-    let stt_vad_tx_clone = stt_vad_tx_opt.clone();
-    tokio::spawn(async move {
-        while let Some(ev) = raw_vad_rx_task.recv().await {
-            let _ = ui_vad_tx.send(ev.clone()).await;
-            #[cfg(feature = "vosk")]
-            if let Some(stt_tx) = &stt_vad_tx_clone {
-                let stt_event = match ev {
-                    VadEvent::SpeechStart { timestamp_ms, .. } => {
-                        coldvox_stt::processor::VadEvent::SpeechStart { timestamp_ms }
+                    if let Some(app) = &state.app {
+                        let m = &app.metrics;
+                        // Take a live snapshot of metrics
+                        state.metrics = PipelineMetricsSnapshot {
+                            current_rms: m.current_rms.load(Ordering::Relaxed),
+                            current_peak: m.current_peak.load(Ordering::Relaxed),
+                            audio_level_db: m.audio_level_db.load(Ordering::Relaxed),
+                            capture_fps: m.capture_fps.load(Ordering::Relaxed),
+                            chunker_fps: m.chunker_fps.load(Ordering::Relaxed),
+                            vad_fps: m.vad_fps.load(Ordering::Relaxed),
+                            capture_buffer_fill: m.capture_buffer_fill.load(Ordering::Relaxed),
+                            chunker_buffer_fill: m.chunker_buffer_fill.load(Ordering::Relaxed),
+                            vad_buffer_fill: m.vad_buffer_fill.load(Ordering::Relaxed),
+                            stage_capture: m.stage_capture.load(Ordering::Relaxed),
+                            stage_chunker: m.stage_chunker.load(Ordering::Relaxed),
+                            stage_vad: m.stage_vad.load(Ordering::Relaxed),
+                            stage_output: m.stage_output.load(Ordering::Relaxed),
+                            capture_frames: m.capture_frames.load(Ordering::Relaxed),
+                            chunker_frames: m.chunker_frames.load(Ordering::Relaxed),
+                        };
+                        state.has_metrics_snapshot = true;
+                        state.update_level_history();
                     }
-                    VadEvent::SpeechEnd {
-                        timestamp_ms,
-                        duration_ms,
-                        ..
-                    } => coldvox_stt::processor::VadEvent::SpeechEnd {
-                        timestamp_ms,
-                        duration_ms,
-                    },
-                };
-                let _ = stt_tx.send(stt_event).await;
-            }
-        }
-    });
-
-    loop {
-        tokio::select! {
-            Some(event) = ui_vad_rx.recv() => {
-                metrics.mark_stage_active(PipelineStage::Vad);
-                metrics.mark_stage_active(PipelineStage::Output);
-                if tx.send(AppEvent::Vad(event)).await.is_err() {
-                    break;
                 }
-            }
-            _ = metrics_update_interval.tick() => {
-                let snapshot = PipelineMetricsSnapshot {
-                    current_rms: metrics.current_rms.load(Ordering::Relaxed),
-                    current_peak: metrics.current_peak.load(Ordering::Relaxed),
-                    audio_level_db: metrics.audio_level_db.load(Ordering::Relaxed),
-                    capture_fps: metrics.capture_fps.load(Ordering::Relaxed),
-                    chunker_fps: metrics.chunker_fps.load(Ordering::Relaxed),
-                    vad_fps: metrics.vad_fps.load(Ordering::Relaxed),
-                    capture_buffer_fill: metrics.capture_buffer_fill.load(Ordering::Relaxed),
-                    chunker_buffer_fill: metrics.chunker_buffer_fill.load(Ordering::Relaxed),
-                    vad_buffer_fill: metrics.vad_buffer_fill.load(Ordering::Relaxed),
-                    stage_capture: metrics.stage_capture.load(Ordering::Relaxed),
-                    stage_chunker: metrics.stage_chunker.load(Ordering::Relaxed),
-                    stage_vad: metrics.stage_vad.load(Ordering::Relaxed),
-                    stage_output: metrics.stage_output.load(Ordering::Relaxed),
-                    capture_frames: metrics.capture_frames.load(Ordering::Relaxed),
-                    chunker_frames: metrics.chunker_frames.load(Ordering::Relaxed),
-                };
-                if tx.send(AppEvent::UpdateMetrics(snapshot)).await.is_err() {
-                    break;
-                }
-                metrics.decay_stages();
-            }
-            else => { break; }
-        }
-
-        // Non-blocking drain of STT transcription events (if enabled)
-        #[cfg(feature = "vosk")]
-        if let Some(rx) = &mut stt_transcription_rx_opt {
-            while let Ok(tevent) = rx.try_recv() {
-                let _ = tx.send(AppEvent::Transcription(tevent)).await;
             }
         }
     }
-
-    let _ = tx
-        .send(AppEvent::Log(
-            LogLevel::Info,
-            "Stopping pipeline...".to_string(),
-        ))
-        .await;
-    // Stop audio thread
-    audio_thread.stop();
-
-    let _ = tx.send(AppEvent::PipelineStopped).await;
 }
 
 fn draw_ui(f: &mut Frame, state: &DashboardState) {
@@ -620,7 +494,7 @@ fn draw_ui(f: &mut Frame, state: &DashboardState) {
             Constraint::Min(10),
             Constraint::Length(8),
         ])
-        .split(f.size());
+        .split(f.area());
 
     let top_chunks = Layout::default()
         .direction(Direction::Horizontal)
@@ -824,6 +698,13 @@ fn draw_status(f: &mut Frame, area: Rect, state: &DashboardState) {
         ),
     ]));
     status_text.push(Line::from(format!("Device: {}", state.selected_device)));
+    status_text.push(Line::from(format!(
+        "Activation: {}",
+        match state.activation_mode {
+            ActivationMode::Vad => "VAD",
+            ActivationMode::Hotkey => "Push-to-talk",
+        }
+    )));
     status_text.push(Line::from(""));
     status_text.push(Line::from(vec![
         Span::raw("Speaking: "),
@@ -859,7 +740,9 @@ fn draw_status(f: &mut Frame, area: Rect, state: &DashboardState) {
     }
     status_text.push(Line::from(""));
     status_text.push(Line::from("Controls:"));
-    status_text.push(Line::from("[S] Start  [R] Reset  [Q] Quit"));
+    status_text.push(Line::from(
+        "[S] Start  [A] Toggle VAD/PTT  [R] Reset  [Q] Quit",
+    ));
 
     let paragraph = Paragraph::new(status_text);
     f.render_widget(paragraph, inner);

@@ -3,11 +3,22 @@ name = "coldvox-gui"
 version = "0.1.0"
 edition = "2021"
 description = "GUI frontend for ColdVox (placeholder crate for future development)"
+build = "build.rs"
 
 [[bin]]
 name = "coldvox-gui"
 path = "src/main.rs"
 
 [dependencies]
-# No GUI toolkit dependencies yet - this is a placeholder crate
-# Future considerations will include: egui, tauri, gtk4, qt, slint, etc.
+# Groundwork: Qt 6 + CXX-Qt, gated behind feature `qt-ui`
+cxx = "1"
+cxx-qt = { version = "0.7", optional = true }
+cxx-qt-lib = { version = "0.7", features = ["qt_qml", "qt_gui"], optional = true }
+
+[build-dependencies]
+cxx-qt-build = "0.7"
+
+[features]
+default = []
+# Enable this feature to build the Qt/CXX-Qt UI scaffolding
+qt-ui = ["dep:cxx-qt", "dep:cxx-qt-lib"]

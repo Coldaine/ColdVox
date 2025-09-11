@@ -2,7 +2,7 @@
 members = [
     "crates/app",
     "crates/coldvox-foundation",
-    "crates/coldvox-telemetry", 
+    "crates/coldvox-telemetry",
     "crates/coldvox-audio",
     "crates/coldvox-vad",
     "crates/coldvox-vad-silero",
@@ -12,3 +12,7 @@ members = [
     "crates/coldvox-gui",
 ]
 resolver = "2"
+
+# Minimum Supported Rust Version (MSRV)
+# All crates in this workspace require Rust 1.75 or later
+rust-version = "1.75"

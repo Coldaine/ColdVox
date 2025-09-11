@@ -1,0 +1,52 @@
+name: Runner Diagnostic
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    name: Run Diagnostic Checks
+    runs-on: [self-hosted, Linux, X64] # Ensure this matches my runner's labels
+
+    steps:
+      - name: 1. Print Runner Environment Details
+        run: |
+          echo "--- Runner Identity ---"
+          echo "User: $(whoami)"
+          echo "Home: $HOME"
+          echo "pwd: $(pwd)"
+          echo ""
+          echo "--- OS Information ---"
+          cat /etc/os-release
+          echo ""
+          echo "--- PATH ---"
+          echo "$PATH"
+
+      - name: 2. Test Network and DNS from Runner
+        run: |
+          echo "--- Testing DNS resolution for codeload.github.com ---"
+          dig codeload.github.com
+          if [ $? -ne 0 ]; then
+            echo "dig command failed. Trying getent..."
+            getent hosts codeload.github.com
+          fi
+          echo ""
+          echo "--- Testing HTTPS connection to codeload.github.com ---"
+          curl -v https://codeload.github.com
+
+      - name: 3. Test Package Manager and Sudo Permissions
+        run: |
+          echo "--- Checking sudo capabilities ---"
+          # The -n flag prevents sudo from prompting for a password, causing it to fail immediately if one is required.
+          if sudo -n true; then
+            echo "Sudo access without password confirmed."
+            echo "--- Attempting to install 'xdotool' (as a test) ---"
+            sudo dnf install -y xdotool
+            echo "--- Verifying xdotool installation ---"
+            which xdotool
+            xdotool --version
+          else
+            echo "ERROR: Sudo requires a password or is not configured for this user."
+            echo "This will cause package installation steps to fail."
+            exit 1
+          fi

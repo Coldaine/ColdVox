@@ -2,6 +2,11 @@ use crate::types::{InjectionConfig, InjectionError};
 use std::time::{Duration, Instant};
 use tracing::debug;
 
+#[async_trait::async_trait]
+pub trait FocusProvider: Send + Sync {
+    async fn get_focus_status(&mut self) -> Result<FocusStatus, InjectionError>;
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FocusStatus {
     EditableText,
@@ -48,11 +53,20 @@ impl FocusTracker {
                 connection::AccessibilityConnection, proxy::collection::CollectionProxy, Interface,
                 MatchType, ObjectMatchRule, SortOrder, State,
             };
+            use tokio::time;
 
-            let conn = match AccessibilityConnection::new().await {
-                Ok(c) => c,
-                Err(err) => {
+            let timeout_duration = Duration::from_millis(5000);
+            let conn = match time::timeout(timeout_duration, AccessibilityConnection::new()).await {
+                Ok(Ok(c)) => c,
+                Ok(Err(err)) => {
                     debug!(error = ?err, "AT-SPI: failed to connect");
+                    return Ok(FocusStatus::Unknown);
+                }
+                Err(_) => {
+                    debug!(
+                        "AT-SPI: connection timeout after {}ms",
+                        timeout_duration.as_millis()
+                    );
                     return Ok(FocusStatus::Unknown);
                 }
             };
@@ -110,5 +124,12 @@ impl FocusTracker {
             debug!("AT-SPI feature disabled; focus status unknown");
             Ok(FocusStatus::Unknown)
         }
+    }
+}
+
+#[async_trait::async_trait]
+impl FocusProvider for FocusTracker {
+    async fn get_focus_status(&mut self) -> Result<FocusStatus, InjectionError> {
+        FocusTracker::get_focus_status(self).await
     }
 }

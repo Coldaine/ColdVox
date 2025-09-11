@@ -49,6 +49,49 @@ pub struct SttMetrics {
     pub queue_depth: usize,
     /// Time since last STT event
     pub last_event_time: Option<Instant>,
+    /// Performance metrics (streaming STT)
+    pub perf: PerformanceMetrics,
+
+    // Enhanced telemetry metrics
+    /// Last end-to-end processing latency (microseconds)
+    pub last_e2e_latency_us: u64,
+    /// Last engine processing time (microseconds)
+    pub last_engine_time_us: u64,
+    /// Last preprocessing time (microseconds)
+    pub last_preprocessing_us: u64,
+    /// Average confidence score (0-1000 for precision)
+    pub avg_confidence_x1000: u64,
+    /// Total confidence measurements count
+    pub confidence_measurements: u64,
+    /// Memory usage estimate (bytes)
+    pub memory_usage_bytes: u64,
+    /// Buffer utilization percentage (0-100)
+    pub buffer_utilization_pct: u64,
+}
+
+/// Detailed performance metrics for streaming STT
+#[derive(Debug, Clone, Default)]
+pub struct PerformanceMetrics {
+    /// Total processing time spent in STT operations
+    pub total_processing_time_ns: u128,
+    /// Average processing latency per frame
+    pub avg_frame_latency_ns: u64,
+    /// Peak memory usage in bytes
+    pub peak_memory_usage_bytes: usize,
+    /// Current memory usage in bytes
+    pub current_memory_usage_bytes: usize,
+    /// Buffer allocation count
+    pub buffer_allocations: u64,
+    /// Buffer reallocation count
+    pub buffer_reallocations: u64,
+    /// Total audio samples processed
+    pub total_samples_processed: u64,
+    /// Processing throughput (samples/second)
+    pub throughput_samples_per_sec: f64,
+    /// Time spent waiting for audio frames
+    pub audio_wait_time_ns: u128,
+    /// Time spent processing audio frames
+    pub processing_time_ns: u128,
 }
 
 #[cfg(feature = "vosk")]
@@ -67,6 +110,8 @@ pub struct SttProcessor {
     metrics: Arc<parking_lot::RwLock<SttMetrics>>,
     /// Configuration
     config: TranscriptionConfig,
+    /// Performance metrics for comprehensive monitoring
+    performance_metrics: Option<Arc<crate::telemetry::SttPerformanceMetrics>>,
 }
 
 #[cfg(feature = "vosk")]
@@ -94,6 +139,7 @@ impl SttProcessor {
             state: UtteranceState::Idle,
             metrics: Arc::new(parking_lot::RwLock::new(SttMetrics::default())),
             config,
+            performance_metrics: None,
         })
     }
 
@@ -113,6 +159,7 @@ impl SttProcessor {
             max_alternatives: 1,
             include_words: false,
             buffer_size_ms: 512,
+            streaming: false,
         };
 
         Self::new(audio_rx, vad_event_rx, event_tx, config)
@@ -121,6 +168,19 @@ impl SttProcessor {
     /// Get current metrics
     pub fn metrics(&self) -> SttMetrics {
         self.metrics.read().clone()
+    }
+
+    /// Set performance metrics for comprehensive monitoring
+    pub fn set_performance_metrics(
+        &mut self,
+        performance_metrics: Arc<crate::telemetry::SttPerformanceMetrics>,
+    ) {
+        self.performance_metrics = Some(performance_metrics);
+    }
+
+    /// Get performance metrics reference
+    pub fn performance_metrics(&self) -> Option<&Arc<crate::telemetry::SttPerformanceMetrics>> {
+        self.performance_metrics.as_ref()
     }
 
     /// Run the STT processor loop
@@ -184,7 +244,7 @@ impl SttProcessor {
 
     /// Handle speech start event
     async fn handle_speech_start(&mut self, timestamp_ms: u64) {
-        tracing::debug!(target: "stt", "STT processor received SpeechStart at {}ms", timestamp_ms);
+        tracing::info!(target: "stt", "STT processor received SpeechStart at {}ms", timestamp_ms);
 
         // Store the start time as Instant for duration calculations
         let start_instant = Instant::now();
@@ -205,18 +265,21 @@ impl SttProcessor {
 
     /// Handle speech end event
     async fn handle_speech_end(&mut self, timestamp_ms: u64, duration_ms: Option<u64>) {
-        tracing::debug!(
+        tracing::info!(
             target: "stt",
             "STT processor received SpeechEnd at {}ms (duration: {:?}ms)",
             timestamp_ms,
             duration_ms
         );
 
+        // Start timing the entire end-to-end process
+        let e2e_start = Instant::now();
+
         // Process the buffered audio all at once
         if let UtteranceState::SpeechActive {
             audio_buffer,
             frames_buffered,
-            ..
+            started_at: _,
         } = &self.state
         {
             let buffer_size = audio_buffer.len();
@@ -228,64 +291,176 @@ impl SttProcessor {
                 frames_buffered
             );
 
+            // Record memory usage estimate
+            let estimated_memory = buffer_size * std::mem::size_of::<i16>() + 1024; // Buffer + overhead
+            if let Some(perf_metrics) = &self.performance_metrics {
+                perf_metrics.update_memory_usage(estimated_memory as u64);
+            }
+
             if !audio_buffer.is_empty() {
-                // Send the entire buffer to the transcriber at once
-                match coldvox_stt::EventBasedTranscriber::accept_frame(
-                    &mut self.transcriber,
-                    audio_buffer,
-                ) {
-                    Ok(Some(event)) => {
-                        self.send_event(event).await;
+                // Time the preprocessing phase
+                let preprocessing_start = Instant::now();
 
-                        // Update metrics
-                        let mut metrics = self.metrics.write();
-                        metrics.frames_out += frames_buffered;
-                        metrics.last_event_time = Some(Instant::now());
-                    }
-                    Ok(None) => {
-                        tracing::debug!(target: "stt", "No transcription from buffered audio");
-                    }
-                    Err(e) => {
-                        tracing::error!(target: "stt", "Failed to process buffered audio: {}", e);
+                // Calculate buffer utilization (assuming max 10 seconds)
+                let max_samples = 16000 * 10;
+                let _utilization = ((buffer_size * 100) / max_samples).min(100);
 
-                        // Send error event
-                        let error_event = TranscriptionEvent::Error {
-                            code: "BUFFER_PROCESS_ERROR".to_string(),
-                            message: e,
-                        };
-                        self.send_event(error_event).await;
+                let preprocessing_time = preprocessing_start.elapsed();
 
-                        // Update metrics
-                        self.metrics.write().error_count += 1;
+                // Retry logic with telemetry tracking
+                let mut attempts = 0;
+                let mut last_err: Option<String>;
+                loop {
+                    // Time the STT engine processing
+                    let engine_start = Instant::now();
+
+                    let res = coldvox_stt::EventBasedTranscriber::accept_frame(
+                        &mut self.transcriber,
+                        audio_buffer,
+                    );
+                    match res {
+                        Ok(Some(event)) => {
+                            let engine_time = engine_start.elapsed();
+                            let delivery_start = Instant::now();
+
+                            self.send_event(event.clone()).await;
+
+                            let delivery_time = delivery_start.elapsed();
+                            let e2e_time = e2e_start.elapsed();
+
+                            // Update comprehensive metrics
+                            self.update_timing_metrics(
+                                e2e_time,
+                                engine_time,
+                                preprocessing_time,
+                                delivery_time,
+                            );
+
+                            // Extract confidence if available and update accuracy metrics
+                            self.update_accuracy_metrics(&event, true);
+
+                            // Update basic metrics
+                            let mut metrics = self.metrics.write();
+                            metrics.frames_out += frames_buffered;
+                            metrics.last_event_time = Some(Instant::now());
+                            break;
+                        }
+                        Ok(None) => {
+                            tracing::debug!(target: "stt", "No transcription from buffered audio");
+                            break;
+                        }
+                        Err(e) => {
+                            let engine_time = engine_start.elapsed();
+                            let e2e_time = e2e_start.elapsed();
+
+                            last_err = Some(e.clone());
+                            if attempts < 2 {
+                                attempts += 1;
+                                let _ = coldvox_stt::EventBasedTranscriber::reset(
+                                    &mut self.transcriber,
+                                );
+                                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                                continue;
+                            } else {
+                                let msg = last_err.unwrap_or_else(|| "unknown error".to_string());
+                                tracing::error!(target: "stt", "Failed to process buffered audio after retries: {}", msg);
+
+                                // Update error metrics
+                                self.update_accuracy_metrics(
+                                    &TranscriptionEvent::Error {
+                                        code: "BUFFER_PROCESS_ERROR".to_string(),
+                                        message: e.clone(),
+                                    },
+                                    false,
+                                );
+
+                                let error_event = TranscriptionEvent::Error {
+                                    code: "BUFFER_PROCESS_ERROR".to_string(),
+                                    message: msg,
+                                };
+                                self.send_event(error_event).await;
+
+                                // Update metrics including timing even for errors
+                                let mut metrics = self.metrics.write();
+                                metrics.error_count += 1;
+                                metrics.last_engine_time_us = engine_time.as_micros() as u64;
+                                metrics.last_e2e_latency_us = e2e_time.as_micros() as u64;
+
+                                if let Some(perf_metrics) = &self.performance_metrics {
+                                    perf_metrics.record_transcription_failure();
+                                    perf_metrics.record_error();
+                                }
+                                break;
+                            }
+                        }
                     }
                 }
             }
 
             // Finalize to get any remaining transcription
-            match coldvox_stt::EventBasedTranscriber::finalize_utterance(&mut self.transcriber) {
-                Ok(Some(event)) => {
-                    self.send_event(event).await;
+            {
+                let mut attempts = 0;
+                let mut last_err: Option<String>;
+                loop {
+                    match coldvox_stt::EventBasedTranscriber::finalize_utterance(
+                        &mut self.transcriber,
+                    ) {
+                        Ok(Some(event)) => {
+                            self.send_event(event.clone()).await;
 
-                    // Update metrics
-                    let mut metrics = self.metrics.write();
-                    metrics.final_count += 1;
-                    metrics.last_event_time = Some(Instant::now());
-                }
-                Ok(None) => {
-                    tracing::debug!(target: "stt", "No final transcription available");
-                }
-                Err(e) => {
-                    tracing::error!(target: "stt", "Failed to finalize transcription: {}", e);
+                            // Update accuracy metrics
+                            self.update_accuracy_metrics(&event, true);
 
-                    // Send error event
-                    let error_event = TranscriptionEvent::Error {
-                        code: "FINALIZE_ERROR".to_string(),
-                        message: e,
-                    };
-                    self.send_event(error_event).await;
+                            // Update metrics
+                            let mut metrics = self.metrics.write();
+                            metrics.final_count += 1;
+                            metrics.last_event_time = Some(Instant::now());
+                            break;
+                        }
+                        Ok(None) => {
+                            tracing::debug!(target: "stt", "No final transcription available");
+                            break;
+                        }
+                        Err(e) => {
+                            last_err = Some(e.clone());
+                            if attempts < 2 {
+                                attempts += 1;
+                                let _ = coldvox_stt::EventBasedTranscriber::reset(
+                                    &mut self.transcriber,
+                                );
+                                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                                continue;
+                            } else {
+                                let msg = last_err.unwrap_or_else(|| "unknown error".to_string());
+                                tracing::error!(target: "stt", "Failed to finalize transcription after retries: {}", msg);
 
-                    // Update metrics
-                    self.metrics.write().error_count += 1;
+                                // Update error metrics
+                                self.update_accuracy_metrics(
+                                    &TranscriptionEvent::Error {
+                                        code: "FINALIZE_ERROR".to_string(),
+                                        message: e.clone(),
+                                    },
+                                    false,
+                                );
+
+                                let error_event = TranscriptionEvent::Error {
+                                    code: "FINALIZE_ERROR".to_string(),
+                                    message: msg,
+                                };
+                                self.send_event(error_event).await;
+
+                                // Update metrics
+                                let mut metrics = self.metrics.write();
+                                metrics.error_count += 1;
+
+                                if let Some(perf_metrics) = &self.performance_metrics {
+                                    perf_metrics.record_transcription_failure();
+                                    perf_metrics.record_error();
+                                }
+                                break;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -298,21 +473,105 @@ impl SttProcessor {
         // Update metrics
         self.metrics.write().frames_in += 1;
 
-        // Only buffer if speech is active
-        if let UtteranceState::SpeechActive {
+        // Check if we're in streaming mode and speech is active
+        let is_streaming_and_active =
+            self.config.streaming && matches!(self.state, UtteranceState::SpeechActive { .. });
+
+        if is_streaming_and_active {
+            // Streaming mode: Process audio chunks incrementally
+            // Convert f32 samples to i16 (PCM)
+            let i16_samples: Vec<i16> = frame
+                .samples
+                .iter()
+                .map(|&sample| (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
+                .collect();
+
+            let event_result = coldvox_stt::EventBasedTranscriber::accept_frame(
+                &mut self.transcriber,
+                &i16_samples,
+            );
+
+            match event_result {
+                Ok(Some(event)) => {
+                    self.send_event(event).await;
+                    let mut metrics = self.metrics.write();
+                    metrics.frames_out += 1;
+                    metrics.last_event_time = Some(Instant::now());
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    let mut attempts = 0;
+                    let mut last_err: Option<String> = Some(e);
+                    let mut handled = false;
+                    while attempts < 2 {
+                        attempts += 1;
+                        let _ = coldvox_stt::EventBasedTranscriber::reset(&mut self.transcriber);
+                        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                        match coldvox_stt::EventBasedTranscriber::accept_frame(
+                            &mut self.transcriber,
+                            &i16_samples,
+                        ) {
+                            Ok(Some(event)) => {
+                                self.send_event(event).await;
+                                let mut metrics = self.metrics.write();
+                                metrics.frames_out += 1;
+                                metrics.last_event_time = Some(Instant::now());
+                                handled = true;
+                                break;
+                            }
+                            Ok(None) => {
+                                handled = true;
+                                break;
+                            }
+                            Err(e2) => {
+                                last_err = Some(e2);
+                            }
+                        }
+                    }
+                    if !handled {
+                        let msg = last_err.unwrap_or_else(|| "unknown error".to_string());
+                        tracing::error!(target: "stt", "Failed to process streaming audio chunk after retries: {}", msg);
+                        let error_event = TranscriptionEvent::Error {
+                            code: "STREAMING_PROCESS_ERROR".to_string(),
+                            message: msg,
+                        };
+                        self.send_event(error_event).await;
+                        self.metrics.write().error_count += 1;
+                    }
+                }
+            }
+
+            // Update frame count for streaming mode
+            if let UtteranceState::SpeechActive {
+                ref mut frames_buffered,
+                ..
+            } = &mut self.state
+            {
+                *frames_buffered += 1;
+
+                // Log periodically
+                if *frames_buffered % 100 == 0 {
+                    tracing::debug!(
+                        target: "stt",
+                        "Streaming audio: {} frames processed",
+                        frames_buffered
+                    );
+                }
+            }
+        } else if let UtteranceState::SpeechActive {
             ref mut audio_buffer,
             ref mut frames_buffered,
             ..
         } = &mut self.state
         {
-            // Convert f32 samples back to i16
+            // Batch mode: Buffer the audio frame
+            // Convert f32 samples to i16 (PCM)
             let i16_samples: Vec<i16> = frame
                 .samples
                 .iter()
-                .map(|&s| (s * i16::MAX as f32) as i16)
+                .map(|&sample| (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
                 .collect();
 
-            // Buffer the audio frame
             audio_buffer.extend_from_slice(&i16_samples);
             *frames_buffered += 1;
 
@@ -361,6 +620,100 @@ impl SttProcessor {
                 // Timeout - consumer is too slow
                 tracing::warn!(target: "stt", "Event channel send timed out after 5s - consumer too slow");
                 self.metrics.write().frames_dropped += 1;
+            }
+        }
+    }
+
+    /// Update timing metrics from processing measurements
+    fn update_timing_metrics(
+        &self,
+        e2e_time: std::time::Duration,
+        engine_time: std::time::Duration,
+        preprocessing_time: std::time::Duration,
+        delivery_time: std::time::Duration,
+    ) {
+        // Update basic metrics with latest timings
+        {
+            let mut metrics = self.metrics.write();
+            metrics.last_e2e_latency_us = e2e_time.as_micros() as u64;
+            metrics.last_engine_time_us = engine_time.as_micros() as u64;
+            metrics.last_preprocessing_us = preprocessing_time.as_micros() as u64;
+        }
+
+        // Update comprehensive performance metrics if available
+        if let Some(perf_metrics) = &self.performance_metrics {
+            perf_metrics.record_end_to_end_latency(e2e_time);
+            perf_metrics.record_engine_processing_time(engine_time);
+            perf_metrics.record_preprocessing_latency(preprocessing_time);
+            perf_metrics.record_result_delivery_latency(delivery_time);
+            perf_metrics.increment_requests();
+        }
+    }
+
+    /// Update accuracy metrics from transcription events
+    fn update_accuracy_metrics(&self, event: &TranscriptionEvent, success: bool) {
+        if let Some(perf_metrics) = &self.performance_metrics {
+            if success {
+                perf_metrics.record_transcription_success();
+
+                // Extract confidence from transcription events
+                match event {
+                    TranscriptionEvent::Final { words, .. } => {
+                        // Calculate average confidence from word-level data if available
+                        if let Some(word_list) = words {
+                            if !word_list.is_empty() {
+                                let avg_confidence: f64 =
+                                    word_list.iter().map(|w| w.conf as f64).sum::<f64>()
+                                        / word_list.len() as f64;
+                                perf_metrics.record_confidence_score(avg_confidence);
+                            }
+                        }
+                        perf_metrics.record_final_transcription();
+                    }
+                    TranscriptionEvent::Partial { .. } => {
+                        perf_metrics.record_partial_transcription();
+                    }
+                    TranscriptionEvent::Error { .. } => {
+                        perf_metrics.record_transcription_failure();
+                        perf_metrics.record_error();
+                    }
+                }
+            } else {
+                perf_metrics.record_transcription_failure();
+                perf_metrics.record_error();
+            }
+        }
+
+        // Update basic metrics
+        {
+            let mut metrics = self.metrics.write();
+            match event {
+                TranscriptionEvent::Final { words, .. } => {
+                    metrics.final_count += 1;
+
+                    // Update confidence if available
+                    if let Some(word_list) = words {
+                        if !word_list.is_empty() {
+                            let avg_confidence: f64 =
+                                word_list.iter().map(|w| w.conf as f64).sum::<f64>()
+                                    / word_list.len() as f64;
+
+                            // Update running average (stored as x1000 for precision)
+                            let confidence_x1000 = (avg_confidence * 1000.0) as u64;
+                            let current_sum =
+                                metrics.avg_confidence_x1000 * metrics.confidence_measurements;
+                            metrics.confidence_measurements += 1;
+                            metrics.avg_confidence_x1000 =
+                                (current_sum + confidence_x1000) / metrics.confidence_measurements;
+                        }
+                    }
+                }
+                TranscriptionEvent::Partial { .. } => {
+                    metrics.partial_count += 1;
+                }
+                TranscriptionEvent::Error { .. } => {
+                    metrics.error_count += 1;
+                }
             }
         }
     }

@@ -36,10 +36,16 @@ temp/
 # OS files
 Thumbs.db
 
-# Vosk models (large binary files)
+# Vosk models and libraries (large binary files)
+# Vosk models (vendored for CI reliability)
 models/
+!models/vosk-model-small-en-us-0.15/
+!models/vosk-model-small-en-us-0.15/**
 *.model
 *.zip
+vosk-linux-x86_64-*/
+# Exception for vendored dependencies
+!vendor/**/*.zip
 
 # ColdVox local run artifacts
 # Keep directory structure but ignore contents

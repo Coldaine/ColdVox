@@ -9,11 +9,12 @@ use std::time::{Duration, Instant};
 
 use super::detector::SilenceDetector;
 use super::device::DeviceManager;
+use super::monitor::DeviceMonitor;
 // Test hook output
 
 use super::ring_buffer::AudioProducer;
 use super::watchdog::WatchdogTimer;
-use coldvox_foundation::{AudioConfig, AudioError};
+use coldvox_foundation::{AudioConfig, AudioError, DeviceEvent};
 
 // This remains the primary data structure for audio data.
 pub struct AudioCapture {
@@ -26,6 +27,8 @@ pub struct AudioCapture {
     running: Arc<AtomicBool>,
     restart_needed: Arc<AtomicBool>,
     config_tx: Option<tokio::sync::broadcast::Sender<DeviceConfig>>,
+    device_event_tx: Option<tokio::sync::broadcast::Sender<DeviceEvent>>,
+    current_device_name: Option<String>,
 }
 
 // Device configuration info
@@ -39,6 +42,7 @@ pub struct DeviceConfig {
 pub struct AudioCaptureThread {
     pub handle: JoinHandle<()>,
     pub shutdown: Arc<AtomicBool>,
+    pub device_monitor_handle: Option<JoinHandle<()>>,
 }
 
 impl AudioCaptureThread {
@@ -51,6 +55,7 @@ impl AudioCaptureThread {
             Self,
             DeviceConfig,
             tokio::sync::broadcast::Receiver<DeviceConfig>,
+            tokio::sync::broadcast::Receiver<DeviceEvent>,
         ),
         AudioError,
     > {
@@ -63,11 +68,21 @@ impl AudioCaptureThread {
         let (config_tx, config_rx) = tokio::sync::broadcast::channel(16);
         let config_tx_clone = config_tx.clone();
 
+        // Create device event broadcast channel
+        let (device_event_tx, device_event_rx) = tokio::sync::broadcast::channel(32);
+        let device_event_tx_clone = device_event_tx.clone();
+
+        // Start device monitor
+        let (device_monitor, mut monitor_rx) = DeviceMonitor::new(Duration::from_millis(500))?;
+        let monitor_running = running.clone();
+        let monitor_handle = device_monitor.start_monitoring(monitor_running);
+
         let handle = thread::Builder::new()
             .name("audio-capture".to_string())
             .spawn(move || {
                 let mut capture = match AudioCapture::new(config, audio_producer, running.clone()) {
-                    Ok(c) => c.with_config_channel(config_tx_clone),
+                    Ok(c) => c.with_config_channel(config_tx_clone)
+                              .with_device_event_channel(device_event_tx_clone),
                     Err(e) => {
                         tracing::error!("Failed to create AudioCapture: {}", e);
                         return;
@@ -88,6 +103,8 @@ impl AudioCaptureThread {
                     match capture.start(attempt.as_deref()) {
                         Ok(cfg) => {
                             tracing::info!("Audio stream started on device: {:?}", attempt);
+                            capture.current_device_name = attempt.clone();
+
                             // Preflight: wait up to 3s for at least one frame
                             let start = Instant::now();
                             let mut ok = false;
@@ -121,10 +138,63 @@ impl AudioCaptureThread {
 
                 *device_config_clone.write() = Some(dev_cfg);
 
-                // Monitor for watchdog or error-triggered restarts
+                // Monitor for watchdog, error-triggered restarts, and device events
                 while running.load(Ordering::Relaxed) {
-                    if capture.watchdog.is_triggered() || capture.restart_needed.load(Ordering::SeqCst) {
-                        tracing::warn!("Capture restart triggered (watchdog or stream error)");
+                    let mut needs_restart = false;
+                    let mut restart_reason = "unknown";
+
+                    // Check for device monitor events
+                    match monitor_rx.try_recv() {
+                        Ok(event) => {
+                            tracing::debug!("Device event: {:?}", event);
+                            let _ = capture.device_event_tx.as_ref().map(|tx| tx.send(event.clone()));
+
+                            match event {
+                                DeviceEvent::CurrentDeviceDisconnected { name } => {
+                                    if capture.current_device_name.as_ref() == Some(&name) {
+                                        tracing::warn!("Current device {} disconnected, attempting recovery", name);
+                                        needs_restart = true;
+                                        restart_reason = "device disconnected";
+                                    }
+                                }
+                                DeviceEvent::DeviceAdded { name } => {
+                                    tracing::info!("New device available: {}", name);
+                                    // Could implement automatic switching to preferred devices here
+                                }
+                                DeviceEvent::DeviceSwitchRequested { target } => {
+                                    tracing::info!("Manual device switch requested to: {}", target);
+                                    needs_restart = true;
+                                    restart_reason = "manual device switch requested";
+                                }
+                                _ => {}
+                            }
+                        }
+                        Err(tokio::sync::broadcast::error::TryRecvError::Empty) => {
+                            // No events, continue
+                        }
+                        Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) => {
+                            tracing::warn!("Device monitor events lagged, some events may have been missed");
+                        }
+                        Err(tokio::sync::broadcast::error::TryRecvError::Closed) => {
+                            tracing::error!("Device monitor channel closed");
+                            break;
+                        }
+                    }
+
+                    // Check existing restart conditions
+                    if capture.watchdog.is_triggered() {
+                        needs_restart = true;
+                        restart_reason = "watchdog timeout";
+                    }
+
+                    if capture.restart_needed.load(Ordering::SeqCst) {
+                        needs_restart = true;
+                        restart_reason = "stream error";
+                    }
+
+                    if needs_restart {
+                        tracing::warn!("Capture restart triggered ({})", restart_reason);
+                        let old_device = capture.current_device_name.clone();
                         capture.stop();
                         capture.restart_needed.store(false, Ordering::SeqCst);
 
@@ -134,11 +204,22 @@ impl AudioCaptureThread {
                         let candidates = capture.device_manager.candidate_device_names();
                         for name in candidates { attempts.push(Some(name)); }
                         attempts.push(None);
+
                         for attempt in attempts {
                             match capture.start(attempt.as_deref()) {
                                 Ok(cfg) => {
                                     tracing::info!("Capture restarted on device: {:?}", attempt);
+                                    let new_device = attempt.clone();
+                                    capture.current_device_name = new_device.clone();
                                     *device_config_clone.write() = Some(cfg);
+
+                                    // Emit device switch event
+                                    let switch_event = DeviceEvent::DeviceSwitched {
+                                        from: old_device.clone(),
+                                        to: new_device.unwrap_or_else(|| "default".to_string()),
+                                    };
+                                    let _ = capture.device_event_tx.as_ref().map(|tx| tx.send(switch_event));
+
                                     restarted = true;
                                     break;
                                 }
@@ -149,6 +230,11 @@ impl AudioCaptureThread {
                         }
                         if !restarted {
                             tracing::error!("Failed to restart capture on any candidate device");
+                            let switch_event = DeviceEvent::DeviceSwitchFailed {
+                                attempted: old_device.unwrap_or_else(|| "unknown".to_string()),
+                                fallback: None,
+                            };
+                            let _ = capture.device_event_tx.as_ref().map(|tx| tx.send(switch_event));
                         }
                     }
                     thread::sleep(Duration::from_millis(100));
@@ -174,12 +260,24 @@ impl AudioCaptureThread {
             AudioError::Fatal("Failed to get device configuration within timeout".to_string())
         })?;
 
-        Ok((Self { handle, shutdown }, cfg, config_rx))
+        Ok((
+            Self {
+                handle,
+                shutdown,
+                device_monitor_handle: Some(monitor_handle),
+            },
+            cfg,
+            config_rx,
+            device_event_rx,
+        ))
     }
 
     pub fn stop(self) {
         self.shutdown.store(false, Ordering::Relaxed);
         let _ = self.handle.join();
+        if let Some(monitor_handle) = self.device_monitor_handle {
+            let _ = monitor_handle.join();
+        }
     }
 }
 
@@ -218,6 +316,8 @@ impl AudioCapture {
             running,
             restart_needed: Arc::new(AtomicBool::new(false)),
             config_tx: None,
+            device_event_tx: None,
+            current_device_name: None,
         })
     }
 
@@ -226,6 +326,14 @@ impl AudioCapture {
         config_tx: tokio::sync::broadcast::Sender<DeviceConfig>,
     ) -> Self {
         self.config_tx = Some(config_tx);
+        self
+    }
+
+    pub fn with_device_event_channel(
+        mut self,
+        device_event_tx: tokio::sync::broadcast::Sender<DeviceEvent>,
+    ) -> Self {
+        self.device_event_tx = Some(device_event_tx);
         self
     }
 
@@ -310,6 +418,13 @@ impl AudioCapture {
         thread_local! {
             static CONVERT_BUFFER: std::cell::RefCell<Vec<i16>> = const { std::cell::RefCell::new(Vec::new()) };
         }
+        CONVERT_BUFFER.with(|buf| {
+            let mut v = buf.borrow_mut();
+            let cap = v.capacity();
+            if cap < 131072 {
+                v.reserve_exact(131072 - cap);
+            }
+        });
 
         let stream = match sample_format {
             SampleFormat::I16 => device.build_input_stream(
@@ -320,88 +435,89 @@ impl AudioCapture {
                 err_fn,
                 None,
             )?,
-            SampleFormat::F32 => {
-                device.build_input_stream(
-                    &config,
-                    move |data: &[f32], _: &_| {
-                        CONVERT_BUFFER.with(|buf| {
-                            let mut converted = buf.borrow_mut();
-                            converted.clear();
-                            converted.reserve(data.len());
-                            // Clamp [-1.0, 1.0] and scale to i16
-                            for &s in data {
-                                let clamped = s.clamp(-1.0, 1.0);
-                                let v = (clamped * 32767.0).round() as i16;
-                                converted.push(v);
-                            }
-                            handle_i16(&converted);
-                        });
-                    },
-                    err_fn,
-                    None,
-                )?
-            }
-            SampleFormat::U16 => {
-                device.build_input_stream(
-                    &config,
-                    move |data: &[u16], _: &_| {
-                        CONVERT_BUFFER.with(|buf| {
-                            let mut converted = buf.borrow_mut();
-                            converted.clear();
-                            converted.reserve(data.len());
-                            // Convert unsigned [0,65535] to signed [-32768,32767]
-                            for &s in data {
-                                let v = (s as i32 - 32768) as i16;
-                                converted.push(v);
-                            }
-                            handle_i16(&converted);
-                        });
-                    },
-                    err_fn,
-                    None,
-                )?
-            }
-            SampleFormat::U32 => {
-                device.build_input_stream(
-                    &config,
-                    move |data: &[u32], _: &_| {
-                        CONVERT_BUFFER.with(|buf| {
-                            let mut converted = buf.borrow_mut();
-                            converted.clear();
-                            converted.reserve(data.len());
-                            // Map 0..=u32::MAX to i16 range via center-offset and shift
-                            for &s in data {
-                                let centered = s as i64 - 2_147_483_648i64; // 2^31
-                                let v = (centered >> 16) as i16; // scale down to 16-bit
-                                converted.push(v);
-                            }
-                            handle_i16(&converted);
-                        });
-                    },
-                    err_fn,
-                    None,
-                )?
-            }
-            SampleFormat::F64 => {
-                device.build_input_stream(
-                    &config,
-                    move |data: &[f64], _: &_| {
-                        CONVERT_BUFFER.with(|buf| {
-                            let mut converted = buf.borrow_mut();
-                            converted.clear();
-                            converted.reserve(data.len());
-                            for &s in data {
-                                let clamped = s.clamp(-1.0, 1.0);
-                                let v = (clamped * 32767.0).round() as i16; // Now uses .round() like F32
-                                converted.push(v);
-                            }
-                            handle_i16(&converted);
-                        });
-                    },
-                    err_fn,
-                    None,
-                )?
-            }
+            SampleFormat::F32 => device.build_input_stream(
+                &config,
+                move |data: &[f32], _: &_| {
+                    CONVERT_BUFFER.with(|buf| {
+                        let mut converted = buf.borrow_mut();
+                        let cap = converted.capacity();
+                        if cap < 131072 {
+                            converted.reserve_exact(131072 - cap);
+                        }
+                        converted.clear();
+                        for &s in data {
+                            let clamped = s.clamp(-1.0, 1.0);
+                            let v = (clamped * 32767.0).round() as i16;
+                            converted.push(v);
+                        }
+                        handle_i16(&converted);
+                    });
+                },
+                err_fn,
+                None,
+            )?,
+            SampleFormat::U16 => device.build_input_stream(
+                &config,
+                move |data: &[u16], _: &_| {
+                    CONVERT_BUFFER.with(|buf| {
+                        let mut converted = buf.borrow_mut();
+                        let cap = converted.capacity();
+                        if cap < 131072 {
+                            converted.reserve_exact(131072 - cap);
+                        }
+                        converted.clear();
+                        for &s in data {
+                            let v = (s as i32 - 32768) as i16;
+                            converted.push(v);
+                        }
+                        handle_i16(&converted);
+                    });
+                },
+                err_fn,
+                None,
+            )?,
+            SampleFormat::U32 => device.build_input_stream(
+                &config,
+                move |data: &[u32], _: &_| {
+                    CONVERT_BUFFER.with(|buf| {
+                        let mut converted = buf.borrow_mut();
+                        let cap = converted.capacity();
+                        if cap < 131072 {
+                            converted.reserve_exact(131072 - cap);
+                        }
+                        converted.clear();
+                        for &s in data {
+                            let centered = s as i64 - 2_147_483_648i64;
+                            let v = (centered >> 16) as i16;
+                            converted.push(v);
+                        }
+                        handle_i16(&converted);
+                    });
+                },
+                err_fn,
+                None,
+            )?,
+            SampleFormat::F64 => device.build_input_stream(
+                &config,
+                move |data: &[f64], _: &_| {
+                    CONVERT_BUFFER.with(|buf| {
+                        let mut converted = buf.borrow_mut();
+                        let cap = converted.capacity();
+                        if cap < 131072 {
+                            converted.reserve_exact(131072 - cap);
+                        }
+                        converted.clear();
+                        for &s in data {
+                            let clamped = s.clamp(-1.0, 1.0);
+                            let v = (clamped * 32767.0).round() as i16;
+                            converted.push(v);
+                        }
+                        handle_i16(&converted);
+                    });
+                },
+                err_fn,
+                None,
+            )?,
             other => {
                 return Err(AudioError::FormatNotSupported {
                     format: format!("{:?}", other),

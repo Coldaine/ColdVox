@@ -80,16 +80,35 @@ impl EnigoInjector {
                 InjectionError::MethodFailed(format!("Failed to create Enigo: {}", e))
             })?;
 
-            // Press Ctrl+V
-            enigo.key(Key::Control, Direction::Press).map_err(|e| {
-                InjectionError::MethodFailed(format!("Failed to press Ctrl: {}", e))
-            })?;
-            enigo
-                .key(Key::Unicode('v'), Direction::Click)
-                .map_err(|e| InjectionError::MethodFailed(format!("Failed to type 'v': {}", e)))?;
-            enigo.key(Key::Control, Direction::Release).map_err(|e| {
-                InjectionError::MethodFailed(format!("Failed to release Ctrl: {}", e))
-            })?;
+            // Press platform-appropriate paste shortcut
+            #[cfg(target_os = "macos")]
+            {
+                enigo.key(Key::Meta, Direction::Press).map_err(|e| {
+                    InjectionError::MethodFailed(format!("Failed to press Cmd: {}", e))
+                })?;
+                enigo
+                    .key(Key::Unicode('v'), Direction::Click)
+                    .map_err(|e| {
+                        InjectionError::MethodFailed(format!("Failed to type 'v': {}", e))
+                    })?;
+                enigo.key(Key::Meta, Direction::Release).map_err(|e| {
+                    InjectionError::MethodFailed(format!("Failed to release Cmd: {}", e))
+                })?;
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                enigo.key(Key::Control, Direction::Press).map_err(|e| {
+                    InjectionError::MethodFailed(format!("Failed to press Ctrl: {}", e))
+                })?;
+                enigo
+                    .key(Key::Unicode('v'), Direction::Click)
+                    .map_err(|e| {
+                        InjectionError::MethodFailed(format!("Failed to type 'v': {}", e))
+                    })?;
+                enigo.key(Key::Control, Direction::Release).map_err(|e| {
+                    InjectionError::MethodFailed(format!("Failed to release Ctrl: {}", e))
+                })?;
+            }
 
             Ok(())
         })
@@ -103,6 +122,12 @@ impl EnigoInjector {
             Ok(Err(e)) => Err(e),
             Err(_) => Err(InjectionError::Timeout(0)), // Spawn failed
         }
+    }
+
+    /// A test-only helper to directly call the private `type_text` method.
+    #[cfg(test)]
+    pub async fn type_text_directly(&self, text: &str) -> Result<(), InjectionError> {
+        self.type_text(text).await
     }
 }
 

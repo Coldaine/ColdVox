@@ -12,19 +12,23 @@
 //! | Enigo        | Cross    | Input simulation   | Beta   |
 //! | KDotool      | Linux    | X11 automation     | Beta   |
 //! | YDotool      | Linux    | uinput automation  | Beta   |
-//! | MKI          | Cross    | Mock keyboard      | Beta   |
+
 //!
 //! ## Features
 //!
-//! - `atspi`: Enable AT-SPI backend for Linux accessibility
-//! - `wl_clipboard`: Enable clipboard-based injection via wl-clipboard-rs
-//! - `enigo`: Enable cross-platform input simulation
-//! - `xdg_kdotool`: Enable X11 automation backend
+//! - `atspi`: Linux AT-SPI accessibility backend
+//! - `wl_clipboard`: Clipboard-based injection via wl-clipboard-rs
+//! - `enigo`: Cross-platform input simulation
+//! - `ydotool`: Linux uinput automation
+//! - `kdotool`: KDE/X11 window activation assistance
+
+//! - `regex`: Precompile allow/block list patterns
 //! - `all-backends`: Enable all available backends
 //! - `linux-desktop`: Enable recommended Linux desktop backends
 
 pub mod backend;
 pub mod focus;
+pub mod log_throttle;
 pub mod manager;
 pub mod processor;
 pub mod session;
@@ -38,16 +42,15 @@ pub mod atspi_injector;
 #[cfg(feature = "wl_clipboard")]
 pub mod clipboard_injector;
 
-#[cfg(all(feature = "wl_clipboard", feature = "atspi"))]
-pub mod combo_clip_atspi;
+#[cfg(all(feature = "wl_clipboard", feature = "ydotool"))]
+pub mod combo_clip_ydotool;
 
 #[cfg(feature = "enigo")]
 pub mod enigo_injector;
 
-#[cfg(feature = "xdg_kdotool")]
+#[cfg(feature = "kdotool")]
 pub mod kdotool_injector;
 
-pub mod mki_injector;
 pub mod ydotool_injector;
 
 // NoOp fallback is always available
@@ -58,6 +61,7 @@ mod tests;
 
 // Re-export key components for easy access
 pub use backend::Backend;
+pub use focus::{FocusProvider, FocusStatus};
 pub use manager::StrategyManager;
 pub use processor::{AsyncInjectionProcessor, InjectionProcessor, ProcessorMetrics};
 pub use session::{InjectionSession, SessionConfig, SessionState};

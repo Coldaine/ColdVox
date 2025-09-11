@@ -15,10 +15,21 @@ pub use coldvox_stt::{
     WordInfo,
 };
 
-/// Get default model path from environment or fallback
+#[cfg(feature = "vosk")]
+pub mod model;
+
+/// Get default model path from environment or fallback (string form).
+/// Delegates to `model::default_model_path` when the feature is enabled.
 pub fn default_model_path() -> String {
-    std::env::var("VOSK_MODEL_PATH")
-        .unwrap_or_else(|_| "models/vosk-model-small-en-us-0.15".to_string())
+    #[cfg(feature = "vosk")]
+    {
+        model::default_model_path().to_string_lossy().to_string()
+    }
+    #[cfg(not(feature = "vosk"))]
+    {
+        std::env::var("VOSK_MODEL_PATH")
+            .unwrap_or_else(|_| "models/vosk-model-small-en-us-0.15".to_string())
+    }
 }
 
 #[cfg(not(feature = "vosk"))]

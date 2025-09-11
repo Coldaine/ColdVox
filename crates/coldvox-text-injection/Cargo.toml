@@ -2,6 +2,7 @@
 name = "coldvox-text-injection"
 version = "0.1.0"
 edition = "2021"
+build = "build.rs"
 description = "Text injection backends and session management for ColdVox"
 license = "MIT OR Apache-2.0"
 keywords = ["accessibility", "automation", "text-injection", "atspi", "clipboard"]
@@ -10,7 +11,7 @@ categories = ["accessibility", "gui"]
 [dependencies]
 tokio = { version = "1.35", features = ["full"] }
 anyhow = "1.0"
-thiserror = "1.0"
+thiserror = "2.0"
 tracing = "0.1"
 async-trait = "0.1"
 parking_lot = "0.12"
@@ -22,20 +23,22 @@ coldvox-stt = { path = "../coldvox-stt" }
 
 # Backend dependencies (all optional)
 atspi = { version = "0.28", optional = true }
-wl-clipboard-rs = { version = "0.8", optional = true }  
-enigo = { version = "0.2", optional = true }
+wl-clipboard-rs = { version = "0.9", optional = true }
+enigo = { version = "0.6", optional = true }
+regex = { version = "1.10", optional = true }
 # device_query = { version = "4.0", optional = true } # Removed: unused dependency
 
 # Additional backend dependencies used by injectors
-x11 = { version = "2.21", optional = true }
-arboard = { version = "3.2", optional = true }
-mouse-keyboard-input = { version = "0.7", optional = true }
-regex = { version = "1.10", optional = true }
+# Note: previously depended on x11/arboard/mouse-keyboard-input, but they are not used.
 
 [dev-dependencies]
-tempfile = "3.8"
+tempfile = "3.22"
 mockall = "0.12"
 tokio-test = "0.4"
+rand = "0.8"
+arboard = "3.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serial_test = "3.0"
 
 [features]
 default = []
@@ -44,13 +47,23 @@ default = []
 atspi = ["dep:atspi"]
 wl_clipboard = ["dep:wl-clipboard-rs"]
 enigo = ["dep:enigo"]
-xdg_kdotool = []
+kdotool = []
 
 # Additional injector features
 ydotool = []
-mki = ["dep:mouse-keyboard-input"]
 regex = ["dep:regex"]
 
 # Combined features for convenience
-all-backends = ["atspi", "wl_clipboard", "enigo", "xdg_kdotool"]
-linux-desktop = ["atspi", "wl_clipboard", "xdg_kdotool"]
+all-backends = ["atspi", "wl_clipboard", "enigo", "kdotool"]
+linux-desktop = ["atspi", "wl_clipboard", "kdotool"]
+
+# Test features
+live-hardware-tests = []
+real-injection-tests = []
+
+# Deprecated alias for xdg_kdotool. Will be removed in a future version.
+xdg_kdotool = ["kdotool"]
+
+[build-dependencies]
+cc = "1.2"
+pkg-config = "0.3"

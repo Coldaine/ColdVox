@@ -1,0 +1,372 @@
+{
+  "repository": {
+    "name": "coldvox",
+    "primary_language": "Rust",
+    "secondary_languages": ["Shell", "QML"],
+    "frameworks": ["Tokio", "Qt"],
+    "build_system": "Cargo",
+    "package_manager": "Cargo",
+    "workspace_structure": "workspace",
+    "estimated_complexity": "complex",
+    "file_stats": {
+      "total_files": 396,
+      "source_files": 147,
+      "test_files": 90,
+      "config_files": 16,
+      "by_extension": {
+        ".rs": 147,
+        ".toml": 16,
+        ".md": 84,
+        ".sh": 13,
+        ".wav": 16,
+        ".txt": 13,
+        ".yml": 8,
+        ".qml": 7,
+        ".svg": 6,
+        ".mmd": 6,
+        ".dot": 4,
+        ".png": 3,
+        ".json": 3,
+        ".lock": 2,
+        ".yaml": 2,
+        ".c": 1
+      }
+    }
+  },
+  "architecture": {
+    "pattern": "Modular, event-driven, multi-stage pipeline. The system is built as a Rust workspace with clearly separated crates for different concerns (audio, VAD, STT, etc.). It uses an asynchronous, actor-like model where components run in their own tasks (or dedicated threads for real-time audio) and communicate via channels.",
+    "package_structure": "A Cargo workspace in the root contains a `crates/` directory. Each subdirectory of `crates/` is a separate Rust crate with its own Cargo.toml. The `app` crate is the main application that integrates the other library crates.",
+    "layers": [
+      {
+        "name": "Input/Acquisition",
+        "purpose": "Capture audio from microphone and listen for system-wide hotkeys.",
+        "main_directories": ["crates/coldvox-audio/src/", "crates/app/src/hotkey/"],
+        "key_files": ["capture.rs", "device.rs", "listener.rs"],
+        "characteristics": ["dedicated-thread", "ffi", "platform-specific"]
+      },
+      {
+        "name": "Processing/Transformation",
+        "purpose": "Normalize audio, detect speech, and transcribe speech to text.",
+        "main_directories": ["crates/coldvox-audio/", "crates/coldvox-vad-silero/", "crates/coldvox-stt-vosk/"],
+        "key_files": ["chunker.rs", "resampler.rs", "silero_wrapper.rs", "vosk_transcriber.rs"],
+        "characteristics": ["async", "cpu-intensive"]
+      },
+      {
+        "name": "Output/Delivery",
+        "purpose": "Inject transcribed text into other applications or display on a GUI.",
+        "main_directories": ["crates/coldvox-text-injection/", "crates/coldvox-gui/"],
+        "key_files": ["manager.rs", "main.rs"],
+        "characteristics": ["async", "platform-specific", "ffi", "unsafe"]
+      },
+      {
+        "name": "Infrastructure/Utilities",
+        "purpose": "Provide core services like state management, error handling, graceful shutdown, and metrics.",
+        "main_directories": ["crates/coldvox-foundation/", "crates/coldvox-telemetry/"],
+        "key_files": ["state.rs", "shutdown.rs", "error.rs", "pipeline_metrics.rs"],
+        "characteristics": ["thread-safe"]
+      }
+    ],
+    "entry_points": [
+      {
+        "type": "binary",
+        "path": "crates/app/src/main.rs",
+        "purpose": "Main application entry point. Parses CLI args, sets up logging, and starts the main application runtime.",
+        "platform_restrictions": []
+      },
+      {
+        "type": "binary",
+        "path": "crates/app/src/bin/tui_dashboard.rs",
+        "purpose": "A text-based UI for monitoring the audio pipeline.",
+        "platform_restrictions": ["unix"]
+      },
+      {
+        "type": "binary",
+        "path": "crates/app/src/bin/mic_probe.rs",
+        "purpose": "A utility to test microphone input.",
+        "platform_restrictions": []
+      },
+      {
+        "type": "binary",
+        "path": "crates/coldvox-gui/src/main.rs",
+        "purpose": "The graphical user interface for the application.",
+        "platform_restrictions": []
+      },
+      {
+        "type": "library",
+        "path": "crates/app/src/lib.rs",
+        "purpose": "Exposes the application runtime and components for integration and testing.",
+        "platform_restrictions": []
+      }
+    ],
+    "data_flow": {
+      "pipeline_stages": ["Audio Capture", "Resampling & Chunking", "Voice Activity Detection", "Speech-to-Text Transcription", "Text Injection"],
+      "concurrency_model": "A hybrid model. A dedicated, real-time OS thread is used for audio capture to avoid preemption. All other processing stages (chunking, VAD, STT, injection) are asynchronous tasks running on a Tokio multi-threaded runtime. Communication between the audio thread and the async tasks is handled by a lock-free SPSC ring buffer. Communication between async tasks is handled by Tokio's MPSC and broadcast channels.",
+      "state_management": "A centralized, explicit state machine (`StateManager` in `coldvox-foundation`) manages the application's lifecycle state (Initializing, Running, Stopping, etc.) with validated transitions."
+    }
+  },
+  "features": [
+    {
+      "name": "VAD-Gated Speech-to-Text",
+      "type": "core",
+      "description": "The core feature of the application. It listens to a microphone, uses Voice Activity Detection (VAD) to detect when the user is speaking, transcribes the speech to text using an STT engine, and then makes the text available for injection.",
+      "implementation_details": "The `app::runtime` module wires together the `coldvox-audio`, `coldvox-vad-silero`, and `coldvox-stt-vosk` crates. A stream of audio frames is broadcast to both the VAD and STT processors. The VAD processor sends SpeechStart/SpeechEnd events to the STT processor to gate the transcription.",
+      "main_modules": ["coldvox-audio", "coldvox-vad-silero", "coldvox-stt-vosk", "app"],
+      "test_files": ["crates/app/tests/pipeline_integration.rs"],
+      "dependencies": ["cpal", "rtrb", "rubato", "voice_activity_detector", "vosk"],
+      "external_resources": ["microphone", "Vosk ML model files"],
+      "configuration_keys": ["device", "resampler-quality", "activation-mode", "vosk_model_path"],
+      "platform_specific": false,
+      "performance_characteristics": ["real-time", "cpu-intensive"]
+    },
+    {
+      "name": "Adaptive Text Injection",
+      "type": "core",
+      "description": "Injects the transcribed text into the currently focused application. It uses a variety of platform-specific backends and an adaptive strategy to find a method that works.",
+      "implementation_details": "The `coldvox-text-injection` crate contains a `StrategyManager` that detects the user's platform (X11, Wayland) and available tools (AT-SPI, ydotool). It maintains a history of successful injection methods for each application and prioritizes methods that have worked in the past. It uses a fallback chain and cooldowns with exponential backoff for failed methods.",
+      "main_modules": ["coldvox-text-injection"],
+      "test_files": ["crates/app/tests/integration/mock_injection_tests.rs"],
+      "dependencies": ["atspi", "wl-clipboard-rs", "enigo"],
+      "external_resources": ["other applications via accessibility or input simulation"],
+      "configuration_keys": ["enable-text-injection", "allow-ydotool", "inject-on-unknown-focus"],
+      "platform_specific": true,
+      "performance_characteristics": ["latency-sensitive"]
+    }
+  ],
+  "modules": [
+    {
+      "path": "crates/coldvox-foundation/",
+      "name": "coldvox-foundation",
+      "type": "utility",
+      "purpose": "Provides core, cross-cutting application infrastructure, including a state machine, graceful shutdown handler, health monitor, and custom error types.",
+      "public_interface": ["StateManager", "ShutdownHandler", "HealthMonitor", "AppError", "AudioError"],
+      "dependencies": {
+        "internal": [],
+        "external": ["thiserror", "tokio", "cpal", "serde", "parking_lot", "crossbeam-channel"]
+      },
+      "characteristics": {
+        "lines_of_code": 0,
+        "has_tests": true,
+        "has_benchmarks": false,
+        "uses_unsafe": false,
+        "uses_ffi": false,
+        "platform_specific": false
+      }
+    },
+    {
+      "path": "crates/coldvox-audio/",
+      "name": "coldvox-audio",
+      "type": "core",
+      "purpose": "Handles all aspects of audio capture and processing. It manages audio devices, captures audio in a dedicated thread, resamples and chunks the audio into a standardized format for the rest of the pipeline.",
+      "public_interface": ["AudioCaptureThread", "AudioChunker", "DeviceManager", "AudioRingBuffer"],
+      "dependencies": {
+        "internal": ["coldvox-foundation", "coldvox-telemetry"],
+        "external": ["cpal", "rtrb", "dasp", "rubato", "tokio"]
+      },
+      "characteristics": {
+        "lines_of_code": 0,
+        "has_tests": true,
+        "has_benchmarks": false,
+        "uses_unsafe": false,
+        "uses_ffi": true,
+        "platform_specific": true
+      }
+    },
+    {
+      "path": "crates/coldvox-vad-silero/",
+      "name": "coldvox-vad-silero",
+      "type": "core",
+      "purpose": "Implements the `VadEngine` trait using the Silero VAD model via ONNX. It wraps an external crate and adds debouncing logic.",
+      "public_interface": ["SileroEngine"],
+      "dependencies": {
+        "internal": ["coldvox-vad"],
+        "external": ["voice_activity_detector"]
+      },
+      "characteristics": {
+        "lines_of_code": 0,
+        "has_tests": true,
+        "has_benchmarks": false,
+        "uses_unsafe": false,
+        "uses_ffi": true,
+        "platform_specific": false
+      }
+    },
+    {
+      "path": "crates/coldvox-text-injection/",
+      "name": "coldvox-text-injection",
+      "type": "core",
+      "purpose": "Provides a resilient, platform-aware system for injecting text into other applications. It features multiple backends and an adaptive strategy manager.",
+      "public_interface": ["StrategyManager", "TextInjector", "InjectionConfig"],
+      "dependencies": {
+        "internal": ["coldvox-stt"],
+        "external": ["tokio", "atspi", "wl-clipboard-rs", "enigo", "regex"]
+      },
+      "characteristics": {
+        "lines_of_code": 0,
+        "has_tests": true,
+        "has_benchmarks": false,
+        "uses_unsafe": false,
+        "uses_ffi": true,
+        "platform_specific": true
+      }
+    }
+  ],
+  "system_integration": {
+    "hardware_access": ["microphone"],
+    "system_apis": ["cpal (audio)", "atspi (accessibility)", "uinput (input simulation)", "xprop (X11 window info)"],
+    "permission_requirements": ["microphone", "uinput group membership for ydotool"],
+    "platform_implementations": {
+      "windows": {"present": true, "modules": ["enigo_injector"]},
+      "linux": {"present": true, "modules": ["atspi_injector", "clipboard_injector", "ydotool_injector", "kdotool_injector"]},
+      "macos": {"present": true, "modules": ["enigo_injector"]}
+    },
+    "external_bindings": [
+      {
+        "library": "libasound (via cpal)",
+        "binding_type": "ffi",
+        "purpose": "Audio capture and playback on Linux."
+      },
+      {
+        "library": "libdbus (via atspi)",
+        "binding_type": "ffi",
+        "purpose": "Communicating with the accessibility stack on Linux for text injection and focus tracking."
+      },
+      {
+        "library": "libvosk",
+        "binding_type": "ffi",
+        "purpose": "Speech-to-text transcription."
+      },
+      {
+        "library": "Qt6",
+        "binding_type": "ffi",
+        "purpose": "Graphical User Interface."
+      }
+    ]
+  },
+  "operations": {
+    "development": {
+      "setup_requirements": ["Rust toolchain (1.75+)", "`just` command runner", "pre-commit", "system dependencies for text injection (e.g., `wl-clipboard`, `ydotool`)", "Qt6 for GUI development"],
+      "build_commands": {
+        "just build": "Builds the entire workspace in debug mode.",
+        "just build-release": "Builds the entire workspace in release mode."
+      },
+      "test_commands": {
+        "just test": "Runs all tests.",
+        "just test-full": "Runs all tests, including those requiring a Vosk model."
+      },
+      "required_tools": ["just", "cargo", "pre-commit", "git"],
+      "environment_variables": ["RUST_LOG", "COLDVOX_DEVICE", "VOSK_MODEL_PATH"]
+    },
+    "build_configuration": {
+      "profiles": ["debug", "release"],
+      "optimization_settings": {},
+      "feature_flags": ["vosk", "whisper", "silero", "text-injection", "atspi", "wl_clipboard", "enigo", "kdotool", "ydotool", "qt-ui"],
+      "conditional_compilation": ["`#[cfg(feature = \"...\")]` is used extensively to gate optional components and platform-specific code.", "`#[cfg(target_os = \"...\")]` is used for OS-specific dependencies and code."]
+    },
+    "deployment": {
+      "target_platforms": ["linux"],
+      "build_artifacts": ["coldvox", "tui_dashboard", "mic_probe", "coldvox-gui"],
+      "distribution_method": "Source code compilation. No packaging or binary distribution method is defined.",
+      "ci_platform": "github-actions",
+      "deployment_files": []
+    },
+    "testing": {
+      "frameworks": ["Rust's built-in test framework", "tokio::test for async tests", "mockall for mocking"],
+      "test_organization": "Tests are co-located with code in `#[cfg(test)]` modules for unit tests, and in `tests/` directories within crates for integration tests.",
+      "test_types": {
+        "unit": {"count": 0, "location": "inline `mod tests`"},
+        "integration": {"count": 0, "location": "`tests/` directories"},
+        "benchmarks": {"count": 0, "location": "none"}
+      },
+      "test_data": "Test audio files (.wav) and corresponding text transcriptions (.txt) are stored in `crates/app/test_data`.",
+      "coverage_tool": "none"
+    }
+  },
+  "code_characteristics": {
+    "performance_optimizations": [
+      {
+        "type": "dedicated-thread",
+        "location": "crates/coldvox-audio/src/capture.rs",
+        "purpose": "Isolating real-time audio capture from the async runtime to prevent blocking and ensure low latency."
+      },
+      {
+        "type": "lock-free-spsc",
+        "location": "crates/coldvox-audio/src/ring_buffer.rs",
+        "purpose": "Using a lock-free ring buffer (`rtrb`) for communication between the real-time audio thread and the processing pipeline to avoid priority inversion and stalls."
+      },
+      {
+        "type": "buffer-pooling",
+        "location": "crates/coldvox-audio/src/capture.rs",
+        "purpose": "Using a `thread_local!` buffer to avoid heap allocations in the audio callback when converting sample formats."
+      }
+    ],
+    "error_handling": {
+      "strategy": "A combination of `thiserror` for defining structured error types and a centralized `RecoveryStrategy` enum in `coldvox-foundation` to determine how to respond to different classes of errors (e.g., retry, fallback, fatal).",
+      "custom_types": ["AppError", "AudioError", "InjectionError"],
+      "recovery_mechanisms": ["Automatic restart of the audio stream on device disconnection or data timeout.", "Fallback chain for text injection methods."]
+    },
+    "concurrency": {
+      "model": "both",
+      "primitives": ["channels", "mutexes", "atomics", "rwlock"],
+      "runtime": "Tokio"
+    }
+  },
+  "technical_decisions": [
+    {
+      "category": "architecture",
+      "decision": "Use of a multi-crate workspace in Rust.",
+      "evidence": "Root `Cargo.toml` with `[workspace]` section and `crates/` directory structure.",
+      "context": "This enforces a clean separation of concerns, improves compilation times, and makes it easier to manage the complexity of the project."
+    },
+    {
+      "category": "architecture",
+      "decision": "Hybrid threading model (dedicated real-time thread + async task pool).",
+      "evidence": "`std::thread::spawn` in `capture.rs` and `tokio::spawn` used everywhere else.",
+      "context": "This is a best-practice pattern for real-time audio applications in Rust. It prevents the non-deterministic scheduling of the async runtime from interfering with the low-latency requirements of audio capture."
+    },
+    {
+      "category": "library",
+      "decision": "Use of `rtrb` for the audio ring buffer.",
+      "evidence": "`rtrb` dependency in `coldvox-audio/Cargo.toml` and its usage in `ring_buffer.rs`.",
+      "context": "This provides a high-performance, lock-free channel suitable for passing data from a real-time thread to a non-real-time thread without risking priority inversion or blocking."
+    },
+    {
+      "category": "pattern",
+      "decision": "Adaptive strategy pattern for text injection.",
+      "evidence": "`StrategyManager` in `coldvox-text-injection/src/manager.rs`.",
+      "context": "Text injection is notoriously brittle. Instead of picking one method, the system tries multiple backends and dynamically re-prioritizes them based on their historical success rate for the specific application in focus. This makes the system highly resilient and adaptable to different user environments."
+    }
+  ],
+  "documentation_needs": {
+    "critical_gaps": [
+      "The `CLAUDE.md` file is outdated and should not be trusted. A new, accurate architectural overview is needed.",
+      "There is no user-facing documentation on how to install and run the application, including system dependencies."
+    ],
+    "complex_areas": [
+      {
+        "area": "coldvox-text-injection",
+        "reason": "This crate contains highly complex, platform-specific logic with multiple fallbacks and an adaptive strategy.",
+        "indicators": ["many feature flags", "platform-specific code", "complex state machine in StrategyManager"]
+      },
+      {
+        "area": "coldvox-audio",
+        "reason": "The audio capture and recovery logic is non-trivial and deals with real-time constraints and hardware flakiness.",
+        "indicators": ["dedicated thread management", "automatic restart logic", "lock-free communication"]
+      }
+    ],
+    "operational_gaps": [
+      "Missing setup instructions for end-users, especially for the complex text injection dependencies.",
+      "No defined process for creating releases or distributing binaries."
+    ]
+  },
+  "metadata": {
+    "analysis_timestamp": "2025-09-09T19:43:17Z",
+    "files_analyzed": 396,
+    "directories_analyzed": 0,
+    "packages_analyzed": 10,
+    "time_taken_seconds": 0,
+    "confidence_notes": [
+      "The analysis of the `coldvox-gui` crate is superficial as it appears to be a placeholder or in early development.",
+      "The file counts are based on shell commands and may not be perfectly accurate."
+    ]
+  }
+}

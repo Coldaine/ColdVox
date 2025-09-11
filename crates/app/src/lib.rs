@@ -1,7 +1,10 @@
 pub mod audio;
+pub mod clock;
 pub mod foundation;
 pub mod hotkey;
 pub mod probes;
+pub mod runtime;
+pub mod sleep_instrumentation;
 pub mod stt;
 pub mod telemetry;
 #[cfg(feature = "text-injection")]

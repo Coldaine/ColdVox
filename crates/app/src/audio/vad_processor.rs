@@ -1,7 +1,8 @@
+use std::sync::Arc;
+
 use coldvox_audio::AudioFrame;
 use coldvox_telemetry::{FpsTracker, PipelineMetrics};
 use coldvox_vad::{UnifiedVadConfig, VadEvent};
-use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
@@ -116,6 +117,13 @@ impl VadProcessor {
 
         self.frames_processed += 1;
 
+        if self.frames_processed % 100 == 0 {
+            tracing::debug!(
+                "VAD: Received {} frames, processing active",
+                self.frames_processed
+            );
+        }
+
         if self.frames_processed % 1000 == 0 {
             debug!(
                 "VAD processor: {} frames processed, {} events generated, current state: {:?}",
@@ -132,6 +140,7 @@ impl VadProcessor {
         event_tx: Sender<VadEvent>,
         metrics: Option<Arc<PipelineMetrics>>,
     ) -> Result<JoinHandle<()>, String> {
+        tracing::info!("VAD processor task spawning for mode: {:?}", config.mode);
         let processor = VadProcessor::new(config, audio_rx, event_tx, metrics)?;
 
         let handle = tokio::spawn(async move {

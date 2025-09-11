@@ -4,33 +4,26 @@
 //! segments and processes transcription when speech ends. The processor is designed
 //! to work with any VAD system and any STT implementation.
 
+use crate::types::{TranscriptionConfig, TranscriptionEvent};
+use crate::EventBasedTranscriber;
+/// Minimal audio frame type (i16 PCM) used by the generic STT processor
+#[derive(Debug, Clone)]
+pub struct AudioFrame {
+    pub data: Vec<i16>,
+    pub timestamp_ms: u64,
+    pub sample_rate: u32,
+}
+
+/// Minimal VAD event type mirrored here to avoid cross-crate deps
+#[derive(Debug, Clone, Copy)]
+pub enum VadEvent {
+    SpeechStart { timestamp_ms: u64 },
+    SpeechEnd { timestamp_ms: u64, duration_ms: u64 },
+}
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::{broadcast, mpsc};
 use tracing::{debug, error, info, warn};
-
-use crate::types::{TranscriptionConfig, TranscriptionEvent};
-use crate::EventBasedTranscriber;
-
-/// Audio frame type (generic over audio formats)
-#[derive(Debug, Clone)]
-pub struct AudioFrame {
-    /// Audio data as 16-bit PCM samples
-    pub data: Vec<i16>,
-    /// Timestamp in milliseconds
-    pub timestamp_ms: u64,
-    /// Sample rate in Hz
-    pub sample_rate: u32,
-}
-
-/// VAD event types
-#[derive(Debug, Clone)]
-pub enum VadEvent {
-    /// Speech started
-    SpeechStart { timestamp_ms: u64 },
-    /// Speech ended
-    SpeechEnd { timestamp_ms: u64, duration_ms: u64 },
-}
 
 /// STT processor state
 #[derive(Debug, Clone)]
@@ -296,7 +289,7 @@ impl<T: EventBasedTranscriber + Send> SttProcessor<T> {
             ..
         } = &mut self.state
         {
-            // Buffer the audio frame
+            // Buffer the audio frame (already i16 PCM)
             audio_buffer.extend_from_slice(&frame.data);
             *frames_buffered += 1;
 

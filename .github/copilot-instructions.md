@@ -2,6 +2,14 @@
 
 Use these notes to help AI agents work effectively in this Rust workspace. Main application crate: `crates/app` (package `coldvox-app`). Core subsystems live in split crates and are re-exported by the app where convenient.
 
+## AI Assistant Response Guidelines
+
+**Prompt Response Format**: When asked to create a prompt for another agent, return ONLY the prompt content without any additional commentary, explanation, or wrapper text. Simply output the prompt as requested.
+
+Key defaults right now:
+- STT (Vosk) is NOT built by default. Enable with the `vosk` feature.
+- Default audio/VAD windowing is 512 samples at 16 kHz (32 ms).
+
 **Platform Detection**: Build system automatically detects platform/desktop at compile time (`crates/app/build.rs`) and enables appropriate text injection backends.
 
 ## Architecture (Multi-crate Workspace)
@@ -22,11 +30,11 @@ Use these notes to help AI agents work effectively in this Rust workspace. Main 
   - `watchdog.rs`: 5-second no-data watchdog with automatic recovery hooks
   - `detector.rs`: RMS-based `SilenceDetector` using `AudioConfig.silence_threshold`
 
-- `crates/coldvox-vad/` — VAD core traits, configurations, and Level3 energy-based VAD
-  - `config.rs`: `UnifiedVadConfig`, `VadMode` (Silero default, Level3 feature-gated)
+- `crates/coldvox-vad/` — VAD core traits and configurations
+  - `config.rs`: `UnifiedVadConfig`, `VadMode`
   - `engine.rs`: `VadEngine` trait for VAD implementations
-  - `level3.rs`: Energy-based VAD (feature `level3`) - disabled by default
   - `types.rs`: `VadEvent`, `VadState`, `VadMetrics`
+  - `constants.rs`: `FRAME_SIZE_SAMPLES = 512`, `SAMPLE_RATE_HZ = 16_000`, `FRAME_DURATION_MS`
 
 - `crates/coldvox-vad-silero/` — Silero V5 ONNX-based VAD (default, feature `silero`)
   - `silero_wrapper.rs`: `SileroEngine` implementing `VadEngine` with ML-based detection
@@ -34,7 +42,8 @@ Use these notes to help AI agents work effectively in this Rust workspace. Main 
 
 - `crates/coldvox-stt/` — STT core abstractions and event system
   - `types.rs`: Core STT types and events (`TranscriptionEvent`, `WordInfo`)
-  - `processor.rs`: STT processing traits and abstractions
+  - `processor.rs`: STT processing building blocks (used by app-level processor)
+  - `plugin.rs` + `plugins/`: Plugin architecture (e.g., `vosk_plugin.rs`, `whisper_plugin.rs`, `mock.rs`, `noop.rs`)
 
 - `crates/coldvox-stt-vosk/` — Vosk STT integration (feature `vosk`, default enabled)
   - `vosk_transcriber.rs`: `VoskTranscriber` implementing offline speech recognition
@@ -44,7 +53,7 @@ Use these notes to help AI agents work effectively in this Rust workspace. Main 
 
 - `crates/coldvox-text-injection/` — Text injection backends (feature-gated, platform-aware)
   - **Linux**: `atspi_injector.rs`, `clipboard_injector.rs`, `ydotool_injector.rs`, `kdotool_injector.rs`
-  - **Cross-platform**: `enigo_injector.rs`, `mki_injector.rs`
+  - **Cross-platform**: `enigo_injector.rs`
   - **Management**: `manager.rs`, `session.rs`, `window_manager.rs`
 
 - `crates/coldvox-gui/` — GUI components and interfaces (separate from CLI app)
@@ -63,19 +72,20 @@ Use these notes to help AI agents work effectively in this Rust workspace. Main 
 **Working Directory**: `crates/app` (package `coldvox-app`)
 
 ### Main Binaries
-- **App**: `cargo run` (includes STT by default via Vosk)
-- **TUI Dashboard**: `cargo run --bin tui_dashboard` (add `-- --device "<device name>"` for device selection)
-- **Mic Probe**: `cargo run --bin mic_probe -- --duration 30 --device "<name>" --silence_threshold 120`
-- **Without STT**: `cargo run --no-default-features --features silero,text-injection`
+- App (default build, no STT): `cargo run`
+- App with STT (Vosk): `cargo run --features vosk`
+- TUI Dashboard: `cargo run --bin tui_dashboard` (add `-- --device "<device name>"` and/or `--log-level <level>`)
+- Mic Probe: `cargo run --bin mic_probe -- --duration 30 --device "<name>" --silence_threshold 120`
+- Minimal (disable text injection too): `cargo run --no-default-features --features silero`
 
 ### Examples (at repo root `/examples/`, wired via Cargo metadata)
-- **Foundation**: `cargo run --example foundation_probe -- --duration 30`
-- **VAD Demo**: `cargo run --example vad_demo`
-- **Recording**: `cargo run --example record_10s`
-- **STT Test**: `cargo run --example vosk_test --features vosk,examples`
-- **Text Injection**: `cargo run --example inject_demo --features text-injection`
-- **Hotkeys**: `cargo run --example test_hotkey_backend`
-- **Silero VAD**: `cargo run --example test_silero_wav --features examples`
+- Foundation: `cargo run --example foundation_probe -- --duration 30`
+- Recording: `cargo run --example record_10s`
+- STT Test (Vosk): `cargo run --features vosk,examples --example vosk_test`
+- Text Injection demo: `cargo run --features text-injection --example inject_demo`
+- Hotkeys: `cargo run --example test_hotkey_backend`
+- KDE KGlobalAccel: `cargo run --example test_kglobalaccel_hotkey`
+- Silero VAD (wav): `cargo run --features examples --example test_silero_wav`
 
 ### Build Options
 - **Release**: `cargo build --release`
@@ -93,8 +103,10 @@ Use these notes to help AI agents work effectively in this Rust workspace. Main 
 ## Audio data flow and contracts
 - CPAL callback → i16 samples → `AudioRingBuffer` (SPSC) → `FrameReader` → `AudioChunker` → broadcast channel
 - Chunker output: 512-sample frames (32 ms) at 16 kHz to VAD/STT subscribers
-- VAD: Silero V5 (default) or Level3 energy engine generates `VadEvent`s
-- STT: Gated by VAD events; transcribes segments when speech is active (feature `vosk`)
+- VAD: Silero V5 (default) generates `VadEvent`s
+- STT (when compiled with `vosk`):
+  - Activation gating: by default the app uses a hotkey workflow; enable `--activation-mode vad` to auto-activate on speech.
+  - Transcribes segments during active speech (SpeechStart → SpeechEnd) and emits `TranscriptionEvent`s.
   - TUI: when STT is enabled and a model is present, partial/final transcripts are logged; Status shows last final transcript
 - Backpressure: if the consumer is slow, writes drop when full (warn logged); keep a reader draining via `FrameReader`
 - Preferred device format: choose 16 kHz mono when available; otherwise select best supported config and convert downstream
@@ -130,20 +142,24 @@ UnifiedVadConfig {
 }
 ```
 
-### STT Configuration (default enabled, requires Vosk model)
+### STT Configuration (when `vosk` feature is enabled)
 ```rust
 TranscriptionConfig {
-    model_path: "models/vosk-model-small-en-us-0.15/",
-    partial_results: true,
-    max_alternatives: 1,
-    include_words: true,
-    buffer_size_ms: 1000,
+  enabled: true, // app sets this true only if the model path exists
+  model_path: "models/vosk-model-small-en-us-0.15",
+  partial_results: true,
+  max_alternatives: 1,
+  include_words: false,
+  buffer_size_ms: 512,
 }
 ```
+Notes:
+- If `VOSK_MODEL_PATH` is set, it overrides `model_path`.
+- If the model path does not exist at runtime, the app disables STT and logs a warning.
 
 ### Text Injection (Platform-aware)
-- **Linux**: Auto-enables `atspi`, `wl_clipboard`, `ydotool`/`kdotool` based on Wayland/X11
-- **Windows/macOS**: Auto-enables `enigo`
+- **Linux**: Auto-enables `atspi`, `wl_clipboard`, and Wayland/X11-specific backends (`ydotool` or `kdotool`) based on session; also enables `enigo`.
+- **Windows/macOS**: Auto-enables `enigo`.
 - **Backend selection**: Runtime availability testing with fallback chains
 
 ## Logging & Observability
@@ -158,6 +174,13 @@ TranscriptionConfig {
 - **Dual output**: stderr + daily-rotated `logs/coldvox.log`
 - **Environment control**: `RUST_LOG` (e.g., `RUST_LOG=debug`)
 - **Structured logging**: Tracing-based with component context
+
+### CLI Highlights (main app)
+- `--list-devices`: List available input devices and exit
+- `--device <name>`: Select preferred input device (exact or substring)
+- `--resampler-quality <fast|balanced|quality>`: Controls chunker resampler
+- `--activation-mode <hotkey|vad>`: Choose activation workflow (default: `hotkey`)
+- STT (only with `vosk` feature): `--save-transcriptions`, `--save-audio`, `--output-dir`, `--transcript-format`, `--retention-days`
 
 ### Metrics & Telemetry
 - **Pipeline metrics**: `Arc<PipelineMetrics>` shared across components
@@ -203,18 +226,18 @@ let devices = device_manager.enumerate_devices();
 - **Primary**: Silero V5 via `crates/coldvox-vad-silero/` (feature `silero`, default)
   - ONNX-based ML VAD using external `voice_activity_detector` crate
   - 16 kHz, 512-sample windows per prediction
-- **Fallback**: Level3 energy VAD (feature `level3`, disabled by default)
-  - RMS-based energy detection with configurable thresholds
+- **Legacy Fallback**: Level3 energy VAD (feature `level3`, disabled by default)
+  - RMS-based energy detection with configurable thresholds. Not recommended for use.
 - **Events**: `VadEvent::{SpeechStart, SpeechEnd}` with debouncing
 - **Configuration**: Thresholds, durations, and windowing via `UnifiedVadConfig`
 
 ## STT System (Default Enabled)
-- **Vosk integration**: Via `crates/coldvox-stt-vosk/` (re-exported in `crates/app/src/stt/vosk.rs`)
-- **VAD-gated**: Transcribes only during detected speech segments
-- **Events**: `TranscriptionEvent::{Partial, Final, Error}` via mpsc channels
-- **Model path**: `VOSK_MODEL_PATH` env var or default `models/vosk-model-small-en-us-0.15/`
-- **Features**: Default enabled; disable with `--no-default-features`
-- **Requirements**: System libvosk library for compilation
+STT is optional and compiled in with the `vosk` feature.
+- Integration: Via `crates/coldvox-stt-vosk/` (re-exported in `crates/app/src/stt/vosk.rs`)
+- Gating: Transcribes only during detected speech segments
+- Events: `TranscriptionEvent::{Partial, Final, Error}` via mpsc channels
+- Model path: `VOSK_MODEL_PATH` env var or default `models/vosk-model-small-en-us-0.15`
+- Requirements: System libvosk library for compilation
 
 ## Hotkey System
 - **Global hotkeys**: System-wide hotkey capture and processing (`src/hotkey/`)
@@ -224,7 +247,7 @@ let devices = device_manager.enumerate_devices();
 
 ## Text Injection Backends
 - **Linux backends**: AT-SPI (accessibility), wl-clipboard (Wayland), ydotool (uinput), kdotool (X11)
-- **Cross-platform**: Enigo (input simulation), MKI (mock keyboard)
+- **Cross-platform**: Enigo (input simulation)
 - **Combined strategies**: Combo clipboard + AT-SPI fallback
 - **Session management**: Focus tracking, window manager integration
 - **Adaptive selection**: Runtime availability testing with fallback chains

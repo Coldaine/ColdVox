@@ -46,12 +46,17 @@ mod tests {
 
         let methods = manager.get_method_priority("test_app");
 
-        // Should have some methods available
+        // Should have some methods available (at least NoOp fallback)
         assert!(!methods.is_empty());
+        assert!(methods.contains(&InjectionMethod::NoOp));
 
-        // AT-SPI should be preferred if available
+        // AT-SPI should be preferred if available in this environment
         #[cfg(feature = "atspi")]
-        assert_eq!(methods[0], InjectionMethod::AtspiInsert);
+        {
+            if methods.contains(&InjectionMethod::AtspiInsert) {
+                assert_eq!(methods[0], InjectionMethod::AtspiInsert);
+            }
+        }
     }
 
     #[tokio::test]

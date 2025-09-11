@@ -7,7 +7,7 @@ Telemetry and metrics infrastructure for ColdVox performance monitoring.
 This crate provides comprehensive performance monitoring and metrics collection for the ColdVox voice processing pipeline:
 
 - **Pipeline Metrics**: Frame processing rates, latency tracking, and throughput monitoring
-- **Audio Metrics**: Capture rates, buffer utilization, and dropout detection  
+- **Audio Metrics**: Capture rates, buffer utilization, and dropout detection
 - **Performance Counters**: CPU usage, memory consumption, and processing times
 - **Health Monitoring**: System health checks and error rate tracking
 

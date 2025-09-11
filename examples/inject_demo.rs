@@ -45,7 +45,6 @@ async fn run_processor_demo() -> Result<(), Box<dyn std::error::Error>> {
         allow_ydotool: true,
         allow_kdotool: false,
         allow_enigo: false,
-        allow_mki: false,
         restore_clipboard: true,
         inject_on_unknown_focus: false,
         max_total_latency_ms: 5000,
@@ -67,7 +66,7 @@ async fn run_processor_demo() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Simulate receiving transcriptions
-    let test_transcriptions = vec![
+    let test_transcriptions = [
         "Hello world",
         "This is a test of the text injection system",
         "It should automatically inject text when silence is detected",
@@ -104,8 +103,7 @@ async fn run_processor_demo() -> Result<(), Box<dyn std::error::Error>> {
         // In a real scenario, this would be handled by the async processor
         // For demo purposes, we'll create a temporary strategy manager
         let config_clone = config.clone();
-        let mut temp_manager =
-            StrategyManager::new(config_clone, injection_metrics.clone()).await;
+        let mut temp_manager = StrategyManager::new(config_clone, injection_metrics.clone()).await;
         match temp_manager.inject(&text).await {
             Ok(()) => {
                 info!("✅ Injection successful!");
@@ -139,7 +137,6 @@ async fn run_direct_injection_demo() -> Result<(), Box<dyn std::error::Error>> {
         allow_ydotool: true,
         allow_kdotool: false,
         allow_enigo: false,
-        allow_mki: false,
         restore_clipboard: true,
         inject_on_unknown_focus: false,
         max_total_latency_ms: 5000,
@@ -157,7 +154,7 @@ async fn run_direct_injection_demo() -> Result<(), Box<dyn std::error::Error>> {
     info!("StrategyManager created");
 
     // Test different injection texts
-    let test_texts = vec![
+    let test_texts = [
         "Direct injection test",
         "Hello from ColdVox!",
         "This demonstrates the text injection capabilities",

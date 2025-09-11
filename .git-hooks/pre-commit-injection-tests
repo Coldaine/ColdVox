@@ -1,0 +1,47 @@
+#!/bin/bash
+# Pre-commit hook to run fast, mock-only text injection tests.
+
+# Exit immediately if a command exits with a non-zero status.
+set -e
+
+echo "--- Running pre-commit hook for text injection tests ---"
+
+# This hook only runs the library's unit tests, which are mock-based and very fast.
+# It does not require a display server or any external daemons.
+echo "Running mock-only tests for coldvox-text-injection..."
+cargo test -p coldvox-text-injection --lib
+
+if [[ $? -ne 0 ]]; then
+    echo "------------------------------------------------------------" >&2
+    echo "ERROR: Text injection mock tests failed." >&2
+    echo "This is a quick check. For full details, run the command above." >&2
+    echo "------------------------------------------------------------" >&2
+    exit 1
+fi
+
+echo "Mock tests passed."
+echo "----------------------------------------------------------"
+
+# Optional real injection smoke test (non-blocking)
+if [[ "${RUN_REAL_INJECTION_SMOKE:-}" == "1" ]]; then
+    if [[ -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]; then
+        echo "[smoke] Skipping real injection smoke test (no display)"
+    else
+        echo "[smoke] Running real injection smoke test (non-blocking)"
+        # Enable common backends; missing ones will skip
+        set +e
+        cargo test -p coldvox-text-injection --features real-injection-tests,atspi,wl_clipboard,enigo,ydotool -- real_injection_smoke --test-threads=1 --quiet
+        rc=$?
+        if [[ $rc -ne 0 ]]; then
+            if [[ "${ENFORCE_REAL_SMOKE:-}" == "1" ]]; then
+                echo "[smoke] FAILURE (enforced)"
+                exit $rc
+            else
+                echo "[smoke] Warning: smoke test failed (rc=$rc) – continuing (set ENFORCE_REAL_SMOKE=1 to block)"
+            fi
+        else
+            echo "[smoke] Success"
+        fi
+        set -e
+    fi
+fi

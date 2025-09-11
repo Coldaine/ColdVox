@@ -4,21 +4,29 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use coldvox_foundation::clock::SharedClock;
+
 #[derive(Clone)]
 pub struct WatchdogTimer {
     timeout: Duration,
     last_feed: Arc<RwLock<Option<Instant>>>,
     triggered: Arc<AtomicBool>,
     handle: Arc<RwLock<Option<JoinHandle<()>>>>,
+    clock: SharedClock,
 }
 
 impl WatchdogTimer {
     pub fn new(timeout: Duration) -> Self {
+        Self::new_with_clock(timeout, coldvox_foundation::clock::real_clock())
+    }
+
+    pub fn new_with_clock(timeout: Duration, clock: SharedClock) -> Self {
         Self {
             timeout,
             last_feed: Arc::new(RwLock::new(None)),
             triggered: Arc::new(AtomicBool::new(false)),
             handle: Arc::new(RwLock::new(None)),
+            clock,
         }
     }
 
@@ -26,15 +34,16 @@ impl WatchdogTimer {
         let timeout = self.timeout;
         let last_feed = Arc::clone(&self.last_feed);
         let triggered = Arc::clone(&self.triggered);
+        let clock = Arc::clone(&self.clock);
 
         // Initialize the last feed time
-        *last_feed.write() = Some(Instant::now());
+        *last_feed.write() = Some(clock.now());
 
         let handle = thread::spawn(move || {
             while running.load(Ordering::SeqCst) {
-                thread::sleep(Duration::from_secs(1));
+                clock.sleep(Duration::from_secs(1));
 
-                let now = Instant::now();
+                let now = clock.now();
                 let should_trigger = {
                     let guard = last_feed.read();
                     if let Some(last_time) = *guard {
@@ -62,7 +71,7 @@ impl WatchdogTimer {
     }
 
     pub fn feed(&self) {
-        *self.last_feed.write() = Some(Instant::now());
+        *self.last_feed.write() = Some(self.clock.now());
         self.triggered.store(false, Ordering::SeqCst);
     }
 

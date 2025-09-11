@@ -58,6 +58,36 @@ pub enum AudioError {
     SupportedStreamConfigs(#[from] cpal::SupportedStreamConfigsError),
 }
 
+/// Device status events for monitoring audio device changes
+#[derive(Debug, Clone, PartialEq)]
+pub enum DeviceEvent {
+    /// A new device was detected
+    DeviceAdded { name: String },
+    /// A device was removed
+    DeviceRemoved { name: String },
+    /// Current device was disconnected
+    CurrentDeviceDisconnected { name: String },
+    /// Successfully switched to a new device
+    DeviceSwitched { from: Option<String>, to: String },
+    /// Failed to switch device, using fallback
+    DeviceSwitchFailed {
+        attempted: String,
+        fallback: Option<String>,
+    },
+    /// Request to manually switch to a specific device
+    DeviceSwitchRequested { target: String },
+}
+
+/// Device status information
+#[derive(Debug, Clone)]
+pub struct DeviceStatus {
+    pub name: String,
+    pub is_current: bool,
+    pub is_available: bool,
+    pub is_default: bool,
+    pub last_seen: std::time::Instant,
+}
+
 #[derive(Debug, Clone)]
 pub enum RecoveryStrategy {
     Retry { max_attempts: u32, delay: Duration },

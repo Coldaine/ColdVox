@@ -1,0 +1,55 @@
+name: Setup ColdVox Dependencies
+description: Install system deps, libvosk, and Rust toolchain
+inputs:
+  skip-toolchain:
+    description: Skip Rust toolchain setup (for jobs with custom toolchain)
+    required: false
+    default: 'false'
+runs:
+  using: composite
+  steps:
+    - name: Install system dependencies
+      shell: bash
+      run: |
+        # Detect package manager and install appropriate packages
+        if command -v dnf >/dev/null 2>&1; then
+          # Fedora/RHEL/Nobara
+          sudo dnf install -y \
+            alsa-lib-devel \
+            xdotool \
+            libXtst-devel \
+            wget \
+            unzip \
+            @development-tools
+        elif command -v apt-get >/dev/null 2>&1; then
+          # Ubuntu/Debian
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev \
+            libxdo-dev \
+            libxtst-dev \
+            wget \
+            unzip \
+            build-essential
+        else
+          echo "ERROR: Unsupported package manager" >&2
+          exit 1
+        fi
+
+    - name: Install libvosk (vendored)
+      shell: bash
+      run: |
+        VOSK_VER=0.3.45
+        unzip -q vendor/vosk/vosk-linux-x86_64-${VOSK_VER}.zip
+        sudo cp -v vosk-linux-x86_64-${VOSK_VER}/libvosk.so /usr/local/lib/
+        sudo cp -v vosk-linux-x86_64-${VOSK_VER}/vosk_api.h /usr/local/include/
+        sudo ldconfig
+
+    - name: Setup Rust toolchain
+      if: inputs.skip-toolchain != 'true'
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+
+    - name: Cache Cargo
+      uses: Swatinem/rust-cache@v2
