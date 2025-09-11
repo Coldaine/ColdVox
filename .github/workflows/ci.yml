@@ -102,7 +102,22 @@ jobs:
             echo "📥 Downloading Vosk model (cache not available)..."
             wget -q -O vosk-model-small-en-us-0.15.zip "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip"
             unzip -q vosk-model-small-en-us-0.15.zip
-            mv vosk-model-small-en-us-0.15 "$MODEL_DIR/"
+            # If target already exists and is non-empty, remove it first (stale partial)
+            if [ -d "$MODEL_DIR/vosk-model-small-en-us-0.15" ]; then
+              if [ "$(ls -A $MODEL_DIR/vosk-model-small-en-us-0.15 2>/dev/null)" ]; then
+                echo "⚠️  Removing existing non-empty stale directory: $MODEL_DIR/vosk-model-small-en-us-0.15"
+                rm -rf "$MODEL_DIR/vosk-model-small-en-us-0.15"
+              else
+                rm -rf "$MODEL_DIR/vosk-model-small-en-us-0.15"
+              fi
+            fi
+            # Move extracted directory into place
+            if [ -d "vosk-model-small-en-us-0.15" ]; then
+              mv "vosk-model-small-en-us-0.15" "$MODEL_DIR/"
+            else
+              echo "❌ Extracted model directory not found after unzip" >&2
+              exit 1
+            fi
             rm vosk-model-small-en-us-0.15.zip
             echo "✅ Downloaded vosk-model-small-en-us-0.15"
           fi
