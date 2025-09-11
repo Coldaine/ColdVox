@@ -429,9 +429,9 @@ jobs:
         run: cargo build --locked -p coldvox-app
 
       - name: Run E2E pipeline test
-        if: needs.download-vosk-model.outputs.download-outcome == 'success'
+        if: needs.setup-vosk-model.outputs.download-outcome == 'success'
         env:
-          VOSK_MODEL_PATH: ${{ needs.download-vosk-model.outputs.model-path }}
+          VOSK_MODEL_PATH: ${{ needs.setup-vosk-model.outputs.model-path }}
         run: |
           cargo test -p coldvox-app --locked test_end_to_end_wav_pipeline -- --nocapture
 
@@ -484,7 +484,7 @@ jobs:
   ci-success:
     name: CI Success
     if: always()
-    needs: [validate-workflows, download-vosk-model, build_and_check, msrv-check, gui-groundwork, text_injection_tests]
+    needs: [validate-workflows, setup-vosk-model, build_and_check, msrv-check, gui-groundwork, text_injection_tests]
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
     steps:
       - name: Check if all jobs succeeded
@@ -493,7 +493,7 @@ jobs:
           failed=0
           for res in \
             "${{ needs.validate-workflows.result }}" \
-            "${{ needs.download-vosk-model.result }}" \
+            "${{ needs.setup-vosk-model.result }}" \
             "${{ needs.build_and_check.result }}" \
             "${{ needs.msrv-check.result }}" \
             "${{ needs.gui-groundwork.result }}" \
