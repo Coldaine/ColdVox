@@ -14,7 +14,7 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   RUST_BACKTRACE: 1
@@ -26,7 +26,7 @@ env:
 jobs:
   validate-workflows:
     name: Validate Workflow Definitions
-    runs-on: [self-hosted, Linux, X64, fedora, nobara]
+    runs-on: ${{ contains(github.event.inputs.runner, 'self-hosted') && fromJSON('["self-hosted", "Linux", "X64", "fedora", "nobara"]') || 'ubuntu-latest' }}
     continue-on-error: true # Optional validation
     env:
       GH_TOKEN: ${{ github.token }}
@@ -66,7 +66,7 @@ jobs:
 
   setup-vosk-model:
     name: Setup Vosk Model from Cache
-    runs-on: [self-hosted, Linux, X64, fedora, nobara]
+    runs-on: ${{ contains(github.event.inputs.runner, 'self-hosted') && fromJSON('["self-hosted", "Linux", "X64", "fedora", "nobara"]') || 'ubuntu-latest' }}
     outputs:
       model-path: ${{ steps.get-model-path.outputs.path }}
       download-outcome: success
@@ -75,7 +75,9 @@ jobs:
         
       - name: Setup Vosk Model from Cache
         run: |
-          set -euo pipefail
+          # Export LD_LIBRARY_PATH for Vosk
+          export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
+          sudo ldconfig
           
           # Use pre-cached models from permanent cache location
           CACHE_DIR="/home/coldaine/ActionRunnerCache/vosk-models"
@@ -114,7 +116,7 @@ jobs:
   # Static checks, formatting, linting, type-check, build, and docs
   build_and_check:
     name: Format, Lint, Typecheck, Build & Docs
-    runs-on: [self-hosted, Linux, X64, fedora, nobara]
+    runs-on: ${{ contains(github.event.inputs.runner, 'self-hosted') && fromJSON('["self-hosted", "Linux", "X64", "fedora", "nobara"]') || 'ubuntu-latest' }}
     needs: [setup-vosk-model]
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
@@ -171,7 +173,7 @@ jobs:
   # MSRV validation
   msrv-check:
     name: MSRV Check (Rust 1.75)
-    runs-on: [self-hosted, Linux, X64, fedora, nobara]
+    runs-on: ${{ contains(github.event.inputs.runner, 'self-hosted') && fromJSON('["self-hosted", "Linux", "X64", "fedora", "nobara"]') || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
@@ -195,7 +197,7 @@ jobs:
   # GUI groundwork check: explicitly pass if Qt 6 isn't installed
   gui-groundwork:
     name: GUI Groundwork (Qt optional)
-    runs-on: [self-hosted, Linux, X64, fedora, nobara]
+    runs-on: ${{ contains(github.event.inputs.runner, 'self-hosted') && fromJSON('["self-hosted", "Linux", "X64", "fedora", "nobara"]') || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
@@ -307,12 +309,14 @@ jobs:
 
   text_injection_tests:
     name: Text Injection Tests
-    runs-on: [self-hosted, Linux, X64, fedora, nobara]
+    runs-on: ${{ contains(github.event.inputs.runner, 'self-hosted') && fromJSON('["self-hosted", "Linux", "X64", "fedora", "nobara"]') || 'ubuntu-latest' }}
     needs: [setup-vosk-model]
     timeout-minutes: 30
     env:
       DISPLAY: :99
       RUST_LOG: debug
+      RUST_TEST_TIME_UNIT: 10000
+      RUST_TEST_TIME_INTEGRATION: 30000
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
@@ -331,7 +335,7 @@ jobs:
             # Fedora/RHEL/Nobara
             sudo dnf install -y --skip-unavailable \
               xorg-x11-server-Xvfb \
-              fluxbox \
+              openbox \
               dbus-x11 \
               at-spi2-core \
               wl-clipboard \
@@ -339,13 +343,14 @@ jobs:
               ydotool \
               xorg-x11-utils \
               wmctrl \
-              gtk3-devel
+              gtk3-devel \
+              pulseaudio
           elif command -v apt-get >/dev/null 2>&1; then
             # Ubuntu/Debian
             sudo apt-get update
             sudo apt-get install -y \
               xvfb \
-              fluxbox \
+              openbox \
               dbus-x11 \
               at-spi2-core \
               wl-clipboard \
@@ -353,7 +358,8 @@ jobs:
               ydotool \
               x11-utils \
               wmctrl \
-              libgtk-3-dev
+              libgtk-3-dev \
+              pulseaudio
           else
             echo "ERROR: Unsupported package manager" >&2
             exit 1
@@ -362,18 +368,9 @@ jobs:
       - name: Start and verify headless environment
         run: |
           set -euo pipefail
-          # Start Xvfb
-          Xvfb :99 -screen 0 1024x768x24 &
-          for i in {1..30}; do
-            if xdpyinfo -display ":99" >/dev/null 2>&1; then echo "Xvfb ready"; break; fi
-            sleep 0.5; [[ $i -eq 30 ]] && exit 1
-          done
-          # Start window manager
-          fluxbox -display :99 &
-          for i in {1..30}; do
-            if wmctrl -m >/dev/null 2>&1; then echo "Window manager ready"; break; fi
-            sleep 0.5; [[ $i -eq 30 ]] && exit 1
-          done
+          # Use our custom headless environment script
+          DISPLAY=:99 ${{ github.workspace }}/scripts/start-headless.sh
+          
           # Setup D-Bus session
           eval "$(dbus-launch --sh-syntax)"
           echo "DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS" >> $GITHUB_ENV
@@ -467,7 +464,7 @@ jobs:
   security:
     name: Security Audit
     if: github.ref == 'refs/heads/main' # Only run on main
-    runs-on: [self-hosted, Linux, X64, fedora, nobara]
+    runs-on: ${{ contains(github.event.inputs.runner, 'self-hosted') && fromJSON('["self-hosted", "Linux", "X64", "fedora", "nobara"]') || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
@@ -487,7 +484,7 @@ jobs:
     name: CI Success
     if: always()
     needs: [validate-workflows, setup-vosk-model, build_and_check, msrv-check, gui-groundwork, text_injection_tests]
-    runs-on: [self-hosted, Linux, X64, fedora, nobara]
+    runs-on: ${{ contains(github.event.inputs.runner, 'self-hosted') && fromJSON('["self-hosted", "Linux", "X64", "fedora", "nobara"]') || 'ubuntu-latest' }}
     steps:
       - name: Check if all jobs succeeded
         run: |

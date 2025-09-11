@@ -12,12 +12,12 @@ permissions:
 
 concurrency:
   group: release-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   release-plz:
     name: Release Please
-    runs-on: [self-hosted, Linux, X64, fedora, nobara]
+    runs-on: ${{ contains(github.event.inputs.runner, 'self-hosted') && fromJSON('["self-hosted", "Linux", "X64", "fedora", "nobara"]') || 'ubuntu-latest' }}
     if: github.event_name == 'workflow_dispatch'
     steps:
       - name: Checkout repository
@@ -44,7 +44,7 @@ jobs:
   # Auto-release when the Release PR is merged into main
   release:
     name: Create Release
-    runs-on: [self-hosted, Linux, X64, fedora, nobara]
+    runs-on: ${{ contains(github.event.inputs.runner, 'self-hosted') && fromJSON('["self-hosted", "Linux", "X64", "fedora", "nobara"]') || 'ubuntu-latest' }}
     if: github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main'
     steps:
       - name: Checkout repository

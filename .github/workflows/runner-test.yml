@@ -11,7 +11,7 @@ on:
 jobs:
   test-runner:
     name: Test Self-Hosted Runner
-    runs-on: [self-hosted, Linux, X64, fedora, nobara]
+    runs-on: ${{ contains(github.event.inputs.runner, 'self-hosted') && fromJSON('["self-hosted", "Linux", "X64", "fedora", "nobara"]') || 'ubuntu-latest' }}
     timeout-minutes: 5
     
     steps:

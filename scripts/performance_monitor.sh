@@ -24,29 +24,16 @@ log() {
 }
 
 get_system_metrics() {
-    local load_avg memory_usage disk_usage
-    
-    # CPU usage (1-minute average from /proc/loadavg)
-    load_avg=$(cut -d' ' -f1 /proc/loadavg)
-    
-    # Memory usage in MB
-    memory_usage=$(free -m | awk '/^Mem:/ {printf "%.1f", $3}')
-    
-    # Disk usage for workspace
-    disk_usage=$(df /home/coldaine/actions-runner/_work 2>/dev/null | awk 'NR==2 {print $5}' | sed 's/%//')
-    
-    # Runner process CPU and memory
-    local runner_pid runner_cpu runner_mem
-    runner_pid=$(pgrep -f "Runner.Listener" || echo "")
+    local load_avg=$(cut -d' ' -f1 /proc/loadavg 2>/dev/null || echo "0.0")
+    local memory_usage=$(free -m 2>/dev/null | awk '/^Mem:/ {printf "%.1f", $3}' || echo "0.0")
+    local disk_usage=$(df /home/coldaine/actions-runner/_work 2>/dev/null | awk 'NR==2 {print $5}' | sed 's/%//' || echo "0")
+    local runner_pid=$(pgrep -f "Runner.Listener" || echo "")
+    local runner_cpu="0.0" runner_mem="0.0"
     if [[ -n "$runner_pid" ]]; then
-        runner_stats=$(ps -p "$runner_pid" -o %cpu,%mem --no-headers 2>/dev/null || echo "0.0 0.0")
-        runner_cpu=$(echo "$runner_stats" | awk '{print $1}')
-        runner_mem=$(echo "$runner_stats" | awk '{print $2}')
-    else
-        runner_cpu="0.0"
-        runner_mem="0.0"
+        local runner_stats=$(ps -p "$runner_pid" -o %cpu,%mem --no-headers 2>/dev/null || echo "0.0 0.0")
+        runner_cpu=$(echo "$runner_stats" | awk '{print $1}' || echo "0.0")
+        runner_mem=$(echo "$runner_stats" | awk '{print $2}' || echo "0.0")
     fi
-    
     echo "$load_avg,$memory_usage,$disk_usage,$runner_cpu,$runner_mem"
 }
 

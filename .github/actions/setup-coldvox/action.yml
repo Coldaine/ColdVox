@@ -49,6 +49,7 @@ runs:
           exit 1
         fi
         # Ensure libvosk is in dynamic linker cache
+        export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
         if ! ldconfig -p | grep -q vosk; then
           echo "WARNING: libvosk not in linker cache, refreshing..."
           sudo ldconfig
@@ -64,3 +65,7 @@ runs:
 
     - name: Cache Cargo
       uses: Swatinem/rust-cache@v2
+      with:
+        key: "nobara-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}"
+        restore-keys: |
+          nobara-${{ runner.os }}-
