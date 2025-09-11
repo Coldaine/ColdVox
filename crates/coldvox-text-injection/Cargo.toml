@@ -65,5 +65,5 @@ real-injection-tests = []
 xdg_kdotool = ["kdotool"]
 
 [build-dependencies]
-cc = "1.0"
+cc = "1.2"
 pkg-config = "0.3"
