@@ -1010,16 +1010,32 @@ dependencies = [
 
 [[package]]
 name = "cxx"
-version = "1.0.175"
+version = "1.0.183"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "84aa1f8258b77022835f4ce5bd3b5aa418b969494bd7c3cb142c88424eb4c715"
+checksum = "b7acb669333e336b4c8c1605425fbf2b010fe720cecf934b946484f04cd777d7"
 dependencies = [
  "cc",
+ "cxx-build",
  "cxxbridge-cmd",
  "cxxbridge-flags",
  "cxxbridge-macro",
  "foldhash 0.2.0",
  "link-cplusplus",
+]
+
+[[package]]
+name = "cxx-build"
+version = "1.0.183"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bfb81a0b7d006a8761dd14f39470c532fede5df0976a296d20b06eff36690772"
+dependencies = [
+ "cc",
+ "codespan-reporting 0.12.0",
+ "indexmap",
+ "proc-macro2",
+ "quote",
+ "scratch",
+ "syn",
 ]
 
 [[package]]
@@ -1106,9 +1122,9 @@ dependencies = [
 
 [[package]]
 name = "cxxbridge-cmd"
-version = "1.0.175"
+version = "1.0.183"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "902e9553c7db1cc00baee88d6a531792d3e1aaab06ed6d1dcd606647891ea693"
+checksum = "ac6109afc47d1ee77717a1a99800d6b646070420b842a933f6f6bf11d72ffd73"
 dependencies = [
  "clap",
  "codespan-reporting 0.12.0",
@@ -1120,15 +1136,15 @@ dependencies = [
 
 [[package]]
 name = "cxxbridge-flags"
-version = "1.0.175"
+version = "1.0.183"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35b2b0b4d405850b0048447786b70c2502c84e4d5c4c757416abc0500336edfc"
+checksum = "a4e12760f91e84bbc0594b99c9e1b486b2ee6b3da22c2c2e67924b38ab4b858f"
 
 [[package]]
 name = "cxxbridge-macro"
-version = "1.0.175"
+version = "1.0.183"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd2a8fe0dfa4a2207b80ca9492c0d5dc8752b66f5631d93b23065f40f6a943d3"
+checksum = "9d44085eb859ca1f523f50a48138a786698a260da0be5e930bb6a5080a02e2be"
 dependencies = [
  "indexmap",
  "proc-macro2",
@@ -3140,6 +3156,12 @@ name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
+
+[[package]]
+name = "scratch"
+version = "1.0.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d68f2ec51b097e4c1a75b681a8bec621909b5e91f15bb7b840c4f2f7b01148b2"
 
 [[package]]
 name = "sdd"
