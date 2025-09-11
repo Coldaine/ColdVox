@@ -206,13 +206,25 @@ impl SttPluginManager {
         Ok(())
     }
 
+    /// Get the current plugin instance (for creating adapters)
+    pub async fn current_plugin_instance(&mut self) -> Option<Box<dyn SttPlugin>> {
+        let registry = self.registry.read().await;
+        let current = self.current_plugin.read().await;
+        
+        if let Some(ref plugin) = *current {
+            let plugin_id = plugin.info().id.clone();
+            // Create a new instance of the same plugin type
+            registry.create_plugin(&plugin_id).ok()
+        } else {
+            None
+        }
+    }
+
     /// Get information about all available plugins
     pub async fn list_plugins(&self) -> Vec<coldvox_stt::plugin::PluginInfo> {
         let registry = self.registry.read().await;
         registry.available_plugins()
     }
-
-    /// Process audio with the current plugin, handling retries and failover
     pub async fn process_audio(
         &mut self,
         samples: &[i16]

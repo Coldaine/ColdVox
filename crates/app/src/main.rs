@@ -221,10 +221,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ActivationMode::Vad => RuntimeMode::Vad,
             ActivationMode::Hotkey => RuntimeMode::Hotkey,
         },
+        
+        // Legacy Vosk options
         #[cfg(feature = "vosk")]
-        vosk_model_path: None,
+        vosk_model_path: cli.vosk_model_path,
         #[cfg(feature = "vosk")]
         stt_enabled: None,
+
+        // New STT plugin options
+        stt_backend: Some(cli.stt_backend),
+        stt_fallback: cli.stt_fallback.split(',').map(|s| s.trim().to_string()).collect(),
+        stt_max_mem_mb: cli.stt_max_mem_mb,
+        stt_max_retries: cli.stt_max_retries,
+
+        #[cfg(feature = "whisper")]
+        whisper_model_path: cli.whisper_model_path,
+        #[cfg(feature = "whisper")]
+        whisper_mode: cli.whisper_mode,
+        #[cfg(feature = "whisper")]
+        whisper_quant: cli.whisper_quant,
+
         #[cfg(feature = "text-injection")]
         injection: if cfg!(feature = "text-injection") {
             Some(coldvox_app::runtime::InjectionOptions {
