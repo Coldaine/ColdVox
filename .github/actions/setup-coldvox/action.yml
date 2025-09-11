@@ -14,7 +14,7 @@ runs:
         # Detect package manager and install appropriate packages
         if command -v dnf >/dev/null 2>&1; then
           # Fedora/RHEL/Nobara
-          sudo dnf install -y \
+          sudo dnf install -y --skip-unavailable \
             alsa-lib-devel \
             xdotool \
             libXtst-devel \
@@ -36,14 +36,27 @@ runs:
           exit 1
         fi
 
-    - name: Install libvosk (vendored)
+    - name: Validate libvosk installation (fail-fast, no download)
       shell: bash
       run: |
-        VOSK_VER=0.3.45
-        unzip -q vendor/vosk/vosk-linux-x86_64-${VOSK_VER}.zip
-        sudo cp -v vosk-linux-x86_64-${VOSK_VER}/libvosk.so /usr/local/lib/
-        sudo cp -v vosk-linux-x86_64-${VOSK_VER}/vosk_api.h /usr/local/include/
-        sudo ldconfig
+        set -euo pipefail
+        echo "Validating provisioned libvosk (no network fetch allowed)..."
+        if [ ! -f "/usr/local/lib/libvosk.so" ]; then
+          echo "❌ libvosk.so NOT found at /usr/local/lib/libvosk.so" >&2
+          echo "This runner is expected to have libvosk pre-installed (cache-as-contract)." >&2
+          exit 1
+        fi
+        if [ ! -f "/usr/local/include/vosk_api.h" ]; then
+          echo "⚠️  vosk_api.h header not found; builds may still work if vendored bindings are sufficient." >&2
+        fi
+        # Refresh ldconfig just in case (ignore failure)
+        if command -v sudo >/dev/null 2>&1; then
+          sudo ldconfig || true
+        fi
+        if ! ldconfig -p | grep -q vosk; then
+          echo "ℹ️  libvosk not visible in ldconfig output; continuing (dlopen by path should still work)." >&2
+        fi
+        echo "✅ libvosk present: /usr/local/lib/libvosk.so"
 
     - name: Setup Rust toolchain
       if: inputs.skip-toolchain != 'true'
@@ -53,3 +66,7 @@ runs:
 
     - name: Cache Cargo
       uses: Swatinem/rust-cache@v2
+      with:
+        key: "nobara-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}"
+        restore-keys: |
+          nobara-${{ runner.os }}-

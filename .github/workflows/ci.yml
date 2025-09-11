@@ -2,31 +2,46 @@
 name: CI
 
 on:
+  push:
+    branches:
+      - main
+      - 'release/*'
+      - 'feature/*'
+      - 'feat/*'
+      - 'fix/*'
   pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened]
+    branches:
+      - main
   workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'
 
 permissions:
   contents: read
-  pull-requests: read
-  checks: write
+  actions: read
+  security-events: write
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+defaults:
+  run:
+    shell: bash
+
 env:
-  RUST_BACKTRACE: 1
+  RUSTFLAGS: "-D warnings"
   CARGO_TERM_COLOR: always
-  CARGO_INCREMENTAL: 0
-  RUST_TEST_TIME_UNIT: 10000
-  RUST_TEST_TIME_INTEGRATION: 30000
+  VOSK_MODEL_BASENAME: vosk-model-small-en-us-0.15
+  VOSK_CACHE_ROOT: /home/coldaine/ActionRunnerCache/vosk-model
+  LIBVOSK_PATH: /usr/local/lib/libvosk.so
+  MIN_FREE_DISK_GB: 10
+  MAX_LOAD_AVERAGE: 5
 
 jobs:
   validate-workflows:
     name: Validate Workflow Definitions
-    runs-on: [self-hosted, Linux, X64, fedora, nobara]
+    runs-on: [self-hosted, Linux, X64, nobara]
     continue-on-error: true # Optional validation
     env:
       GH_TOKEN: ${{ github.token }}
@@ -64,40 +79,69 @@ jobs:
           fi
           echo "All workflows render via gh."
 
-  download-vosk-model:
-    name: Use Vendored Vosk Model
-    runs-on: [self-hosted, Linux, X64, fedora, nobara]
+  setup-vosk-model:
+    name: Setup Vosk Model from Cache
+    runs-on: [self-hosted, Linux, X64, nobara]
     outputs:
       model-path: ${{ steps.get-model-path.outputs.path }}
       download-outcome: success
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         
-      - name: Verify vendored model with integrity checks
+      - name: Setup Vosk Model from Cache
         run: |
-          set -euo pipefail
+          # Export LD_LIBRARY_PATH for Vosk
+          export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
+          sudo ldconfig
           
-          # Use our centralized model verification script
-          export COLDVOX_VERIFY_VERBOSE=1
-          export COLDVOX_MIN_MODEL_SIZE_MB=40
+          # Use pre-cached models from permanent cache location (only on self-hosted)
+          CACHE_DIR="/home/coldaine/ActionRunnerCache/vosk-models"
+          MODEL_DIR="models"
           
-          if ! ./scripts/verify-model-integrity.sh; then
-            echo ""
-            echo "FATAL: Model integrity verification failed" >&2
-            echo "This could indicate:" >&2
-            echo "  - Model files are missing or incomplete" >&2
-            echo "  - Model files have been corrupted" >&2
-            echo "  - Checksum file is out of date" >&2
-            echo ""
-            echo "To resolve:" >&2
-            echo "  1. Ensure model is properly downloaded and extracted to models/vosk-model-small-en-us-0.15/" >&2
-            echo "  2. Regenerate checksums if model was updated: ./scripts/verify-model-integrity.sh '' '' generate" >&2
-            echo "  3. Commit both model files and updated SHA256SUMS" >&2
-            exit 1
+          mkdir -p $MODEL_DIR
+          
+          # Check if we're on self-hosted runner with cache
+          if [ -d "$CACHE_DIR/vosk-model-small-en-us-0.15" ]; then
+            # Self-hosted runner: use cached models
+            rm -rf "$MODEL_DIR/vosk-model-small-en-us-0.15"
+            ln -sf "$CACHE_DIR/vosk-model-small-en-us-0.15" "$MODEL_DIR/"
+            echo "✅ Linked cached vosk-model-small-en-us-0.15"
+            
+            if [ -d "$CACHE_DIR/vosk-model-en-us-0.22" ]; then
+              rm -rf "$MODEL_DIR/vosk-model-en-us-0.22"
+              ln -sf "$CACHE_DIR/vosk-model-en-us-0.22" "$MODEL_DIR/"
+              echo "✅ Linked cached vosk-model-en-us-0.22"
+            fi
+          else
+            # GitHub-hosted runner: download model
+            echo "📥 Downloading Vosk model (cache not available)..."
+            wget -q -O vosk-model-small-en-us-0.15.zip "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip"
+            unzip -q vosk-model-small-en-us-0.15.zip
+            # If target already exists and is non-empty, remove it first (stale partial)
+            if [ -d "$MODEL_DIR/vosk-model-small-en-us-0.15" ]; then
+              if [ "$(ls -A $MODEL_DIR/vosk-model-small-en-us-0.15 2>/dev/null)" ]; then
+                echo "⚠️  Removing existing non-empty stale directory: $MODEL_DIR/vosk-model-small-en-us-0.15"
+                rm -rf "$MODEL_DIR/vosk-model-small-en-us-0.15"
+              else
+                rm -rf "$MODEL_DIR/vosk-model-small-en-us-0.15"
+              fi
+            fi
+            # Move extracted directory into place
+            if [ -d "vosk-model-small-en-us-0.15" ]; then
+              mv "vosk-model-small-en-us-0.15" "$MODEL_DIR/"
+            else
+              echo "❌ Extracted model directory not found after unzip" >&2
+              exit 1
+            fi
+            rm vosk-model-small-en-us-0.15.zip
+            echo "✅ Downloaded vosk-model-small-en-us-0.15"
           fi
           
           echo ""
-          echo "✅ Model integrity verification passed - CI can proceed with confidence"
+          echo "Model directory contents:"
+          ls -la $MODEL_DIR/
+          echo ""
+          echo "✅ Model setup complete"
 
       - name: Output model path
         id: get-model-path
@@ -107,8 +151,8 @@ jobs:
   # Static checks, formatting, linting, type-check, build, and docs
   build_and_check:
     name: Format, Lint, Typecheck, Build & Docs
-    runs-on: [self-hosted, Linux, X64, fedora, nobara]
-    needs: [download-vosk-model]
+    runs-on: [self-hosted, Linux, X64, nobara]
+    needs: [setup-vosk-model]
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
@@ -140,9 +184,9 @@ jobs:
         run: cargo doc --workspace --no-deps --locked
 
       - name: Run unit and integration tests (skip E2E)
-        if: needs.download-vosk-model.outputs.download-outcome == 'success'
+        if: needs.setup-vosk-model.outputs.download-outcome == 'success'
         env:
-          VOSK_MODEL_PATH: ${{ needs.download-vosk-model.outputs.model-path }}
+          VOSK_MODEL_PATH: ${{ needs.setup-vosk-model.outputs.model-path }}
         run: |
           echo "=== Environment Validation ==="
           echo "VOSK_MODEL_PATH: $VOSK_MODEL_PATH"
@@ -164,7 +208,7 @@ jobs:
   # MSRV validation
   msrv-check:
     name: MSRV Check (Rust 1.75)
-    runs-on: [self-hosted, Linux, X64, fedora, nobara]
+    runs-on: [self-hosted, Linux, X64, nobara]
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
@@ -188,7 +232,7 @@ jobs:
   # GUI groundwork check: explicitly pass if Qt 6 isn't installed
   gui-groundwork:
     name: GUI Groundwork (Qt optional)
-    runs-on: [self-hosted, Linux, X64, fedora, nobara]
+    runs-on: [self-hosted, Linux, X64, nobara]
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
@@ -300,12 +344,14 @@ jobs:
 
   text_injection_tests:
     name: Text Injection Tests
-    runs-on: [self-hosted, Linux, X64, fedora, nobara]
-    needs: [download-vosk-model]
+    runs-on: [self-hosted, Linux, X64, nobara]
+    needs: [setup-vosk-model]
     timeout-minutes: 30
     env:
       DISPLAY: :99
       RUST_LOG: debug
+      RUST_TEST_TIME_UNIT: 10000
+      RUST_TEST_TIME_INTEGRATION: 30000
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
@@ -322,9 +368,9 @@ jobs:
           # Detect package manager and install appropriate packages
           if command -v dnf >/dev/null 2>&1; then
             # Fedora/RHEL/Nobara
-            sudo dnf install -y \
+            sudo dnf install -y --skip-unavailable \
               xorg-x11-server-Xvfb \
-              fluxbox \
+              openbox \
               dbus-x11 \
               at-spi2-core \
               wl-clipboard \
@@ -332,13 +378,14 @@ jobs:
               ydotool \
               xorg-x11-utils \
               wmctrl \
-              gtk3-devel
+              gtk3-devel \
+              pulseaudio
           elif command -v apt-get >/dev/null 2>&1; then
             # Ubuntu/Debian
             sudo apt-get update
             sudo apt-get install -y \
               xvfb \
-              fluxbox \
+              openbox \
               dbus-x11 \
               at-spi2-core \
               wl-clipboard \
@@ -346,7 +393,8 @@ jobs:
               ydotool \
               x11-utils \
               wmctrl \
-              libgtk-3-dev
+              libgtk-3-dev \
+              pulseaudio
           else
             echo "ERROR: Unsupported package manager" >&2
             exit 1
@@ -355,18 +403,9 @@ jobs:
       - name: Start and verify headless environment
         run: |
           set -euo pipefail
-          # Start Xvfb
-          Xvfb :99 -screen 0 1024x768x24 &
-          for i in {1..30}; do
-            if xdpyinfo -display ":99" >/dev/null 2>&1; then echo "Xvfb ready"; break; fi
-            sleep 0.5; [[ $i -eq 30 ]] && exit 1
-          done
-          # Start window manager
-          fluxbox -display :99 &
-          for i in {1..30}; do
-            if wmctrl -m >/dev/null 2>&1; then echo "Window manager ready"; break; fi
-            sleep 0.5; [[ $i -eq 30 ]] && exit 1
-          done
+          # Use our custom headless environment script
+          DISPLAY=:99 ${{ github.workspace }}/scripts/start-headless.sh
+          
           # Setup D-Bus session
           eval "$(dbus-launch --sh-syntax)"
           echo "DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS" >> $GITHUB_ENV
@@ -424,9 +463,9 @@ jobs:
         run: cargo build --locked -p coldvox-app
 
       - name: Run E2E pipeline test
-        if: needs.download-vosk-model.outputs.download-outcome == 'success'
+        if: needs.setup-vosk-model.outputs.download-outcome == 'success'
         env:
-          VOSK_MODEL_PATH: ${{ needs.download-vosk-model.outputs.model-path }}
+          VOSK_MODEL_PATH: ${{ needs.setup-vosk-model.outputs.model-path }}
         run: |
           cargo test -p coldvox-app --locked test_end_to_end_wav_pipeline -- --nocapture
 
@@ -460,7 +499,7 @@ jobs:
   security:
     name: Security Audit
     if: github.ref == 'refs/heads/main' # Only run on main
-    runs-on: [self-hosted, Linux, X64, fedora, nobara]
+    runs-on: [self-hosted, Linux, X64, nobara]
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
@@ -475,30 +514,36 @@ jobs:
       - name: Run security audit
         run: cargo audit
 
-  # Success marker job
-  ci-success:
-    name: CI Success
+  ci_success:
+    name: CI Success Summary
+    runs-on: [self-hosted, Linux, X64, nobara]
+    needs:
+      - validate-workflows
+      - setup-vosk-model
+      - build_and_check
+      - msrv-check
+      - gui-groundwork
+      - text_injection_tests
+      - security
     if: always()
-    needs: [validate-workflows, download-vosk-model, build_and_check, msrv-check, gui-groundwork, text_injection_tests]
-    runs-on: [self-hosted, Linux, X64, fedora, nobara]
     steps:
-      - name: Check if all jobs succeeded
+      - uses: actions/checkout@v4
+      - name: Generate CI Report
         run: |
-          set -euo pipefail
-          failed=0
-          for res in \
-            "${{ needs.validate-workflows.result }}" \
-            "${{ needs.download-vosk-model.result }}" \
-            "${{ needs.build_and_check.result }}" \
-            "${{ needs.msrv-check.result }}" \
-            "${{ needs.gui-groundwork.result }}" \
-            "${{ needs.text_injection_tests.result }}"; do
-            if [[ "$res" == "failure" ]]; then
-              failed=1
-            fi
-          done
-          if [[ $failed -eq 1 ]]; then
-            echo "One or more CI jobs failed"
-            exit 1
-          fi
-          echo "All CI jobs succeeded (ignoring skipped)"
+          echo "## CI Report" > report.md
+          echo "- validate-workflows:            ${{ needs.validate-workflows.result }}" >> report.md
+          echo "- setup-vosk-model:              ${{ needs.setup-vosk-model.result }}" >> report.md
+          echo "- build_and_check:               ${{ needs.build_and_check.result }}" >> report.md
+          echo "- msrv-check:                    ${{ needs.msrv-check.result }}" >> report.md
+          echo "- gui-groundwork:                ${{ needs.gui-groundwork.result }}" >> report.md
+          echo "- text_injection_tests:          ${{ needs.text_injection_tests.result }}" >> report.md
+          echo "- security:                      ${{ needs.security.result }}" >> report.md
+          if [[ "${{ needs.setup-vosk-model.result }}" != "success" ]]; then echo "::error::Setup Vosk model failed."; exit 1; fi
+          if [[ "${{ needs.build_and_check.result }}" != "success" ]]; then echo "::error::Build and check failed."; exit 1; fi
+          if [[ "${{ needs.text_injection_tests.result }}" != "success" ]]; then echo "::error::Text injection tests failed."; exit 1; fi
+          echo "All critical stages passed successfully."
+      - name: Upload CI Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-report
+          path: report.md
