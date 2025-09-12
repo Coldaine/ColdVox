@@ -36,28 +36,44 @@ mkdir -p "$MODEL_DIR"
 
 # 1. Set up Vosk Model
 echo "--- Setting up Vosk Model: $MODEL_NAME ---"
-if [ -d "$RUNNER_CACHE_DIR/$MODEL_NAME" ]; then
-    echo "✅ Found model in runner cache. Creating symlink."
-    ln -sfn "$RUNNER_CACHE_DIR/$MODEL_NAME" "$MODEL_DIR"
+MODEL_CACHE_PATH="$RUNNER_CACHE_DIR/$MODEL_NAME"
+MODEL_LINK_PATH="$MODEL_DIR/$MODEL_NAME"
+if [ -d "$MODEL_CACHE_PATH" ]; then
+    echo "✅ Found model in runner cache. Creating/refreshing symlink: $MODEL_LINK_PATH -> $MODEL_CACHE_PATH"
+    # Remove any previous non-symlink directory/file at link location
+    if [ -e "$MODEL_LINK_PATH" ] && [ ! -L "$MODEL_LINK_PATH" ]; then
+        rm -rf "$MODEL_LINK_PATH"
+    fi
+    ln -sfn "$MODEL_CACHE_PATH" "$MODEL_LINK_PATH"
 else
     echo "📥 Model not found in cache. Downloading from $MODEL_URL..."
     wget -q -O "$MODEL_ZIP" "$MODEL_URL"
-    
+
     echo "Verifying checksum..."
     echo "$MODEL_SHA256  $MODEL_ZIP" | sha256sum -c -
-    
+
     echo "Extracting model..."
     unzip -q "$MODEL_ZIP"
+    # Ensure a clean target if something stale is present
+    if [ -e "$MODEL_LINK_PATH" ]; then
+        rm -rf "$MODEL_LINK_PATH"
+    fi
     mv "$MODEL_NAME" "$MODEL_DIR/"
     rm "$MODEL_ZIP"
-    echo "✅ Model downloaded and installed locally."
+    echo "✅ Model downloaded and installed locally at $MODEL_LINK_PATH."
 fi
 
 # 2. Set up Vosk Library
 echo "--- Setting up Vosk Library v$LIB_VERSION ---"
-if [ -f "$RUNNER_CACHE_DIR/lib/libvosk.so" ]; then
-    echo "✅ Found libvosk.so in runner cache. Creating symlink."
-    ln -sfn "$RUNNER_CACHE_DIR/lib" "$LIB_DIR"
+LIB_CACHE_FILE="$RUNNER_CACHE_DIR/lib/libvosk.so"
+LIB_TARGET_FILE="$LIB_DIR/libvosk.so"
+if [ -f "$LIB_CACHE_FILE" ]; then
+    echo "✅ Found libvosk.so in runner cache. Creating/refreshing symlink: $LIB_TARGET_FILE -> $LIB_CACHE_FILE"
+    mkdir -p "$LIB_DIR"
+    if [ -e "$LIB_TARGET_FILE" ] && [ ! -L "$LIB_TARGET_FILE" ]; then
+        rm -f "$LIB_TARGET_FILE"
+    fi
+    ln -sfn "$LIB_CACHE_FILE" "$LIB_TARGET_FILE"
 else
     mkdir -p "$LIB_DIR"
     echo "📥 Library not found in cache. Downloading from $LIB_URL..."
@@ -68,12 +84,15 @@ else
 
     echo "Extracting library..."
     unzip -q "$LIB_ZIP"
-    # Move only the library file to the target lib dir
+    # Ensure no stale file
+    if [ -e "$LIB_TARGET_FILE" ]; then
+        rm -f "$LIB_TARGET_FILE"
+    fi
     mv "$LIB_EXTRACT_PATH/libvosk.so" "$LIB_DIR/"
     # Cleanup extracted folder and zip
     rm -r "$LIB_EXTRACT_PATH"
     rm "$LIB_ZIP"
-    echo "✅ Library downloaded and installed locally."
+    echo "✅ Library downloaded and installed locally at $LIB_TARGET_FILE."
 fi
 
 # --- Output for GitHub Actions ---
