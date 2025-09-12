@@ -5,10 +5,8 @@
 //! minimal resource usage.
 
 use async_trait::async_trait;
-use std::path::Path;
-use std::sync::Arc;
-use parking_lot::RwLock;
-use tracing::{info, warn};
+use std::sync::{Arc, RwLock};
+use tracing::warn;
 
 use crate::plugin::*;
 use crate::plugin_types::*;
@@ -81,7 +79,6 @@ impl Default for ParakeetConfig {
 pub struct ParakeetPlugin {
     config: ParakeetConfig,
     state: Arc<RwLock<PluginState>>,
-    metrics: Arc<RwLock<PluginMetrics>>,
     // Future: Add actual Parakeet engine
     // engine: Option<ParakeetEngine>,
     // wasm_runtime: Option<WasmRuntime>,
@@ -96,7 +93,6 @@ impl ParakeetPlugin {
         Self {
             config,
             state: Arc::new(RwLock::new(PluginState::Uninitialized)),
-            metrics: Arc::new(RwLock::new(PluginMetrics::default())),
         }
     }
     
@@ -205,7 +201,7 @@ impl SttPlugin for ParakeetPlugin {
     }
     
     async fn reset(&mut self) -> Result<(), SttPluginError> {
-        *self.state.write() = PluginState::Ready;
+        *self.state.write().map_err(|_| SttPluginError::ProcessingError("Lock poisoned".to_string()))? = PluginState::Ready;
         Ok(())
     }
 }

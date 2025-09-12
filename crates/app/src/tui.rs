@@ -1,13 +1,9 @@
-// Logging behavior:
-// - Writes logs to both stdout and a daily-rotated file at logs/coldvox.log.
-// - Controlled via RUST_LOG (e.g., "info", "debug").
-// - File output uses a non-blocking writer; logs/ is created if missing.
-// - Useful for post-session analysis even when the TUI is active.
-use clap::{Parser, ValueEnum};
-use coldvox_app::runtime::{self as app_runtime, ActivationMode};
-#[cfg(feature = "vosk")]
-use coldvox_app::stt::TranscriptionEvent;
-use coldvox_vad::types::VadEvent;
+//! TUI Dashboard for ColdVox
+//!
+//! This module provides a terminal user interface for monitoring and controlling
+//! the ColdVox audio pipeline, including STT plugin management.
+
+use crate::runtime::AppHandle;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
@@ -30,66 +26,10 @@ use tokio::sync::mpsc;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
-fn init_logging(cli_level: &str) -> Result<(), Box<dyn std::error::Error>> {
-    std::fs::create_dir_all("logs")?;
-    let file_appender = RollingFileAppender::new(Rotation::DAILY, "logs", "coldvox.log");
-    let (non_blocking_file, _guard) = tracing_appender::non_blocking(file_appender);
-    // Prefer CLI-provided level; fall back to RUST_LOG; then default to debug for tuning
-    let effective_level = if !cli_level.is_empty() {
-        cli_level.to_string()
-    } else {
-        std::env::var("RUST_LOG").unwrap_or_else(|_| "debug".to_string())
-    };
-    let env_filter =
-        EnvFilter::try_new(effective_level).unwrap_or_else(|_| EnvFilter::new("debug"));
-
-    // Only use file logging for TUI mode to avoid corrupting the display
-    let file_layer = fmt::layer()
-        .with_writer(non_blocking_file)
-        .with_ansi(false)
-        .with_target(true)
-        .with_file(true)
-        .with_line_number(true)
-        .with_thread_names(false)
-        .with_level(true);
-
-    tracing_subscriber::registry()
-        .with(env_filter)
-        .with(file_layer)
-        .init();
-    std::mem::forget(_guard);
-    Ok(())
-}
-
-#[derive(Parser)]
-#[command(
-    author,
-    version,
-    about = "TUI Dashboard with real-time audio monitoring"
-)]
-struct Cli {
-    /// Audio device name
-    #[arg(short = 'D', long)]
-    device: Option<String>,
-    /// Activation mode: vad or hotkey
-    #[arg(long = "activation-mode", default_value = "hotkey", value_enum)]
-    activation_mode: CliActivationMode,
-    /// Resampler quality: fast, balanced, quality
-    #[arg(long = "resampler-quality", default_value = "balanced")]
-    resampler_quality: String,
-    /// Log level filter (overrides RUST_LOG)
-    #[arg(
-        long = "log-level",
-        default_value = "info,stt=debug,coldvox_audio=debug,coldvox_app=debug,coldvox_vad=debug"
-    )]
-    log_level: String,
-}
-
-#[derive(Clone, Copy, Debug, ValueEnum)]
-enum CliActivationMode {
-    Vad,
-    Hotkey,
-}
+#[cfg(feature = "vosk")]
+use crate::stt::TranscriptionEvent;
+use crate::runtime::ActivationMode;
+use coldvox_vad::types::VadEvent;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Tab {
@@ -103,7 +43,7 @@ enum AppEvent {
     Log(LogLevel, String),
     Vad(VadEvent),
     /// Internal control signal: runtime replaced (after restart)
-    AppReplaced(app_runtime::AppHandle),
+    AppReplaced(crate::runtime::AppHandle),
     #[cfg(feature = "vosk")]
     Transcription(TranscriptionEvent),
     PluginLoad(String),
@@ -141,7 +81,7 @@ struct DashboardState {
     start_time: Instant,
     vad_frames: u64,
     logs: VecDeque<LogEntry>,
-    app: Option<app_runtime::AppHandle>,
+    app: Option<crate::runtime::AppHandle>,
     activation_mode: ActivationMode,
     resampler_quality: coldvox_audio::ResamplerQuality,
     metrics: PipelineMetricsSnapshot,
@@ -152,7 +92,7 @@ struct DashboardState {
     last_transcript: Option<String>,
 
     #[cfg(feature = "vosk")]
-    plugin_manager: Option<Arc<tokio::sync::RwLock<coldvox_app::stt::plugin_manager::SttPluginManager>>>,
+    plugin_manager: Option<Arc<tokio::sync::RwLock<crate::stt::plugin_manager::SttPluginManager>>>,
 
     #[cfg(feature = "vosk")]
     plugin_current: Option<String>,
@@ -306,10 +246,10 @@ impl DashboardState {
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let cli = Cli::parse();
-    init_logging(&cli.log_level)?;
+/// Run the TUI dashboard with the given app handle
+pub async fn run_tui(app: crate::runtime::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize logging for TUI
+    init_logging("info,stt=debug,coldvox_audio=debug,coldvox_app=debug,coldvox_vad=debug")?;
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -320,19 +260,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (tx, rx) = mpsc::channel(100);
 
     let mut state = DashboardState::default();
-    if let Some(device) = cli.device {
-        state.selected_device = device;
+    state.app = Some(app);
+
+    // Set up plugin manager reference if available
+    #[cfg(feature = "vosk")]
+    if let Some(ref app) = state.app {
+        if let Some(ref pm) = app.plugin_manager {
+            state.plugin_manager = Some(pm.clone());
+        }
     }
-    // Map CLI activation mode and resampler quality
-    state.activation_mode = match cli.activation_mode {
-        CliActivationMode::Vad => ActivationMode::Vad,
-        CliActivationMode::Hotkey => ActivationMode::Hotkey,
-    };
-    state.resampler_quality = match cli.resampler_quality.to_lowercase().as_str() {
-        "fast" => coldvox_audio::ResamplerQuality::Fast,
-        "quality" => coldvox_audio::ResamplerQuality::Quality,
-        _ => coldvox_audio::ResamplerQuality::Balanced,
-    };
 
     let res = run_app(&mut terminal, &mut state, tx, rx).await;
 
@@ -345,9 +281,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     terminal.show_cursor()?;
 
     if let Err(err) = res {
-        eprintln!("Error: {}", err);
+        eprintln!("TUI Error: {}", err);
     }
 
+    Ok(())
+}
+
+fn init_logging(cli_level: &str) -> Result<(), Box<dyn std::error::Error>> {
+    std::fs::create_dir_all("logs")?;
+    let file_appender = RollingFileAppender::new(Rotation::DAILY, "logs", "coldvox.log");
+    let (non_blocking_file, _guard) = tracing_appender::non_blocking(file_appender);
+    let env_filter =
+        EnvFilter::try_new(cli_level).unwrap_or_else(|_| EnvFilter::new("debug"));
+
+    let file_layer = fmt::layer()
+        .with_writer(non_blocking_file)
+        .with_ansi(false)
+        .with_target(true)
+        .with_file(true)
+        .with_line_number(true)
+        .with_thread_names(false)
+        .with_level(true);
+
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(file_layer)
+        .init();
+    std::mem::forget(_guard);
     Ok(())
 }
 
@@ -375,7 +335,6 @@ async fn run_app(
                         KeyCode::Char('q') | KeyCode::Char('Q') => {
                             if state.is_running {
                                 if let Some(app) = state.app.take() {
-                                    // Best-effort shutdown
                                     tokio::spawn(async move { app.shutdown().await; });
                                 }
                             }
@@ -384,59 +343,12 @@ async fn run_app(
                         KeyCode::Char('s') | KeyCode::Char('S') => {
                             if !state.is_running {
                                 state.log(LogLevel::Info, "Starting audio pipeline...".to_string());
-                                // Build runtime options
-                                let opts = app_runtime::AppRuntimeOptions {
-                                    device: if state.selected_device == "default" || state.selected_device.is_empty() { None } else { Some(state.selected_device.clone()) },
-                                    activation_mode: state.activation_mode,
-                                    resampler_quality: state.resampler_quality,
-                                    stt_selection: Some(coldvox_stt::plugin::PluginSelectionConfig::default()),
-                                    #[cfg(feature = "text-injection")]
-                                    injection: None,
-                                };
-
-                                let ui_tx = tx.clone();
-                                // Start runtime synchronously and then wire up event forwarders
-                                match app_runtime::start(opts).await {
-                                    Ok(app) => {
-                                        #[allow(unused_mut)]
-                                        let mut app = app;
-                                        // Extract plugin manager for UI access before moving app
-                                        #[cfg(feature = "vosk")]
-                                        {
-                                            state.plugin_manager = app.plugin_manager.clone();
-                                        }
-                                        // Forward VAD events to UI
-                                        let mut vad_rx = app.subscribe_vad();
-                                        tokio::spawn(async move {
-                                            while let Ok(ev) = vad_rx.recv().await {
-                                                let _ = ui_tx.send(AppEvent::Vad(ev)).await;
-                                            }
-                                        });
-
-                                        // Forward STT events to UI (if enabled)
-                                        #[cfg(feature = "vosk")]
-                                        if let Some(mut stt_rx) = app.stt_rx.take() {
-                                            let ui_tx2 = tx.clone();
-                                            tokio::spawn(async move {
-                                                while let Some(ev) = stt_rx.recv().await {
-                                                    let _ = ui_tx2.send(AppEvent::Transcription(ev)).await;
-                                                }
-                                            });
-                                        }
-
-                                        state.app = Some(app);
-                                        state.is_running = true;
-                                        state.log(LogLevel::Success, "Pipeline fully started".to_string());
-                                        state.log(LogLevel::Success, "Pipeline fully started".to_string());
-                                    }
-                                    Err(e) => {
-                                        state.log(LogLevel::Error, format!("Failed to start runtime: {}", e));
-                                    }
-                                }
+                                // Pipeline is already started, just mark as running
+                                state.is_running = true;
+                                state.log(LogLevel::Success, "Pipeline already running".to_string());
                             }
                         }
                         KeyCode::Char('a') | KeyCode::Char('A') => {
-                            // Toggle activation mode; if running, reconfigure runtime without restart
                             state.toggle_activation_mode();
                             if state.is_running {
                                 if let Some(app) = &mut state.app {
@@ -453,7 +365,6 @@ async fn run_app(
                             state.reset_metrics();
                         }
                         KeyCode::Char('p') | KeyCode::Char('P') => {
-                            // Toggle between tabs
                             state.current_tab = match state.current_tab {
                                 Tab::Audio => Tab::Logs,
                                 Tab::Logs => Tab::Plugins,
@@ -462,58 +373,35 @@ async fn run_app(
                             state.log(LogLevel::Info, format!("Switched to {:?} tab", state.current_tab));
                         }
                         KeyCode::Char('l') | KeyCode::Char('L') => {
-                            // Load plugin (only when running)
-                            if state.is_running {
-                                #[cfg(feature = "vosk")]
-                                {
-                                    if let Some(ref pm) = state.plugin_manager {
-                                        let pm_clone = pm.clone();
-                                        let tx_clone = tx.clone();
-                                        tokio::spawn(async move {
-                                            let result = pm_clone.write().await.switch_plugin("mock").await;
-                                            let _ = tx_clone.send(AppEvent::PluginSwitch("mock".to_string())).await;
-                                            if result.is_ok() {
-                                                let _ = tx_clone.send(AppEvent::PluginLoad("mock".to_string())).await;
-                                            }
-                                        });
-                                    }
+                            #[cfg(feature = "vosk")]
+                            {
+                                if let Some(ref pm) = state.plugin_manager {
+                                    let pm_clone = pm.clone();
+                                    let tx_clone = tx.clone();
+                                    tokio::spawn(async move {
+                                        let result = pm_clone.read().await.switch_plugin("mock").await;
+                                        let _ = tx_clone.send(AppEvent::PluginSwitch("mock".to_string())).await;
+                                        if result.is_ok() {
+                                            let _ = tx_clone.send(AppEvent::PluginLoad("mock".to_string())).await;
+                                        }
+                                    });
                                 }
-                                state.log(LogLevel::Info, "Loading plugin...".to_string());
                             }
+                            state.log(LogLevel::Info, "Loading plugin...".to_string());
                         }
                         KeyCode::Char('u') | KeyCode::Char('U') => {
-                            // Unload plugin (only when running)
-                            if state.is_running {
-                                #[cfg(feature = "vosk")]
-                                {
-                                    if let Some(ref pm) = state.plugin_manager {
-                                        let pm_clone = pm.clone();
-                                        let tx_clone = tx.clone();
-                                        tokio::spawn(async move {
-                                            let _result = pm_clone.write().await.unload_plugin("mock").await;
-                                            let _ = tx_clone.send(AppEvent::PluginUnload("mock".to_string())).await;
-                                        });
-                                    }
+                            #[cfg(feature = "vosk")]
+                            {
+                                if let Some(ref pm) = state.plugin_manager {
+                                    let pm_clone = pm.clone();
+                                    let tx_clone = tx.clone();
+                                    tokio::spawn(async move {
+                                        let result = pm_clone.read().await.unload_plugin("mock").await;
+                                        let _ = tx_clone.send(AppEvent::PluginUnload("mock".to_string())).await;
+                                    });
                                 }
-                                state.log(LogLevel::Info, "Unloading plugin...".to_string());
                             }
-                        }
-                        KeyCode::Char('w') | KeyCode::Char('W') => {
-                            // Switch plugin (only when running and in plugins tab)
-                            if state.is_running && matches!(state.current_tab, Tab::Plugins) {
-                                #[cfg(feature = "vosk")]
-                                {
-                                    if let Some(ref pm) = state.plugin_manager {
-                                        let pm_clone = pm.clone();
-                                        let tx_clone = tx.clone();
-                                        tokio::spawn(async move {
-                                            let _result = pm_clone.write().await.switch_plugin("noop").await;
-                                            let _ = tx_clone.send(AppEvent::PluginSwitch("noop".to_string())).await;
-                                        });
-                                    }
-                                }
-                                state.log(LogLevel::Info, "Switching plugin...".to_string());
-                            }
+                            state.log(LogLevel::Info, "Unloading plugin...".to_string());
                         }
                         _ => {}
                     }
@@ -562,46 +450,27 @@ async fn run_app(
                                 }
                             }
                         }
-                        AppEvent::PluginLoad(plugin_id) => {
-                            state.plugin_current = Some(plugin_id.clone());
-                            state.plugin_active_count += 1;
-                            // Update metrics from shared sink
-                            if let Some(app) = &state.app {
-                                state.plugin_transcription_requests = app.metrics.stt_transcription_requests.load(Ordering::Relaxed) as u64;
-                                state.plugin_success = app.metrics.stt_transcription_success.load(Ordering::Relaxed) as u64;
-                                state.plugin_failures = app.metrics.stt_transcription_failures.load(Ordering::Relaxed) as u64;
-                            }
-                            state.log(LogLevel::Success, format!("Plugin loaded: {}", plugin_id));
+                    AppEvent::PluginLoad(plugin_id) => {
+                        state.plugin_current = Some(plugin_id.clone());
+                        state.plugin_active_count += 1;
+                        state.log(LogLevel::Success, format!("Plugin loaded: {}", plugin_id));
+                    }
+                    AppEvent::PluginUnload(plugin_id) => {
+                        if state.plugin_current.as_ref() == Some(&plugin_id) {
+                            state.plugin_current = None;
                         }
-                        AppEvent::PluginUnload(plugin_id) => {
-                            if state.plugin_current.as_ref() == Some(&plugin_id) {
-                                state.plugin_current = None;
-                            }
-                            if state.plugin_active_count > 0 {
-                                state.plugin_active_count -= 1;
-                            }
-                            // Update metrics from shared sink
-                            if let Some(app) = &state.app {
-                                state.plugin_transcription_requests = app.metrics.stt_transcription_requests.load(Ordering::Relaxed) as u64;
-                                state.plugin_success = app.metrics.stt_transcription_success.load(Ordering::Relaxed) as u64;
-                                state.plugin_failures = app.metrics.stt_transcription_failures.load(Ordering::Relaxed) as u64;
-                            }
-                            state.log(LogLevel::Info, format!("Plugin unloaded: {}", plugin_id));
+                        if state.plugin_active_count > 0 {
+                            state.plugin_active_count -= 1;
                         }
-                        AppEvent::PluginSwitch(plugin_id) => {
-                            state.plugin_current = Some(plugin_id.clone());
-                            // Update metrics from shared sink
-                            if let Some(app) = &state.app {
-                                state.plugin_transcription_requests = app.metrics.stt_transcription_requests.load(Ordering::Relaxed) as u64;
-                                state.plugin_success = app.metrics.stt_transcription_success.load(Ordering::Relaxed) as u64;
-                                state.plugin_failures = app.metrics.stt_transcription_failures.load(Ordering::Relaxed) as u64;
-                            }
-                            state.log(LogLevel::Info, format!("Switched to plugin: {}", plugin_id));
-                        }
-                        AppEvent::PluginStatusUpdate => {
-                            // Update plugin status (could refresh metrics)
-                            state.log(LogLevel::Debug, "Plugin status updated".to_string());
-                        }
+                        state.log(LogLevel::Info, format!("Plugin unloaded: {}", plugin_id));
+                    }
+                    AppEvent::PluginSwitch(plugin_id) => {
+                        state.plugin_current = Some(plugin_id.clone());
+                        state.log(LogLevel::Info, format!("Switched to plugin: {}", plugin_id));
+                    }
+                    AppEvent::PluginStatusUpdate => {
+                        state.log(LogLevel::Debug, "Plugin status updated".to_string());
+                    }
                 }
             }
 
@@ -609,7 +478,6 @@ async fn run_app(
                 if state.is_running {
                     if let Some(app) = &state.app {
                         let m = &app.metrics;
-                        // Take a live snapshot of metrics
                         state.metrics = PipelineMetricsSnapshot {
                             current_rms: m.current_rms.load(Ordering::Relaxed),
                             current_peak: m.current_peak.load(Ordering::Relaxed),
@@ -708,7 +576,7 @@ fn draw_audio_levels(f: &mut Frame, area: Rect, state: &DashboardState) {
         .label(format!("{:.1} dB", db));
     f.render_widget(gauge, chunks[0]);
 
-    let rms_scaled = state.metrics.current_rms as f64 / 1000.0; // stored as RMS*1000
+    let rms_scaled = state.metrics.current_rms as f64 / 1000.0;
     let rms_db = if rms_scaled > 0.0 {
         20.0 * (rms_scaled / 32767.0).log10()
     } else {
@@ -962,26 +830,12 @@ fn draw_plugins(f: &mut Frame, area: Rect, state: &DashboardState) {
 
     #[cfg(feature = "vosk")]
     {
-        // Display available plugins from plugin manager
-        if let Some(ref pm) = state.plugin_manager {
-            // Try to get plugin list without blocking
-            let pm_read = pm.try_read();
-            if let Ok(pm_guard) = pm_read {
-                let plugins = pm_guard.list_plugins_sync();
-                for plugin in plugins {
-                    let status = if Some(&plugin.id) == state.plugin_current.as_ref() {
-                        " [ACTIVE]"
-                    } else {
-                        ""
-                    };
-                    plugin_lines.push(Line::from(format!("{} - {}{}", plugin.id, plugin.name, status)));
-                }
-            } else {
-                plugin_lines.push(Line::from("Loading plugins..."));
-            }
-        } else {
-            plugin_lines.push(Line::from("Plugin manager not available"));
-        }
+        plugin_lines.push(Line::from("noop - NoOp Plugin"));
+        plugin_lines.push(Line::from("mock - Mock Plugin"));
+        plugin_lines.push(Line::from("whisper - Whisper Plugin [STUB]"));
+
+        #[cfg(feature = "parakeet")]
+        plugin_lines.push(Line::from("parakeet - Parakeet Plugin"));
     }
 
     #[cfg(not(feature = "vosk"))]
@@ -1003,35 +857,22 @@ fn draw_plugin_status(f: &mut Frame, area: Rect, state: &DashboardState) {
 
     #[cfg(feature = "vosk")]
     {
-        // Current plugin
         let current = state.plugin_current.as_deref().unwrap_or("None");
         status_lines.push(Line::from(vec![
             Span::raw("Current: "),
             Span::styled(current, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
         ]));
 
-        // Active count
         status_lines.push(Line::from(format!("Active: {}", state.plugin_active_count)));
 
-        // Real-time metrics from shared sink
-        if let Some(app) = &state.app {
-            let metrics = &app.metrics;
-            status_lines.push(Line::from(format!("Requests: {}", metrics.stt_transcription_requests.load(Ordering::Relaxed))));
-            status_lines.push(Line::from(format!("Success: {}", metrics.stt_transcription_success.load(Ordering::Relaxed))));
-            status_lines.push(Line::from(format!("Failures: {}", metrics.stt_transcription_failures.load(Ordering::Relaxed))));
-            status_lines.push(Line::from(format!("Load Count: {}", metrics.stt_load_count.load(Ordering::Relaxed))));
-            status_lines.push(Line::from(format!("Unload Count: {}", metrics.stt_unload_count.load(Ordering::Relaxed))));
-            status_lines.push(Line::from(format!("Failovers: {}", metrics.stt_failover_count.load(Ordering::Relaxed))));
-        } else {
-            status_lines.push(Line::from("Requests: N/A"));
-            status_lines.push(Line::from("Success: N/A"));
-            status_lines.push(Line::from("Failures: N/A"));
-        }
+        status_lines.push(Line::from(format!("Requests: {}", state.plugin_transcription_requests)));
+        status_lines.push(Line::from(format!("Success: {}", state.plugin_success)));
+        status_lines.push(Line::from(format!("Failures: {}", state.plugin_failures)));
 
         status_lines.push(Line::from(""));
         status_lines.push(Line::from("Controls:"));
         status_lines.push(Line::from("[P] Toggle Tab  [L] Load Plugin"));
-        status_lines.push(Line::from("[U] Unload Plugin  [W] Switch"));
+        status_lines.push(Line::from("[U] Unload Plugin  [S] Switch"));
     }
 
     #[cfg(not(feature = "vosk"))]

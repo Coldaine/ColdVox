@@ -8,13 +8,13 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use std::sync::atomic::Ordering;
-use parking_lot::Mutex;
 
 use coldvox_stt::plugin::{
-    SttPlugin, SttPluginRegistry, PluginSelectionConfig, SttPluginError
+    SttPlugin, SttPluginRegistry, PluginSelectionConfig, SttPluginError,
+    FailoverConfig, GcPolicy
 };
 use coldvox_stt::plugins::NoOpPlugin;
-use coldvox_telemetry::pipeline_metrics::{PipelineMetrics, FpsTracker};
+use coldvox_telemetry::pipeline_metrics::PipelineMetrics;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tokio::fs;
@@ -42,10 +42,12 @@ pub struct SttPluginManager {
     metrics_sink: Option<Arc<PipelineMetrics>>,
     start_instant: Instant,
     metrics_task: Arc<RwLock<Option<JoinHandle<()>>>>,
-    fps_tracker: Arc<Mutex<FpsTracker>>,
 
     // Configuration persistence
     config_path: PathBuf,
+    
+    // Idempotent unload tracking
+    last_unloaded_plugin_id: Arc<RwLock<Option<String>>>,
 }
 
 impl SttPluginManager {
@@ -75,8 +77,8 @@ impl SttPluginManager {
             metrics_sink: None,
             start_instant: Instant::now(),
             metrics_task: Arc::new(RwLock::new(None)),
-            fps_tracker: Arc::new(Mutex::new(FpsTracker::new())),
             config_path,
+            last_unloaded_plugin_id: Arc::new(RwLock::new(None)),
         };
 
         // Load existing configuration if available
@@ -109,6 +111,15 @@ impl SttPluginManager {
         
         self.selection_config = cfg;
         
+        // Save configuration to disk
+        if let Err(e) = self.save_config().await {
+            warn!(
+                target: "coldvox::stt",
+                error = ?e,
+                "Failed to save plugin configuration"
+            );
+        }
+        
         // Start or stop GC task based on configuration
         if gc_enabled {
             self.start_gc_task().await;
@@ -128,8 +139,67 @@ impl SttPluginManager {
         info!(
             target: "coldvox::stt",
             event = "config_updated",
-            "Updated STT plugin selection configuration"
+            "Updated STT plugin selection configuration and saved to disk"
         );
+    }
+
+    /// Load configuration from disk
+    async fn load_config(&mut self) -> Result<(), SttPluginError> {
+        if !self.config_path.exists() {
+            debug!(
+                target: "coldvox::stt",
+                config_path = %self.config_path.display(),
+                "Configuration file does not exist, using defaults"
+            );
+            return Ok(());
+        }
+        let config_data = fs::read_to_string(&self.config_path).await
+            .map_err(|e| SttPluginError::ConfigurationError(format!("Failed to read config file: {}", e)))?;
+        let config: PluginSelectionConfig = serde_json::from_str(&config_data)
+            .map_err(|e| SttPluginError::ConfigurationError(format!("Failed to parse config: {}", e)))?;
+        self.selection_config = config.clone();
+            
+        // Apply loaded configuration
+        self.set_selection_config(config).await;
+            
+        info!(
+            target: "coldvox::stt",
+            config_path = %self.config_path.display(),
+            "Loaded plugin configuration from disk"
+        );
+            
+        Ok(())
+    }
+
+    /// Save current configuration to disk
+    async fn save_config(&self) -> Result<(), SttPluginError> {
+        // Create parent directory if it doesn't exist
+        if let Some(parent) = self.config_path.parent() {
+            fs::create_dir_all(parent).await
+                .map_err(|e| SttPluginError::ConfigurationError(format!("Failed to create config directory: {}", e)))?;
+        }
+        let config_data = serde_json::to_string_pretty(&self.selection_config)
+            .map_err(|e| SttPluginError::ConfigurationError(format!("Failed to serialize config: {}", e)))?;
+        fs::write(&self.config_path, config_data).await
+            .map_err(|e| SttPluginError::ConfigurationError(format!("Failed to write config file: {}", e)))?;
+        debug!(
+            target: "coldvox::stt",
+            config_path = %self.config_path.display(),
+            "Saved plugin configuration to disk"
+        );
+            
+        Ok(())
+    }
+
+    /// Get the current configuration file path
+    pub fn config_path(&self) -> &PathBuf {
+        &self.config_path
+    }
+
+    /// Set a new configuration file path and reload if file exists
+    pub async fn set_config_path(&mut self, path: PathBuf) -> Result<(), SttPluginError> {
+        self.config_path = path;
+        self.load_config().await
     }
 
     /// Start the garbage collection task
@@ -270,8 +340,15 @@ impl SttPluginManager {
         if metrics_task.is_some() {
             return Ok(()); // Already running
         }
+        
+        // Get log interval from configuration, default to 30 seconds
+        let log_interval_secs = self.selection_config.metrics
+            .as_ref()
+            .and_then(|m| m.log_interval_secs)
+            .unwrap_or(30);
+            
         let handle = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(30)); // Log every 30 seconds
+            let mut interval = tokio::time::interval(Duration::from_secs(log_interval_secs as u64));
                 
             loop {
                 interval.tick().await;
@@ -676,6 +753,7 @@ impl SttPluginManager {
     /// Unload a specific plugin by ID
     pub async fn unload_plugin(&self, plugin_id: &str) -> Result<(), SttPluginError> {
         let mut current = self.current_plugin.write().await;
+        let mut last_unloaded = self.last_unloaded_plugin_id.write().await;
 
         if let Some(ref mut plugin) = *current {
             if plugin.info().id == plugin_id {
@@ -687,6 +765,7 @@ impl SttPluginManager {
                             event = "plugin_unload",
                             "Successfully unloaded plugin"
                         );
+                        *last_unloaded = Some(plugin_id.to_string());
                         *current = None;
                         
                         // Update metrics if available
@@ -703,6 +782,7 @@ impl SttPluginManager {
                             event = "plugin_already_unloaded",
                             "Plugin was already unloaded"
                         );
+                        *last_unloaded = Some(plugin_id.to_string());
                         *current = None;
                         Ok(())
                     }
@@ -723,9 +803,26 @@ impl SttPluginManager {
                 })
             }
         } else {
-            Err(SttPluginError::NotAvailable {
-                reason: "No plugin is currently loaded".to_string(),
-            })
+            // Check if this is an idempotent unload of the last unloaded plugin
+            if let Some(ref last_id) = *last_unloaded {
+                if last_id == plugin_id {
+                    info!(
+                        target: "coldvox::stt",
+                        plugin_id = %plugin_id,
+                        event = "plugin_unload_idempotent",
+                        "Idempotent unload of previously unloaded plugin"
+                    );
+                    Ok(())
+                } else {
+                    Err(SttPluginError::NotAvailable {
+                        reason: "No plugin is currently loaded".to_string(),
+                    })
+                }
+            } else {
+                Err(SttPluginError::NotAvailable {
+                    reason: "No plugin is currently loaded".to_string(),
+                })
+            }
         }
     }
 
@@ -780,10 +877,14 @@ impl SttPluginManager {
         }
     }
 
-    /// Get information about all available plugins
-    pub async fn list_plugins(&self) -> Vec<coldvox_stt::plugin::PluginInfo> {
-        let registry = self.registry.read().await;
-        registry.available_plugins()
+    /// Get information about all available plugins (synchronous for UI)
+    pub fn list_plugins_sync(&self) -> Vec<coldvox_stt::plugin::PluginInfo> {
+        let registry = self.registry.try_read();
+        if let Ok(registry_guard) = registry {
+            registry_guard.available_plugins()
+        } else {
+            Vec::new()
+        }
     }
 
     /// Process audio with the current plugin, handling failover on errors
@@ -1062,7 +1163,7 @@ mod tests {
         assert!(!plugin_id.is_empty());
 
         // Should be able to list plugins
-        let plugins = manager.list_plugins().await;
+        let plugins = manager.list_plugins_sync();
         assert!(!plugins.is_empty());
 
         // At minimum, NoOp and Mock should be available
@@ -1215,5 +1316,84 @@ mod tests {
         // Verify no plugin is still loaded
         let current_final = manager.current_plugin().await;
         assert!(current_final.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_process_audio_and_gc_no_double_borrow() {
+        let manager = SttPluginManager::new();
+        let manager = Arc::new(tokio::sync::RwLock::new(manager));
+
+        // Initialize with a plugin
+        {
+            let mut mgr = manager.write().await;
+            let _plugin_id = mgr.initialize().await.unwrap();
+        }
+
+        // Enable GC with short TTL for testing
+        {
+            let mut mgr = manager.write().await;
+            mgr.set_selection_config(PluginSelectionConfig {
+                preferred_plugin: Some("noop".to_string()),
+                fallback_plugins: vec!["mock".to_string()],
+                require_local: true,
+                max_memory_mb: None,
+                required_language: None,
+                failover: Some(FailoverConfig {
+                    failover_threshold: 3,
+                    failover_cooldown_secs: 1,
+                }),
+                gc_policy: Some(GcPolicy {
+                    model_ttl_secs: 1, // Very short TTL for testing
+                    enabled: true,
+                }),
+                metrics: None,
+            }).await;
+        }
+
+        // Create some test audio data
+        let test_audio = vec![0i16; 16000]; // 1 second of audio at 16kHz
+
+        // Spawn multiple concurrent tasks that call process_audio
+        let mut process_tasks = Vec::new();
+        for _i in 0..5 {
+            let manager_clone = manager.clone();
+            let audio_clone = test_audio.clone();
+            let task = tokio::spawn(async move {
+                for _ in 0..10 {
+                    let mut mgr = manager_clone.write().await;
+                    let _result = mgr.process_audio(&audio_clone).await;
+                    // Small delay to allow GC to run
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+            });
+            process_tasks.push(task);
+        }
+
+        // Spawn GC tasks that run concurrently
+        let mut gc_tasks = Vec::new();
+        for _ in 0..3 {
+            let manager_clone = manager.clone();
+            let task = tokio::spawn(async move {
+                for _ in 0..5 {
+                    let mgr = manager_clone.read().await;
+                    mgr.gc_inactive_models().await;
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                }
+            });
+            gc_tasks.push(task);
+        }
+
+        // Wait for all tasks to complete without panicking
+        for task in process_tasks {
+            let _ = task.await;
+        }
+        for task in gc_tasks {
+            let _ = task.await;
+        }
+
+        // Verify the manager is still in a valid state
+        let current = manager.read().await.current_plugin().await;
+        // Plugin should still be available (GC shouldn't have unloaded it due to recent activity)
+        assert!(current.is_some());
     }
 }

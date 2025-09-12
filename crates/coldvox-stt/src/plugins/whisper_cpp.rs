@@ -4,10 +4,10 @@
 //! that uses ggml quantization for efficient inference on CPU.
 
 use async_trait::async_trait;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use parking_lot::RwLock;
-use tracing::{info, debug};
+use tracing::info;
 
 use crate::plugin::*;
 use crate::plugin_types::*;
@@ -123,7 +123,6 @@ impl Default for WhisperCppConfig {
 pub struct WhisperCppPlugin {
     config: WhisperCppConfig,
     state: Arc<RwLock<PluginState>>,
-    metrics: Arc<RwLock<PluginMetrics>>,
     // Future: Add actual whisper.cpp context
     // context: Option<*mut WhisperContext>,
 }
@@ -137,7 +136,6 @@ impl WhisperCppPlugin {
         Self {
             config,
             state: Arc::new(RwLock::new(PluginState::Uninitialized)),
-            metrics: Arc::new(RwLock::new(PluginMetrics::default())),
         }
     }
     
@@ -197,32 +195,6 @@ impl WhisperCppPlugin {
             
             metrics: None,
         }
-    }
-    
-    fn find_model_path(&self) -> Result<PathBuf, String> {
-        if let Some(ref path) = self.config.model_path {
-            if path.exists() {
-                return Ok(path.clone());
-            }
-        }
-        
-        // Check standard locations
-        let model_filename = self.config.model_type.filename();
-        let candidates = vec![
-            PathBuf::from(format!("models/whisper/{}", model_filename)),
-            PathBuf::from(format!("models/{}", model_filename)),
-            dirs::data_dir()
-                .map(|d| d.join(format!("whisper/{}", model_filename)))
-                .unwrap_or_default(),
-        ];
-        
-        for path in candidates {
-            if path.exists() {
-                return Ok(path);
-            }
-        }
-        
-        Err(format!("Whisper model {} not found", model_filename))
     }
 }
 

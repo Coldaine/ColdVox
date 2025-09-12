@@ -17,6 +17,8 @@ use crate::hotkey::spawn_hotkey_listener;
 
 #[cfg(feature = "vosk")]
 use crate::stt::TranscriptionEvent;
+#[cfg(feature = "vosk")]
+use coldvox_stt::plugin::{PluginSelectionConfig, FailoverConfig, GcPolicy};
 use crate::stt::plugin_manager::SttPluginManager;
 
 /// Activation strategy for push-to-talk vs voice activation
@@ -425,4 +427,90 @@ pub async fn start(
         #[cfg(feature = "text-injection")]
         injection_handle,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[cfg(feature = "vosk")]
+    #[tokio::test]
+    async fn end_to_end_stt_pipeline() {
+        // Create runtime options with STT enabled
+        let opts = AppRuntimeOptions {
+            device: None,
+            resampler_quality: ResamplerQuality::Balanced,
+            activation_mode: ActivationMode::Vad,
+            stt_selection: Some(PluginSelectionConfig {
+                preferred_plugin: Some("noop".to_string()),
+                fallback_plugins: vec!["mock".to_string()],
+                require_local: true,
+                max_memory_mb: None,
+                required_language: None,
+                failover: Some(FailoverConfig {
+                    failover_threshold: 3,
+                    failover_cooldown_secs: 1,
+                }),
+                gc_policy: Some(GcPolicy {
+                    model_ttl_secs: 30,
+                    enabled: false, // Disable GC for test
+                }),
+                metrics: None,
+            }),
+            #[cfg(feature = "text-injection")]
+            injection: None,
+        };
+
+        // Start the app
+        let mut app = start(opts).await.expect("Failed to start app");
+
+        // Get STT receiver
+        let mut stt_rx = app.stt_rx.take().expect("STT receiver should be available");
+
+        // Send mock VAD speech start event
+        let speech_start = VadEvent::SpeechStart {
+            timestamp_ms: 1000,
+            energy_db: -20.0,
+        };
+        app.raw_vad_tx.send(speech_start).await.expect("Failed to send VAD event");
+
+        // Send mock VAD speech end event
+        let speech_end = VadEvent::SpeechEnd {
+            timestamp_ms: 2000,
+            duration_ms: 1000,
+            energy_db: -20.0,
+        };
+        app.raw_vad_tx.send(speech_end).await.expect("Failed to send VAD event");
+
+        // Wait for transcription events with timeout
+        let mut received_events = Vec::new();
+        let timeout_duration = Duration::from_secs(5);
+        let start_time = std::time::Instant::now();
+
+        while start_time.elapsed() < timeout_duration {
+            match tokio::time::timeout(Duration::from_millis(100), stt_rx.recv()).await {
+                Ok(Some(event)) => {
+                    received_events.push(event);
+                    if received_events.len() >= 2 { // Expect at least partial and final events
+                        break;
+                    }
+                }
+                Ok(None) => break, // Channel closed
+                Err(_) => continue, // Timeout, try again
+            }
+        }
+
+        // Verify we received transcription events
+        assert!(!received_events.is_empty(), "Should receive at least one transcription event");
+
+        // Check that we got the expected event types
+        let has_partial = received_events.iter().any(|e| matches!(e, TranscriptionEvent::Partial { .. }));
+        let has_final = received_events.iter().any(|e| matches!(e, TranscriptionEvent::Final { .. }));
+
+        assert!(has_partial || has_final, "Should receive either partial or final transcription events");
+
+        // Clean shutdown
+        app.shutdown().await;
+    }
 }

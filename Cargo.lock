@@ -697,6 +697,7 @@ dependencies = [
  "async-trait",
  "dirs",
  "parking_lot",
+ "serde",
  "thiserror 2.0.16",
  "tokio",
  "tracing",

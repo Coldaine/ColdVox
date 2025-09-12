@@ -7,6 +7,8 @@ pub mod runtime;
 pub mod sleep_instrumentation;
 pub mod stt;
 pub mod telemetry;
+#[cfg(feature = "tui")]
+pub mod tui;
 #[cfg(feature = "text-injection")]
 pub mod text_injection;
 pub mod vad;

@@ -117,6 +117,7 @@ examples = []
 text-injection = ["dep:coldvox-text-injection"]  # Enables platform-specific dependency
 silero = ["coldvox-vad-silero/silero"]
 sleep-observer = []
+tui = []  # Terminal User Interface feature
 
 text-injection-atspi = ["text-injection", "coldvox-text-injection/atspi"]
 text-injection-clipboard = ["text-injection", "coldvox-text-injection/wl_clipboard"]

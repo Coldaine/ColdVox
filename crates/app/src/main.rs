@@ -73,6 +73,10 @@ struct Cli {
     #[arg(long = "retention-days", default_value = "30")]
     retention_days: u32,
 
+    /// Enable TUI dashboard
+    #[arg(long = "tui")]
+    tui: bool,
+
     /// Activation mode: "vad" or "hotkey"
     #[arg(long = "activation-mode", default_value = "hotkey", value_enum)]
     activation_mode: ActivationMode,
@@ -309,31 +313,77 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await
         .map_err(|e| e as Box<dyn std::error::Error>)?;
 
-    // Periodic stats log
-    let mut stats_interval = tokio::time::interval(Duration::from_secs(30));
-    let metrics = app.metrics.clone();
-    tokio::select! {
-        _ = shutdown.wait() => {
-            tracing::info!("Shutdown signal received");
-        }
-        _ = async {
-            loop {
-                stats_interval.tick().await;
-                let cap_fps = metrics.capture_fps.load(std::sync::atomic::Ordering::Relaxed);
-                let chk_fps = metrics.chunker_fps.load(std::sync::atomic::Ordering::Relaxed);
-                let vad_fps = metrics.vad_fps.load(std::sync::atomic::Ordering::Relaxed);
-                let cap_fill = metrics.capture_buffer_fill.load(std::sync::atomic::Ordering::Relaxed);
-                let chk_fill = metrics.chunker_buffer_fill.load(std::sync::atomic::Ordering::Relaxed);
-                tracing::info!(
-                    capture_fps = cap_fps,
-                    chunker_fps = chk_fps,
-                    vad_fps = vad_fps,
-                    capture_buffer_fill_pct = cap_fill,
-                    chunker_buffer_fill_pct = chk_fill,
-                    "Pipeline running..."
-                );
+    // Spawn TUI if requested
+    #[cfg(feature = "tui")]
+    if cli.tui {
+        tracing::info!("Starting TUI dashboard...");
+        let tui_handle = tokio::spawn(async move {
+            if let Err(e) = crate::tui::run_tui(app).await {
+                tracing::error!("TUI error: {}", e);
             }
-        } => {}
+        });
+
+        // Wait for TUI to complete
+        if let Err(e) = tui_handle.await {
+            tracing::error!("TUI task error: {}", e);
+        }
+    } else {
+        // Standard mode: periodic stats log
+        let mut stats_interval = tokio::time::interval(Duration::from_secs(30));
+        let metrics = app.metrics.clone();
+        tokio::select! {
+            _ = shutdown.wait() => {
+                tracing::info!("Shutdown signal received");
+            }
+            _ = async {
+                loop {
+                    stats_interval.tick().await;
+                    let cap_fps = metrics.capture_fps.load(std::sync::atomic::Ordering::Relaxed);
+                    let chk_fps = metrics.chunker_fps.load(std::sync::atomic::Ordering::Relaxed);
+                    let vad_fps = metrics.vad_fps.load(std::sync::atomic::Ordering::Relaxed);
+                    let cap_fill = metrics.capture_buffer_fill.load(std::sync::atomic::Ordering::Relaxed);
+                    let chk_fill = metrics.chunker_buffer_fill.load(std::sync::atomic::Ordering::Relaxed);
+                    tracing::info!(
+                        capture_fps = cap_fps,
+                        chunker_fps = chk_fps,
+                        vad_fps = vad_fps,
+                        capture_buffer_fill_pct = cap_fill,
+                        chunker_buffer_fill_pct = chk_fill,
+                        "Pipeline running..."
+                    );
+                }
+            } => {}
+        }
+    }
+
+    #[cfg(not(feature = "tui"))]
+    {
+        // Standard mode: periodic stats log
+        let mut stats_interval = tokio::time::interval(Duration::from_secs(30));
+        let metrics = app.metrics.clone();
+        tokio::select! {
+            _ = shutdown.wait() => {
+                tracing::info!("Shutdown signal received");
+            }
+            _ = async {
+                loop {
+                    stats_interval.tick().await;
+                    let cap_fps = metrics.capture_fps.load(std::sync::atomic::Ordering::Relaxed);
+                    let chk_fps = metrics.chunker_fps.load(std::sync::atomic::Ordering::Relaxed);
+                    let vad_fps = metrics.vad_fps.load(std::sync::atomic::Ordering::Relaxed);
+                    let cap_fill = metrics.capture_buffer_fill.load(std::sync::atomic::Ordering::Relaxed);
+                    let chk_fill = metrics.chunker_buffer_fill.load(std::sync::atomic::Ordering::Relaxed);
+                    tracing::info!(
+                        capture_fps = cap_fps,
+                        chunker_fps = chk_fps,
+                        vad_fps = vad_fps,
+                        capture_buffer_fill_pct = cap_fill,
+                        chunker_buffer_fill_pct = chk_fill,
+                        "Pipeline running..."
+                    );
+                }
+            } => {}
+        }
     }
 
     // Shutdown

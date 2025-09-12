@@ -252,7 +252,7 @@ impl SttPluginRegistry {
 }
 
 /// Configuration for plugin selection
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PluginSelectionConfig {
     /// Preferred plugin ID
     pub preferred_plugin: Option<String>,
@@ -299,7 +299,7 @@ impl Default for PluginSelectionConfig {
 }
 
 /// Configuration for failover behavior between plugins
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct FailoverConfig {
     /// Number of consecutive transient errors before switching plugins
     pub failover_threshold: u32,
@@ -318,7 +318,7 @@ impl Default for FailoverConfig {
 }
 
 /// Configuration for garbage collection of inactive models
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GcPolicy {
     /// Time to live in seconds for inactive model instances
     pub model_ttl_secs: u32,
@@ -337,7 +337,7 @@ impl Default for GcPolicy {
 }
 
 /// Configuration for STT metrics and monitoring
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct MetricsConfig {
     /// Interval in seconds for periodic metrics logging
     pub log_interval_secs: Option<u32>,
