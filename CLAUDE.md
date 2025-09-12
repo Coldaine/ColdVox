@@ -37,10 +37,10 @@ Multi-crate Cargo workspace:
   - `watchdog.rs`: 5-second no-data watchdog with automatic recovery
   - `detector.rs`: RMS-based `SilenceDetector`
 
-- `crates/coldvox-vad/` - VAD core traits and legacy Level3 energy-based VAD
-  - `config.rs`: `UnifiedVadConfig`, `VadMode` (Silero default, Level3 feature-gated)
+- `crates/coldvox-vad/` - VAD core traits and energy utilities
+  - `config.rs`: `UnifiedVadConfig`, `VadMode` (Silero default)
   - `engine.rs`: `VadEngine` trait for VAD implementations
-  - `level3.rs`: Legacy energy-based VAD (feature `level3`) - disabled by default and not recommended for use.
+  - `energy.rs`: Energy calculation utilities (not currently used for VAD)
   - `types.rs`: `VadEvent`, `VadState`, `VadMetrics`
 
 - `crates/coldvox-vad-silero/` - Silero V5 ONNX-based VAD (default)
@@ -50,6 +50,8 @@ Multi-crate Cargo workspace:
 - `crates/coldvox-stt/` - STT core abstractions
   - `types.rs`: Core STT types (`TranscriptionEvent`, `WordInfo`)
   - `processor.rs`: STT processing traits
+  - **Plugin System**: `plugin.rs` - Plugin interface and registry (implemented but not integrated with main app)
+  - **Plugins**: `plugins/` directory with mock, noop, vosk_plugin (feature-gated), whisper_plugin (feature-gated)
 
 - `crates/coldvox-stt-vosk/` - Vosk STT integration (feature `vosk`)
   - `vosk_transcriber.rs`: `VoskTranscriber` for offline speech recognition
@@ -68,14 +70,16 @@ Multi-crate Cargo workspace:
 
 ## Development Commands
 
-**Working Directory**: `crates/app/` for all commands unless specified otherwise.
+**Working Directory**: Commands can be run from workspace root or `crates/app/` (mixed usage). Use `just` commands from root for consistency.
 
 ### Building
 
 ```bash
-cd crates/app
+# From workspace root
+cargo build --workspace
 
-# Main app with default features (Silero VAD + text injection, no STT by default)
+# From app directory
+cd crates/app
 cargo build
 cargo build --release
 
@@ -84,15 +88,16 @@ cargo build --features vosk
 
 # Full feature set
 cargo build --features vosk,text-injection
-
-# Workspace build (from repo root)
-cargo build --workspace
 ```
 
 ### Running
 
 ```bash
-# Main application
+# From workspace root
+cargo run -p coldvox-app
+
+# From app directory
+cd crates/app
 cargo run
 
 # With specific device
@@ -103,8 +108,6 @@ cargo run --features vosk
 
 # TUI Dashboard (shared runtime)
 cargo run --bin tui_dashboard  # S=Start, A=Toggle VAD/PTT, R=Reset, Q=Quit
-# Optional explicit device or extra logging
-cargo run --bin tui_dashboard -- --device "USB Microphone" --log-level "info,stt=debug,coldvox_audio=debug"
 
 # Mic probe utility
 cargo run --bin mic_probe -- --duration 30
@@ -120,7 +123,7 @@ cargo run --example test_silero_wav --features examples
 ### Testing
 
 ```bash
-# All tests
+# All tests (from workspace root)
 cargo test
 
 # With output
@@ -151,7 +154,7 @@ Default features: `silero`, `vosk`, `text-injection`
 - `vosk` - Vosk STT support (requires libvosk system library)
 - `text-injection` - Text injection backends (platform-specific)
 - `silero` - Silero VAD (default)
-- `level3` - Legacy Level3 energy-based VAD (not recommended for use)
+- `whisper` - Whisper STT plugin support (unused `no-stt` feature available but not used)
 - `examples` - Enable example-specific dependencies
 - `live-hardware-tests` - Hardware-specific test suites
 
@@ -171,13 +174,14 @@ Platform-specific text injection backends are automatically enabled at build tim
 
 ### VAD System
 - **Primary**: Silero V5 via ONNX (feature `silero`)
-- **Legacy Fallback**: Level3 energy-based (feature `level3`, not recommended for use)
+- **Energy Utilities**: Basic energy calculation in `energy.rs` (not used for VAD)
 - **Events**: `VadEvent::{SpeechStart, SpeechEnd}` with debouncing
 
 ### STT Integration
 - **Vosk**: Offline recognition (feature `vosk`)
 - **Model**: `VOSK_MODEL_PATH` or `models/vosk-model-small-en-us-0.15/` (legacy root fallback supported temporarily)
 - **Events**: `TranscriptionEvent::{Partial, Final, Error}`
+- **Plugin System**: Implemented in `crates/coldvox-stt/src/plugin.rs` but not integrated with main app (main app uses direct VoskTranscriber)
 
 ### Text Injection
 - **Linux backends**: AT-SPI, wl-clipboard, ydotool (Wayland), kdotool (X11)
@@ -220,7 +224,7 @@ Build-time detection in `crates/app/build.rs`:
 ## Key Design Principles
 
 - **Monotonic timing**: Uses `std::time::Instant` for all durations and timestamps
-- **Graceful degradation**: Silero VAD as default with Level3 energy VAD as fallback
+- **Graceful degradation**: Silero VAD as default (no Level3 fallback currently implemented)
 - **Automatic recovery**: Watchdog monitoring + automatic stream restart on errors
 - **Platform awareness**: Build-time detection of OS and desktop environment
 - **Lock-free communication**: rtrb ring buffer with atomic counters for audio data
@@ -231,7 +235,7 @@ Build-time detection in `crates/app/build.rs`:
 ### Core Implementation
 - **Main app**: `crates/app/src/main.rs`
 - **Audio pipeline**: `crates/coldvox-audio/src/capture.rs`, `frame_reader.rs`, `chunker.rs`
-- **VAD engines**: `crates/coldvox-vad-silero/src/silero_wrapper.rs`, `crates/coldvox-vad/src/level3.rs`
+- **VAD engines**: `crates/coldvox-vad-silero/src/silero_wrapper.rs`, `crates/coldvox-vad/src/energy.rs`
 - **STT integration**: `crates/app/src/stt/processor.rs`, `crates/app/src/stt/vosk.rs`
 - **Text injection**: `crates/coldvox-text-injection/src/manager.rs`
 
@@ -262,4 +266,4 @@ Run `scripts/setup_text_injection.sh` to install:
 
 ## Maintenance Notes
 
-- Project status: Source of truth is `docs/PROJECT_STATUS.md`. The README badge is static and must be updated manually to match the current phase.
+- Project status: Currently in active development. Check the GitHub issues and pull requests for current priorities.
