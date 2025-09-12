@@ -60,32 +60,20 @@ impl VoskTranscriber {
         })
     }
 
-    /// Create a new VoskTranscriber with default model path (backward compatibility)
-    pub fn new_with_default(model_path: &str, sample_rate: f32) -> Result<Self, String> {
-        let config = TranscriptionConfig {
-            enabled: true,
-            model_path: model_path.to_string(),
-            partial_results: true,
-            max_alternatives: 1,
-            include_words: false,
-            buffer_size_ms: 512,
-            streaming: false,
-        };
-        Self::new(config, sample_rate)
-    }
-
     /// Update configuration (requires recreating recognizer)
     pub fn update_config(
         &mut self,
         config: TranscriptionConfig,
         sample_rate: f32,
     ) -> Result<(), String> {
-        // Use model path from config, or get default
-        let model_path = if config.model_path.is_empty() {
-            crate::default_model_path()
+        // Resolve model path via centralized model manager
+        let model_info = crate::model::locate_model(if config.model_path.is_empty() {
+            None
         } else {
-            config.model_path.clone()
-        };
+            Some(&config.model_path)
+        })
+        .map_err(|e| format!("Failed to locate Vosk model: {}", e))?;
+        let model_path = model_info.path.to_string_lossy().to_string();
 
         // Recreate recognizer with new config
         let model = Model::new(&model_path)

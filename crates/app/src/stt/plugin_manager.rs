@@ -223,7 +223,8 @@ impl SttPluginManager {
 
         // Spawn new GC task
         let handle = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs((ttl_secs / 2) as u64));
+            let interval_secs = std::cmp::max(1, (ttl_secs / 2) as u64);
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
 
             loop {
                 interval.tick().await;
@@ -1320,34 +1321,29 @@ mod tests {
 
     #[tokio::test]
     async fn test_concurrent_process_audio_and_gc_no_double_borrow() {
-        let manager = SttPluginManager::new();
+        let mut manager = SttPluginManager::new();
+        manager.set_selection_config(PluginSelectionConfig {
+            preferred_plugin: Some("noop".to_string()),
+            fallback_plugins: vec!["mock".to_string()],
+            require_local: true,
+            max_memory_mb: None,
+            required_language: None,
+            failover: Some(FailoverConfig {
+                failover_threshold: 3,
+                failover_cooldown_secs: 1,
+            }),
+            gc_policy: Some(GcPolicy {
+                model_ttl_secs: 1, // Very short TTL for testing
+                enabled: true,
+            }),
+            metrics: None,
+        }).await;
         let manager = Arc::new(tokio::sync::RwLock::new(manager));
 
         // Initialize with a plugin
         {
             let mut mgr = manager.write().await;
             let _plugin_id = mgr.initialize().await.unwrap();
-        }
-
-        // Enable GC with short TTL for testing
-        {
-            let mut mgr = manager.write().await;
-            mgr.set_selection_config(PluginSelectionConfig {
-                preferred_plugin: Some("noop".to_string()),
-                fallback_plugins: vec!["mock".to_string()],
-                require_local: true,
-                max_memory_mb: None,
-                required_language: None,
-                failover: Some(FailoverConfig {
-                    failover_threshold: 3,
-                    failover_cooldown_secs: 1,
-                }),
-                gc_policy: Some(GcPolicy {
-                    model_ttl_secs: 1, // Very short TTL for testing
-                    enabled: true,
-                }),
-                metrics: None,
-            }).await;
         }
 
         // Create some test audio data

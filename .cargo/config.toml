@@ -1,0 +1,2 @@
+[build]
+rustflags = ["-L", "/app/vendor/vosk/vosk-linux-x86_64-0.3.45"]

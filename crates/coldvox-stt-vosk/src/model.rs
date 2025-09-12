@@ -144,20 +144,6 @@ pub fn locate_model(config_path: Option<&str>) -> Result<ModelInfo, ModelError> 
     Err(ModelError::NotFound { checked, guidance })
 }
 
-/// Convenience: return the best-effort default model path (no validation).
-/// Prefer `locate_model` when you need validation / provenance.
-pub fn default_model_path() -> PathBuf {
-    // If env var set, trust it even if it may not exist (callers can validate).
-    if let Ok(p) = std::env::var("VOSK_MODEL_PATH") {
-        return PathBuf::from(p);
-    }
-    let candidate = Path::new(MODELS_DIR).join(MODEL_DIR_NAME);
-    if candidate.is_dir() {
-        return candidate;
-    }
-    PathBuf::from(MODEL_DIR_NAME) // legacy fallback
-}
-
 /// Log model resolution information in a standardized format.
 /// Call this once during application startup where STT initializes.
 pub fn log_model_resolution(info: &ModelInfo) {
@@ -174,14 +160,3 @@ pub fn log_model_resolution(info: &ModelInfo) {
     );
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn default_path_is_deterministic() {
-        let p = default_model_path();
-        // Just ensure it returns *something* stable; existence not required.
-        assert!(p.to_string_lossy().contains(MODEL_DIR_NAME));
-    }
-}

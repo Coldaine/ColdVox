@@ -151,10 +151,15 @@ impl SttProcessor {
         // Create a simple event channel for compatibility
         let (event_tx, _event_rx) = mpsc::channel(100);
 
-        // Use default config with the default model path
+        // Resolve model path using the standard locator function
+        let model_path = crate::stt::vosk::locate_model(None)
+            .map(|info| info.path.to_string_lossy().into_owned())
+            .map_err(|e| format!("STT init failed: {}", e))?;
+
+        // Use default config with the resolved model path
         let config = TranscriptionConfig {
             enabled: true,
-            model_path: crate::stt::vosk::default_model_path(),
+            model_path,
             partial_results: true,
             max_alternatives: 1,
             include_words: false,
