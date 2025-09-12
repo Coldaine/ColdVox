@@ -11,7 +11,7 @@ on:
 jobs:
   test-runner:
     name: Test Self-Hosted Runner
-    runs-on: [self-hosted, Linux, X64, nobara]
+    runs-on: [self-hosted, Linux, X64, fedora, nobara]
     timeout-minutes: 5
     steps:
       - name: Hello World

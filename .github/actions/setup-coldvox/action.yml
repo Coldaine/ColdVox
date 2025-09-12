@@ -8,65 +8,50 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Install system dependencies
-      shell: bash
-      run: |
-        # Detect package manager and install appropriate packages
-        if command -v dnf >/dev/null 2>&1; then
-          # Fedora/RHEL/Nobara
-          sudo dnf install -y --skip-unavailable \
-            alsa-lib-devel \
-            xdotool \
-            libXtst-devel \
-            wget \
-            unzip \
-            @development-tools
-        elif command -v apt-get >/dev/null 2>&1; then
-          # Ubuntu/Debian
-          sudo apt-get update
-          sudo apt-get install -y \
-            libasound2-dev \
-            libxdo-dev \
-            libxtst-dev \
-            wget \
-            unzip \
-            build-essential
-        else
-          echo "ERROR: Unsupported package manager" >&2
-          exit 1
-        fi
-
-    - name: Validate libvosk installation (fail-fast, no download)
+    - name: Verify provisioned system dependencies
       shell: bash
       run: |
         set -euo pipefail
-        echo "Validating provisioned libvosk (no network fetch allowed)..."
-        if [ ! -f "/usr/local/lib/libvosk.so" ]; then
-          echo "❌ libvosk.so NOT found at /usr/local/lib/libvosk.so" >&2
-          echo "This runner is expected to have libvosk pre-installed (cache-as-contract)." >&2
+        echo "--- Verifying Provisioned System Dependencies ---"
+        
+        # List of essential commands the runner MUST have
+        # This replaces the sudo dnf/apt install commands
+        required_commands="xdotool wget unzip gcc g++ make Xvfb openbox dbus-launch wl-paste xclip ydotool xprop wmctrl pkg-config pulseaudio"
+        
+        failed=0
+        echo "Checking for required commands..."
+        for cmd in $required_commands; do
+          if ! command -v "$cmd" &> /dev/null; then
+            echo "::error::Required command '$cmd' not found on runner. Please provision the runner with this dependency."
+            failed=1
+          fi
+        done
+
+        # Check for pkg-config dependencies (for -devel packages)
+        required_pkgs="alsa gtk+-3.0 at-spi-2.0 xtst"
+        echo "Checking for required libraries via pkg-config..."
+        for pkg in $required_pkgs; do
+            if ! pkg-config --exists "$pkg"; then
+                echo "::error::Required library '$pkg' not found by pkg-config. Please install the corresponding -devel package on the runner."
+                failed=1
+            fi
+        done
+
+        if [[ $failed -ne 0 ]]; then
+          echo "::error::One or more system dependencies are missing. Please provision the runner correctly."
           exit 1
         fi
-        if [ ! -f "/usr/local/include/vosk_api.h" ]; then
-          echo "⚠️  vosk_api.h header not found; builds may still work if vendored bindings are sufficient." >&2
-        fi
-        # Refresh ldconfig just in case (ignore failure)
-        if command -v sudo >/dev/null 2>&1; then
-          sudo ldconfig || true
-        fi
-        if ! ldconfig -p | grep -q vosk; then
-          echo "ℹ️  libvosk not visible in ldconfig output; continuing (dlopen by path should still work)." >&2
-        fi
-        echo "✅ libvosk present: /usr/local/lib/libvosk.so"
+        
+        echo "--- All system dependencies are correctly provisioned. ---"
 
     - name: Setup Rust toolchain
       if: inputs.skip-toolchain != 'true'
-      uses: dtolnay/rust-toolchain@stable
+      uses: dtolnay/rust-toolchain@v1
       with:
+        toolchain: stable
         components: rustfmt, clippy
 
     - name: Cache Cargo
       uses: Swatinem/rust-cache@v2
       with:
         key: "nobara-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}"
-        restore-keys: |
-          nobara-${{ runner.os }}-

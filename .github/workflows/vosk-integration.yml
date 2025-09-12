@@ -21,9 +21,22 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  setup-vosk-dependencies:
+    name: Setup Vosk Dependencies
+    runs-on: [self-hosted, Linux, X64, fedora, nobara]
+    outputs:
+      model_path: ${{ steps.setup.outputs.model_path }}
+      lib_path: ${{ steps.setup.outputs.lib_path }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Vosk Model and Library
+        id: setup
+        run: bash scripts/ci/setup-vosk-cache.sh
+
   vosk-tests:
     name: Vosk STT Integration
-    runs-on: [self-hosted, Linux, X64, nobara]
+    needs: [setup-vosk-dependencies]
+    runs-on: [self-hosted, Linux, X64, fedora, nobara]
     timeout-minutes: 30
     env:
       RUST_TEST_TIME_UNIT: 10000
@@ -35,48 +48,31 @@ jobs:
           fetch-depth: 0
       - name: Setup ColdVox
         uses: ./.github/actions/setup-coldvox
-      - name: Setup Vosk Model Cache (cache-as-contract)
-        run: |
-          export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
-          sudo ldconfig
-          CACHE_DIR="/home/coldaine/ActionRunnerCache/vosk-models"
-          MODEL_DIR="models"
-          mkdir -p $MODEL_DIR
-          if [ ! -d "$CACHE_DIR/vosk-model-small-en-us-0.15" ]; then
-            echo "Required model missing: $CACHE_DIR/vosk-model-small-en-us-0.15" >&2
-            exit 1
-          fi
-          rm -rf "$MODEL_DIR/vosk-model-small-en-us-0.15"
-            ln -sf "$CACHE_DIR/vosk-model-small-en-us-0.15" "$MODEL_DIR/"
-          if [ -d "$CACHE_DIR/vosk-model-en-us-0.22" ]; then
-            rm -rf "$MODEL_DIR/vosk-model-en-us-0.22"
-            ln -sf "$CACHE_DIR/vosk-model-en-us-0.22" "$MODEL_DIR/"
-          fi
-          ls -la $MODEL_DIR/
-          bash scripts/verify_vosk_model.sh "$MODEL_DIR/vosk-model-small-en-us-0.15"
-          if [ -f "models/SHA256SUMS" ]; then
-            bash scripts/verify-model-integrity.sh "$MODEL_DIR/vosk-model-small-en-us-0.15" models/SHA256SUMS verify || echo "Checksum verification warning"
-          fi
       - name: Install cargo-nextest
         run: cargo install cargo-nextest --locked
       - name: Build with Vosk
+        env:
+          LD_LIBRARY_PATH: ${{ needs.setup-vosk-dependencies.outputs.lib_path }}
         run: |
           cargo build --locked -p coldvox-stt-vosk --features vosk
           cargo build --locked -p coldvox-app --features vosk
       - name: Run Vosk tests
         env:
-          VOSK_MODEL_PATH: models/vosk-model-small-en-us-0.15
+          VOSK_MODEL_PATH: ${{ needs.setup-vosk-dependencies.outputs.model_path }}
+          LD_LIBRARY_PATH: ${{ needs.setup-vosk-dependencies.outputs.lib_path }}
           RUST_TEST_THREADS: 1
         run: |
           cargo nextest run --locked -p coldvox-stt-vosk --features vosk
       - name: Run end-to-end WAV pipeline test
         env:
-          VOSK_MODEL_PATH: models/vosk-model-small-en-us-0.15
+          VOSK_MODEL_PATH: ${{ needs.setup-vosk-dependencies.outputs.model_path }}
+          LD_LIBRARY_PATH: ${{ needs.setup-vosk-dependencies.outputs.lib_path }}
         run: |
           cargo test --locked -p coldvox-app --features vosk test_end_to_end_wav_pipeline -- --ignored --nocapture
       - name: Test Vosk examples
         env:
-          VOSK_MODEL_PATH: models/vosk-model-small-en-us-0.15
+          VOSK_MODEL_PATH: ${{ needs.setup-vosk-dependencies.outputs.model_path }}
+          LD_LIBRARY_PATH: ${{ needs.setup-vosk-dependencies.outputs.lib_path }}
         run: |
           if ls examples/vosk_*.rs 1> /dev/null 2>&1; then
             for example in examples/vosk_*.rs; do
