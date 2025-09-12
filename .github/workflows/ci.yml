@@ -89,77 +89,28 @@ jobs:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         
       - name: Setup Vosk Model from Cache
-        run: |
-          # Export LD_LIBRARY_PATH for Vosk
-          export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
-          sudo ldconfig
-          
-          # Use pre-cached models from permanent cache location (only on self-hosted)
-          CACHE_DIR="/home/coldaine/ActionRunnerCache/vosk-models"
-          MODEL_DIR="models"
-          
-          mkdir -p $MODEL_DIR
-          
-          # Check if we're on self-hosted runner with cache
-          if [ -d "$CACHE_DIR/vosk-model-small-en-us-0.15" ]; then
-            # Self-hosted runner: use cached models
-            rm -rf "$MODEL_DIR/vosk-model-small-en-us-0.15"
-            ln -sf "$CACHE_DIR/vosk-model-small-en-us-0.15" "$MODEL_DIR/"
-            echo "✅ Linked cached vosk-model-small-en-us-0.15"
-            
-            if [ -d "$CACHE_DIR/vosk-model-en-us-0.22" ]; then
-              rm -rf "$MODEL_DIR/vosk-model-en-us-0.22"
-              ln -sf "$CACHE_DIR/vosk-model-en-us-0.22" "$MODEL_DIR/"
-              echo "✅ Linked cached vosk-model-en-us-0.22"
-            fi
-          else
-            # GitHub-hosted runner: download model
-            echo "📥 Downloading Vosk model (cache not available)..."
-            wget -q -O vosk-model-small-en-us-0.15.zip "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip"
-            unzip -q vosk-model-small-en-us-0.15.zip
-            # If target already exists and is non-empty, remove it first (stale partial)
-            if [ -d "$MODEL_DIR/vosk-model-small-en-us-0.15" ]; then
-              if [ "$(ls -A $MODEL_DIR/vosk-model-small-en-us-0.15 2>/dev/null)" ]; then
-                echo "⚠️  Removing existing non-empty stale directory: $MODEL_DIR/vosk-model-small-en-us-0.15"
-                rm -rf "$MODEL_DIR/vosk-model-small-en-us-0.15"
-              else
-                rm -rf "$MODEL_DIR/vosk-model-small-en-us-0.15"
-              fi
-            fi
-            # Move extracted directory into place
-            if [ -d "vosk-model-small-en-us-0.15" ]; then
-              mv "vosk-model-small-en-us-0.15" "$MODEL_DIR/"
-            else
-              echo "❌ Extracted model directory not found after unzip" >&2
-              exit 1
-            fi
-            rm vosk-model-small-en-us-0.15.zip
-            echo "✅ Downloaded vosk-model-small-en-us-0.15"
-          fi
-          
-          echo ""
-          echo "Model directory contents:"
-          ls -la $MODEL_DIR/
-          echo ""
-          echo "✅ Model setup complete"
+        run: bash scripts/ci/setup-vosk-cache.sh
 
       - name: Output model path
         id: get-model-path
         run: |
           echo "path=${{ github.workspace }}/models/vosk-model-small-en-us-0.15" >> $GITHUB_OUTPUT
 
-  # Static checks, formatting, linting, type-check, build, and docs
+  # Build, check, and test with multiple Rust versions
   build_and_check:
-    name: Format, Lint, Typecheck, Build & Docs
+    name: Build & Test
     runs-on: [self-hosted, Linux, X64, nobara]
     needs: [setup-vosk-model]
+    strategy:
+      matrix:
+        rust-version: [stable, '1.75'] # MSRV is 1.75
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Set up Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          toolchain: stable
+          toolchain: ${{ matrix.rust-version }}
           components: rustfmt, clippy
           override: true
 
@@ -168,10 +119,13 @@ jobs:
         with:
           skip-toolchain: 'true'
 
+      # Only run formatting and linting on stable
       - name: Check formatting
+        if: matrix.rust-version == 'stable'
         run: cargo fmt --all -- --check
 
       - name: Run clippy
+        if: matrix.rust-version == 'stable'
         run: cargo clippy --all-targets --locked
 
       - name: Type check
@@ -180,11 +134,13 @@ jobs:
       - name: Build
         run: cargo build --workspace --locked
 
+      # Only build docs and run tests on stable
       - name: Build documentation
+        if: matrix.rust-version == 'stable'
         run: cargo doc --workspace --no-deps --locked
 
       - name: Run unit and integration tests (skip E2E)
-        if: needs.setup-vosk-model.outputs.download-outcome == 'success'
+        if: matrix.rust-version == 'stable' && needs.setup-vosk-model.outputs.download-outcome == 'success'
         env:
           VOSK_MODEL_PATH: ${{ needs.setup-vosk-model.outputs.model-path }}
         run: |
@@ -195,152 +151,27 @@ jobs:
           echo "=== Running Tests ==="
           cargo test --workspace --locked --
 
+      # GUI groundwork check integrated here
+      - name: Detect and test Qt 6 GUI
+        if: matrix.rust-version == 'stable'
+        run: |
+          if bash scripts/ci/detect-qt6.sh; then
+            echo "✅ Qt 6 detected - building GUI"
+            cargo check -p coldvox-gui --features qt-ui --locked
+          else
+            echo "⚠️ Qt 6 not detected - skipping GUI build"
+          fi
+
       - name: Upload test artifacts on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: test-artifacts-build-check
+          name: test-artifacts-build-${{ matrix.rust-version }}
           path: |
             target/debug/deps/
             target/debug/build/
           retention-days: 7
 
-  # MSRV validation
-  msrv-check:
-    name: MSRV Check (Rust 1.75)
-    runs-on: [self-hosted, Linux, X64, nobara]
-    steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
-        with:
-          toolchain: 1.75
-
-      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
-
-      - name: Setup ColdVox
-        uses: ./.github/actions/setup-coldvox
-        with:
-          skip-toolchain: 'true'
-
-      - name: MSRV type check
-        run: cargo check --workspace --all-targets --locked
-
-      - name: MSRV build
-        run: cargo build --workspace --locked
-
-  # GUI groundwork check: explicitly pass if Qt 6 isn't installed
-  gui-groundwork:
-    name: GUI Groundwork (Qt optional)
-    runs-on: [self-hosted, Linux, X64, nobara]
-    steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
-        with:
-          toolchain: stable
-
-      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
-
-      - name: Detect Qt 6
-        id: detect-qt
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "=== Qt 6 Detection Script ==="
-          # Attempt to install lsb_release if not present, for better OS diagnostics
-          if ! command -v lsb_release >/dev/null 2>&1; then
-            sudo apt-get update && sudo apt-get install -y lsb-release
-          fi
-          echo "Runner OS: $(lsb_release -a 2>/dev/null || echo 'lsb_release not found')"
-          echo "Initial PATH: $PATH"
-
-          qt6_found=false
-          qmake_path=""
-          detection_method=""
-
-          # 1. Check for QT6_PATH environment variable override
-          if [[ -n "${QT6_PATH:-}" ]] && [[ -x "${QT6_PATH}/bin/qmake" ]]; then
-              qmake_path="${QT6_PATH}/bin/qmake"
-              detection_method="QT6_PATH override ($qmake_path)"
-          fi
-
-          # 2. Find qmake executable (qmake6, qmake-qt6, qmake) in PATH
-          if [[ -z "$qmake_path" ]]; then
-              for qmake_candidate in qmake6 qmake-qt6 qmake; do
-                  if command -v "$qmake_candidate" >/dev/null 2>&1; then
-                      qmake_path=$(command -v "$qmake_candidate")
-                      detection_method="qmake in PATH ($qmake_path)"
-                      break
-                  fi
-              done
-          fi
-
-          # 3. If qmake was found, verify it's Qt 6
-          if [[ -n "$qmake_path" ]]; then
-              echo "Found qmake executable at: $qmake_path"
-              qt_version=$($qmake_path -query QT_VERSION)
-              echo "qmake -query QT_VERSION returned: $qt_version"
-              if [[ "$qt_version" == 6.* ]]; then
-                  qt6_found=true
-                  echo "✅ Qt 6 detected via qmake version check."
-              else
-                  echo "⚠️ Found qmake, but it's not for Qt 6 (version $qt_version). Resetting search."
-                  qmake_path=""
-                  detection_method=""
-              fi
-          fi
-
-          # 4. Fallback to pkg-config
-          if [[ "$qt6_found" == "false" ]] && command -v pkg-config >/dev/null 2>&1; then
-              echo "Attempting detection via pkg-config..."
-              if pkg-config --exists Qt6Core; then
-                  qt6_found=true
-                  detection_method="pkg-config"
-                  echo "✅ Qt 6 detected via pkg-config."
-              else
-                  echo "pkg-config did not find Qt6Core."
-              fi
-          fi
-
-          # 5. Fallback to CMake
-          if [[ "$qt6_found" == "false" ]] && command -v cmake >/dev/null 2>&1; then
-              echo "Attempting detection via CMake..."
-              # Create a minimal CMakeLists.txt to find Qt6
-              cat <<EOF > CMakeLists.txt
-          cmake_minimum_required(VERSION 3.16)
-          project(Qt6Check)
-          find_package(Qt6 QUIET REQUIRED)
-          EOF
-              if cmake -B build -S . >/dev/null 2>&1; then
-                  qt6_found=true
-                  detection_method="CMake find_package"
-                  echo "✅ Qt 6 detected via CMake."
-              else
-                  echo "CMake find_package(Qt6) failed."
-              fi
-              rm -rf CMakeLists.txt build
-          fi
-
-          echo "============================="
-          echo "Final detection result: qt6=$qt6_found"
-          if [[ "$qt6_found" == "true" ]]; then
-              echo "Qt 6 detected on runner using method: $detection_method."
-          else
-              echo "Qt 6 not detected; will skip qt-ui build and explicitly pass."
-          fi
-          echo "qt6=$qt6_found" >> "$GITHUB_OUTPUT"
-
-      - name: Build coldvox-gui with qt-ui feature
-        if: steps.detect-qt.outputs.qt6 == 'true'
-        run: |
-          cargo check -p coldvox-gui --features qt-ui --locked
-
-      - name: Qt not found — skip build
-        if: steps.detect-qt.outputs.qt6 != 'true'
-        run: |
-          echo "WARNING: Qt 6 not detected. Skipping qt-ui build." >&2
-          echo "Install Qt 6 to enable GUI testing."
 
   text_injection_tests:
     name: Text Injection Tests
@@ -362,43 +193,6 @@ jobs:
       - name: Setup ColdVox
         uses: ./.github/actions/setup-coldvox
 
-      # Install dependencies for text injection backends (AT-SPI, clipboard, ydotool)
-      - name: Install additional system dependencies
-        run: |
-          # Detect package manager and install appropriate packages
-          if command -v dnf >/dev/null 2>&1; then
-            # Fedora/RHEL/Nobara
-            sudo dnf install -y --skip-unavailable \
-              xorg-x11-server-Xvfb \
-              openbox \
-              dbus-x11 \
-              at-spi2-core \
-              wl-clipboard \
-              xclip \
-              ydotool \
-              xorg-x11-utils \
-              wmctrl \
-              gtk3-devel \
-              pulseaudio
-          elif command -v apt-get >/dev/null 2>&1; then
-            # Ubuntu/Debian
-            sudo apt-get update
-            sudo apt-get install -y \
-              xvfb \
-              openbox \
-              dbus-x11 \
-              at-spi2-core \
-              wl-clipboard \
-              xclip \
-              ydotool \
-              x11-utils \
-              wmctrl \
-              libgtk-3-dev \
-              pulseaudio
-          else
-            echo "ERROR: Unsupported package manager" >&2
-            exit 1
-          fi
 
       - name: Start and verify headless environment
         run: |
@@ -521,8 +315,6 @@ jobs:
       - validate-workflows
       - setup-vosk-model
       - build_and_check
-      - msrv-check
-      - gui-groundwork
       - text_injection_tests
       - security
     if: always()
@@ -534,8 +326,6 @@ jobs:
           echo "- validate-workflows:            ${{ needs.validate-workflows.result }}" >> report.md
           echo "- setup-vosk-model:              ${{ needs.setup-vosk-model.result }}" >> report.md
           echo "- build_and_check:               ${{ needs.build_and_check.result }}" >> report.md
-          echo "- msrv-check:                    ${{ needs.msrv-check.result }}" >> report.md
-          echo "- gui-groundwork:                ${{ needs.gui-groundwork.result }}" >> report.md
           echo "- text_injection_tests:          ${{ needs.text_injection_tests.result }}" >> report.md
           echo "- security:                      ${{ needs.security.result }}" >> report.md
           if [[ "${{ needs.setup-vosk-model.result }}" != "success" ]]; then echo "::error::Setup Vosk model failed."; exit 1; fi

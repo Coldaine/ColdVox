@@ -8,21 +8,32 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Install system dependencies
+    - name: Install comprehensive system dependencies
       shell: bash
       run: |
-        # Detect package manager and install appropriate packages
+        # Detect package manager and install ALL required packages
         if command -v dnf >/dev/null 2>&1; then
-          # Fedora/RHEL/Nobara
+          # Fedora/RHEL/Nobara - comprehensive package list
           sudo dnf install -y --skip-unavailable \
             alsa-lib-devel \
             xdotool \
             libXtst-devel \
             wget \
             unzip \
-            @development-tools
+            @development-tools \
+            xorg-x11-server-Xvfb \
+            openbox \
+            dbus-x11 \
+            at-spi2-core \
+            wl-clipboard \
+            xclip \
+            ydotool \
+            xorg-x11-utils \
+            wmctrl \
+            gtk3-devel \
+            pulseaudio
         elif command -v apt-get >/dev/null 2>&1; then
-          # Ubuntu/Debian
+          # Ubuntu/Debian - comprehensive package list
           sudo apt-get update
           sudo apt-get install -y \
             libasound2-dev \
@@ -30,7 +41,18 @@ runs:
             libxtst-dev \
             wget \
             unzip \
-            build-essential
+            build-essential \
+            xvfb \
+            openbox \
+            dbus-x11 \
+            at-spi2-core \
+            wl-clipboard \
+            xclip \
+            ydotool \
+            x11-utils \
+            wmctrl \
+            libgtk-3-dev \
+            pulseaudio
         else
           echo "ERROR: Unsupported package manager" >&2
           exit 1
