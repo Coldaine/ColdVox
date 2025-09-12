@@ -18,5 +18,7 @@ pub mod processor;
 #[cfg(feature = "vosk")]
 pub mod persistence;
 
+pub mod plugin_manager;
+
 #[cfg(test)]
 mod tests;

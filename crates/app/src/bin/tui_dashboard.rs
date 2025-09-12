@@ -345,10 +345,7 @@ async fn run_app(
                                     device: if state.selected_device == "default" || state.selected_device.is_empty() { None } else { Some(state.selected_device.clone()) },
                                     activation_mode: state.activation_mode,
                                     resampler_quality: state.resampler_quality,
-                                    #[cfg(feature = "vosk")]
-                                    vosk_model_path: None,
-                                    #[cfg(feature = "vosk")]
-                                    stt_enabled: None,
+                                    stt_selection: None,
                                     #[cfg(feature = "text-injection")]
                                     injection: None,
                                 };

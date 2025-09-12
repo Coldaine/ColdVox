@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
+use tokio::signal;
+use tracing::info;
 
 use coldvox_audio::{
     AudioCaptureThread, AudioChunker, AudioRingBuffer, ChunkerConfig, FrameReader, ResamplerQuality,
@@ -14,9 +16,8 @@ use coldvox_vad::{UnifiedVadConfig, VadEvent, VadMode, FRAME_SIZE_SAMPLES, SAMPL
 use crate::hotkey::spawn_hotkey_listener;
 
 #[cfg(feature = "vosk")]
-use crate::stt::{processor::SttProcessor, TranscriptionEvent};
-#[cfg(feature = "vosk")]
-use coldvox_stt::TranscriptionConfig;
+use crate::stt::TranscriptionEvent;
+use crate::stt::plugin_manager::SttPluginManager;
 
 /// Activation strategy for push-to-talk vs voice activation
 #[derive(PartialEq, Copy, Clone, Debug)]
@@ -46,12 +47,8 @@ pub struct AppRuntimeOptions {
     pub device: Option<String>,
     pub resampler_quality: ResamplerQuality,
     pub activation_mode: ActivationMode,
-    /// Optional model path override for Vosk; when None, uses env/defaults
-    #[cfg(feature = "vosk")]
-    pub vosk_model_path: Option<String>,
-    /// Optional explicit enable for STT (overrides auto-detect)
-    #[cfg(feature = "vosk")]
-    pub stt_enabled: Option<bool>,
+    /// STT plugin selection configuration
+    pub stt_selection: Option<coldvox_stt::plugin::PluginSelectionConfig>,
     #[cfg(feature = "text-injection")]
     pub injection: Option<InjectionOptions>,
 }
@@ -62,10 +59,7 @@ impl Default for AppRuntimeOptions {
             device: None,
             resampler_quality: ResamplerQuality::Balanced,
             activation_mode: ActivationMode::Vad,
-            #[cfg(feature = "vosk")]
-            vosk_model_path: None,
-            #[cfg(feature = "vosk")]
-            stt_enabled: None,
+            stt_selection: None,
             #[cfg(feature = "text-injection")]
             injection: None,
         }
@@ -81,6 +75,8 @@ pub struct AppHandle {
     current_mode: std::sync::Arc<parking_lot::RwLock<ActivationMode>>,
     #[cfg(feature = "vosk")]
     pub stt_rx: Option<mpsc::Receiver<TranscriptionEvent>>,
+    #[cfg(feature = "vosk")]
+    plugin_manager: Option<SttPluginManager>,
 
     audio_capture: AudioCaptureThread,
     chunker_handle: JoinHandle<()>,
@@ -100,6 +96,8 @@ impl AppHandle {
 
     /// Gracefully stop the pipeline and wait for shutdown
     pub async fn shutdown(self) {
+        info!("Shutting down ColdVox runtime...");
+        
         // Stop audio capture first to quiesce the source
         self.audio_capture.stop();
 
@@ -116,6 +114,15 @@ impl AppHandle {
             h.abort();
         }
 
+        // Stop plugin manager tasks
+        #[cfg(feature = "vosk")]
+        if let Some(pm) = &self.plugin_manager {
+            // Unload all plugins before stopping tasks
+            let _ = pm.unload_all_plugins().await;
+            let _ = pm.stop_gc_task().await;
+            let _ = pm.stop_metrics_task().await;
+        }
+
         // Await tasks to ensure clean termination
         let _ = self.chunker_handle.await;
         let _ = self.trigger_handle.await;
@@ -128,6 +135,21 @@ impl AppHandle {
         if let Some(h) = self.injection_handle {
             let _ = h.await;
         }
+        
+        info!("ColdVox runtime shutdown complete");
+    }
+
+    /// Wait for shutdown signal (SIGINT, SIGTERM)
+    pub async fn wait_for_shutdown_signal() {
+        info!("Waiting for shutdown signal (Ctrl+C or SIGTERM)...");
+        match signal::ctrl_c().await {
+            Ok(()) => {
+                info!("Received SIGINT (Ctrl+C), initiating graceful shutdown");
+            }
+            Err(err) => {
+                error!("Failed to listen for SIGINT: {}", err);
+            }
+        }
     }
 
     /// Switch activation mode at runtime without full restart
@@ -139,6 +161,16 @@ impl AppHandle {
         if *old == mode {
             return Ok(());
         }
+        
+        info!("Switching activation mode from {:?} to {:?}", *old, mode);
+        
+        // Unload STT plugins before switching modes to ensure clean state
+        #[cfg(feature = "vosk")]
+        if let Some(ref pm) = self.plugin_manager {
+            info!("Unloading STT plugins before activation mode switch");
+            let _ = pm.unload_all_plugins().await;
+        }
+        
         self.trigger_handle.abort();
         // Spawn new trigger
         let new_handle = match mode {
@@ -189,6 +221,8 @@ impl AppHandle {
         };
         self.trigger_handle = new_handle;
         *old = mode;
+        
+        info!("Successfully switched to {:?} activation mode", mode);
         Ok(())
     }
 }
@@ -288,71 +322,32 @@ pub async fn start(
     // 4) Fan-out raw VAD mpsc -> broadcast for UI, and to STT when enabled
     let (vad_bcast_tx, _) = broadcast::channel::<VadEvent>(256);
 
-    // 5) Optional STT processor
-    #[cfg(feature = "vosk")]
-    let mut stt_transcription_rx_opt: Option<mpsc::Receiver<TranscriptionEvent>> = None;
-    #[cfg(feature = "vosk")]
-    let mut stt_handle_opt: Option<JoinHandle<()>> = None;
-    #[cfg(feature = "vosk")]
-    let stt_vad_tx_opt: Option<mpsc::Sender<VadEvent>> = {
-        // Determine model path and whether STT is enabled
-        let model_path = if let Some(p) = &opts.vosk_model_path {
-            p.clone()
-        } else {
-            std::env::var("VOSK_MODEL_PATH")
-                .unwrap_or_else(|_| "models/vosk-model-small-en-us-0.15".to_string())
-        };
-        let autodetect_enabled = std::path::Path::new(&model_path).exists();
-        let stt_enabled = opts.stt_enabled.unwrap_or(autodetect_enabled);
-
-        if stt_enabled {
-            let stt_audio_rx = audio_tx.subscribe();
-            let (stt_transcription_tx, stt_transcription_rx) =
-                mpsc::channel::<TranscriptionEvent>(100);
-            let (stt_vad_tx, stt_vad_rx) = mpsc::channel::<VadEvent>(200);
-
-            let stt_config = TranscriptionConfig {
-                enabled: true,
-                model_path,
-                partial_results: true,
-                max_alternatives: 1,
-                include_words: false,
-                buffer_size_ms: 512,
-                streaming: true,
-            };
-            let stt_processor =
-                SttProcessor::new(stt_audio_rx, stt_vad_rx, stt_transcription_tx, stt_config)
-                    .map_err(|e| format!("Failed to create STT: {}", e))?;
-            let stt_handle = tokio::spawn(async move { stt_processor.run().await });
-
-            stt_transcription_rx_opt = Some(stt_transcription_rx);
-            stt_handle_opt = Some(stt_handle);
-            Some(stt_vad_tx)
-        } else {
-            None
-        }
+    // 5) STT Plugin Manager
+    let plugin_manager = if let Some(stt_config) = &opts.stt_selection {
+        let mut manager = SttPluginManager::new()
+            .with_metrics_sink(metrics.clone());
+        manager.set_selection_config(stt_config.clone()).await;
+        Some(manager)
+    } else {
+        None
     };
-    #[cfg(not(feature = "vosk"))]
-    let _stt_vad_tx_opt: Option<mpsc::Sender<VadEvent>> = None;
+
+    // Create transcription event channels
+    let (stt_tx, stt_rx) = mpsc::channel::<TranscriptionEvent>(100);
+    let (text_injection_tx, text_injection_rx) = mpsc::channel::<TranscriptionEvent>(100);
+    
+    // TODO: Use stt_tx and text_injection_tx in STT processing task
+    let _stt_tx = stt_tx;
+    let _text_injection_tx = text_injection_tx;
 
     // Fanout task
     let vad_bcast_tx_clone = vad_bcast_tx.clone();
-    #[cfg(feature = "vosk")]
-    let stt_vad_tx_clone = stt_vad_tx_opt.clone();
     let vad_fanout_handle = tokio::spawn(async move {
         let mut rx = raw_vad_rx;
         while let Some(ev) = rx.recv().await {
             tracing::debug!("Fanout: Received VAD event: {:?}", ev);
             let _ = vad_bcast_tx_clone.send(ev);
             tracing::debug!("Fanout: Forwarded to broadcast channel");
-            #[cfg(feature = "vosk")]
-            if let Some(stt_tx) = &stt_vad_tx_clone {
-                if let Err(e) = stt_tx.send(ev).await {
-                    tracing::warn!("Fanout: Failed to send to STT: {}", e);
-                } else {
-                    tracing::debug!("Fanout: Forwarded to STT channel");
-                }
-            }
         }
     });
 
@@ -360,7 +355,7 @@ pub async fn start(
     #[cfg(feature = "text-injection")]
     let injection_handle = {
         let inj_opts = opts.injection.clone();
-        if let (Some(inj), Some(stt_rx)) = (inj_opts, stt_transcription_rx_opt.take()) {
+        if let Some(inj) = inj_opts {
             if inj.enable {
                 let mut config = crate::text_injection::InjectionConfig {
                     allow_ydotool: inj.allow_ydotool,
@@ -383,7 +378,7 @@ pub async fn start(
                 let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>(1);
                 let processor = crate::text_injection::AsyncInjectionProcessor::new(
                     config,
-                    stt_rx,
+                    text_injection_rx,
                     shutdown_rx,
                     None,
                 )
@@ -409,7 +404,7 @@ pub async fn start(
         true, // audio_capture is always initialized
         true, // chunker_handle is always initialized
         matches!(opts.activation_mode, ActivationMode::Vad),
-        cfg!(feature = "vosk") && stt_handle_opt.is_some()
+        opts.stt_selection.is_some()
     );
 
     Ok(AppHandle {
@@ -419,13 +414,15 @@ pub async fn start(
         audio_tx,
         current_mode: std::sync::Arc::new(parking_lot::RwLock::new(opts.activation_mode)),
         #[cfg(feature = "vosk")]
-        stt_rx: stt_transcription_rx_opt,
+        stt_rx: Some(stt_rx),
+        #[cfg(feature = "vosk")]
+        plugin_manager,
         audio_capture,
         chunker_handle,
         trigger_handle,
         vad_fanout_handle,
         #[cfg(feature = "vosk")]
-        stt_handle: stt_handle_opt,
+        stt_handle: None, // TODO: Add STT processing task handle
         #[cfg(feature = "text-injection")]
         injection_handle,
     })

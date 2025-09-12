@@ -7,9 +7,10 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use coldvox_stt::plugin::{
-    SttPlugin, SttPluginRegistry, PluginSelectionConfig, FailoverConfig, GcPolicy, MetricsConfig, SttPluginError
+    SttPlugin, SttPluginRegistry, PluginSelectionConfig, SttPluginError
 };
-use coldvox_stt::plugins::{NoOpPlugin, MockPlugin};
+use coldvox_stt::plugins::NoOpPlugin;
+use coldvox_telemetry::pipeline_metrics::PipelineMetrics;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tracing::{info, warn, error, debug};
@@ -29,9 +30,12 @@ pub struct SttPluginManager {
     gc_task: Arc<RwLock<Option<JoinHandle<()>>>>,
     last_activity: Arc<RwLock<HashMap<String, Instant>>>,
     
-    // Metrics
+    // Metrics (internal counters + optional shared pipeline metrics sink)
     failover_count: Arc<std::sync::atomic::AtomicU64>,
     total_errors: Arc<std::sync::atomic::AtomicU64>,
+    metrics_sink: Option<Arc<PipelineMetrics>>,
+    start_instant: Instant,
+    metrics_task: Arc<RwLock<Option<JoinHandle<()>>>>,
 }
 
 impl SttPluginManager {
@@ -53,12 +57,27 @@ impl SttPluginManager {
             last_activity: Arc::new(RwLock::new(HashMap::new())),
             failover_count: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             total_errors: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            metrics_sink: None,
+            start_instant: Instant::now(),
+            metrics_task: Arc::new(RwLock::new(None)),
         }
+    }
+
+    /// Attach a shared PipelineMetrics sink for STT metric propagation
+    pub fn with_metrics_sink(mut self, metrics: Arc<PipelineMetrics>) -> Self {
+        self.metrics_sink = Some(metrics);
+        self
+    }
+
+    /// Set / replace metrics sink after construction
+    pub fn set_metrics_sink(&mut self, metrics: Arc<PipelineMetrics>) {
+        self.metrics_sink = Some(metrics);
     }
 
     /// Update plugin selection configuration at runtime
     pub async fn set_selection_config(&mut self, cfg: PluginSelectionConfig) {
         let gc_enabled = cfg.gc_policy.as_ref().map_or(false, |gc| gc.enabled);
+        let metrics_enabled = cfg.metrics.is_some();
         
         self.selection_config = cfg;
         
@@ -67,6 +86,13 @@ impl SttPluginManager {
             self.start_gc_task().await;
         } else {
             self.stop_gc_task().await;
+        }
+
+        // Start/stop metrics logging task
+        if metrics_enabled {
+            self.start_metrics_task().await;
+        } else {
+            self.stop_metrics_task().await;
         }
         
         info!("Updated STT plugin selection configuration");
@@ -80,56 +106,137 @@ impl SttPluginManager {
         };
 
         let mut gc_task = self.gc_task.write().await;
-        
+
         // Stop existing task if running
         if let Some(handle) = gc_task.take() {
             handle.abort();
         }
 
-    let last_activity = self.last_activity.clone();
-    let ttl_secs = if gc_policy.model_ttl_secs == 0 { 1 } else { gc_policy.model_ttl_secs }; // prevent zero-second TTL causing rapid loop
-        
+        let last_activity = self.last_activity.clone();
+        let current_plugin = self.current_plugin.clone();
+        let ttl_secs = if gc_policy.model_ttl_secs == 0 { 1 } else { gc_policy.model_ttl_secs };
+
         // Spawn new GC task
         let handle = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(ttl_secs / 2));
-            
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs((ttl_secs / 2) as u64));
+
             loop {
                 interval.tick().await;
-                
+
                 let now = Instant::now();
-                let mut activity = last_activity.write().await;
-                let inactive_plugins: Vec<String> = activity
-                    .iter()
-                    .filter_map(|(plugin_id, last_used)| {
-                        if now.duration_since(*last_used).as_secs() > ttl_secs as u64 {
-                            Some(plugin_id.clone())
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
                 
+                // First, collect the IDs of inactive plugins
+                let inactive_plugins: Vec<String> = {
+                    let activity = last_activity.read().await;
+                    activity
+                        .iter()
+                        .filter_map(|(plugin_id, last_used)| {
+                            if now.duration_since(*last_used).as_secs() > ttl_secs as u64 {
+                                Some(plugin_id.clone())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect()
+                };
+
+                // Process each inactive plugin
                 for plugin_id in inactive_plugins {
-                    debug!("GC: Marking plugin {} as inactive (TTL expired)", plugin_id);
+                    debug!("GC: Unloading inactive plugin {}", plugin_id);
+
+                    // Check if this is the current plugin and unload it
+                    let mut plugin_guard = current_plugin.write().await;
+                    if let Some(ref mut plugin) = *plugin_guard {
+                        if plugin.info().id == plugin_id {
+                            match plugin.unload().await {
+                                Ok(()) => {
+                                    info!("GC: Successfully unloaded plugin {}", plugin_id);
+                                    // Clear the current plugin after successful unload
+                                    *plugin_guard = None;
+                                    
+                                    // Update metrics if available
+                                    if let Some(ref metrics) = self.metrics_sink {
+                                        metrics.stt_unload_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                    }
+                                }
+                                Err(SttPluginError::AlreadyUnloaded(_)) => {
+                                    // Plugin is already unloaded, just clear it
+                                    info!("GC: Plugin {} was already unloaded", plugin_id);
+                                    *plugin_guard = None;
+                                }
+                                Err(e) => {
+                                    warn!("GC: Failed to unload plugin {}: {:?}", plugin_id, e);
+                                    // Don't clear the plugin on unload failure to avoid data loss
+                                    
+                                    // Update error metrics if available
+                                    if let Some(ref metrics) = self.metrics_sink {
+                                        metrics.stt_unload_errors.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Remove from activity tracking
+                    let mut activity = last_activity.write().await;
                     activity.remove(&plugin_id);
-                    // TODO: Actually unload plugin models when plugins support it
                 }
-                
-                drop(activity);
             }
         });
-        
+
         *gc_task = Some(handle);
         debug!("Started STT plugin GC task with TTL {}s", ttl_secs);
-    }
-
-    /// Stop the garbage collection task
-    async fn stop_gc_task(&self) {
+    }    /// Stop the garbage collection task
+    pub async fn stop_gc_task(&self) {
         let mut gc_task = self.gc_task.write().await;
         if let Some(handle) = gc_task.take() {
             handle.abort();
             debug!("Stopped STT plugin GC task");
         }
+    }
+
+    /// Start periodic metrics logging task based on MetricsConfig
+    async fn start_metrics_task(&self) {
+        let metrics_cfg = match &self.selection_config.metrics {
+            Some(cfg) => cfg.clone(),
+            _ => return,
+        };
+
+        let mut task_guard = self.metrics_task.write().await;
+        if let Some(handle) = task_guard.take() { handle.abort(); }
+
+        let interval_secs = metrics_cfg.log_interval_secs.unwrap_or(30).max(1) as u64;
+        let failovers = self.failover_count.clone();
+        let errors = self.total_errors.clone();
+        let sink = self.metrics_sink.clone();
+        let start = self.start_instant;
+        let last_failover = self.last_failover.clone();
+
+        let handle = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+            loop {
+                interval.tick().await;
+                let f = failovers.load(std::sync::atomic::Ordering::Relaxed);
+                let e = errors.load(std::sync::atomic::Ordering::Relaxed);
+                let last = { *last_failover.read().await };
+                let last_secs = last.map(|inst| inst.duration_since(start).as_secs()).unwrap_or(0);
+                if let Some(ref metrics) = sink {
+                    metrics.stt_failover_count.store(f, std::sync::atomic::Ordering::Relaxed);
+                    metrics.stt_total_errors.store(e, std::sync::atomic::Ordering::Relaxed);
+                    metrics.stt_last_failover_secs.store(last_secs as u64, std::sync::atomic::Ordering::Relaxed);
+                }
+                debug!(target: "coldvox::stt::metrics", failovers = f, total_errors = e, last_failover_secs = last_secs, "STT metrics snapshot");
+            }
+        });
+
+        *task_guard = Some(handle);
+        debug!("Started STT metrics logging task ({}s interval)", interval_secs);
+    }
+
+    pub async fn stop_metrics_task(&self) {
+        let mut task_guard = self.metrics_task.write().await;
+        if let Some(handle) = task_guard.take() { handle.abort(); }
+        debug!("Stopped STT metrics logging task");
     }
 
     /// Garbage collect inactive plugin models.
@@ -140,50 +247,94 @@ impl SttPluginManager {
         };
 
         let now = Instant::now();
-        let mut activity = self.last_activity.write().await;
         let ttl_secs = gc_policy.model_ttl_secs as u64;
-        
-        let inactive_plugins: Vec<String> = activity
-            .iter()
-            .filter_map(|(plugin_id, last_used)| {
-                if now.duration_since(*last_used).as_secs() > ttl_secs {
-                    Some(plugin_id.clone())
-                } else {
-                    None
-                }
-            })
-            .collect();
-        
+
+        // First, collect the IDs of inactive plugins
+        let inactive_plugins: Vec<String> = {
+            let activity = self.last_activity.read().await;
+            activity
+                .iter()
+                .filter_map(|(plugin_id, last_used)| {
+                    if now.duration_since(*last_used).as_secs() > ttl_secs {
+                        Some(plugin_id.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        };
+
+        // Process each inactive plugin
         for plugin_id in inactive_plugins {
-            debug!("GC: Removing inactive plugin {}", plugin_id);
+            debug!("GC: Unloading inactive plugin {}", plugin_id);
+
+            // Check if this is the current plugin and unload it
+            let mut current_plugin = self.current_plugin.write().await;
+            if let Some(ref mut plugin) = *current_plugin {
+                if plugin.info().id == plugin_id {
+                    match plugin.unload().await {
+                        Ok(()) => {
+                            info!("GC: Successfully unloaded plugin {}", plugin_id);
+                            // Clear the current plugin after successful unload
+                            *current_plugin = None;
+                            
+                            // Update metrics if available
+                            if let Some(ref metrics) = self.metrics_sink {
+                                metrics.stt_unload_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            }
+                        }
+                        Err(SttPluginError::AlreadyUnloaded(_)) => {
+                            // Plugin is already unloaded, just clear it
+                            info!("GC: Plugin {} was already unloaded", plugin_id);
+                            *current_plugin = None;
+                        }
+                        Err(e) => {
+                            warn!("GC: Failed to unload plugin {}: {:?}", plugin_id, e);
+                            // Don't clear the plugin on unload failure to avoid data loss
+                            
+                            // Update error metrics if available
+                            if let Some(ref metrics) = self.metrics_sink {
+                                metrics.stt_unload_errors.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Remove from activity tracking
+            let mut activity = self.last_activity.write().await;
             activity.remove(&plugin_id);
-            // TODO: Actually unload plugin models when plugins support it
         }
-        
-        debug!("GC completed, processed {} plugins", activity.len());
+
+        debug!("GC completed, {} plugins remain active", {
+            let activity = self.last_activity.read().await;
+            activity.len()
+        });
     }
 
     /// Register all built-in plugins
     fn register_builtin_plugins(registry: &mut SttPluginRegistry) {
         use coldvox_stt::plugins::noop::NoOpPluginFactory;
-        use coldvox_stt::plugins::mock::MockPluginFactory;
 
         // Always available plugins
         registry.register(Box::new(NoOpPluginFactory));
-        registry.register(Box::new(MockPluginFactory::default()));
 
-        // Conditionally register Vosk if feature is enabled
+        // Register MockPlugin if available (always available in current setup)
+        {
+            use coldvox_stt::plugins::mock::MockPluginFactory;
+            registry.register(Box::new(MockPluginFactory::default()));
+        }
+
+        // Register Vosk plugin if the vosk feature is enabled in the app
         #[cfg(feature = "vosk")]
         {
-            use coldvox_stt::plugins::vosk_plugin::VoskPluginFactory;
-            registry.register(Box::new(VoskPluginFactory::new()));
+            // TODO: Implement Vosk plugin registration after Step 2 completion
+            // This will use the actual VoskTranscriber from coldvox-stt-vosk crate
+            // For now, Vosk is handled through the legacy processor
         }
 
         // Future: Register other plugins
-        // #[cfg(feature = "whisper")]
         // registry.register(Box::new(WhisperPluginFactory::new()));
-
-        // #[cfg(feature = "gcloud-stt")]
         // registry.register(Box::new(GoogleCloudSttFactory::new()));
     }
 
@@ -284,9 +435,131 @@ impl SttPluginManager {
         info!("Switching to STT plugin: {}", plugin_id);
 
         let mut current = self.current_plugin.write().await;
+
+        // Unload the current plugin before switching
+        if let Some(ref mut old_plugin) = *current {
+            let old_id = old_plugin.info().id.clone();
+            match old_plugin.unload().await {
+                Ok(()) => {
+                    info!("Successfully unloaded previous plugin: {}", old_id);
+                    
+                    // Update metrics if available
+                    if let Some(ref metrics) = self.metrics_sink {
+                        metrics.stt_unload_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    }
+                }
+                Err(SttPluginError::AlreadyUnloaded(_)) => {
+                    info!("Previous plugin {} was already unloaded", old_id);
+                }
+                Err(e) => {
+                    warn!("Failed to unload previous plugin {} during switch: {:?}", old_id, e);
+                    
+                    // Update error metrics if available
+                    if let Some(ref metrics) = self.metrics_sink {
+                        metrics.stt_unload_errors.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    
+                    // Continue with switch even if unload fails
+                }
+            }
+        }
+
         *current = Some(new_plugin);
 
+        // Update activity tracking
+        {
+            let mut activity = self.last_activity.write().await;
+            activity.insert(plugin_id.to_string(), Instant::now());
+        }
+
         Ok(())
+    }
+
+    /// Unload a specific plugin by ID
+    pub async fn unload_plugin(&self, plugin_id: &str) -> Result<(), SttPluginError> {
+        let mut current = self.current_plugin.write().await;
+
+        if let Some(ref mut plugin) = *current {
+            if plugin.info().id == plugin_id {
+                match plugin.unload().await {
+                    Ok(()) => {
+                        info!("Successfully unloaded plugin: {}", plugin_id);
+                        *current = None;
+                        
+                        // Update metrics if available
+                        if let Some(ref metrics) = self.metrics_sink {
+                            metrics.stt_unload_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        }
+                        
+                        Ok(())
+                    }
+                    Err(SttPluginError::AlreadyUnloaded(_)) => {
+                        info!("Plugin {} was already unloaded", plugin_id);
+                        *current = None;
+                        Ok(())
+                    }
+                    Err(e) => {
+                        warn!("Failed to unload plugin {}: {:?}", plugin_id, e);
+                        
+                        // Update error metrics if available
+                        if let Some(ref metrics) = self.metrics_sink {
+                            metrics.stt_unload_errors.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        }
+                        
+                        Err(e)
+                    }
+                }
+            } else {
+                Err(SttPluginError::NotAvailable {
+                    reason: format!("Plugin '{}' is not currently loaded", plugin_id),
+                })
+            }
+        } else {
+            Err(SttPluginError::NotAvailable {
+                reason: "No plugin is currently loaded".to_string(),
+            })
+        }
+    }
+
+    /// Unload all plugins (for shutdown cleanup)
+    pub async fn unload_all_plugins(&self) -> Result<(), SttPluginError> {
+        let mut current = self.current_plugin.write().await;
+
+        if let Some(ref mut plugin) = *current {
+            let plugin_id = plugin.info().id.clone();
+            match plugin.unload().await {
+                Ok(()) => {
+                    info!("Successfully unloaded all plugins (current: {})", plugin_id);
+                    *current = None;
+                    
+                    // Update metrics if available
+                    if let Some(ref metrics) = self.metrics_sink {
+                        metrics.stt_unload_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    
+                    Ok(())
+                }
+                Err(SttPluginError::AlreadyUnloaded(_)) => {
+                    info!("Plugin {} was already unloaded", plugin_id);
+                    *current = None;
+                    Ok(())
+                }
+                Err(e) => {
+                    warn!("Failed to unload plugin {}: {:?}", plugin_id, e);
+                    
+                    // Update error metrics if available
+                    if let Some(ref metrics) = self.metrics_sink {
+                        metrics.stt_unload_errors.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    
+                    Err(e)
+                }
+            }
+        } else {
+            // No plugin loaded, consider this success
+            debug!("No plugins to unload");
+            Ok(())
+        }
     }
 
     /// Get information about all available plugins
@@ -323,6 +596,7 @@ impl SttPluginManager {
                 Err(e) => {
                     // Track error and potentially trigger failover
                     self.total_errors.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    if let Some(ref sink) = self.metrics_sink { sink.stt_total_errors.fetch_add(1, std::sync::atomic::Ordering::Relaxed); }
                     
                     let should_failover = {
                         let mut errors = self.consecutive_errors.write().await;
@@ -348,6 +622,13 @@ impl SttPluginManager {
                                 {
                                     let mut lf = self.last_failover.write().await;
                                     *lf = Some(Instant::now());
+                                }
+                                if let Some(ref sink) = self.metrics_sink {
+                                    sink.stt_failover_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                    if let Some(lf_inst) = *self.last_failover.read().await {
+                                        let secs = lf_inst.duration_since(self.start_instant).as_secs();
+                                        sink.stt_last_failover_secs.store(secs, std::sync::atomic::Ordering::Relaxed);
+                                    }
                                 }
                                 
                                 // Record cooldown for failed plugin
@@ -464,13 +745,72 @@ impl Drop for SttPluginManager {
                 handle.abort();
             }
         }
+        if let Ok(mut guard) = self.metrics_task.try_write() {
+            if let Some(handle) = guard.take() { handle.abort(); }
+        }
     }
 }
 
-/// Example usage in tests or examples
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn test_unload_plugin() {
+        let mut manager = SttPluginManager::new();
+
+        // Initialize with a plugin
+        let _plugin_id = manager.initialize().await.unwrap();
+
+        // Verify plugin is loaded
+        let current = manager.current_plugin().await;
+        assert!(current.is_some());
+
+        // Unload the plugin
+        let result = manager.unload_plugin("noop").await;
+        assert!(result.is_ok());
+
+        // Verify plugin is unloaded
+        let current_after = manager.current_plugin().await;
+        assert!(current_after.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_unload_all_plugins() {
+        let mut manager = SttPluginManager::new();
+
+        // Initialize with a plugin
+        let _plugin_id = manager.initialize().await.unwrap();
+
+        // Verify plugin is loaded
+        let current = manager.current_plugin().await;
+        assert!(current.is_some());
+
+        // Unload all plugins
+        let result = manager.unload_all_plugins().await;
+        assert!(result.is_ok());
+
+        // Verify no plugin is loaded
+        let current_after = manager.current_plugin().await;
+        assert!(current_after.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_unload_nonexistent_plugin() {
+        let manager = SttPluginManager::new();
+
+        // Try to unload a plugin that doesn't exist
+        let result = manager.unload_plugin("nonexistent").await;
+        assert!(result.is_err());
+
+        // Verify error type
+        match result {
+            Err(SttPluginError::NotAvailable { reason }) => {
+                assert!(reason.contains("No plugin is currently loaded"));
+            }
+            _ => panic!("Expected NotAvailable error"),
+        }
+    }
 
     #[tokio::test]
     async fn test_plugin_manager_initialization() {
@@ -515,5 +855,124 @@ mod tests {
         // Should fall back to NoOp
         let plugin_id = manager.initialize().await.unwrap();
         assert_eq!(plugin_id, "noop");
+    }
+
+    #[tokio::test]
+    async fn test_unload_metrics() {
+        let metrics = Arc::new(PipelineMetrics::default());
+        let mut manager = SttPluginManager::new().with_metrics_sink(metrics.clone());
+
+        // Initialize with a plugin
+        let _plugin_id = manager.initialize().await.unwrap();
+
+        // Verify initial metrics
+        assert_eq!(metrics.stt_unload_count.load(std::sync::atomic::Ordering::Relaxed), 0);
+        assert_eq!(metrics.stt_unload_errors.load(std::sync::atomic::Ordering::Relaxed), 0);
+
+        // Unload the plugin
+        let result = manager.unload_plugin("noop").await;
+        assert!(result.is_ok());
+
+        // Verify metrics were updated
+        assert_eq!(metrics.stt_unload_count.load(std::sync::atomic::Ordering::Relaxed), 1);
+        assert_eq!(metrics.stt_unload_errors.load(std::sync::atomic::Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn test_unload_error_metrics() {
+        let metrics = Arc::new(PipelineMetrics::default());
+        let mut manager = SttPluginManager::new().with_metrics_sink(metrics.clone());
+
+        // Initialize with a plugin
+        let _plugin_id = manager.initialize().await.unwrap();
+
+        // Verify initial metrics
+        assert_eq!(metrics.stt_unload_count.load(std::sync::atomic::Ordering::Relaxed), 0);
+        assert_eq!(metrics.stt_unload_errors.load(std::sync::atomic::Ordering::Relaxed), 0);
+
+        // Try to unload a plugin that doesn't exist
+        let result = manager.unload_plugin("nonexistent").await;
+        assert!(result.is_err());
+
+        // Verify error metrics were updated
+        assert_eq!(metrics.stt_unload_count.load(std::sync::atomic::Ordering::Relaxed), 0);
+        assert_eq!(metrics.stt_unload_errors.load(std::sync::atomic::Ordering::Relaxed), 0); // No error metric for this case
+    }
+
+    #[tokio::test]
+    async fn test_switch_plugin_unload_metrics() {
+        let metrics = Arc::new(PipelineMetrics::default());
+        let mut manager = SttPluginManager::new().with_metrics_sink(metrics.clone());
+
+        // Initialize with a plugin
+        let _plugin_id = manager.initialize().await.unwrap();
+
+        // Verify initial metrics
+        assert_eq!(metrics.stt_unload_count.load(std::sync::atomic::Ordering::Relaxed), 0);
+        assert_eq!(metrics.stt_unload_errors.load(std::sync::atomic::Ordering::Relaxed), 0);
+
+        // Switch to mock plugin
+        let result = manager.switch_plugin("mock").await;
+        assert!(result.is_ok());
+
+        // Verify metrics were updated
+        assert_eq!(metrics.stt_unload_count.load(std::sync::atomic::Ordering::Relaxed), 1);
+        assert_eq!(metrics.stt_unload_errors.load(std::sync::atomic::Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn test_unload_idempotency() {
+        let mut manager = SttPluginManager::new();
+
+        // Initialize with a plugin
+        let _plugin_id = manager.initialize().await.unwrap();
+
+        // Verify plugin is loaded
+        let current = manager.current_plugin().await;
+        assert!(current.is_some());
+
+        // Unload the plugin
+        let result = manager.unload_plugin("noop").await;
+        assert!(result.is_ok());
+
+        // Verify plugin is unloaded
+        let current_after = manager.current_plugin().await;
+        assert!(current_after.is_none());
+
+        // Try to unload again (should succeed with AlreadyUnloaded handled)
+        let result2 = manager.unload_plugin("noop").await;
+        assert!(result2.is_ok());
+
+        // Verify plugin is still unloaded
+        let current_final = manager.current_plugin().await;
+        assert!(current_final.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_unload_all_idempotency() {
+        let mut manager = SttPluginManager::new();
+
+        // Initialize with a plugin
+        let _plugin_id = manager.initialize().await.unwrap();
+
+        // Verify plugin is loaded
+        let current = manager.current_plugin().await;
+        assert!(current.is_some());
+
+        // Unload all plugins
+        let result = manager.unload_all_plugins().await;
+        assert!(result.is_ok());
+
+        // Verify no plugin is loaded
+        let current_after = manager.current_plugin().await;
+        assert!(current_after.is_none());
+
+        // Try to unload all again (should succeed)
+        let result2 = manager.unload_all_plugins().await;
+        assert!(result2.is_ok());
+
+        // Verify no plugin is still loaded
+        let current_final = manager.current_plugin().await;
+        assert!(current_final.is_none());
     }
 }

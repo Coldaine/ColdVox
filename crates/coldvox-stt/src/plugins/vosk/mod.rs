@@ -91,6 +91,8 @@ pub struct VoskPlugin {
     state: Arc<RwLock<PluginState>>,
     start_time: Option<std::time::Instant>,
     initialized: bool,
+    #[cfg(feature = "vosk")]
+    transcriber: Option<crate::coldvox_stt_vosk::VoskTranscriber>,
 }
 
 impl VoskPlugin {
@@ -234,46 +236,89 @@ impl SttPlugin for VoskPlugin {
         }
     }
     
-    async fn initialize(&mut self, _config: TranscriptionConfig) -> Result<(), SttPluginError> {
-        if !check_vosk_available() {
-            return Err(SttPluginError::NotAvailable {
-                reason: "Vosk library not found on system".to_string(),
-            });
+    async fn initialize(&mut self, config: TranscriptionConfig) -> Result<(), SttPluginError> {
+        #[cfg(feature = "vosk")]
+        {
+            if !check_vosk_available() {
+                return Err(SttPluginError::NotAvailable {
+                    reason: "Vosk library not found on system".to_string(),
+                });
+            }
+            
+            *self.state.write() = PluginState::Loading;
+            
+            // Create the actual VoskTranscriber
+            match crate::coldvox_stt_vosk::VoskTranscriber::new(config, 16000.0) {
+                Ok(transcriber) => {
+                    self.transcriber = Some(transcriber);
+                    self.initialized = true;
+                    *self.state.write() = PluginState::Ready;
+                    info!("Vosk plugin initialized with actual VoskTranscriber");
+                    Ok(())
+                }
+                Err(e) => {
+                    *self.state.write() = PluginState::Error;
+                    Err(SttPluginError::InitializationFailed(e))
+                }
+            }
         }
-        
-        *self.state.write() = PluginState::Loading;
-        
-        info!("Vosk plugin initialized (stub mode)");
-        info!("Note: Actual Vosk implementation should be integrated at application level");
-        
-        self.initialized = true;
-        *self.state.write() = PluginState::Ready;
-        
-        Ok(())
+        #[cfg(not(feature = "vosk"))]
+        {
+            if !check_vosk_available() {
+                return Err(SttPluginError::NotAvailable {
+                    reason: "Vosk library not found on system".to_string(),
+                });
+            }
+            
+            *self.state.write() = PluginState::Loading;
+            
+            warn!("Vosk plugin initialized in stub mode - vosk feature not enabled");
+            self.initialized = true;
+            *self.state.write() = PluginState::Ready;
+            Ok(())
+        }
     }
     
-    async fn process_audio(&mut self, _samples: &[i16]) -> Result<Option<TranscriptionEvent>, SttPluginError> {
-        if !self.initialized {
-            return Err(SttPluginError::InitializationFailed(
-                "Plugin not initialized".to_string()
-            ));
+    async fn process_audio(&mut self, samples: &[i16]) -> Result<Option<TranscriptionEvent>, SttPluginError> {
+        #[cfg(feature = "vosk")]
+        {
+            if let Some(ref mut transcriber) = self.transcriber {
+                // Use the actual VoskTranscriber
+                match transcriber.accept_frame(samples) {
+                    Ok(event) => Ok(event),
+                    Err(e) => Err(SttPluginError::ProcessingError(e)),
+                }
+            } else {
+                Err(SttPluginError::NotAvailable {
+                    reason: "VoskTranscriber not initialized".to_string(),
+                })
+            }
         }
-        
-        // This is a stub implementation
-        // The actual Vosk processing should be done at the application level
-        // using the VoskTranscriber from coldvox-stt-vosk
-        
-        warn!("Vosk plugin is running in stub mode");
-        warn!("Integrate coldvox-stt-vosk at application level for actual transcription");
-        
-        Err(SttPluginError::NotAvailable {
-            reason: "Vosk plugin stub - integrate coldvox-stt-vosk at app level".to_string(),
-        })
+        #[cfg(not(feature = "vosk"))]
+        {
+            // Fallback when vosk feature is not enabled
+            Err(SttPluginError::NotAvailable {
+                reason: "Vosk feature not enabled".to_string(),
+            })
+        }
     }
     
     async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, SttPluginError> {
-        // Stub implementation
-        Ok(None)
+        #[cfg(feature = "vosk")]
+        {
+            if let Some(ref mut transcriber) = self.transcriber {
+                match transcriber.finalize_utterance() {
+                    Ok(event) => Ok(event),
+                    Err(e) => Err(SttPluginError::ProcessingError(e)),
+                }
+            } else {
+                Ok(None)
+            }
+        }
+        #[cfg(not(feature = "vosk"))]
+        {
+            Ok(None)
+        }
     }
     
     async fn reset(&mut self) -> Result<(), SttPluginError> {
@@ -295,6 +340,39 @@ impl SttPlugin for VoskPlugin {
         }
         
         info!("Vosk model path updated (stub mode)");
+        Ok(())
+    }
+    
+    async fn unload(&mut self) -> Result<(), SttPluginError> {
+        // Check if already unloaded
+        if !self.initialized && self.transcriber.is_none() {
+            return Err(SttPluginError::AlreadyUnloaded(
+                "Vosk plugin is already unloaded".to_string()
+            ));
+        }
+        
+        #[cfg(feature = "vosk")]
+        {
+            if let Some(transcriber) = self.transcriber.take() {
+                // The transcriber will be dropped here, freeing the Vosk model
+                // In a more complete implementation, we might call explicit cleanup methods
+                // if the VoskTranscriber API provides them
+                info!("Vosk transcriber unloaded and model memory freed");
+                
+                // If there were any explicit cleanup methods, they would be called here
+                // For example: transcriber.cleanup().map_err(|e| SttPluginError::UnloadFailed(e))?;
+            }
+        }
+        
+        // Reset plugin state
+        self.initialized = false;
+        self.start_time = None;
+        *self.state.write() = PluginState::Uninitialized;
+        
+        // Reset metrics
+        *self.metrics.write() = PluginMetrics::default();
+        
+        info!("Vosk plugin unloaded successfully");
         Ok(())
     }
 }

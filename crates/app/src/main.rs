@@ -5,7 +5,6 @@
 // - File layer disables ANSI to keep logs clean for analysis.
 use std::time::Duration;
 
-#[cfg(feature = "text-injection")]
 use clap::Args;
 use clap::{Parser, ValueEnum};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
@@ -78,15 +77,66 @@ struct Cli {
     #[arg(long = "activation-mode", default_value = "hotkey", value_enum)]
     activation_mode: ActivationMode,
 
+    #[command(flatten)]
+    stt: SttArgs,
+
     #[cfg(feature = "text-injection")]
     #[command(flatten)]
     injection: InjectionArgs,
 }
 
-#[derive(Debug, Clone, Copy, ValueEnum)]
+#[derive(Debug, Clone, Copy, ValueEnum, PartialEq)]
 enum ActivationMode {
     Vad,
     Hotkey,
+}
+
+#[derive(Args, Debug)]
+#[command(next_help_heading = "Speech-to-Text")]
+struct SttArgs {
+    /// Preferred STT plugin ID (e.g., "vosk", "whisper", "mock")
+    #[arg(long = "stt-preferred", env = "COLDVOX_STT_PREFERRED")]
+    preferred: Option<String>,
+
+    /// Comma-separated list of fallback plugin IDs
+    #[arg(long = "stt-fallbacks", env = "COLDVOX_STT_FALLBACKS", value_delimiter = ',')]
+    fallbacks: Option<Vec<String>>,
+
+    /// Require local processing (no cloud STT services)
+    #[arg(long = "stt-require-local", env = "COLDVOX_STT_REQUIRE_LOCAL")]
+    require_local: bool,
+
+    /// Maximum memory usage in MB
+    #[arg(long = "stt-max-mem-mb", env = "COLDVOX_STT_MAX_MEM_MB")]
+    max_mem_mb: Option<u32>,
+
+    /// Required language (ISO 639-1 code, e.g., "en", "fr")
+    #[arg(long = "stt-language", env = "COLDVOX_STT_LANGUAGE")]
+    language: Option<String>,
+
+    /// Number of consecutive errors before switching to fallback plugin
+    #[arg(long = "stt-failover-threshold", env = "COLDVOX_STT_FAILOVER_THRESHOLD", default_value = "3")]
+    failover_threshold: u32,
+
+    /// Cooldown period in seconds before retrying a failed plugin
+    #[arg(long = "stt-failover-cooldown-secs", env = "COLDVOX_STT_FAILOVER_COOLDOWN_SECS", default_value = "30")]
+    failover_cooldown_secs: u32,
+
+    /// Time to live in seconds for inactive models (GC threshold)
+    #[arg(long = "stt-model-ttl-secs", env = "COLDVOX_STT_MODEL_TTL_SECS", default_value = "300")]
+    model_ttl_secs: u32,
+
+    /// Disable garbage collection of inactive models
+    #[arg(long = "stt-disable-gc", env = "COLDVOX_STT_DISABLE_GC")]
+    disable_gc: bool,
+
+    /// Interval in seconds for periodic metrics logging (0 to disable)
+    #[arg(long = "stt-metrics-log-interval-secs", env = "COLDVOX_STT_METRICS_LOG_INTERVAL_SECS", default_value = "60")]
+    metrics_log_interval_secs: u32,
+
+    /// Enable debug dumping of transcription events to logs
+    #[arg(long = "stt-debug-dump-events", env = "COLDVOX_STT_DEBUG_DUMP_EVENTS")]
+    debug_dump_events: bool,
 }
 
 #[cfg(feature = "text-injection")]
@@ -174,6 +224,57 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     state_manager.transition(AppState::Running)?;
     tracing::info!("Application state: Running");
 
+    // Build STT configuration from CLI arguments
+    let stt_selection = {
+        use coldvox_stt::plugin::{PluginSelectionConfig, FailoverConfig, GcPolicy, MetricsConfig};
+        
+        // Handle backward compatibility with VOSK_MODEL_PATH
+        let mut preferred_plugin = cli.stt.preferred;
+        if preferred_plugin.is_none() {
+            if let Ok(vosk_model_path) = std::env::var("VOSK_MODEL_PATH") {
+                tracing::warn!(
+                    "VOSK_MODEL_PATH environment variable is deprecated. Use --stt-preferred=vosk instead."
+                );
+                tracing::info!("Setting preferred plugin to 'vosk' based on VOSK_MODEL_PATH={}", vosk_model_path);
+                preferred_plugin = Some("vosk".to_string());
+            }
+        }
+        
+        let fallback_plugins = cli.stt.fallbacks.unwrap_or_else(|| {
+            vec!["vosk".to_string(), "mock".to_string()]
+        });
+
+        let failover = FailoverConfig {
+            failover_threshold: cli.stt.failover_threshold,
+            failover_cooldown_secs: cli.stt.failover_cooldown_secs,
+        };
+
+        let gc_policy = GcPolicy {
+            model_ttl_secs: cli.stt.model_ttl_secs,
+            enabled: !cli.stt.disable_gc,
+        };
+
+        let metrics = MetricsConfig {
+            log_interval_secs: if cli.stt.metrics_log_interval_secs == 0 {
+                None
+            } else {
+                Some(cli.stt.metrics_log_interval_secs)
+            },
+            debug_dump_events: cli.stt.debug_dump_events,
+        };
+
+        Some(PluginSelectionConfig {
+            preferred_plugin,
+            fallback_plugins,
+            require_local: cli.stt.require_local,
+            max_memory_mb: cli.stt.max_mem_mb,
+            required_language: cli.stt.language,
+            failover: Some(failover),
+            gc_policy: Some(gc_policy),
+            metrics: Some(metrics),
+        })
+    };
+
     let opts = AppRuntimeOptions {
         device,
         resampler_quality: match resampler_quality.to_lowercase().as_str() {
@@ -185,10 +286,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ActivationMode::Vad => RuntimeMode::Vad,
             ActivationMode::Hotkey => RuntimeMode::Hotkey,
         },
-        #[cfg(feature = "vosk")]
-        vosk_model_path: None,
-        #[cfg(feature = "vosk")]
-        stt_enabled: None,
+        stt_selection,
         #[cfg(feature = "text-injection")]
         injection: if cfg!(feature = "text-injection") {
             Some(coldvox_app::runtime::InjectionOptions {
@@ -246,4 +344,114 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Shutdown complete");
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn test_cli_parsing_basic() {
+        let args = vec!["coldvox"];
+        let cli = Cli::try_parse_from(args).unwrap();
+        
+        assert_eq!(cli.activation_mode, ActivationMode::Hotkey);
+        assert_eq!(cli.stt.failover_threshold, 3);
+        assert_eq!(cli.stt.failover_cooldown_secs, 30);
+        assert_eq!(cli.stt.model_ttl_secs, 300);
+        assert_eq!(cli.stt.metrics_log_interval_secs, 60);
+        assert!(!cli.stt.disable_gc);
+        assert!(!cli.stt.debug_dump_events);
+        assert!(!cli.stt.require_local);
+    }
+
+    #[test]
+    fn test_cli_parsing_stt_flags() {
+        let args = vec![
+            "coldvox",
+            "--stt-preferred", "vosk",
+            "--stt-fallbacks", "whisper,mock",
+            "--stt-require-local",
+            "--stt-max-mem-mb", "512",
+            "--stt-language", "en",
+            "--stt-failover-threshold", "5",
+            "--stt-failover-cooldown-secs", "60",
+            "--stt-model-ttl-secs", "600",
+            "--stt-disable-gc",
+            "--stt-metrics-log-interval-secs", "120",
+            "--stt-debug-dump-events"
+        ];
+        
+        let cli = Cli::try_parse_from(args).unwrap();
+        
+        assert_eq!(cli.stt.preferred, Some("vosk".to_string()));
+        assert_eq!(cli.stt.fallbacks, Some(vec!["whisper".to_string(), "mock".to_string()]));
+        assert!(cli.stt.require_local);
+        assert_eq!(cli.stt.max_mem_mb, Some(512));
+        assert_eq!(cli.stt.language, Some("en".to_string()));
+        assert_eq!(cli.stt.failover_threshold, 5);
+        assert_eq!(cli.stt.failover_cooldown_secs, 60);
+        assert_eq!(cli.stt.model_ttl_secs, 600);
+        assert!(cli.stt.disable_gc);
+        assert_eq!(cli.stt.metrics_log_interval_secs, 120);
+        assert!(cli.stt.debug_dump_events);
+    }
+
+    #[test]
+    fn test_build_plugin_selection_config() {
+        use coldvox_stt::plugin::{PluginSelectionConfig, FailoverConfig, GcPolicy, MetricsConfig};
+        
+        let stt_args = SttArgs {
+            preferred: Some("vosk".to_string()),
+            fallbacks: Some(vec!["whisper".to_string()]),
+            require_local: true,
+            max_mem_mb: Some(256),
+            language: Some("fr".to_string()),
+            failover_threshold: 2,
+            failover_cooldown_secs: 45,
+            model_ttl_secs: 180,
+            disable_gc: false,
+            metrics_log_interval_secs: 90,
+            debug_dump_events: true,
+        };
+
+        let config = PluginSelectionConfig {
+            preferred_plugin: stt_args.preferred,
+            fallback_plugins: stt_args.fallbacks.unwrap_or_default(),
+            require_local: stt_args.require_local,
+            max_memory_mb: stt_args.max_mem_mb,
+            required_language: stt_args.language,
+            failover: Some(FailoverConfig {
+                failover_threshold: stt_args.failover_threshold,
+                failover_cooldown_secs: stt_args.failover_cooldown_secs,
+            }),
+            gc_policy: Some(GcPolicy {
+                model_ttl_secs: stt_args.model_ttl_secs,
+                enabled: !stt_args.disable_gc,
+            }),
+            metrics: Some(MetricsConfig {
+                log_interval_secs: if stt_args.metrics_log_interval_secs == 0 { None } else { Some(stt_args.metrics_log_interval_secs) },
+                debug_dump_events: stt_args.debug_dump_events,
+            }),
+        };
+
+        assert_eq!(config.preferred_plugin, Some("vosk".to_string()));
+        assert_eq!(config.fallback_plugins, vec!["whisper".to_string()]);
+        assert!(config.require_local);
+        assert_eq!(config.max_memory_mb, Some(256));
+        assert_eq!(config.required_language, Some("fr".to_string()));
+        
+        let failover = config.failover.unwrap();
+        assert_eq!(failover.failover_threshold, 2);
+        assert_eq!(failover.failover_cooldown_secs, 45);
+        
+        let gc_policy = config.gc_policy.unwrap();
+        assert_eq!(gc_policy.model_ttl_secs, 180);
+        assert!(gc_policy.enabled);
+        
+        let metrics = config.metrics.unwrap();
+        assert_eq!(metrics.log_interval_secs, Some(90));
+        assert!(metrics.debug_dump_events);
+    }
 }

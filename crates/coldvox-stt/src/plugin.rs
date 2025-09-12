@@ -30,6 +30,29 @@ pub enum SttPluginError {
 
     #[error("Backend error: {0}")]
     BackendError(Box<dyn std::error::Error + Send + Sync>),
+
+    #[error("Processing error: {0}")]
+    ProcessingError(String),
+
+    /// Transient errors that may be retried (e.g., audio buffer empty, temporary network issues)
+    #[error("Transient error: {0}")]
+    Transient(String),
+
+    /// Fatal errors that should trigger failover (e.g., model corruption, permanent backend failure)
+    #[error("Fatal error: {0}")]
+    Fatal(String),
+
+    /// Unload operation failed (e.g., resource cleanup error)
+    #[error("Unload failed: {0}")]
+    UnloadFailed(String),
+
+    /// Plugin already unloaded or not loaded
+    #[error("Already unloaded: {0}")]
+    AlreadyUnloaded(String),
+
+    /// Extensible error wrapper for third-party plugins
+    #[error("Other error: {0}")]
+    Other(Box<dyn std::error::Error + Send + Sync>),
 }
 
 /// Metadata about an STT plugin
@@ -116,6 +139,33 @@ pub trait SttPlugin: Send + Sync + Debug {
     /// Load a model or connect to service
     async fn load_model(&mut self, _model_path: Option<&Path>) -> Result<(), SttPluginError> {
         // Default implementation for plugins that don't need models
+        Ok(())
+    }
+
+    /// Unload model and free resources
+    /// This is called when the plugin is no longer needed or during garbage collection
+    ///
+    /// # Implementation Guidelines for Plugin Developers:
+    ///
+    /// ## For Model-Based Plugins (Vosk, Whisper, Coqui, etc.):
+    /// - Drop model instances to free GPU/CPU memory
+    /// - Close any open file handles or network connections
+    /// - Reset internal state to uninitialized
+    /// - Clear any cached data or temporary files
+    ///
+    /// ## For Cloud-Based Plugins:
+    /// - Close HTTP connections and connection pools
+    /// - Invalidate authentication tokens if appropriate
+    /// - Clear any cached responses
+    ///
+    /// ## For All Plugins:
+    /// - Reset metrics and performance counters
+    /// - Set state to Uninitialized
+    /// - Log the unload operation for debugging
+    /// - Handle errors gracefully (don't fail the unload process)
+    ///
+    /// Default implementation is a no-op for plugins that don't need cleanup
+    async fn unload(&mut self) -> Result<(), SttPluginError> {
         Ok(())
     }
 }
@@ -218,6 +268,15 @@ pub struct PluginSelectionConfig {
 
     /// Required language support
     pub required_language: Option<String>,
+
+    /// Failover configuration
+    pub failover: Option<FailoverConfig>,
+
+    /// Garbage collection policy
+    pub gc_policy: Option<GcPolicy>,
+
+    /// Metrics configuration
+    pub metrics: Option<MetricsConfig>,
 }
 
 impl Default for PluginSelectionConfig {
@@ -232,6 +291,73 @@ impl Default for PluginSelectionConfig {
             require_local: false,
             max_memory_mb: None,
             required_language: Some("en".to_string()),
+            failover: Some(FailoverConfig::default()),
+            gc_policy: Some(GcPolicy::default()),
+            metrics: Some(MetricsConfig::default()),
         }
+    }
+}
+
+/// Configuration for failover behavior between plugins
+#[derive(Debug, Clone)]
+pub struct FailoverConfig {
+    /// Number of consecutive transient errors before switching plugins
+    pub failover_threshold: u32,
+    
+    /// Cooldown period in seconds before retrying a failed plugin
+    pub failover_cooldown_secs: u32,
+}
+
+impl Default for FailoverConfig {
+    fn default() -> Self {
+        Self {
+            failover_threshold: 3,
+            failover_cooldown_secs: 30,
+        }
+    }
+}
+
+/// Configuration for garbage collection of inactive models
+#[derive(Debug, Clone)]
+pub struct GcPolicy {
+    /// Time to live in seconds for inactive model instances
+    pub model_ttl_secs: u32,
+    
+    /// Whether garbage collection is enabled
+    pub enabled: bool,
+}
+
+impl Default for GcPolicy {
+    fn default() -> Self {
+        Self {
+            model_ttl_secs: 300, // 5 minutes
+            enabled: true,
+        }
+    }
+}
+
+/// Configuration for STT metrics and monitoring
+#[derive(Debug, Clone)]
+pub struct MetricsConfig {
+    /// Interval in seconds for periodic metrics logging
+    pub log_interval_secs: Option<u32>,
+    
+    /// Enable debug dumping of transcription events
+    pub debug_dump_events: bool,
+}
+
+impl Default for MetricsConfig {
+    fn default() -> Self {
+        Self {
+            log_interval_secs: Some(60), // Log metrics every minute
+            debug_dump_events: false,
+        }
+    }
+}
+
+// Implement From trait for easy error conversion to SttPluginError::Other
+impl From<Box<dyn std::error::Error + Send + Sync>> for SttPluginError {
+    fn from(error: Box<dyn std::error::Error + Send + Sync>) -> Self {
+        SttPluginError::Other(error)
     }
 }
