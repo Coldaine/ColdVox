@@ -264,10 +264,11 @@ impl ChunkerWorker {
             let channels = frame.channels as usize;
             frame
                 .samples
-                .chunks_exact(channels)
+                .chunks(channels) // Use chunks instead of chunks_exact
                 .map(|chunk| {
                     let sum: i32 = chunk.iter().map(|&s| s as i32).sum();
-                    (sum / channels as i32) as i16
+                    // The last chunk may not have `channels` samples, so divide by actual chunk length.
+                    (sum / chunk.len() as i32) as i16
                 })
                 .collect()
         };
@@ -346,5 +347,38 @@ mod tests {
         let out = worker.process_frame(&frame);
         // Each pair averaged -> zeros
         assert_eq!(out, vec![0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn stereo_to_mono_with_remainder() {
+        let rb = AudioRingBuffer::new(1024);
+        let (_prod, cons) = rb.split();
+        let reader = FrameReader::new(cons, 16_000, 2, 1024, None);
+        let (tx, _rx) = broadcast::channel::<AudioFrame>(8);
+        let cfg = ChunkerConfig {
+            frame_size_samples: 512,
+            sample_rate_hz: 16_000,
+            resampler_quality: ResamplerQuality::Balanced,
+        };
+        let mut worker = ChunkerWorker::new(reader, tx, cfg, None, None);
+
+        // 7 samples, not divisible by 2 channels.
+        let samples = vec![10, 20, 30, 40, 50, 60, 70];
+        let frame = CapFrame {
+            samples,
+            timestamp: Instant::now(),
+            sample_rate: 16_000,
+            channels: 2,
+        };
+        worker.reconfigure_for_device(&frame);
+        let out = worker.process_frame(&frame);
+
+        // A correct implementation should handle the remainder.
+        assert_eq!(
+            out.len(),
+            4,
+            "Mono conversion should not drop samples from the end"
+        );
+        assert_eq!(out, vec![15, 35, 55, 70]);
     }
 }
