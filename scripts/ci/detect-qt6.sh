@@ -6,11 +6,7 @@ set -euo pipefail
 
 echo "=== Qt 6 Detection Script ==="
 
-# Attempt to install lsb_release if not present, for better OS diagnostics
-if ! command -v lsb_release >/dev/null 2>&1; then
-    sudo apt-get update && sudo apt-get install -y lsb-release
-fi
-echo "Runner OS: $(lsb_release -a 2>/dev/null || echo 'lsb_release not found')"
+echo "Runner OS: $(lsb_release -a 2>/dev/null || echo 'lsb_release not found, and is not required')"
 echo "Initial PATH: $PATH"
 
 qt6_found=false

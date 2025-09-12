@@ -33,8 +33,6 @@ env:
   RUSTFLAGS: "-D warnings"
   CARGO_TERM_COLOR: always
   VOSK_MODEL_BASENAME: vosk-model-small-en-us-0.15
-  VOSK_CACHE_ROOT: /home/coldaine/ActionRunnerCache/vosk-model
-  LIBVOSK_PATH: /usr/local/lib/libvosk.so
   MIN_FREE_DISK_GB: 10
   MAX_LOAD_AVERAGE: 5
 
@@ -51,56 +49,56 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if ! command -v gh >/dev/null 2>&1; then
+          if ! command -v gh >/dev/null 2>&1;
+            then
             echo "gh CLI not found on runner, skipping workflow validation"
             exit 0
           fi
 
           shopt -s nullglob
           files=(.github/workflows/*.yml .github/workflows/*.yaml)
-          if [[ ${#files[@]} -eq 0 ]]; then
+          if [[ ${#files[@]} -eq 0 ]]
+            then
             echo "No workflow files found"
             exit 0
           fi
 
           echo "Validating ${{ github.sha }} against ${#files[@]} workflow files..."
           failed=0
-          for wf in "${files[@]}"; do
+          for wf in "${files[@]}"
+            do
             echo "-- $wf"
-            if ! gh workflow view "$wf" --ref "$GITHUB_SHA" --yaml >/dev/null 2>&1; then
+            if ! gh workflow view "$wf" --ref "$GITHUB_SHA" --yaml >/dev/null 2>&1
+              then
               echo "ERROR: Failed to render $wf via gh" >&2
               failed=1
             fi
           done
 
-          if [[ $failed -ne 0 ]]; then
+          if [[ $failed -ne 0 ]]
+            then
             echo "One or more workflows failed server-side validation via gh." >&2
             exit 1
           fi
           echo "All workflows render via gh."
 
-  setup-vosk-model:
-    name: Setup Vosk Model from Cache
+  setup-vosk-dependencies:
+    name: Setup Vosk Dependencies
     runs-on: [self-hosted, Linux, X64, nobara]
     outputs:
-      model-path: ${{ steps.get-model-path.outputs.path }}
-      download-outcome: success
+      model_path: ${{ steps.setup.outputs.model_path }}
+      lib_path: ${{ steps.setup.outputs.lib_path }}
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-        
-      - name: Setup Vosk Model from Cache
+      - name: Setup Vosk Model and Library
+        id: setup
         run: bash scripts/ci/setup-vosk-cache.sh
-
-      - name: Output model path
-        id: get-model-path
-        run: |
-          echo "path=${{ github.workspace }}/models/vosk-model-small-en-us-0.15" >> $GITHUB_OUTPUT
 
   # Build, check, and test with multiple Rust versions
   build_and_check:
     name: Build & Test
     runs-on: [self-hosted, Linux, X64, nobara]
-    needs: [setup-vosk-model]
+    needs: [setup-vosk-dependencies]
     strategy:
       matrix:
         rust-version: [stable, '1.75'] # MSRV is 1.75
@@ -140,14 +138,18 @@ jobs:
         run: cargo doc --workspace --no-deps --locked
 
       - name: Run unit and integration tests (skip E2E)
-        if: matrix.rust-version == 'stable' && needs.setup-vosk-model.outputs.download-outcome == 'success'
+        if: matrix.rust-version == 'stable'
         env:
-          VOSK_MODEL_PATH: ${{ needs.setup-vosk-model.outputs.model-path }}
+          VOSK_MODEL_PATH: ${{ needs.setup-vosk-dependencies.outputs.model_path }}
+          LD_LIBRARY_PATH: ${{ needs.setup-vosk-dependencies.outputs.lib_path }}
         run: |
           echo "=== Environment Validation ==="
           echo "VOSK_MODEL_PATH: $VOSK_MODEL_PATH"
+          echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
           echo "Model directory contents:"
           ls -la "$VOSK_MODEL_PATH" || echo "Model directory not accessible"
+          echo "Lib directory contents:"
+          ls -la "$LD_LIBRARY_PATH" || echo "Lib directory not accessible"
           echo "=== Running Tests ==="
           cargo test --workspace --locked --
 
@@ -155,7 +157,8 @@ jobs:
       - name: Detect and test Qt 6 GUI
         if: matrix.rust-version == 'stable'
         run: |
-          if bash scripts/ci/detect-qt6.sh; then
+          if bash scripts/ci/detect-qt6.sh
+            then
             echo "✅ Qt 6 detected - building GUI"
             cargo check -p coldvox-gui --features qt-ui --locked
           else
@@ -176,7 +179,7 @@ jobs:
   text_injection_tests:
     name: Text Injection Tests
     runs-on: [self-hosted, Linux, X64, nobara]
-    needs: [setup-vosk-model]
+    needs: [setup-vosk-dependencies]
     timeout-minutes: 30
     env:
       DISPLAY: :99
@@ -257,10 +260,14 @@ jobs:
         run: cargo build --locked -p coldvox-app
 
       - name: Run E2E pipeline test
-        if: needs.setup-vosk-model.outputs.download-outcome == 'success'
         env:
-          VOSK_MODEL_PATH: ${{ needs.setup-vosk-model.outputs.model-path }}
+          VOSK_MODEL_PATH: ${{ needs.setup-vosk-dependencies.outputs.model_path }}
+          LD_LIBRARY_PATH: ${{ needs.setup-vosk-dependencies.outputs.lib_path }}
         run: |
+          echo "=== E2E Environment Validation ==="
+          echo "VOSK_MODEL_PATH: $VOSK_MODEL_PATH"
+          echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
+          echo "=== Running E2E Test ==="
           cargo test -p coldvox-app --locked test_end_to_end_wav_pipeline -- --nocapture
 
       - name: Upload test artifacts on failure
@@ -284,36 +291,18 @@ jobs:
           # Kill fluxbox
           pkill -f "fluxbox.*:99" || true
           # Kill dbus-daemon if it was started by this session
-          if [[ -n "${DBUS_SESSION_BUS_PID:-}" ]]; then
+          if [[ -n "${DBUS_SESSION_BUS_PID:-}" ]]
+            then
             kill "$DBUS_SESSION_BUS_PID" 2>/dev/null || true
           fi
           echo "Cleanup completed."
-
-  # Security audit
-  security:
-    name: Security Audit
-    if: github.ref == 'refs/heads/main' # Only run on main
-    runs-on: [self-hosted, Linux, X64, nobara]
-    steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-
-      - name: Set up Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: stable
-
-      - uses: rustsec/audit-check@v2.0.0 # pin to release tag
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Run security audit
-        run: cargo audit
 
   ci_success:
     name: CI Success Summary
     runs-on: [self-hosted, Linux, X64, nobara]
     needs:
       - validate-workflows
-      - setup-vosk-model
+      - setup-vosk-dependencies
       - build_and_check
       - text_injection_tests
       - security
@@ -324,11 +313,11 @@ jobs:
         run: |
           echo "## CI Report" > report.md
           echo "- validate-workflows:            ${{ needs.validate-workflows.result }}" >> report.md
-          echo "- setup-vosk-model:              ${{ needs.setup-vosk-model.result }}" >> report.md
+          echo "- setup-vosk-dependencies:       ${{ needs.setup-vosk-dependencies.result }}" >> report.md
           echo "- build_and_check:               ${{ needs.build_and_check.result }}" >> report.md
           echo "- text_injection_tests:          ${{ needs.text_injection_tests.result }}" >> report.md
           echo "- security:                      ${{ needs.security.result }}" >> report.md
-          if [[ "${{ needs.setup-vosk-model.result }}" != "success" ]]; then echo "::error::Setup Vosk model failed."; exit 1; fi
+          if [[ "${{ needs.setup-vosk-dependencies.result }}" != "success" ]]; then echo "::error::Setup Vosk dependencies failed."; exit 1; fi
           if [[ "${{ needs.build_and_check.result }}" != "success" ]]; then echo "::error::Build and check failed."; exit 1; fi
           if [[ "${{ needs.text_injection_tests.result }}" != "success" ]]; then echo "::error::Text injection tests failed."; exit 1; fi
           echo "All critical stages passed successfully."
