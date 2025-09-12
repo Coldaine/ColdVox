@@ -2,20 +2,36 @@
 //!
 //! This module manages STT plugin selection and fallback logic
 
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Instant;
 
 use coldvox_stt::plugin::{
-    SttPlugin, SttPluginRegistry, PluginSelectionConfig, SttPluginError
+    SttPlugin, SttPluginRegistry, PluginSelectionConfig, FailoverConfig, GcPolicy, MetricsConfig, SttPluginError
 };
 use coldvox_stt::plugins::{NoOpPlugin, MockPlugin};
 use tokio::sync::RwLock;
-use tracing::{info, warn, error};
+use tokio::task::JoinHandle;
+use tracing::{info, warn, error, debug};
 
 /// Manages STT plugin lifecycle and selection
 pub struct SttPluginManager {
     registry: Arc<RwLock<SttPluginRegistry>>,
     current_plugin: Arc<RwLock<Option<Box<dyn SttPlugin>>>>,
     selection_config: PluginSelectionConfig,
+    
+    // Failover tracking
+    consecutive_errors: Arc<RwLock<HashMap<String, u32>>>,
+    last_failover: Arc<RwLock<Option<Instant>>>,
+    failed_plugins_cooldown: Arc<RwLock<HashMap<String, Instant>>>,
+    
+    // GC management
+    gc_task: Arc<RwLock<Option<JoinHandle<()>>>>,
+    last_activity: Arc<RwLock<HashMap<String, Instant>>>,
+    
+    // Metrics
+    failover_count: Arc<std::sync::atomic::AtomicU64>,
+    total_errors: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl SttPluginManager {
@@ -30,24 +46,121 @@ impl SttPluginManager {
             registry: Arc::new(RwLock::new(registry)),
             current_plugin: Arc::new(RwLock::new(None)),
             selection_config: PluginSelectionConfig::default(),
+            consecutive_errors: Arc::new(RwLock::new(HashMap::new())),
+            last_failover: Arc::new(RwLock::new(None)),
+            failed_plugins_cooldown: Arc::new(RwLock::new(HashMap::new())),
+            gc_task: Arc::new(RwLock::new(None)),
+            last_activity: Arc::new(RwLock::new(HashMap::new())),
+            failover_count: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            total_errors: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         }
     }
 
     /// Update plugin selection configuration at runtime
     pub async fn set_selection_config(&mut self, cfg: PluginSelectionConfig) {
+        let gc_enabled = cfg.gc_policy.as_ref().map_or(false, |gc| gc.enabled);
+        
         self.selection_config = cfg;
+        
+        // Start or stop GC task based on configuration
+        if gc_enabled {
+            self.start_gc_task().await;
+        } else {
+            self.stop_gc_task().await;
+        }
+        
         info!("Updated STT plugin selection configuration");
     }
 
-    /// (Planned) Garbage collect inactive plugin models.
-    /// NOTE: Actual periodic invocation should be scheduled by runtime layer.
-    /// This placeholder allows future integration once plugins implement
-    /// model unloading semantics.
+    /// Start the garbage collection task
+    async fn start_gc_task(&self) {
+        let gc_policy = match &self.selection_config.gc_policy {
+            Some(policy) if policy.enabled => policy.clone(),
+            _ => return,
+        };
+
+        let mut gc_task = self.gc_task.write().await;
+        
+        // Stop existing task if running
+        if let Some(handle) = gc_task.take() {
+            handle.abort();
+        }
+
+    let last_activity = self.last_activity.clone();
+    let ttl_secs = if gc_policy.model_ttl_secs == 0 { 1 } else { gc_policy.model_ttl_secs }; // prevent zero-second TTL causing rapid loop
+        
+        // Spawn new GC task
+        let handle = tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(ttl_secs / 2));
+            
+            loop {
+                interval.tick().await;
+                
+                let now = Instant::now();
+                let mut activity = last_activity.write().await;
+                let inactive_plugins: Vec<String> = activity
+                    .iter()
+                    .filter_map(|(plugin_id, last_used)| {
+                        if now.duration_since(*last_used).as_secs() > ttl_secs as u64 {
+                            Some(plugin_id.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                
+                for plugin_id in inactive_plugins {
+                    debug!("GC: Marking plugin {} as inactive (TTL expired)", plugin_id);
+                    activity.remove(&plugin_id);
+                    // TODO: Actually unload plugin models when plugins support it
+                }
+                
+                drop(activity);
+            }
+        });
+        
+        *gc_task = Some(handle);
+        debug!("Started STT plugin GC task with TTL {}s", ttl_secs);
+    }
+
+    /// Stop the garbage collection task
+    async fn stop_gc_task(&self) {
+        let mut gc_task = self.gc_task.write().await;
+        if let Some(handle) = gc_task.take() {
+            handle.abort();
+            debug!("Stopped STT plugin GC task");
+        }
+    }
+
+    /// Garbage collect inactive plugin models.
     pub async fn gc_inactive_models(&self) {
-        // TODO: Iterate over registered factories / cached plugin state and
-        // unload models exceeding inactivity TTL. Currently a no-op because
-        // plugins do not expose model residency metadata yet.
-        tracing::debug!("gc_inactive_models(): no-op (pending implementation)");
+        let gc_policy = match &self.selection_config.gc_policy {
+            Some(policy) if policy.enabled => policy,
+            _ => return,
+        };
+
+        let now = Instant::now();
+        let mut activity = self.last_activity.write().await;
+        let ttl_secs = gc_policy.model_ttl_secs as u64;
+        
+        let inactive_plugins: Vec<String> = activity
+            .iter()
+            .filter_map(|(plugin_id, last_used)| {
+                if now.duration_since(*last_used).as_secs() > ttl_secs {
+                    Some(plugin_id.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        
+        for plugin_id in inactive_plugins {
+            debug!("GC: Removing inactive plugin {}", plugin_id);
+            activity.remove(&plugin_id);
+            // TODO: Actually unload plugin models when plugins support it
+        }
+        
+        debug!("GC completed, processed {} plugins", activity.len());
     }
 
     /// Register all built-in plugins
@@ -116,6 +229,12 @@ impl SttPluginManager {
         let mut current = self.current_plugin.write().await;
         *current = Some(plugin);
 
+        // Record initial activity to avoid immediate GC
+        {
+            let mut activity = self.last_activity.write().await;
+            activity.insert(plugin_id.clone(), Instant::now());
+        }
+
         Ok(plugin_id)
     }
 
@@ -176,7 +295,7 @@ impl SttPluginManager {
         registry.available_plugins()
     }
 
-    /// Process audio with the current plugin
+    /// Process audio with the current plugin, handling failover on errors
     pub async fn process_audio(
         &mut self,
         samples: &[i16]
@@ -184,11 +303,166 @@ impl SttPluginManager {
         let mut current = self.current_plugin.write().await;
 
         if let Some(ref mut plugin) = *current {
-            plugin.process_audio(samples)
-                .await
-                .map_err(|e| e.to_string())
+            let plugin_id = plugin.info().id.clone();
+            
+            // Update last activity for GC
+            {
+                let mut activity = self.last_activity.write().await;
+                activity.insert(plugin_id.clone(), Instant::now());
+            }
+            
+            match plugin.process_audio(samples).await {
+                Ok(result) => {
+                    // Reset error count on success
+                    {
+                        let mut errors = self.consecutive_errors.write().await;
+                        errors.remove(&plugin_id);
+                    }
+                    Ok(result)
+                }
+                Err(e) => {
+                    // Track error and potentially trigger failover
+                    self.total_errors.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    
+                    let should_failover = {
+                        let mut errors = self.consecutive_errors.write().await;
+                        let current_errors = errors.entry(plugin_id.clone()).or_insert(0);
+                        *current_errors += 1;
+                        
+                        let threshold = self.selection_config.failover
+                            .as_ref()
+                            .map_or(3, |f| f.failover_threshold);
+                        
+                        *current_errors >= threshold
+                    };
+                    
+                    if should_failover {
+                        warn!("Plugin {} exceeded error threshold, attempting failover", plugin_id);
+                        drop(current); // Release the lock before attempting failover
+                        
+                        // Attempt failover
+                        match self.attempt_failover(&plugin_id).await {
+                            Ok(new_plugin_id) => {
+                                info!("Successfully failed over from {} to {}", plugin_id, new_plugin_id);
+                                self.failover_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                {
+                                    let mut lf = self.last_failover.write().await;
+                                    *lf = Some(Instant::now());
+                                }
+                                
+                                // Record cooldown for failed plugin
+                                {
+                                    let mut cooldown = self.failed_plugins_cooldown.write().await;
+                                    cooldown.insert(plugin_id, Instant::now());
+                                }
+                                
+                                // Try processing with new plugin
+                                let mut current = self.current_plugin.write().await;
+                                if let Some(ref mut new_plugin) = *current {
+                                    new_plugin.process_audio(samples).await.map_err(|e| e.to_string())
+                                } else {
+                                    Err("Failover succeeded but no plugin available".to_string())
+                                }
+                            }
+                            Err(failover_err) => {
+                                error!("Failover failed: {}", failover_err);
+                                Err(format!("STT processing failed: {}, failover failed: {}", e, failover_err))
+                            }
+                        }
+                    } else {
+                        Err(e.to_string())
+                    }
+                }
+            }
         } else {
             Err("No STT plugin selected".to_string())
+        }
+    }
+    
+    /// Attempt to failover to a different plugin
+    async fn attempt_failover(&mut self, failed_plugin_id: &str) -> Result<String, String> {
+        let registry = self.registry.read().await;
+        let now = Instant::now();
+        
+        // Get cooldown period
+        let cooldown_secs = self.selection_config.failover
+            .as_ref()
+            .map_or(30, |f| f.failover_cooldown_secs);
+        let cooldown_duration = std::time::Duration::from_secs(cooldown_secs as u64);
+        
+        // Check cooldown for failed plugins
+        let cooldown = self.failed_plugins_cooldown.read().await;
+        
+        // Try fallback plugins in order, skipping ones in cooldown
+        for fallback_id in &self.selection_config.fallback_plugins {
+            if fallback_id == failed_plugin_id {
+                continue; // Skip the failed plugin
+            }
+            
+            // Check if plugin is in cooldown
+            if let Some(last_failure) = cooldown.get(fallback_id) {
+                if now.duration_since(*last_failure) < cooldown_duration {
+                    debug!("Plugin {} still in cooldown, skipping", fallback_id);
+                    continue;
+                }
+            }
+            
+            match registry.create_plugin(fallback_id) {
+                Ok(new_plugin) => {
+                    let new_plugin_id = new_plugin.info().id.clone();
+                    
+                    // Replace current plugin
+                    {
+                        let mut current = self.current_plugin.write().await;
+                        *current = Some(new_plugin);
+                    }
+                    
+                    // Reset error count for new plugin
+                    {
+                        let mut errors = self.consecutive_errors.write().await;
+                        errors.remove(&new_plugin_id);
+                    }
+                    
+                    return Ok(new_plugin_id);
+                }
+                Err(e) => {
+                    debug!("Fallback plugin {} not available: {}", fallback_id, e);
+                }
+            }
+        }
+        
+        // Last resort: NoOp plugin
+        let noop_plugin = Box::new(NoOpPlugin::new());
+        let noop_id = noop_plugin.info().id.clone();
+        
+        {
+            let mut current = self.current_plugin.write().await;
+            *current = Some(noop_plugin);
+        }
+        
+        warn!("All fallback plugins failed, using NoOp plugin");
+        Ok(noop_id)
+    }
+    
+    /// Get current failover metrics
+    pub fn get_metrics(&self) -> (u64, u64) {
+        let failover_count = self.failover_count.load(std::sync::atomic::Ordering::Relaxed);
+        let total_errors = self.total_errors.load(std::sync::atomic::Ordering::Relaxed);
+        (failover_count, total_errors)
+    }
+
+    /// Get Instant of last failover (if any)
+    pub async fn last_failover_instant(&self) -> Option<Instant> {
+        *self.last_failover.read().await
+    }
+}
+
+impl Drop for SttPluginManager {
+    fn drop(&mut self) {
+        if let Ok(mut guard) = self.gc_task.try_write() {
+            if let Some(handle) = guard.take() {
+                handle.abort();
+            }
         }
     }
 }
