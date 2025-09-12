@@ -206,6 +206,7 @@ impl SttProcessor {
             tokio::select! {
                 // Listen for VAD events
                 Some(event) = self.vad_event_rx.recv() => {
+                    println!("DEBUG: PluginSttProcessor received VAD event: {:?}", event);
                     match event {
                         VadEvent::SpeechStart { timestamp_ms, .. } => {
                             self.handle_speech_start(timestamp_ms).await;
@@ -216,13 +217,21 @@ impl SttProcessor {
                     }
                 }
 
-                // Listen for audio frames
+                // Listen for audio frames (but limit processing to avoid starvation)
                 Ok(frame) = self.audio_rx.recv() => {
-                    self.handle_audio_frame(frame).await;
+                    // Only process audio frames if we're actively buffering speech
+                    if matches!(self.state, UtteranceState::SpeechActive { .. }) {
+                        println!("DEBUG: PluginSttProcessor received audio frame during speech");
+                        self.handle_audio_frame(frame).await;
+                    } else {
+                        println!("DEBUG: PluginSttProcessor received audio frame but not in speech state: {:?}", self.state);
+                        // Discard frames when not in speech active state
+                        // This prevents the broadcast receiver from lagging
+                    }
                 }
 
                 else => {
-                    tracing::info!(target: "stt", "STT processor shutting down: all channels closed");
+                    tracing::info!(target: "stt", "Plugin STT processor shutting down: all channels closed");
                     break;
                 }
             }
@@ -298,6 +307,7 @@ impl SttProcessor {
             }
 
             if !audio_buffer.is_empty() {
+                println!("DEBUG: Audio buffer has {} samples", audio_buffer.len());
                 // Time the preprocessing phase
                 let preprocessing_start = Instant::now();
 
@@ -759,6 +769,243 @@ impl SttProcessor {
         // Just sleep forever since there's nothing to do
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        }
+    }
+}
+
+/// Plugin-based STT processor that uses the plugin manager
+pub struct PluginSttProcessor {
+    /// Audio frame receiver (broadcast from pipeline)
+    audio_rx: broadcast::Receiver<AudioFrame>,
+    /// VAD event receiver
+    vad_event_rx: mpsc::Receiver<VadEvent>,
+    /// Transcription event sender
+    event_tx: mpsc::Sender<TranscriptionEvent>,
+    /// Plugin manager for STT processing
+    plugin_manager: Arc<tokio::sync::RwLock<crate::stt::plugin_manager::SttPluginManager>>,
+    /// Current utterance state
+    state: UtteranceState,
+    /// Metrics
+    metrics: Arc<parking_lot::RwLock<SttMetrics>>,
+    /// Configuration
+    config: TranscriptionConfig,
+}
+
+impl PluginSttProcessor {
+    /// Create a new plugin-based STT processor
+    pub fn new(
+        audio_rx: broadcast::Receiver<AudioFrame>,
+        vad_event_rx: mpsc::Receiver<VadEvent>,
+        event_tx: mpsc::Sender<TranscriptionEvent>,
+        plugin_manager: Arc<tokio::sync::RwLock<crate::stt::plugin_manager::SttPluginManager>>,
+        config: TranscriptionConfig,
+    ) -> Self {
+        Self {
+            audio_rx,
+            vad_event_rx,
+            event_tx,
+            plugin_manager,
+            state: UtteranceState::Idle,
+            metrics: Arc::new(parking_lot::RwLock::new(SttMetrics::default())),
+            config,
+        }
+    }
+
+    /// Run the plugin-based STT processor loop
+    pub async fn run(mut self) {
+        println!("DEBUG: PluginSttProcessor::run started");
+        // Exit early if STT is disabled
+        if !self.config.enabled {
+            tracing::info!(
+                target: "stt",
+                "Plugin STT processor disabled - exiting immediately"
+            );
+            return;
+        }
+
+        tracing::info!(
+            target: "stt",
+            "Plugin STT processor starting (partials: {}, words: {})",
+            self.config.partial_results,
+            self.config.include_words
+        );
+
+        // Drain any pending audio frames before starting
+        while let Ok(_) = self.audio_rx.try_recv() {
+            // Drain pending frames
+        }
+
+        loop {
+            tokio::select! {
+                // Listen for VAD events
+                Some(event) = self.vad_event_rx.recv() => {
+                    println!("DEBUG: PluginSttProcessor received VAD event: {:?}", event);
+                    match event {
+                        VadEvent::SpeechStart { timestamp_ms, .. } => {
+                            self.handle_speech_start(timestamp_ms).await;
+                        }
+                        VadEvent::SpeechEnd { timestamp_ms, duration_ms, .. } => {
+                            self.handle_speech_end(timestamp_ms, Some(duration_ms)).await;
+                        }
+                    }
+                }
+
+                // Listen for audio frames (but limit processing to avoid starvation)
+                Ok(frame) = self.audio_rx.recv() => {
+                    // Only process audio frames if we're actively buffering speech
+                    if matches!(self.state, UtteranceState::SpeechActive { .. }) {
+                        println!("DEBUG: PluginSttProcessor received audio frame during speech");
+                        self.handle_audio_frame(frame).await;
+                    } else {
+                        println!("DEBUG: PluginSttProcessor received audio frame but not in speech state: {:?}", self.state);
+                        // Discard frames when not in speech active state
+                        // This prevents the broadcast receiver from lagging
+                    }
+                }
+
+                else => {
+                    tracing::info!(target: "stt", "Plugin STT processor shutting down: all channels closed");
+                    break;
+                }
+            }
+        }
+
+        // Log final metrics
+        let metrics = self.metrics.read();
+        tracing::info!(
+            target: "stt",
+            "Plugin STT processor final stats - frames in: {}, out: {}, dropped: {}, partials: {}, finals: {}, errors: {}",
+            metrics.frames_in,
+            metrics.frames_out,
+            metrics.frames_dropped,
+            metrics.partial_count,
+            metrics.final_count,
+            metrics.error_count
+        );
+    }
+
+    /// Handle speech start event
+    async fn handle_speech_start(&mut self, timestamp_ms: u64) {
+        tracing::info!(target: "stt", "Plugin STT processor received SpeechStart at {}ms", timestamp_ms);
+
+        // Store the start time as Instant for duration calculations
+        let start_instant = Instant::now();
+
+        self.state = UtteranceState::SpeechActive {
+            started_at: start_instant,
+            audio_buffer: Vec::with_capacity(16000 * 10), // Pre-allocate for up to 10 seconds
+            frames_buffered: 0,
+        };
+
+        tracing::info!(target: "stt", "Started buffering audio for new utterance");
+    }
+
+    /// Handle speech end event
+    async fn handle_speech_end(&mut self, timestamp_ms: u64, duration_ms: Option<u64>) {
+        println!("DEBUG: PluginSttProcessor::handle_speech_end called with {}ms", timestamp_ms);
+        tracing::info!(
+            target: "stt",
+            "Plugin STT processor received SpeechEnd at {}ms (duration: {:?}ms)",
+            timestamp_ms,
+            duration_ms
+        );
+
+        // Process the buffered audio all at once
+        if let UtteranceState::SpeechActive {
+            audio_buffer,
+            frames_buffered,
+            started_at: _,
+        } = &self.state
+        {
+            let buffer_size = audio_buffer.len();
+            tracing::info!(
+                target: "stt",
+                "Processing buffered audio with plugin: {} samples ({:.2}s), {} frames",
+                buffer_size,
+                buffer_size as f32 / 16000.0,
+                frames_buffered
+            );
+
+            if !audio_buffer.is_empty() {
+                // Process audio with plugin manager - call process_audio multiple times to simulate streaming
+                let mut plugin_manager = self.plugin_manager.write().await;
+                
+                // Split the buffer into chunks and process each one
+                const CHUNK_SIZE: usize = 512; // 32ms at 16kHz
+                let mut transcription_events = Vec::new();
+                let chunks: Vec<&[i16]> = audio_buffer.chunks(CHUNK_SIZE).collect();
+                println!("DEBUG: Processing {} chunks from buffered audio", chunks.len());
+                
+                for (i, chunk) in chunks.iter().enumerate() {
+                    println!("DEBUG: Processing chunk {} of size {}", i, chunk.len());
+                    match plugin_manager.process_audio(chunk).await {
+                        Ok(Some(event)) => {
+                            println!("DEBUG: Plugin generated event: {:?}", event);
+                            transcription_events.push(event);
+                        }
+                        Ok(None) => {
+                            println!("DEBUG: Plugin returned None for chunk {}", i);
+                        }
+                        Err(e) => {
+                            println!("DEBUG: Plugin processing error: {}", e);
+                            let error_event = TranscriptionEvent::Error {
+                                code: "PLUGIN_PROCESS_ERROR".to_string(),
+                                message: e,
+                            };
+                            self.send_event(error_event).await;
+                            break;
+                        }
+                    }
+                }
+                
+                // Send any transcription events that were generated
+                for event in transcription_events {
+                    self.send_event(event).await;
+                    
+                    // Update metrics
+                    let mut metrics = self.metrics.write();
+                    metrics.frames_out += frames_buffered;
+                    metrics.final_count += 1;
+                    metrics.last_event_time = Some(Instant::now());
+                }
+            }
+        }
+
+        // Reset to idle state
+        self.state = UtteranceState::Idle;
+    }
+
+    /// Handle incoming audio frame
+    async fn handle_audio_frame(&mut self, frame: AudioFrame) {
+        // Update input metrics
+        {
+            let mut metrics = self.metrics.write();
+            metrics.frames_in += 1;
+        }
+
+        // Only buffer audio if we're in speech active state
+        if let UtteranceState::SpeechActive {
+            ref mut audio_buffer,
+            ref mut frames_buffered,
+            ..
+        } = self.state
+        {
+            // Convert f32 samples to i16 (assuming they're in [-1, 1] range)
+            let i16_samples: Vec<i16> = frame
+                .samples
+                .iter()
+                .map(|&s| (s * 32767.0) as i16)
+                .collect();
+
+            audio_buffer.extend(i16_samples);
+            *frames_buffered += 1;
+        }
+    }
+
+    /// Send transcription event
+    async fn send_event(&self, event: TranscriptionEvent) {
+        if let Err(e) = self.event_tx.send(event).await {
+            tracing::error!(target: "stt", "Failed to send transcription event: {}", e);
         }
     }
 }

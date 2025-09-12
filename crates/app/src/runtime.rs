@@ -18,6 +18,8 @@ use crate::hotkey::spawn_hotkey_listener;
 #[cfg(feature = "vosk")]
 use crate::stt::TranscriptionEvent;
 #[cfg(feature = "vosk")]
+use crate::stt::{TranscriptionConfig, processor::PluginSttProcessor};
+#[cfg(feature = "vosk")]
 use coldvox_stt::plugin::{PluginSelectionConfig, FailoverConfig, GcPolicy};
 use crate::stt::plugin_manager::SttPluginManager;
 
@@ -326,31 +328,85 @@ pub async fn start(
 
     // 5) STT Plugin Manager
     let plugin_manager = if let Some(stt_config) = &opts.stt_selection {
-        let manager = Arc::new(tokio::sync::RwLock::new(SttPluginManager::new().with_metrics_sink(metrics.clone())));
-        manager.write().await.set_selection_config(stt_config.clone()).await;
-        Some(manager)
+        let mut manager = SttPluginManager::new().with_metrics_sink(metrics.clone());
+        manager.set_selection_config(stt_config.clone()).await;
+        
+        // Initialize the plugin manager to select and load a plugin
+        match manager.initialize().await {
+            Ok(plugin_id) => {
+                info!("Successfully initialized STT plugin: {}", plugin_id);
+            }
+            Err(e) => {
+                error!("Failed to initialize STT plugin manager: {}", e);
+                return Err(Box::new(e));
+            }
+        }
+        
+        Some(Arc::new(tokio::sync::RwLock::new(manager)))
     } else {
         None
     };
 
     // Create transcription event channels
     let (stt_tx, stt_rx) = mpsc::channel::<TranscriptionEvent>(100);
-    let (text_injection_tx, text_injection_rx) = mpsc::channel::<TranscriptionEvent>(100);
+    let (_text_injection_tx, text_injection_rx) = mpsc::channel::<TranscriptionEvent>(100);
     
-    // TODO: Use stt_tx and text_injection_tx in STT processing task
-    let _stt_tx = stt_tx;
-    let _text_injection_tx = text_injection_tx;
-
-    // Fanout task
-    let vad_bcast_tx_clone = vad_bcast_tx.clone();
-    let vad_fanout_handle = tokio::spawn(async move {
-        let mut rx = raw_vad_rx;
-        while let Some(ev) = rx.recv().await {
-            tracing::debug!("Fanout: Received VAD event: {:?}", ev);
-            let _ = vad_bcast_tx_clone.send(ev);
-            tracing::debug!("Fanout: Forwarded to broadcast channel");
-        }
-    });
+    // 6) STT Processor (using plugin manager) and Fanout
+    let (stt_handle, vad_fanout_handle) = if let Some(ref plugin_manager) = plugin_manager {
+        // Create a channel for VAD events to STT processor
+        let (stt_vad_tx, stt_vad_rx) = mpsc::channel::<VadEvent>(100);
+        
+        // Clone the broadcast sender for STT processor
+        let stt_audio_rx = audio_tx.subscribe();
+        
+        // Create transcription config
+        let stt_config = TranscriptionConfig {
+            enabled: true,
+            model_path: "".to_string(), // Not used for plugins
+            partial_results: true,
+            max_alternatives: 1,
+            include_words: false,
+            buffer_size_ms: 512,
+            streaming: false,
+        };
+        
+        // Create and spawn plugin-based STT processor
+        let processor = PluginSttProcessor::new(
+            stt_audio_rx,
+            stt_vad_rx,
+            stt_tx.clone(),
+            plugin_manager.clone(),
+            stt_config,
+        );
+        
+        // Fanout with STT processor
+        let stt_vad_tx_clone = stt_vad_tx.clone();
+        let vad_bcast_tx_clone = vad_bcast_tx.clone();
+        let vad_fanout_handle = tokio::spawn(async move {
+            let mut rx = raw_vad_rx;
+            while let Some(ev) = rx.recv().await {
+                let _ = vad_bcast_tx_clone.send(ev.clone());
+                // Also send to STT processor
+                let _ = stt_vad_tx_clone.send(ev.clone()).await;
+            }
+        });
+        
+        (Some(tokio::spawn(async move {
+            processor.run().await;
+        })), vad_fanout_handle)
+    } else {
+        // No STT, just fanout normally
+        let vad_bcast_tx_clone = vad_bcast_tx.clone();
+        let vad_fanout_handle = tokio::spawn(async move {
+            let mut rx = raw_vad_rx;
+            while let Some(ev) = rx.recv().await {
+                tracing::debug!("Fanout: Received VAD event: {:?}", ev);
+                let _ = vad_bcast_tx_clone.send(ev);
+                tracing::debug!("Fanout: Forwarded to broadcast channel");
+            }
+        });
+        (None, vad_fanout_handle)
+    };
 
     // Optional text-injection
     #[cfg(feature = "text-injection")]
@@ -423,7 +479,7 @@ pub async fn start(
         trigger_handle,
         vad_fanout_handle,
         #[cfg(feature = "vosk")]
-        stt_handle: None, // TODO: Add STT processing task handle
+        stt_handle,
         #[cfg(feature = "text-injection")]
         injection_handle,
     })
@@ -443,8 +499,8 @@ mod tests {
             resampler_quality: ResamplerQuality::Balanced,
             activation_mode: ActivationMode::Vad,
             stt_selection: Some(PluginSelectionConfig {
-                preferred_plugin: Some("noop".to_string()),
-                fallback_plugins: vec!["mock".to_string()],
+                preferred_plugin: Some("mock".to_string()),
+                fallback_plugins: vec!["noop".to_string()],
                 require_local: true,
                 max_memory_mb: None,
                 required_language: None,
@@ -465,6 +521,9 @@ mod tests {
         // Start the app
         let mut app = start(opts).await.expect("Failed to start app");
 
+        // Give tasks time to start
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
         // Get STT receiver
         let mut stt_rx = app.stt_rx.take().expect("STT receiver should be available");
 
@@ -474,6 +533,19 @@ mod tests {
             energy_db: -20.0,
         };
         app.raw_vad_tx.send(speech_start).await.expect("Failed to send VAD event");
+
+        // Send multiple dummy audio frames (5 frames to trigger mock transcription)
+        for i in 0..5 {
+            let dummy_samples = vec![0.0f32; 512];
+            let audio_frame = coldvox_audio::AudioFrame {
+                samples: dummy_samples,
+                sample_rate: 16000,
+                timestamp: std::time::Instant::now() + std::time::Duration::from_millis(i as u64 * 32), // 32ms per frame
+            };
+            app.audio_tx.send(audio_frame).expect("Failed to send audio frame");
+            // Small delay to allow processing
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
 
         // Send mock VAD speech end event
         let speech_end = VadEvent::SpeechEnd {
