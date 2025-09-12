@@ -1,0 +1,20 @@
+# .docs/agent-config/edge-suggest.yaml
+patterns:
+  - pattern: "satisfies requirement"
+    source_type: specification
+    target_type: requirement
+    edge_type: satisfies
+    confidence: 0.95
+
+  - pattern: "verified by test"
+    source_type: [requirement, specification]
+    target_type: test
+    edge_type: verified_by
+    confidence: 0.90
+
+  - pattern: "implements (\\w+)"
+    source_type: specification
+    target_type: implementation
+    edge_type: implements
+    confidence: 0.85
+    capture_group: 1
