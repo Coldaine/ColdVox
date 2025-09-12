@@ -1,3 +1,13 @@
+---
+doc_type: architecture
+subsystem: stt-plugin
+version: 1.1
+status: implemented-partial
+owners: [kilo-code]
+last_reviewed: 2025-09-12
+# Note: Core implementation complete per stt-plugin-completion-plan.md v1.4, but partial gaps in TUI controls and config persistence. See Verification Summary for details.
+---
+
 # STT Plugin Architecture - Comprehensive Transformation Plan
 
 ## Executive Summary
@@ -448,6 +458,8 @@ pub fn create_transcriber(config: LegacyConfig) -> Box<dyn Transcriber> {
 }
 ```
 
+**Migration Note:** STT Plugin Manager fully integrated as of 2025-09-12, with telemetry, TUI exposure (partial), and runtime config hot-reload. Core failover/GC/metrics operational; see [docs/tasks/stt-plugin-completion-plan.md#verification-summary](docs/tasks/stt-plugin-completion-plan.md#verification-summary) for implementation status and gaps (TUI tab/controls, json persistence). Backward compatibility maintained via VOSK_MODEL_PATH mapping to preferred=vosk in main.rs. No breaking changes to SttPlugin trait.
+
 ## Performance Targets
 
 ### Lightweight Plugins
@@ -505,24 +517,24 @@ pub fn create_transcriber(config: LegacyConfig) -> Box<dyn Transcriber> {
 ## Timeline
 
 ### Week 1
-- [ ] Complete core infrastructure
-- [ ] Implement full Vosk plugin
-- [ ] Create plugin discovery system
+- [x] Complete core infrastructure
+- [x] Implement full Vosk plugin
+- [x] Create plugin discovery system
 
 ### Week 2
-- [ ] Add Parakeet plugin
-- [ ] Add Whisper.cpp plugin
-- [ ] Implement intelligent selection
+- [x] Add Parakeet plugin
+- [x] Add Whisper.cpp plugin
+- [x] Implement intelligent selection
 
 ### Week 3
-- [ ] Add remaining lightweight plugins
-- [ ] Create plugin testing framework
-- [ ] Write documentation
+- [x] Add remaining lightweight plugins
+- [x] Create plugin testing framework
+- [x] Write documentation
 
 ### Week 4
-- [ ] Performance optimization
+- [x] Performance optimization
 - [ ] Cloud plugin stubs
-- [ ] Release preparation
+- [x] Release preparation
 
 ## Success Metrics
 

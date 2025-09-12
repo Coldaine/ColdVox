@@ -15,4 +15,9 @@ dirs = "5.0"
 
 [features]
 default = []
-# Note: vosk integration is handled through the plugin registry, not features
+vosk = []
+parakeet = []
+whisper = []
+coqui = []
+leopard = []
+silero-stt = []

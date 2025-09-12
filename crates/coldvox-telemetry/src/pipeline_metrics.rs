@@ -78,6 +78,12 @@ pub struct PipelineMetrics {
     pub stt_transcription_failures: Arc<AtomicU64>,
     /// Last transcription latency in ms
     pub stt_last_transcription_latency_ms: Arc<AtomicU64>,
+    /// Last plugin load duration in ms
+    pub stt_last_load_duration_ms: Arc<AtomicU64>,
+    /// Last initialization duration in ms
+    pub stt_last_init_duration_ms: Arc<AtomicU64>,
+    /// Last unload duration in ms
+    pub stt_last_unload_duration_ms: Arc<AtomicU64>,
     /// Audio processing FPS * 10
     pub stt_audio_fps: Arc<AtomicU64>,
     /// Number of GC runs
@@ -135,6 +141,20 @@ impl Default for PipelineMetrics {
             stt_last_failover_secs: Arc::new(AtomicU64::new(0)),
             stt_unload_count: Arc::new(AtomicU64::new(0)),
             stt_unload_errors: Arc::new(AtomicU64::new(0)),
+            stt_load_count: Arc::new(AtomicU64::new(0)),
+            stt_load_errors: Arc::new(AtomicU64::new(0)),
+            stt_init_success: Arc::new(AtomicU64::new(0)),
+            stt_init_failures: Arc::new(AtomicU64::new(0)),
+            stt_active_plugins: Arc::new(AtomicUsize::new(0)),
+            stt_transcription_requests: Arc::new(AtomicU64::new(0)),
+            stt_transcription_success: Arc::new(AtomicU64::new(0)),
+            stt_transcription_failures: Arc::new(AtomicU64::new(0)),
+            stt_last_transcription_latency_ms: Arc::new(AtomicU64::new(0)),
+            stt_last_load_duration_ms: Arc::new(AtomicU64::new(0)),
+            stt_last_init_duration_ms: Arc::new(AtomicU64::new(0)),
+            stt_last_unload_duration_ms: Arc::new(AtomicU64::new(0)),
+            stt_audio_fps: Arc::new(AtomicU64::new(0)),
+            stt_gc_runs: Arc::new(AtomicU64::new(0)),
 
             // Text Injection Metrics
             #[cfg(feature = "text-injection")]

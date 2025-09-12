@@ -137,6 +137,24 @@ struct DashboardState {
     /// Last final transcript (if STT enabled)
     #[cfg(feature = "vosk")]
     last_transcript: Option<String>,
+
+    #[cfg(feature = "vosk")]
+    show_plugins: bool,
+
+    #[cfg(feature = "vosk")]
+    plugin_current: Option<String>,
+
+    #[cfg(feature = "vosk")]
+    plugin_active_count: usize,
+
+    #[cfg(feature = "vosk")]
+    plugin_transcription_requests: u64,
+
+    #[cfg(feature = "vosk")]
+    plugin_success: u64,
+
+    #[cfg(feature = "vosk")]
+    plugin_failures: u64,
 }
 
 #[derive(Clone)]
@@ -206,6 +224,11 @@ impl Default for DashboardState {
             has_metrics_snapshot: false,
             #[cfg(feature = "vosk")]
             last_transcript: None,
+            show_plugins: false,
+            plugin_current: None,
+            plugin_active_count: 0,
+            plugin_load_count: 0,
+            plugin_transcription_requests: 0,
         }
     }
 }

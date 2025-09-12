@@ -89,7 +89,7 @@ coldvox-telemetry = { path = "../coldvox-telemetry" }
 coldvox-audio = { path = "../coldvox-audio" }
 coldvox-vad = { path = "../coldvox-vad" }
 coldvox-vad-silero = { path = "../coldvox-vad-silero", features = ["silero"] }
-coldvox-stt = { path = "../coldvox-stt" }
+coldvox-stt = { path = "../coldvox-stt", features = ["parakeet", "whisper"] }
 coldvox-stt-vosk = { path = "../coldvox-stt-vosk", optional = true, features = ["vosk"] }
 # Note: coldvox-text-injection is now specified in target-specific sections below
 # to automatically enable platform-appropriate backends
@@ -109,6 +109,8 @@ rand = "0.8"
 default = ["silero", "vosk", "text-injection"]
 live-hardware-tests = []
 vosk = ["dep:coldvox-stt-vosk"]
+parakeet = []
+whisper = []
 # whisper feature removed - plugins are handled through registry
 no-stt = []
 examples = []

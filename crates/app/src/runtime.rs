@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tokio::signal;
-use tracing::info;
+use tracing::{info, error};
 
 use coldvox_audio::{
     AudioCaptureThread, AudioChunker, AudioRingBuffer, ChunkerConfig, FrameReader, ResamplerQuality,
@@ -76,7 +76,7 @@ pub struct AppHandle {
     #[cfg(feature = "vosk")]
     pub stt_rx: Option<mpsc::Receiver<TranscriptionEvent>>,
     #[cfg(feature = "vosk")]
-    plugin_manager: Option<SttPluginManager>,
+    pub plugin_manager: Option<Arc<tokio::sync::RwLock<SttPluginManager>>>,
 
     audio_capture: AudioCaptureThread,
     chunker_handle: JoinHandle<()>,
@@ -118,9 +118,9 @@ impl AppHandle {
         #[cfg(feature = "vosk")]
         if let Some(pm) = &self.plugin_manager {
             // Unload all plugins before stopping tasks
-            let _ = pm.unload_all_plugins().await;
-            let _ = pm.stop_gc_task().await;
-            let _ = pm.stop_metrics_task().await;
+            let _ = pm.read().await.unload_all_plugins().await;
+            let _ = pm.read().await.stop_gc_task().await;
+            let _ = pm.read().await.stop_metrics_task().await;
         }
 
         // Await tasks to ensure clean termination
@@ -168,7 +168,7 @@ impl AppHandle {
         #[cfg(feature = "vosk")]
         if let Some(ref pm) = self.plugin_manager {
             info!("Unloading STT plugins before activation mode switch");
-            let _ = pm.unload_all_plugins().await;
+            let _ = pm.read().await.unload_all_plugins().await;
         }
         
         self.trigger_handle.abort();
@@ -324,9 +324,8 @@ pub async fn start(
 
     // 5) STT Plugin Manager
     let plugin_manager = if let Some(stt_config) = &opts.stt_selection {
-        let mut manager = SttPluginManager::new()
-            .with_metrics_sink(metrics.clone());
-        manager.set_selection_config(stt_config.clone()).await;
+        let manager = Arc::new(tokio::sync::RwLock::new(SttPluginManager::new().with_metrics_sink(metrics.clone())));
+        manager.write().await.set_selection_config(stt_config.clone()).await;
         Some(manager)
     } else {
         None

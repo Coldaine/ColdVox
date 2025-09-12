@@ -54,7 +54,13 @@ impl VoskConfig {
         if let Ok(path) = std::env::var("VOSK_MODEL_PATH") {
             let path = PathBuf::from(path);
             if path.exists() {
-                info!("Using Vosk model from VOSK_MODEL_PATH: {:?}", path);
+                info!(
+                    target: "coldvox::stt",
+                    plugin_id = "vosk",
+                    event = "model_path_env",
+                    model_path = ?path,
+                    "Using Vosk model from VOSK_MODEL_PATH"
+                );
                 return Ok(path);
             }
         }
@@ -70,7 +76,13 @@ impl VoskConfig {
         
         for path in candidates {
             if path.exists() {
-                info!("Found Vosk model at: {:?}", path);
+                info!(
+                    target: "coldvox::stt",
+                    plugin_id = "vosk",
+                    event = "model_path_found",
+                    model_path = ?path,
+                    "Found Vosk model"
+                );
                 return Ok(path);
             }
         }
@@ -253,7 +265,12 @@ impl SttPlugin for VoskPlugin {
                     self.transcriber = Some(transcriber);
                     self.initialized = true;
                     *self.state.write() = PluginState::Ready;
-                    info!("Vosk plugin initialized with actual VoskTranscriber");
+                    info!(
+                        target: "coldvox::stt",
+                        plugin_id = "vosk",
+                        event = "plugin_initialized",
+                        "Vosk plugin initialized with actual VoskTranscriber"
+                    );
                     Ok(())
                 }
                 Err(e) => {
@@ -339,7 +356,13 @@ impl SttPlugin for VoskPlugin {
             self.config.model_path = path.to_path_buf();
         }
         
-        info!("Vosk model path updated (stub mode)");
+        info!(
+            target: "coldvox::stt",
+            plugin_id = "vosk",
+            event = "model_path_updated",
+            model_path = ?model_path,
+            "Vosk model path updated (stub mode)"
+        );
         Ok(())
     }
     
@@ -357,7 +380,12 @@ impl SttPlugin for VoskPlugin {
                 // The transcriber will be dropped here, freeing the Vosk model
                 // In a more complete implementation, we might call explicit cleanup methods
                 // if the VoskTranscriber API provides them
-                info!("Vosk transcriber unloaded and model memory freed");
+                info!(
+                    target: "coldvox::stt",
+                    plugin_id = "vosk",
+                    event = "transcriber_unloaded",
+                    "Vosk transcriber unloaded and model memory freed"
+                );
                 
                 // If there were any explicit cleanup methods, they would be called here
                 // For example: transcriber.cleanup().map_err(|e| SttPluginError::UnloadFailed(e))?;
@@ -372,7 +400,12 @@ impl SttPlugin for VoskPlugin {
         // Reset metrics
         *self.metrics.write() = PluginMetrics::default();
         
-        info!("Vosk plugin unloaded successfully");
+        info!(
+            target: "coldvox::stt",
+            plugin_id = "vosk",
+            event = "plugin_unloaded",
+            "Vosk plugin unloaded successfully"
+        );
         Ok(())
     }
 }
