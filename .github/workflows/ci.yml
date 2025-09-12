@@ -39,7 +39,7 @@ env:
 jobs:
   validate-workflows:
     name: Validate Workflow Definitions
-    runs-on: [self-hosted, Linux, X64, nobara]
+    runs-on: [self-hosted, Linux, X64, fedora, nobara]
     continue-on-error: true # Optional validation
     env:
       GH_TOKEN: ${{ github.token }}
@@ -84,7 +84,7 @@ jobs:
 
   setup-vosk-dependencies:
     name: Setup Vosk Dependencies
-    runs-on: [self-hosted, Linux, X64, nobara]
+    runs-on: [self-hosted, Linux, X64, fedora, nobara]
     outputs:
       model_path: ${{ steps.setup.outputs.model_path }}
       lib_path: ${{ steps.setup.outputs.lib_path }}
@@ -97,7 +97,7 @@ jobs:
   # Build, check, and test with multiple Rust versions
   build_and_check:
     name: Build & Test
-    runs-on: [self-hosted, Linux, X64, nobara]
+    runs-on: [self-hosted, Linux, X64, fedora, nobara]
     needs: [setup-vosk-dependencies]
     strategy:
       matrix:
@@ -178,7 +178,7 @@ jobs:
 
   text_injection_tests:
     name: Text Injection Tests
-    runs-on: [self-hosted, Linux, X64, nobara]
+    runs-on: [self-hosted, Linux, X64, fedora, nobara]
     needs: [setup-vosk-dependencies]
     timeout-minutes: 30
     env:
@@ -299,13 +299,12 @@ jobs:
 
   ci_success:
     name: CI Success Summary
-    runs-on: [self-hosted, Linux, X64, nobara]
+    runs-on: [self-hosted, Linux, X64, fedora, nobara]
     needs:
       - validate-workflows
       - setup-vosk-dependencies
       - build_and_check
       - text_injection_tests
-      - security
     if: always()
     steps:
       - uses: actions/checkout@v4
@@ -316,7 +315,6 @@ jobs:
           echo "- setup-vosk-dependencies:       ${{ needs.setup-vosk-dependencies.result }}" >> report.md
           echo "- build_and_check:               ${{ needs.build_and_check.result }}" >> report.md
           echo "- text_injection_tests:          ${{ needs.text_injection_tests.result }}" >> report.md
-          echo "- security:                      ${{ needs.security.result }}" >> report.md
           if [[ "${{ needs.setup-vosk-dependencies.result }}" != "success" ]]; then echo "::error::Setup Vosk dependencies failed."; exit 1; fi
           if [[ "${{ needs.build_and_check.result }}" != "success" ]]; then echo "::error::Build and check failed."; exit 1; fi
           if [[ "${{ needs.text_injection_tests.result }}" != "success" ]]; then echo "::error::Text injection tests failed."; exit 1; fi

@@ -18,7 +18,7 @@ jobs:
   release-plz:
     name: Release Please
     if: github.event_name == 'workflow_dispatch'
-    runs-on: [self-hosted, Linux, X64, nobara]
+    runs-on: [self-hosted, Linux, X64, fedora, nobara]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -45,7 +45,7 @@ jobs:
   release:
     name: Create Release
     if: github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main'
-    runs-on: [self-hosted, Linux, X64, nobara]
+    runs-on: [self-hosted, Linux, X64, fedora, nobara]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
