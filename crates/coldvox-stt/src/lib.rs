@@ -9,13 +9,15 @@ use std::sync::atomic::{AtomicU64, Ordering};
 pub mod plugin;
 pub mod plugin_types;
 pub mod plugins;
-pub mod processor;
+pub mod processor; // legacy (EventBasedTranscriber-based) processor
 pub mod types;
+pub mod plugin_adapter; // new adapter implementing StreamingStt
+pub mod streaming_processor; // new async StreamingStt processor (under migration)
 
 pub use types::{TranscriptionConfig, TranscriptionEvent, WordInfo};
 pub use plugin::{SttPlugin, SttPluginError};
-// Re-export streaming interfaces so application layer can depend only on crate root
-pub use crate::{StreamingStt as StreamingSttTrait};
+pub use plugin_adapter::PluginAdapter; // adapter for plugin → StreamingStt
+pub use streaming_processor::{StreamingSttProcessor, AudioFrame as StreamingAudioFrame, VadEvent as StreamingVadEvent};
 
 /// Generates unique utterance IDs
 static UTTERANCE_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -56,58 +58,13 @@ pub trait EventBasedTranscriber {
     fn config(&self) -> &TranscriptionConfig;
 }
 
-/// Streaming STT interface for real-time transcription
+/// Streaming STT interface used by the new async processor.
+/// This mirrors the agent branch simpler interface: per-frame processing,
+/// finalize at speech end, and reset. Additional richer streaming methods
+/// can be layered later if needed.
 #[async_trait]
 pub trait StreamingStt: Send + Sync {
-    /// Process streaming audio and return transcription events
-    async fn process_stream(
-        &mut self,
-        audio: &[i16],
-    ) -> Result<Vec<TranscriptionEvent>, Box<dyn std::error::Error + Send + Sync>>;
-
-    /// Finalize the current stream and get remaining transcriptions
-    async fn finalize_stream(&mut self) -> Result<Vec<TranscriptionEvent>, Box<dyn std::error::Error + Send + Sync>>;
-
-    /// Reset the streaming state
-    async fn reset_stream(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
-}
-
-/// Adapter to bridge SttPlugin to StreamingStt
-pub struct PluginAdapter<P: SttPlugin> {
-    plugin: P,
-}
-
-impl<P: SttPlugin> PluginAdapter<P> {
-    pub fn new(plugin: P, _config: TranscriptionConfig) -> Self {
-        Self { plugin }
-    }
-
-    /// Access underlying plugin (read-only)
-    pub fn inner(&self) -> &P { &self.plugin }
-}
-
-#[async_trait]
-impl<P: SttPlugin> StreamingStt for PluginAdapter<P> {
-    async fn process_stream(
-        &mut self,
-        audio: &[i16],
-    ) -> Result<Vec<TranscriptionEvent>, Box<dyn std::error::Error + Send + Sync>> {
-        match self.plugin.process_audio(audio).await {
-            Ok(Some(event)) => Ok(vec![event]),
-            Ok(None) => Ok(vec![]),
-            Err(e) => Err(Box::new(e)),
-        }
-    }
-
-    async fn finalize_stream(&mut self) -> Result<Vec<TranscriptionEvent>, Box<dyn std::error::Error + Send + Sync>> {
-        match self.plugin.finalize().await {
-            Ok(Some(event)) => Ok(vec![event]),
-            Ok(None) => Ok(vec![]),
-            Err(e) => Err(Box::new(e)),
-        }
-    }
-
-    async fn reset_stream(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.plugin.reset().await.map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as Box<dyn std::error::Error + Send + Sync>)
-    }
+    async fn on_speech_frame(&mut self, samples: &[i16]) -> Option<TranscriptionEvent>;
+    async fn on_speech_end(&mut self) -> Option<TranscriptionEvent>;
+    async fn reset(&mut self);
 }

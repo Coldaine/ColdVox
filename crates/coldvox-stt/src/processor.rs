@@ -183,9 +183,7 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
         };
 
         // Reset STT engine for new utterance
-        if let Err(e) = self.stt_engine.reset_stream().await {
-            warn!(target: "stt", "Failed to reset STT engine: {}", e);
-        }
+        self.stt_engine.reset().await;
 
         info!(target: "stt", "Started buffering audio for new utterance");
     }
@@ -217,58 +215,24 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
 
             if !audio_buffer.is_empty() {
                 // Send the entire buffer to the STT engine
-                match self.stt_engine.process_stream(audio_buffer).await {
-                    Ok(events) => {
-                        for event in events {
-                            self.send_event(event).await;
-                        }
-
-                        // Update metrics
-                        let mut metrics = self.metrics.write();
-                        metrics.frames_out += frames_buffered;
-                        metrics.last_event_time = Some(Instant::now());
-                    }
-                    Err(e) => {
-                        error!(target: "stt", "Failed to process buffered audio: {}", e);
-
-                        // Send error event
-                        let error_event = TranscriptionEvent::Error {
-                            code: "BUFFER_PROCESS_ERROR".to_string(),
-                            message: format!("{}", e),
-                        };
-                        self.send_event(error_event).await;
-
-                        // Update metrics
-                        self.metrics.write().error_count += 1;
+                // Stream model expects per-frame feeding; here we feed the whole buffered audio
+                // in chunks to preserve event semantics.
+                for chunk in audio_buffer.chunks(16000) { // 1 second chunks arbitrary; adjust later if needed
+                    if let Some(event) = self.stt_engine.on_speech_frame(chunk).await {
+                        self.send_event(event).await;
                     }
                 }
+                let mut metrics = self.metrics.write();
+                metrics.frames_out += frames_buffered;
+                metrics.last_event_time = Some(Instant::now());
             }
 
             // Finalize to get any remaining transcription
-            match self.stt_engine.finalize_stream().await {
-                Ok(events) => {
-                    for event in events {
-                        self.send_event(event).await;
-                    }
-
-                    // Update metrics
-                    let mut metrics = self.metrics.write();
-                    metrics.final_count += 1;
-                    metrics.last_event_time = Some(Instant::now());
-                }
-                Err(e) => {
-                    error!(target: "stt", "Failed to finalize transcription: {}", e);
-
-                    // Send error event
-                    let error_event = TranscriptionEvent::Error {
-                        code: "FINALIZE_ERROR".to_string(),
-                        message: format!("{}", e),
-                    };
-                    self.send_event(error_event).await;
-
-                    // Update metrics
-                    self.metrics.write().error_count += 1;
-                }
+            if let Some(event) = self.stt_engine.on_speech_end().await {
+                self.send_event(event).await;
+                let mut metrics = self.metrics.write();
+                metrics.final_count += 1;
+                metrics.last_event_time = Some(Instant::now());
             }
         }
 

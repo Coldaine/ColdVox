@@ -379,7 +379,7 @@ async fn run_app(
                                     let pm_clone = pm.clone();
                                     let tx_clone = tx.clone();
                                     tokio::spawn(async move {
-                                        let result = pm_clone.read().await.switch_plugin("mock").await;
+                                        let result = pm_clone.write().await.switch_plugin("mock").await;
                                         let _ = tx_clone.send(AppEvent::PluginSwitch("mock".to_string())).await;
                                         if result.is_ok() {
                                             let _ = tx_clone.send(AppEvent::PluginLoad("mock".to_string())).await;
@@ -396,7 +396,7 @@ async fn run_app(
                                     let pm_clone = pm.clone();
                                     let tx_clone = tx.clone();
                                     tokio::spawn(async move {
-                                        let result = pm_clone.read().await.unload_plugin("mock").await;
+                                        let _ = pm_clone.write().await.unload_plugin("mock").await;
                                         let _ = tx_clone.send(AppEvent::PluginUnload("mock".to_string())).await;
                                     });
                                 }

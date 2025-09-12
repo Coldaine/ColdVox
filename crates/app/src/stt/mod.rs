@@ -19,6 +19,7 @@ pub mod processor;
 pub mod persistence;
 
 pub mod plugin_manager;
+pub mod streaming_adapter;
 
 #[cfg(test)]
 mod tests;

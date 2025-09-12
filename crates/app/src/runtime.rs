@@ -1,3 +1,4 @@
+use std::env;
 use std::sync::Arc;
 
 use tokio::sync::{broadcast, mpsc};
@@ -19,9 +20,13 @@ use crate::hotkey::spawn_hotkey_listener;
 use crate::stt::TranscriptionEvent;
 #[cfg(feature = "vosk")]
 use crate::stt::{TranscriptionConfig, processor::PluginSttProcessor};
-#[cfg(feature = "vosk")]
-use coldvox_stt::plugin::{PluginSelectionConfig, FailoverConfig, GcPolicy};
+use coldvox_stt::plugin::PluginSelectionConfig;
 use crate::stt::plugin_manager::SttPluginManager;
+
+use coldvox_stt::{StreamingAudioFrame, StreamingVadEvent};
+#[cfg(feature = "vosk")]
+use coldvox_stt::streaming_processor::StreamingSttProcessor;
+use crate::stt::streaming_adapter::ManagerStreamingAdapter;
 
 /// Activation strategy for push-to-talk vs voice activation
 #[derive(PartialEq, Copy, Clone, Debug)]
@@ -238,6 +243,9 @@ pub async fn start(
     // Metrics shared across components
     let metrics = Arc::new(PipelineMetrics::default());
 
+    let stt_arch = env::var("COLDVOX_STT_ARCH").unwrap_or_else(|_| "legacy".to_string());
+    info!("STT architecture: {}", stt_arch);
+
     // 1) Audio capture
     let audio_config = AudioConfig::default();
     let ring_buffer = AudioRingBuffer::new(16384 * 4);
@@ -326,74 +334,157 @@ pub async fn start(
     // 4) Fan-out raw VAD mpsc -> broadcast for UI, and to STT when enabled
     let (vad_bcast_tx, _) = broadcast::channel::<VadEvent>(256);
 
-    // 5) STT Plugin Manager
-    let plugin_manager = if let Some(stt_config) = &opts.stt_selection {
-        let mut manager = SttPluginManager::new().with_metrics_sink(metrics.clone());
-        manager.set_selection_config(stt_config.clone()).await;
-        
-        // Initialize the plugin manager to select and load a plugin
-        match manager.initialize().await {
-            Ok(plugin_id) => {
-                info!("Successfully initialized STT plugin: {}", plugin_id);
+    // 5) STT Plugin Manager - conditional based on architecture
+    let plugin_manager: Option<Arc<tokio::sync::RwLock<SttPluginManager>>> = {
+        let metrics_clone = metrics.clone();
+        let create_manager = |stt_config: Option<PluginSelectionConfig>| {
+            let metrics = metrics_clone.clone();
+            async move {
+                let mut manager = SttPluginManager::new().with_metrics_sink(metrics);
+                if let Some(config) = stt_config {
+                    manager.set_selection_config(config).await;
+                } // else use defaults
+                manager.initialize().await?;
+                Ok::<_, Box<dyn std::error::Error + Send + Sync>>(Arc::new(tokio::sync::RwLock::new(manager)))
             }
-            Err(e) => {
-                error!("Failed to initialize STT plugin manager: {}", e);
-                return Err(Box::new(e));
+        };
+
+        match stt_arch.as_str() {
+            "streaming" => Some(create_manager(opts.stt_selection.clone()).await?),
+            "legacy" => {
+                if opts.stt_selection.is_some() {
+                    Some(create_manager(opts.stt_selection.clone()).await?)
+                } else {
+                    None
+                }
             }
+            _ => None,
         }
-        
-        Some(Arc::new(tokio::sync::RwLock::new(manager)))
-    } else {
-        None
     };
 
     // Create transcription event channels
+    #[cfg(feature = "vosk")]
     let (stt_tx, stt_rx) = mpsc::channel::<TranscriptionEvent>(100);
+    #[cfg(not(feature = "vosk"))]
+    let (stt_tx, _stt_rx) = mpsc::channel::<TranscriptionEvent>(100); // stt_rx not used
     let (_text_injection_tx, text_injection_rx) = mpsc::channel::<TranscriptionEvent>(100);
     
-    // 6) STT Processor (using plugin manager) and Fanout
+    // 6) STT Processor and Fanout - branched by architecture
     let (stt_handle, vad_fanout_handle) = if let Some(ref plugin_manager) = plugin_manager {
-        // Create a channel for VAD events to STT processor
-        let (stt_vad_tx, stt_vad_rx) = mpsc::channel::<VadEvent>(100);
-        
-        // Clone the broadcast sender for STT processor
-        let stt_audio_rx = audio_tx.subscribe();
-        
-        // Create transcription config
-        let stt_config = TranscriptionConfig {
-            enabled: true,
-            model_path: "".to_string(), // Not used for plugins
-            partial_results: true,
-            max_alternatives: 1,
-            include_words: false,
-            buffer_size_ms: 512,
-            streaming: false,
-        };
-        
-        // Create and spawn plugin-based STT processor
-        let processor = PluginSttProcessor::new(
-            stt_audio_rx,
-            stt_vad_rx,
-            stt_tx.clone(),
-            plugin_manager.clone(),
-            stt_config,
-        );
-        
-        // Fanout with STT processor
-        let stt_vad_tx_clone = stt_vad_tx.clone();
-        let vad_bcast_tx_clone = vad_bcast_tx.clone();
-        let vad_fanout_handle = tokio::spawn(async move {
-            let mut rx = raw_vad_rx;
-            while let Some(ev) = rx.recv().await {
-                let _ = vad_bcast_tx_clone.send(ev.clone());
-                // Also send to STT processor
-                let _ = stt_vad_tx_clone.send(ev.clone()).await;
+        if stt_arch == "legacy" {
+            // Legacy path: existing PluginSttProcessor
+            let (stt_vad_tx, stt_vad_rx) = mpsc::channel::<VadEvent>(100);
+            let stt_audio_rx = audio_tx.subscribe();
+            #[cfg(feature = "vosk")]
+            let stt_config = TranscriptionConfig {
+                enabled: true,
+                model_path: "".to_string(),
+                partial_results: true,
+                max_alternatives: 1,
+                include_words: false,
+                buffer_size_ms: 512,
+                streaming: false,
+            };
+            #[cfg(not(feature = "vosk"))]
+            let stt_config = TranscriptionConfig::default();
+            #[cfg(feature = "vosk")]
+            let processor = PluginSttProcessor::new(
+                stt_audio_rx,
+                stt_vad_rx,
+                stt_tx.clone(),
+                plugin_manager.clone(),
+                stt_config,
+            );
+            let stt_vad_tx_clone = stt_vad_tx.clone();
+            let vad_bcast_tx_clone = vad_bcast_tx.clone();
+            let vad_fanout_handle = tokio::spawn(async move {
+                let mut rx = raw_vad_rx;
+                while let Some(ev) = rx.recv().await {
+                    let _ = vad_bcast_tx_clone.send(ev.clone());
+                    let _ = stt_vad_tx_clone.send(ev.clone()).await;
+                }
+            });
+            #[cfg(feature = "vosk")]
+            let stt_handle = Some(tokio::spawn(async move {
+                processor.run().await;
+            }));
+            #[cfg(not(feature = "vosk"))]
+            let stt_handle = None;
+            (stt_handle, vad_fanout_handle)
+        } else {
+            // Streaming path
+            let (stream_audio_tx, _) = broadcast::channel::<StreamingAudioFrame>(200);
+            // Spawn audio forwarder task (background, not stored in handle)
+            {
+                let audio_rx = audio_tx.subscribe();
+                let stream_audio_tx = stream_audio_tx.clone();
+                let mut next_timestamp_ms = 0u64;
+                tokio::spawn(async move {
+                    let mut rx = audio_rx;
+                    while let Ok(frame) = rx.recv().await {
+                        let i16_samples: Vec<i16> = frame.samples.iter()
+                            .map(|&s| ((s.clamp(-1.0, 1.0) * 32767.0) as i16))
+                            .collect();
+                        let stream_frame = StreamingAudioFrame {
+                            data: i16_samples,
+                            sample_rate: 16000,
+                            timestamp_ms: next_timestamp_ms,
+                        };
+                        let _ = stream_audio_tx.send(stream_frame);
+                        next_timestamp_ms += 32; // 512 samples @ 16kHz = 32ms
+                    }
+                });
             }
-        });
-        
-        (Some(tokio::spawn(async move {
-            processor.run().await;
-        })), vad_fanout_handle)
+            let stream_audio_rx = stream_audio_tx.subscribe();
+            let (stream_vad_tx, stream_vad_rx) = mpsc::channel::<StreamingVadEvent>(100);
+            let vad_bcast_tx_clone = vad_bcast_tx.clone();
+            let stream_vad_tx_clone = stream_vad_tx.clone();
+            let vad_fanout_handle = tokio::spawn(async move {
+                let mut rx = raw_vad_rx;
+                while let Some(ev) = rx.recv().await {
+                    let _ = vad_bcast_tx_clone.send(ev.clone());
+                    match ev {
+                        VadEvent::SpeechStart { timestamp_ms, .. } => {
+                            let stream_ev = StreamingVadEvent::SpeechStart { timestamp_ms };
+                            let _ = stream_vad_tx_clone.send(stream_ev).await;
+                        }
+                        VadEvent::SpeechEnd { timestamp_ms, duration_ms, .. } => {
+                            let stream_ev = StreamingVadEvent::SpeechEnd { timestamp_ms, duration_ms };
+                            let _ = stream_vad_tx_clone.send(stream_ev).await;
+                        }
+                    }
+                }
+            });
+            #[cfg(feature = "vosk")]
+            let stt_config = TranscriptionConfig {
+                enabled: true,
+                model_path: "".to_string(),
+                partial_results: true,
+                max_alternatives: 1,
+                include_words: false,
+                buffer_size_ms: 512,
+                streaming: true,
+            };
+            #[cfg(not(feature = "vosk"))]
+            let stt_config = TranscriptionConfig { streaming: true, ..Default::default() };
+            #[cfg(feature = "vosk")]
+            let adapter = ManagerStreamingAdapter::new(plugin_manager.clone());
+            #[cfg(feature = "vosk")]
+            let processor = StreamingSttProcessor::new(
+                stream_audio_rx,
+                stream_vad_rx,
+                stt_tx.clone(),
+                adapter,
+                stt_config,
+            );
+            #[cfg(feature = "vosk")]
+            let stt_handle = Some(tokio::spawn(async move {
+                processor.run().await;
+            }));
+            #[cfg(not(feature = "vosk"))]
+            let stt_handle = None;
+            (stt_handle, vad_fanout_handle)
+        }
     } else {
         // No STT, just fanout normally
         let vad_bcast_tx_clone = vad_bcast_tx.clone();
@@ -405,7 +496,11 @@ pub async fn start(
                 tracing::debug!("Fanout: Forwarded to broadcast channel");
             }
         });
-        (None, vad_fanout_handle)
+        #[cfg(feature = "vosk")]
+        let stt_handle = None;
+        #[cfg(not(feature = "vosk"))]
+        let stt_handle = None;
+        (stt_handle, vad_fanout_handle)
     };
 
     // Optional text-injection
@@ -489,10 +584,14 @@ pub async fn start(
 mod tests {
     use super::*;
     use std::time::Duration;
+    use std::env;
+    use coldvox_stt::plugin::{FailoverConfig, GcPolicy};
 
     #[cfg(feature = "vosk")]
     #[tokio::test]
-    async fn end_to_end_stt_pipeline() {
+    async fn end_to_end_legacy_stt_pipeline() {
+        env::set_var("COLDVOX_STT_ARCH", "legacy");
+
         // Create runtime options with STT enabled
         let opts = AppRuntimeOptions {
             device: None,
@@ -581,6 +680,101 @@ mod tests {
         let has_final = received_events.iter().any(|e| matches!(e, TranscriptionEvent::Final { .. }));
 
         assert!(has_partial || has_final, "Should receive either partial or final transcription events");
+
+        // Clean shutdown
+        app.shutdown().await;
+    }
+
+    #[cfg(feature = "vosk")]
+    #[tokio::test]
+    async fn end_to_end_streaming_stt_pipeline() {
+        env::set_var("COLDVOX_STT_ARCH", "streaming");
+
+        // Create runtime options with STT enabled (mock plugin)
+        let opts = AppRuntimeOptions {
+            device: None,
+            resampler_quality: ResamplerQuality::Balanced,
+            activation_mode: ActivationMode::Vad,
+            stt_selection: Some(PluginSelectionConfig {
+                preferred_plugin: Some("mock".to_string()),
+                fallback_plugins: vec!["noop".to_string()],
+                require_local: true,
+                max_memory_mb: None,
+                required_language: None,
+                failover: Some(FailoverConfig {
+                    failover_threshold: 3,
+                    failover_cooldown_secs: 1,
+                }),
+                gc_policy: Some(GcPolicy {
+                    model_ttl_secs: 30,
+                    enabled: false, // Disable GC for test
+                }),
+                metrics: None,
+            }),
+            #[cfg(feature = "text-injection")]
+            injection: None,
+        };
+
+        // Start the app
+        let mut app = start(opts).await.expect("Failed to start app");
+
+        // Give tasks time to start (longer for forwarder and streaming processor)
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        // Get STT receiver
+        let mut stt_rx = app.stt_rx.take().expect("STT receiver should be available");
+
+        // Send mock VAD speech start event
+        let speech_start = VadEvent::SpeechStart {
+            timestamp_ms: 1000,
+            energy_db: -20.0,
+        };
+        app.raw_vad_tx.send(speech_start).await.expect("Failed to send VAD event");
+
+        // Send multiple dummy audio frames (5 frames to trigger mock transcription)
+        for i in 0..5 {
+            let dummy_samples = vec![0.0f32; 512];
+            let audio_frame = coldvox_audio::AudioFrame {
+                samples: dummy_samples,
+                sample_rate: 16000,
+                timestamp: std::time::Instant::now() + std::time::Duration::from_millis(i as u64 * 32), // 32ms per frame
+            };
+            app.audio_tx.send(audio_frame).expect("Failed to send audio frame");
+            // Small delay to allow processing and forwarding
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        // Send mock VAD speech end event
+        let speech_end = VadEvent::SpeechEnd {
+            timestamp_ms: 2000,
+            duration_ms: 1000,
+            energy_db: -20.0,
+        };
+        app.raw_vad_tx.send(speech_end).await.expect("Failed to send VAD event");
+
+        // Wait for transcription events with timeout (longer for streaming)
+        let mut received_events = Vec::new();
+        let timeout_duration = Duration::from_secs(10);
+        let start_time = std::time::Instant::now();
+
+        while start_time.elapsed() < timeout_duration {
+            match tokio::time::timeout(Duration::from_millis(200), stt_rx.recv()).await {
+                Ok(Some(event)) => {
+                    received_events.push(event);
+                    if received_events.len() >= 1 { // At least one final event for mock
+                        break;
+                    }
+                }
+                Ok(None) => break, // Channel closed
+                Err(_) => continue, // Timeout, try again
+            }
+        }
+
+        // Verify we received at least one transcription event
+        assert!(!received_events.is_empty(), "Should receive at least one transcription event");
+
+        let has_final = received_events.iter().any(|e| matches!(e, TranscriptionEvent::Final { .. }));
+        assert!(has_final, "Should receive a final transcription event in streaming mode");
 
         // Clean shutdown
         app.shutdown().await;

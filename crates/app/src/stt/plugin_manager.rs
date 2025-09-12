@@ -1001,6 +1001,32 @@ impl SttPluginManager {
             Err("No STT plugin selected".to_string())
         }
     }
+
+    /// Finalize current utterance with the current plugin
+    pub async fn finalize(&mut self) -> Result<Option<coldvox_stt::types::TranscriptionEvent>, String> {
+        let mut current = self.current_plugin.write().await;
+        if let Some(ref mut plugin) = *current {
+            match plugin.finalize().await {
+                Ok(result) => Ok(result),
+                Err(e) => {
+                    self.total_errors.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    Err(e.to_string())
+                }
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Reset current plugin state for a new utterance
+    pub async fn reset(&mut self) -> Result<(), String> {
+        let mut current = self.current_plugin.write().await;
+        if let Some(ref mut plugin) = *current {
+            plugin.reset().await.map_err(|e| e.to_string())
+        } else {
+            Ok(())
+        }
+    }
     
     /// Attempt to failover to a different plugin
     async fn attempt_failover(&mut self, failed_plugin_id: &str) -> Result<String, String> {

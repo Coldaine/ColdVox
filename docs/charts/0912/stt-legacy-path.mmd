@@ -1,0 +1,73 @@
+flowchart TD
+    %% External inputs
+    MIC[Microphone Input] --> CAPTURE[AudioCaptureThread]
+    
+    %% Ingestion & preprocessing
+    CAPTURE --> CHUNKER[AudioChunker<br/>Resampler 16kHz]
+    CHUNKER --> AUDIOTX{Audio TX<br/>broadcast<AudioFrame f32>}
+    
+    VADPROC[VadProcessor<br/>Silero VAD] --> RAWVADTX{Raw VAD TX<br/>mpsc<VadEvent>}
+    
+    %% Messaging / fan-out
+    RAWVADTX --> VADTX[VAD TX<br/>broadcast<VadEvent> to UI]
+    RAWVADTX --> FANOUT[VAD Fanout Task<br/>Legacy Mode]
+    
+    %% Core processing
+    FANOUT --> STTVADTX{STT VAD TX<br/>mpsc<VadEvent>}
+    STTVADTX --> LEGACY_VADRX[STT VAD RX]
+    
+    AUDIOTX -->|subscribe| STTAUDIORX[STT Audio RX<br/>f32 frames]
+    
+    %% Domain engines & adapters
+    PLUGINMGR[SttPluginManager<br/>Mock/NoOp/Whisper<br/>Failover/GC] -.->|direct| LEGACY[PluginSttProcessor<br/>Batch Utterance<br/>Buffer & Process]
+    
+    STTAUDIORX --> LEGACY
+    LEGACY_VADRX --> LEGACY
+    
+    %% State / coordination
+    LEGACY -->|TranscriptionEvent| STTTX[STT TX<br/>mpsc<TranscriptionEvent>]
+    
+    %% Downstream consumers
+    STTTX --> TUI[TUI/UI Display]
+    STTTX -.->|optional| INJECTION[Text Injection<br/>Processor]
+    
+    VADTX --> TUI
+    
+    %% Foundation components
+    subgraph Foundation [Foundation Layer]
+        METRICS[Metrics<br/>PipelineMetrics]
+        CFG[Config<br/>AppRuntimeOptions]
+        SH[Shutdown<br/>AppHandle]
+        TRACING[Tracing & Logging]
+    end
+    
+    %% Observability
+    CHUNKER -.->|frames in/out| METRICS
+    VADPROC -.->|vad events| METRICS
+    LEGACY -.->|partials/finals/errors| METRICS
+    PLUGINMGR -.->|load/unload/errors| METRICS
+    
+    %% Shutdown & resilience
+    SH -->|abort| FANOUT
+    SH -->|abort| LEGACY
+    SH -->|unload all| PLUGINMGR
+    PLUGINMGR -.->|gc runs/failovers| METRICS
+    
+    %% Component classes
+    classDef input fill:#4a90e2,stroke:#333,stroke-width:2px,color:#fff
+    classDef msg fill:#50e3c2,stroke:#333,stroke-width:2px,color:#000
+    classDef core fill:#f5a623,stroke:#333,stroke-width:2px,color:#000
+    classDef engine fill:#7ed321,stroke:#333,stroke-width:2px,color:#000
+    classDef sink fill:#bd10e0,stroke:#333,stroke-width:2px,color:#fff
+    classDef ui fill:#9013fe,stroke:#333,stroke-width:2px,color:#fff
+    classDef foundation fill:#d0021b,stroke:#333,stroke-width:2px,color:#fff
+    classDef observability fill:#9b9b9b,stroke:#333,stroke-width:2px,color:#fff
+    classDef resilience fill:#8b572a,stroke:#333,stroke-width:2px,color:#fff
+    
+    class MIC,CAPTURE input
+    class AUDIOTX,RAWVADTX,VADTX,STTVADTX,FANOUT msg
+    class CHUNKER,VADPROC core
+    class PLUGINMGR engine
+    class LEGACY core
+    class TUI,INJECTION sink
+    class METRICS,CFG,SH,TRACING foundation

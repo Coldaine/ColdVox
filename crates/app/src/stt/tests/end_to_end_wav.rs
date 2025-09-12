@@ -17,6 +17,41 @@ use coldvox_vad::config::{UnifiedVadConfig, VadMode};
 use coldvox_vad::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 use coldvox_vad::types::VadEvent;
 
+/// Attempt to resolve a Vosk model directory automatically when the environment
+/// variable `VOSK_MODEL_PATH` is not set. This walks up from the current crate
+/// directory looking for `models/vosk-model-small-en-us-0.15` (default bundled
+/// test asset) and returns the first match. If nothing is found, returns the
+/// conventional relative path used previously so existing error messaging
+/// remains accurate.
+fn resolve_vosk_model_path() -> String {
+    // 1. Environment override wins immediately
+    if let Ok(p) = std::env::var("VOSK_MODEL_PATH") { return p; }
+
+    // 2. Candidate relative names (could be expanded later)
+    const CANDIDATES: &[&str] = &[
+        "models/vosk-model-small-en-us-0.15",
+        "../models/vosk-model-small-en-us-0.15",
+        "../../models/vosk-model-small-en-us-0.15",
+    ];
+
+    for cand in CANDIDATES { if std::path::Path::new(cand).join("graph").exists() { return cand.to_string(); } }
+
+    // 3. Walk upward a few levels to locate a models directory dynamically
+    if let Ok(cwd) = std::env::current_dir() {
+        let mut cur = Some(cwd.as_path());
+        for _ in 0..5 { // limit depth to avoid long walks
+            if let Some(dir) = cur {
+                let candidate = dir.join("models/vosk-model-small-en-us-0.15");
+                if candidate.join("graph").exists() { return candidate.to_string_lossy().to_string(); }
+                cur = dir.parent();
+            }
+        }
+    }
+
+    // Fallback: original default path (so existing guidance still applies)
+    "models/vosk-model-small-en-us-0.15".to_string()
+}
+
 /// Playback mode for WAV streaming
 #[derive(Debug, Clone, Copy)]
 pub enum PlaybackMode {
@@ -348,8 +383,7 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
     let stt_config = TranscriptionConfig {
         enabled: true,
         streaming: true,
-        model_path: std::env::var("VOSK_MODEL_PATH")
-            .unwrap_or_else(|_| "models/vosk-model-small-en-us-0.15".to_string()),
+        model_path: resolve_vosk_model_path(),
         partial_results: true,
         max_alternatives: 1,
         include_words: false,
@@ -823,8 +857,7 @@ mod tests {
         let (stt_transcription_tx, stt_transcription_rx) = mpsc::channel::<TranscriptionEvent>(100);
         let stt_config = TranscriptionConfig {
             enabled: true,
-            model_path: std::env::var("VOSK_MODEL_PATH")
-                .unwrap_or_else(|_| "models/vosk-model-small-en-us-0.15".to_string()),
+            model_path: resolve_vosk_model_path(),
             partial_results: true,
             max_alternatives: 1,
             include_words: false,
