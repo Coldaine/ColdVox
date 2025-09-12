@@ -7,7 +7,7 @@ Use these notes to help AI agents work effectively in this Rust workspace. Main 
 **Prompt Response Format**: When asked to create a prompt for another agent, return ONLY the prompt content without any additional commentary, explanation, or wrapper text. Simply output the prompt as requested.
 
 Key defaults right now:
-- STT (Vosk) is NOT built by default. Enable with the `vosk` feature.
+- STT (Vosk) is built by default (via the `vosk` feature).
 - Default audio/VAD windowing is 512 samples at 16 kHz (32 ms).
 
 **Platform Detection**: Build system automatically detects platform/desktop at compile time (`crates/app/build.rs`) and enables appropriate text injection backends.
@@ -127,18 +127,15 @@ ChunkerConfig {
 ### VAD Configuration (`crates/coldvox-vad/src/config.rs`)
 ```rust
 UnifiedVadConfig {
-    mode: VadMode::Silero,          // Silero (default) | Level3 (feature-gated)
+    mode: VadMode::Silero,          // Silero (default)
     silero: SileroConfig {
         threshold: 0.3,
         min_speech_duration_ms: 250,
         min_silence_duration_ms: 100,
         window_size_samples: 512,
     },
-    level3: Level3Config {
-        enabled: false,             // Disabled by default
-        onset_threshold_db: 9.0,
-        // ... other Level3 settings
-    }
+    frame_size_samples: 512,
+    sample_rate_hz: 16_000,
 }
 ```
 
