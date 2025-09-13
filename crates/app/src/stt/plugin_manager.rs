@@ -10,8 +10,7 @@ use std::time::{Duration, Instant};
 use std::sync::atomic::Ordering;
 
 use coldvox_stt::plugin::{
-    SttPlugin, SttPluginRegistry, PluginSelectionConfig, SttPluginError,
-    FailoverConfig, GcPolicy
+    SttPlugin, SttPluginRegistry, PluginSelectionConfig, SttPluginError, FailoverConfig, GcPolicy
 };
 use coldvox_stt::plugins::NoOpPlugin;
 use coldvox_telemetry::pipeline_metrics::PipelineMetrics;
@@ -501,9 +500,8 @@ impl SttPluginManager {
         // Register Vosk plugin if the vosk feature is enabled in the app
         #[cfg(feature = "vosk")]
         {
-            // TODO: Implement Vosk plugin registration after Step 2 completion
-            // This will use the actual VoskTranscriber from coldvox-stt-vosk crate
-            // For now, Vosk is handled through the legacy processor
+            use coldvox_stt::plugins::vosk::VoskPluginFactory;
+            registry.register(Box::new(VoskPluginFactory));
         }
 
         // Register Whisper plugin (always available as stub)
@@ -631,6 +629,8 @@ impl SttPluginManager {
             activity.insert(plugin_id.clone(), Instant::now());
         }
 
+        tracing::info!(target: "coldvox::stt", selected_plugin = %plugin_id, "STT initialized with plugin");
+
         Ok(plugin_id)
     }
 
@@ -652,7 +652,7 @@ impl SttPluginManager {
                     return Ok(p);
                 }
                 Err(e) => {
-                    warn!("Fallback plugin '{}' not available: {}", fallback_id, e);
+                    warn!(target: "coldvox::stt", fallback_id = %fallback_id, error = %e, "Fallback plugin unavailable, trying next");
                 }
             }
         }

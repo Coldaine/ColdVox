@@ -8,7 +8,7 @@ use crate::{StreamingStt, TranscriptionConfig, TranscriptionEvent};
 use std::time::Instant;
 use tokio::sync::{broadcast, mpsc};
 use std::sync::Arc;
-use tracing::{info, debug, warn, error};
+use tracing::{info, debug};
 
 /// Minimal audio frame used by the streaming processor
 #[derive(Debug, Clone)]

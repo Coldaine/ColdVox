@@ -376,7 +376,7 @@ async fn run_app(
                             if state.is_running {
                                 if let Some(app) = state.app.take() {
                                     // Best-effort shutdown
-                                    tokio::spawn(async move { app.shutdown().await; });
+                                    tokio::spawn(async move { Arc::new(app).shutdown().await; });
                                 }
                             }
                             return Ok(());

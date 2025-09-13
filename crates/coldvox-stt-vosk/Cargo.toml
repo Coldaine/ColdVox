@@ -2,18 +2,14 @@
 name = "coldvox-stt-vosk"
 version = "0.1.0"
 edition = "2021"
-description = "Vosk speech recognition implementation for ColdVox STT"
-exclude = ["../../models/"]
 
 [dependencies]
-coldvox-stt = { path = "../coldvox-stt" }
-vosk = { version = "0.3", optional = true }
+anyhow = "1.0"
+tokio = { version = "1", features = ["full"] }
+thiserror = "2.0"
 tracing = "0.1"
+vosk = { version = "0.3", features = ["sync"] }
 
 [features]
 default = []
-vosk = ["dep:vosk"]
-
-[[bin]]
-name = "setup-vosk"
-path = "../../scripts/setup_vosk.rs"
+vosk = []

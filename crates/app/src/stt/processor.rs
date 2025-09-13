@@ -602,15 +602,15 @@ impl SttProcessor {
     async fn send_event(&self, event: TranscriptionEvent) {
         // Log the event
         match &event {
-            TranscriptionEvent::Partial { text, .. } => {
-                tracing::info!(target: "stt", "Partial: {}", text);
+            TranscriptionEvent::Partial { utterance_id, text, .. } => {
+                tracing::info!(target = "stt.transcript", event = "partial", utterance_id = %utterance_id, text = %text, "STT partial transcript");
             }
-            TranscriptionEvent::Final { text, words, .. } => {
+            TranscriptionEvent::Final { utterance_id, text, words, .. } => {
                 let word_count = words.as_ref().map(|w| w.len()).unwrap_or(0);
-                tracing::info!(target: "stt", "Final: {} (words: {})", text, word_count);
+                tracing::info!(target = "stt.transcript", event = "final", utterance_id = %utterance_id, words = %word_count, text = %text, "STT final transcript");
             }
             TranscriptionEvent::Error { code, message } => {
-                tracing::error!(target: "stt", "Error [{}]: {}", code, message);
+                tracing::error!(target = "stt.transcript", event = "error", code = %code, message = %message, "STT error event");
             }
         }
 

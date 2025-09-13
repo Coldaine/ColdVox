@@ -14,6 +14,9 @@ use coldvox_app::runtime::{self as app_runtime, ActivationMode as RuntimeMode, A
 use coldvox_audio::{DeviceManager, ResamplerQuality};
 use coldvox_foundation::{AppState, HealthMonitor, ShutdownHandler, StateManager};
 
+#[cfg(feature = "tui")]
+use coldvox_app::tui;
+
 fn init_logging() -> Result<tracing_appender::non_blocking::WorkerGuard, Box<dyn std::error::Error>>
 {
     std::fs::create_dir_all("logs")?;
@@ -312,13 +315,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = app_runtime::start(opts)
         .await
         .map_err(|e| e as Box<dyn std::error::Error>)?;
+    // make sharable for spawn + shutdown
+    let app = std::sync::Arc::new(app);
 
     // Spawn TUI if requested
     #[cfg(feature = "tui")]
     if cli.tui {
         tracing::info!("Starting TUI dashboard...");
+        tracing::debug!("About to call tui::run_tui - validating module import");
+        let tui_app = app.clone();
         let tui_handle = tokio::spawn(async move {
-            if let Err(e) = crate::tui::run_tui(app).await {
+            if let Err(e) = tui::run_tui(tui_app).await {
                 tracing::error!("TUI error: {}", e);
             }
         });
@@ -389,6 +396,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Shutdown
     tracing::info!("Beginning graceful shutdown");
     state_manager.transition(AppState::Stopping)?;
+    // Shutdown directly on the Arc<AppHandle>
     app.shutdown().await;
     state_manager.transition(AppState::Stopped)?;
     tracing::info!("Shutdown complete");

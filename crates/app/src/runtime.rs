@@ -1,7 +1,7 @@
 use std::env;
 use std::sync::Arc;
 
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, RwLock, Mutex};
 use tokio::task::JoinHandle;
 use tokio::signal;
 use tracing::{info, error};
@@ -81,7 +81,7 @@ pub struct AppHandle {
     vad_tx: broadcast::Sender<VadEvent>,
     raw_vad_tx: mpsc::Sender<VadEvent>,
     audio_tx: broadcast::Sender<coldvox_audio::AudioFrame>,
-    current_mode: std::sync::Arc<parking_lot::RwLock<ActivationMode>>,
+    current_mode: std::sync::Arc<RwLock<ActivationMode>>,
     #[cfg(feature = "vosk")]
     pub stt_rx: Option<mpsc::Receiver<TranscriptionEvent>>,
     #[cfg(feature = "vosk")]
@@ -89,7 +89,7 @@ pub struct AppHandle {
 
     audio_capture: AudioCaptureThread,
     chunker_handle: JoinHandle<()>,
-    trigger_handle: JoinHandle<()>,
+    trigger_handle: Arc<Mutex<JoinHandle<()>>>,
     vad_fanout_handle: JoinHandle<()>,
     #[cfg(feature = "vosk")]
     stt_handle: Option<JoinHandle<()>>,
@@ -104,28 +104,40 @@ impl AppHandle {
     }
 
     /// Gracefully stop the pipeline and wait for shutdown
-    pub async fn shutdown(self) {
+    pub async fn shutdown(self: Arc<Self>) {
         info!("Shutting down ColdVox runtime...");
         
+        // Try to unwrap the Arc to get ownership
+        let this = match Arc::try_unwrap(self) {
+            Ok(handle) => handle,
+            Err(_) => {
+                error!("Cannot shutdown: AppHandle still has multiple references");
+                return;
+            }
+        };
+        
         // Stop audio capture first to quiesce the source
-        self.audio_capture.stop();
+        this.audio_capture.stop();
 
         // Abort async tasks
-        self.chunker_handle.abort();
-        self.trigger_handle.abort();
-        self.vad_fanout_handle.abort();
+        this.chunker_handle.abort();
+        {
+            let trigger_guard = this.trigger_handle.lock().await;
+            trigger_guard.abort();
+        }
+        this.vad_fanout_handle.abort();
         #[cfg(feature = "vosk")]
-        if let Some(h) = &self.stt_handle {
+        if let Some(h) = &this.stt_handle {
             h.abort();
         }
         #[cfg(feature = "text-injection")]
-        if let Some(h) = &self.injection_handle {
+        if let Some(h) = &this.injection_handle {
             h.abort();
         }
 
         // Stop plugin manager tasks
         #[cfg(feature = "vosk")]
-        if let Some(pm) = &self.plugin_manager {
+        if let Some(pm) = &this.plugin_manager {
             // Unload all plugins before stopping tasks
             let _ = pm.read().await.unload_all_plugins().await;
             let _ = pm.read().await.stop_gc_task().await;
@@ -133,15 +145,18 @@ impl AppHandle {
         }
 
         // Await tasks to ensure clean termination
-        let _ = self.chunker_handle.await;
-        let _ = self.trigger_handle.await;
-        let _ = self.vad_fanout_handle.await;
+        let _ = this.chunker_handle.await;
+        let trigger_handle = Arc::try_unwrap(this.trigger_handle)
+            .expect("trigger_handle should have no other references")
+            .into_inner();
+        let _ = trigger_handle.await;
+        let _ = this.vad_fanout_handle.await;
         #[cfg(feature = "vosk")]
-        if let Some(h) = self.stt_handle {
+        if let Some(h) = this.stt_handle {
             let _ = h.await;
         }
         #[cfg(feature = "text-injection")]
-        if let Some(h) = self.injection_handle {
+        if let Some(h) = this.injection_handle {
             let _ = h.await;
         }
         
@@ -163,10 +178,10 @@ impl AppHandle {
 
     /// Switch activation mode at runtime without full restart
     pub async fn set_activation_mode(
-        &mut self,
+        &self,
         mode: ActivationMode,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let mut old = self.current_mode.write();
+        let mut old = self.current_mode.write().await;
         if *old == mode {
             return Ok(());
         }
@@ -180,7 +195,10 @@ impl AppHandle {
             let _ = pm.read().await.unload_all_plugins().await;
         }
         
-        self.trigger_handle.abort();
+        {
+            let trigger_guard = self.trigger_handle.lock().await;
+            trigger_guard.abort();
+        }
         // Spawn new trigger
         let new_handle = match mode {
             ActivationMode::Vad => {
@@ -212,8 +230,8 @@ impl AppHandle {
                     frame_size_samples: FRAME_SIZE_SAMPLES,
                     sample_rate_hz: SAMPLE_RATE_HZ,
                     silero: SileroConfig {
-                        threshold: 0.3,
-                        min_speech_duration_ms: 250,
+                        threshold: 0.1,
+                        min_speech_duration_ms: 100,
                         min_silence_duration_ms: 500,
                         window_size_samples: FRAME_SIZE_SAMPLES,
                     },
@@ -228,7 +246,10 @@ impl AppHandle {
             }
             ActivationMode::Hotkey => crate::hotkey::spawn_hotkey_listener(self.raw_vad_tx.clone()),
         };
-        self.trigger_handle = new_handle;
+        {
+            let mut trigger_guard = self.trigger_handle.lock().await;
+            *trigger_guard = new_handle;
+        }
         *old = mode;
         
         info!("Successfully switched to {:?} activation mode", mode);
@@ -304,8 +325,8 @@ pub async fn start(
                 frame_size_samples: FRAME_SIZE_SAMPLES,
                 sample_rate_hz: SAMPLE_RATE_HZ,
                 silero: SileroConfig {
-                    threshold: 0.3,
-                    min_speech_duration_ms: 250,
+                    threshold: 0.1,
+                    min_speech_duration_ms: 100,
                     min_silence_duration_ms: 500,
                     window_size_samples: FRAME_SIZE_SAMPLES,
                 },
@@ -564,14 +585,14 @@ pub async fn start(
         vad_tx: vad_bcast_tx,
         raw_vad_tx,
         audio_tx,
-        current_mode: std::sync::Arc::new(parking_lot::RwLock::new(opts.activation_mode)),
+        current_mode: std::sync::Arc::new(RwLock::new(opts.activation_mode)),
         #[cfg(feature = "vosk")]
         stt_rx: Some(stt_rx),
         #[cfg(feature = "vosk")]
         plugin_manager,
         audio_capture,
         chunker_handle,
-        trigger_handle,
+        trigger_handle: Arc::new(Mutex::new(trigger_handle)),
         vad_fanout_handle,
         #[cfg(feature = "vosk")]
         stt_handle,
@@ -682,7 +703,7 @@ mod tests {
         assert!(has_partial || has_final, "Should receive either partial or final transcription events");
 
         // Clean shutdown
-        app.shutdown().await;
+        Arc::new(app).shutdown().await;
     }
 
     #[cfg(feature = "vosk")]
@@ -777,6 +798,6 @@ mod tests {
         assert!(has_final, "Should receive a final transcription event in streaming mode");
 
         // Clean shutdown
-        app.shutdown().await;
+        Arc::new(app).shutdown().await;
     }
 }

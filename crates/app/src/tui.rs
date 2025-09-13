@@ -3,7 +3,6 @@
 //! This module provides a terminal user interface for monitoring and controlling
 //! the ColdVox audio pipeline, including STT plugin management.
 
-use crate::runtime::AppHandle;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
@@ -23,8 +22,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
-use tracing_appender::rolling::{RollingFileAppender, Rotation};
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+// Reuse global tracing subscriber initialized in `main.rs`.
 
 #[cfg(feature = "vosk")]
 use crate::stt::TranscriptionEvent;
@@ -43,7 +41,7 @@ enum AppEvent {
     Log(LogLevel, String),
     Vad(VadEvent),
     /// Internal control signal: runtime replaced (after restart)
-    AppReplaced(crate::runtime::AppHandle),
+    AppReplaced(std::sync::Arc<crate::runtime::AppHandle>),
     #[cfg(feature = "vosk")]
     Transcription(TranscriptionEvent),
     PluginLoad(String),
@@ -81,9 +79,8 @@ struct DashboardState {
     start_time: Instant,
     vad_frames: u64,
     logs: VecDeque<LogEntry>,
-    app: Option<crate::runtime::AppHandle>,
+    app: Option<std::sync::Arc<crate::runtime::AppHandle>>,
     activation_mode: ActivationMode,
-    resampler_quality: coldvox_audio::ResamplerQuality,
     metrics: PipelineMetricsSnapshot,
     has_metrics_snapshot: bool,
     current_tab: Tab,
@@ -156,7 +153,6 @@ impl Default for DashboardState {
             logs,
             app: None,
             activation_mode: ActivationMode::Vad,
-            resampler_quality: coldvox_audio::ResamplerQuality::Balanced,
             metrics: PipelineMetricsSnapshot {
                 current_rms: 0,
                 current_peak: 0,
@@ -247,9 +243,11 @@ impl DashboardState {
 }
 
 /// Run the TUI dashboard with the given app handle
-pub async fn run_tui(app: crate::runtime::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize logging for TUI
-    init_logging("info,stt=debug,coldvox_audio=debug,coldvox_app=debug,coldvox_vad=debug")?;
+pub async fn run_tui(app: std::sync::Arc<crate::runtime::AppHandle>) -> Result<(), Box<dyn std::error::Error>> {
+    // TUI runs in the same process as `main` which already initializes tracing.
+    // Avoid re-initializing the global subscriber here (double-init causes errors
+    // and creating another file appender+guard can interfere with the main guard
+    // lifecycle and file flushing). Rely on the main subscriber and its guard.
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -260,7 +258,7 @@ pub async fn run_tui(app: crate::runtime::AppHandle) -> Result<(), Box<dyn std::
     let (tx, rx) = mpsc::channel(100);
 
     let mut state = DashboardState::default();
-    state.app = Some(app);
+    state.app = Some(app.clone());
 
     // Set up plugin manager reference if available
     #[cfg(feature = "vosk")]
@@ -287,29 +285,6 @@ pub async fn run_tui(app: crate::runtime::AppHandle) -> Result<(), Box<dyn std::
     Ok(())
 }
 
-fn init_logging(cli_level: &str) -> Result<(), Box<dyn std::error::Error>> {
-    std::fs::create_dir_all("logs")?;
-    let file_appender = RollingFileAppender::new(Rotation::DAILY, "logs", "coldvox.log");
-    let (non_blocking_file, _guard) = tracing_appender::non_blocking(file_appender);
-    let env_filter =
-        EnvFilter::try_new(cli_level).unwrap_or_else(|_| EnvFilter::new("debug"));
-
-    let file_layer = fmt::layer()
-        .with_writer(non_blocking_file)
-        .with_ansi(false)
-        .with_target(true)
-        .with_file(true)
-        .with_line_number(true)
-        .with_thread_names(false)
-        .with_level(true);
-
-    tracing_subscriber::registry()
-        .with(env_filter)
-        .with(file_layer)
-        .init();
-    std::mem::forget(_guard);
-    Ok(())
-}
 
 async fn run_app(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
@@ -433,20 +408,27 @@ async fn run_app(
                     }
                         #[cfg(feature = "vosk")]
                         AppEvent::Transcription(tevent) => {
+                            tracing::debug!(target: "coldvox::tui", transcription_event = ?tevent, "Received TranscriptionEvent");
                             match tevent.clone() {
                                 TranscriptionEvent::Partial { utterance_id, text, .. } => {
                                     if !text.trim().is_empty() {
                                         state.log(LogLevel::Info, format!("[STT partial:{}] {}", utterance_id, text));
+                                    } else {
+                                        tracing::debug!(target: "coldvox::tui", utterance_id, "Partial transcript empty - likely NoOp plugin");
                                     }
                                 }
                                 TranscriptionEvent::Final { utterance_id, text, .. } => {
                                     if !text.trim().is_empty() {
                                         state.log(LogLevel::Success, format!("[STT final:{}] {}", utterance_id, text));
-                                        state.last_transcript = Some(text);
+                                        state.last_transcript = Some(text.clone());
+                                        tracing::info!(target: "coldvox::tui", utterance_id, text_len = text.len(), "Final transcript displayed in Status tab");
+                                    } else {
+                                        tracing::warn!(target: "coldvox::tui", utterance_id, "Final transcript empty - check STT plugin");
                                     }
                                 }
                                 TranscriptionEvent::Error { code, message } => {
                                     state.log(LogLevel::Error, format!("[STT error:{}] {}", code, message));
+                                    tracing::error!(target: "coldvox::tui", code, %message, "STT error in TUI");
                                 }
                             }
                         }
@@ -820,7 +802,7 @@ fn draw_logs(f: &mut Frame, area: Rect, state: &DashboardState) {
     f.render_widget(paragraph, inner);
 }
 
-fn draw_plugins(f: &mut Frame, area: Rect, state: &DashboardState) {
+fn draw_plugins(f: &mut Frame, area: Rect, _state: &DashboardState) {
     let block = Block::default().title("Available Plugins").borders(Borders::ALL);
 
     let inner = block.inner(area);

@@ -21,7 +21,6 @@ name = "foundation_probe"
 path = "../../examples/foundation_probe.rs"
 required-features = ["examples"]
 
-
 [[example]]
 name = "record_10s"
 path = "../../examples/record_10s.rs"
@@ -67,11 +66,9 @@ parking_lot = "0.12"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
 async-trait = "0.1"
-# Some audio processing dependencies still needed for VAD adapter
 hound = "3.5"
 rubato = "0.16"
 crossbeam-channel = "0.5"
-# parking_lot moved to foundation and other crates
 once_cell = "1.19"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -83,18 +80,13 @@ ratatui = "0.28"
 crossterm = "0.28"
 futures = "0.3"
 fastrand = "2.0"
-# voice_activity_detector moved to coldvox-vad-silero
 coldvox-foundation = { path = "../coldvox-foundation" }
 coldvox-telemetry = { path = "../coldvox-telemetry" }
 coldvox-audio = { path = "../coldvox-audio" }
 coldvox-vad = { path = "../coldvox-vad" }
 coldvox-vad-silero = { path = "../coldvox-vad-silero", features = ["silero"] }
 coldvox-stt = { path = "../coldvox-stt", features = ["parakeet", "whisper"] }
-coldvox-stt-vosk = { path = "../coldvox-stt-vosk", optional = true, features = ["vosk"] }
-# Note: coldvox-text-injection is now specified in target-specific sections below
-# to automatically enable platform-appropriate backends
 csv = "1.3"
-# device_query = "4.0" # Removed: unused dependency
 cpal = "0.16.0"
 
 [dev-dependencies]
@@ -106,18 +98,17 @@ proptest = "1.4"
 rand = "0.8"
 
 [features]
-default = ["silero", "vosk", "text-injection"]
+default = ["silero", "text-injection"]
 live-hardware-tests = []
-vosk = ["dep:coldvox-stt-vosk"]
+vosk = ["coldvox-stt-vosk"]
 parakeet = []
 whisper = []
-# whisper feature removed - plugins are handled through registry
 no-stt = []
 examples = []
-text-injection = ["dep:coldvox-text-injection"]  # Enables platform-specific dependency
+text-injection = ["dep:coldvox-text-injection"]
 silero = ["coldvox-vad-silero/silero"]
 sleep-observer = []
-tui = []  # Terminal User Interface feature
+tui = []
 
 text-injection-atspi = ["text-injection", "coldvox-text-injection/atspi"]
 text-injection-clipboard = ["text-injection", "coldvox-text-injection/wl_clipboard"]
