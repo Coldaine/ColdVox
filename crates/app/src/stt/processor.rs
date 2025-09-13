@@ -12,6 +12,8 @@ use std::time::Instant;
 use tokio::sync::{broadcast, mpsc};
 
 #[cfg(feature = "vosk")]
+use coldvox_stt_vosk::{EventBasedTranscriber as VoskEventBasedTranscriber, TranscriptionConfig as VoskTranscriptionConfig, TranscriptionEvent as VoskTranscriptionEvent};
+#[cfg(feature = "vosk")]
 use crate::stt::VoskTranscriber;
 
 /// STT processor state
@@ -265,7 +267,7 @@ impl SttProcessor {
         };
 
         // Reset transcriber for new utterance
-        if let Err(e) = coldvox_stt::EventBasedTranscriber::reset(&mut self.transcriber) {
+        if let Err(e) = VoskEventBasedTranscriber::reset(&mut self.transcriber) {
             tracing::warn!(target: "stt", "Failed to reset transcriber: {}", e);
         }
 
