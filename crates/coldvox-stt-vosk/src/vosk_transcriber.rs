@@ -1,4 +1,4 @@
-use crate::types::{
+use coldvox_stt::{
     next_utterance_id, EventBasedTranscriber, Transcriber, TranscriptionConfig, TranscriptionEvent,
     WordInfo,
 };

@@ -9,6 +9,7 @@ tokio = { version = "1", features = ["full"] }
 thiserror = "2.0"
 tracing = "0.1"
 vosk = { version = "0.3", features = ["batch"] }
+coldvox-stt = { path = "../coldvox-stt" }
 
 [features]
 default = []

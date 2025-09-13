@@ -695,7 +695,6 @@ name = "coldvox-stt"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "coldvox-stt-vosk",
  "dirs",
  "parking_lot",
  "serde",
@@ -709,6 +708,7 @@ name = "coldvox-stt-vosk"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "coldvox-stt",
  "thiserror 2.0.16",
  "tokio",
  "tracing",

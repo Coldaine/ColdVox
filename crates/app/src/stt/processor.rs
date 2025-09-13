@@ -12,9 +12,7 @@ use std::time::Instant;
 use tokio::sync::{broadcast, mpsc};
 
 #[cfg(feature = "vosk")]
-use coldvox_stt_vosk::{EventBasedTranscriber as VoskEventBasedTranscriber, TranscriptionConfig as VoskTranscriptionConfig, TranscriptionEvent as VoskTranscriptionEvent};
-#[cfg(feature = "vosk")]
-use crate::stt::VoskTranscriber;
+use coldvox_stt::EventBasedTranscriber;
 
 /// STT processor state
 #[derive(Debug, Clone)]
@@ -104,8 +102,8 @@ pub struct SttProcessor {
     vad_event_rx: mpsc::Receiver<VadEvent>,
     /// Transcription event sender
     event_tx: mpsc::Sender<TranscriptionEvent>,
-    /// Vosk transcriber instance
-    transcriber: VoskTranscriber,
+    /// STT transcriber instance
+    transcriber: Box<dyn EventBasedTranscriber>,
     /// Current utterance state
     state: UtteranceState,
     /// Metrics
@@ -130,8 +128,8 @@ impl SttProcessor {
             tracing::info!("STT processor disabled in configuration");
         }
 
-        // Create Vosk transcriber with configuration
-        let transcriber = VoskTranscriber::new(config.clone(), 16000.0)?;
+        // Create transcriber with configuration
+        let transcriber = coldvox_stt_vosk::create_transcriber(config.clone(), 16000.0)?;
 
         Ok(Self {
             audio_rx,
@@ -267,7 +265,7 @@ impl SttProcessor {
         };
 
         // Reset transcriber for new utterance
-        if let Err(e) = VoskEventBasedTranscriber::reset(&mut self.transcriber) {
+        if let Err(e) = self.transcriber.reset() {
             tracing::warn!(target: "stt", "Failed to reset transcriber: {}", e);
         }
 
@@ -326,10 +324,7 @@ impl SttProcessor {
                     // Time the STT engine processing
                     let engine_start = Instant::now();
 
-                    let res = coldvox_stt::EventBasedTranscriber::accept_frame(
-                        &mut self.transcriber,
-                        audio_buffer,
-                    );
+                    let res = self.transcriber.accept_frame(audio_buffer);
                     match res {
                         Ok(Some(event)) => {
                             let engine_time = engine_start.elapsed();
@@ -368,9 +363,7 @@ impl SttProcessor {
                             last_err = Some(e.clone());
                             if attempts < 2 {
                                 attempts += 1;
-                                let _ = coldvox_stt::EventBasedTranscriber::reset(
-                                    &mut self.transcriber,
-                                );
+                                let _ = self.transcriber.reset();
                                 tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                                 continue;
                             } else {
@@ -414,9 +407,7 @@ impl SttProcessor {
                 let mut attempts = 0;
                 let mut last_err: Option<String>;
                 loop {
-                    match coldvox_stt::EventBasedTranscriber::finalize_utterance(
-                        &mut self.transcriber,
-                    ) {
+                    match self.transcriber.finalize_utterance() {
                         Ok(Some(event)) => {
                             self.send_event(event.clone()).await;
 
@@ -437,9 +428,7 @@ impl SttProcessor {
                             last_err = Some(e.clone());
                             if attempts < 2 {
                                 attempts += 1;
-                                let _ = coldvox_stt::EventBasedTranscriber::reset(
-                                    &mut self.transcriber,
-                                );
+                                let _ = self.transcriber.reset();
                                 tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                                 continue;
                             } else {
@@ -498,10 +487,7 @@ impl SttProcessor {
                 .map(|&sample| (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
                 .collect();
 
-            let event_result = coldvox_stt::EventBasedTranscriber::accept_frame(
-                &mut self.transcriber,
-                &i16_samples,
-            );
+            let event_result = self.transcriber.accept_frame(&i16_samples);
 
             match event_result {
                 Ok(Some(event)) => {
@@ -517,12 +503,9 @@ impl SttProcessor {
                     let mut handled = false;
                     while attempts < 2 {
                         attempts += 1;
-                        let _ = coldvox_stt::EventBasedTranscriber::reset(&mut self.transcriber);
+                        let _ = self.transcriber.reset();
                         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                        match coldvox_stt::EventBasedTranscriber::accept_frame(
-                            &mut self.transcriber,
-                            &i16_samples,
-                        ) {
+                        match self.transcriber.accept_frame(&i16_samples) {
                             Ok(Some(event)) => {
                                 self.send_event(event).await;
                                 let mut metrics = self.metrics.write();

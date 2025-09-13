@@ -17,15 +17,16 @@ use coldvox_vad::{UnifiedVadConfig, VadEvent, VadMode, FRAME_SIZE_SAMPLES, SAMPL
 use crate::hotkey::spawn_hotkey_listener;
 
 #[cfg(feature = "vosk")]
-use crate::stt::TranscriptionEvent;
+use coldvox_stt::{TranscriptionEvent, TranscriptionConfig};
 #[cfg(feature = "vosk")]
-use crate::stt::{TranscriptionConfig, processor::PluginSttProcessor};
+use crate::stt::processor::PluginSttProcessor;
 use coldvox_stt::plugin::PluginSelectionConfig;
 use crate::stt::plugin_manager::SttPluginManager;
 
 use coldvox_stt::{StreamingAudioFrame, StreamingVadEvent};
 #[cfg(feature = "vosk")]
 use coldvox_stt::streaming_processor::StreamingSttProcessor;
+#[cfg(feature = "vosk")]
 use crate::stt::streaming_adapter::ManagerStreamingAdapter;
 
 /// Activation strategy for push-to-talk vs voice activation

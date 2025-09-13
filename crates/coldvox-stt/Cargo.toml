@@ -12,11 +12,9 @@ async-trait = "0.1"
 thiserror = "2.0"
 dirs = "5.0"
 serde = { version = "1.0", features = ["derive"] }
-coldvox-stt-vosk = { path = "../coldvox-stt-vosk", optional = true }
 
 [features]
 default = []
-# vosk = ["dep:coldvox-stt-vosk"]  # Disabled to resolve dependency cycle
 parakeet = []
 whisper = []
 coqui = []

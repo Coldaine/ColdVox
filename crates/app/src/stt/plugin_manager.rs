@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use std::sync::atomic::Ordering;
 
 use coldvox_stt::plugin::{
-    SttPlugin, SttPluginRegistry, PluginSelectionConfig, SttPluginError, FailoverConfig, GcPolicy
+    SttPlugin, SttPluginRegistry, PluginSelectionConfig, SttPluginError
 };
 use coldvox_stt::plugins::NoOpPlugin;
 use coldvox_telemetry::pipeline_metrics::PipelineMetrics;
