@@ -42,13 +42,13 @@ log_verbose() {
 # Function to check if required tools are available
 check_dependencies() {
     local missing_tools=()
-    
+
     for tool in sha256sum find; do
         if ! command -v "$tool" >/dev/null 2>&1; then
             missing_tools+=("$tool")
         fi
     done
-    
+
     if [[ ${#missing_tools[@]} -gt 0 ]]; then
         log_error "Missing required tools: ${missing_tools[*]}"
         log_error "Please install: ${missing_tools[*]}"
@@ -59,14 +59,14 @@ check_dependencies() {
 # Function to verify model directory structure
 verify_model_structure() {
     local model_dir="$1"
-    
+
     log_info "Verifying model directory structure..."
-    
+
     if [[ ! -d "$model_dir" ]]; then
         log_error "Model directory not found: $model_dir"
         return 1
     fi
-    
+
     # Check for required subdirectories
     local required_dirs=("am" "conf" "ivector")
     for dir in "${required_dirs[@]}"; do
@@ -76,14 +76,14 @@ verify_model_structure() {
         fi
         log_verbose "Found required directory: $dir"
     done
-    
+
     # Check for critical files
     local critical_files=(
         "am/final.mdl"
         "conf/mfcc.conf"
         "ivector/final.ie"
     )
-    
+
     for file in "${critical_files[@]}"; do
         if [[ ! -f "$model_dir/$file" ]]; then
             log_error "Critical model file missing: $model_dir/$file"
@@ -91,7 +91,7 @@ verify_model_structure() {
         fi
         log_verbose "Found critical file: $file"
     done
-    
+
     log_success "Model directory structure verification passed"
     return 0
 }
@@ -100,53 +100,53 @@ verify_model_structure() {
 verify_checksums() {
     local model_dir="$1"
     local checksums_file="$2"
-    
+
     log_info "Verifying model file integrity with checksums..."
-    
+
     if [[ ! -f "$checksums_file" ]]; then
         log_error "Checksums file not found: $checksums_file"
         return 1
     fi
-    
+
     # Check if checksums file contains actual checksums (not placeholder)
     if grep -q "placeholder\|demonstration\|NOTE:" "$checksums_file"; then
         log_warn "Checksums file contains placeholder content"
         log_warn "Skipping checksum verification (development mode)"
         return 0
     fi
-    
+
     # Filter checksums for the specific model directory
     local model_checksums
     model_checksums=$(grep "^[a-f0-9]\{64\}  $model_dir/" "$checksums_file" 2>/dev/null || true)
-    
+
     if [[ -z "$model_checksums" ]]; then
         log_warn "No checksums found for model directory: $model_dir"
         log_warn "Skipping checksum verification"
         return 0
     fi
-    
+
     log_info "Found $(echo "$model_checksums" | wc -l) checksums to verify"
-    
+
     # Create temporary file for verification
     local temp_checksums
     temp_checksums=$(mktemp)
     trap "rm -f $temp_checksums" EXIT
-    
+
     echo "$model_checksums" > "$temp_checksums"
-    
+
     # Verify checksums
     if sha256sum -c "$temp_checksums" --quiet; then
         log_success "All file checksums verified successfully"
         return 0
     else
         log_error "Checksum verification failed"
-        
+
         # Show details of failed files in verbose mode
         if [[ "${VERBOSE}" == "1" ]]; then
             log_info "Detailed verification results:"
             sha256sum -c "$temp_checksums" || true
         fi
-        
+
         return 1
     fi
 }
@@ -155,20 +155,20 @@ verify_checksums() {
 verify_model_size() {
     local model_dir="$1"
     local min_size_mb="${COLDVOX_MIN_MODEL_SIZE_MB:-40}"
-    
+
     log_info "Verifying model size..."
-    
+
     local model_size_mb
     model_size_mb=$(du -sm "$model_dir" | cut -f1)
-    
+
     log_verbose "Model size: ${model_size_mb}MB (minimum: ${min_size_mb}MB)"
-    
+
     if [[ "$model_size_mb" -lt "$min_size_mb" ]]; then
         log_error "Model size ${model_size_mb}MB is below minimum ${min_size_mb}MB"
         log_error "Model may be incomplete or corrupted"
         return 1
     fi
-    
+
     log_success "Model size verification passed (${model_size_mb}MB)"
     return 0
 }
@@ -177,18 +177,18 @@ verify_model_size() {
 generate_checksums() {
     local model_dir="$1"
     local output_file="$2"
-    
+
     log_info "Generating checksums for model directory: $model_dir"
-    
+
     if [[ ! -d "$model_dir" ]]; then
         log_error "Model directory not found: $model_dir"
         return 1
     fi
-    
+
     # Find all relevant model files and generate checksums
     find "$model_dir" -type f \( -name "*.mdl" -o -name "*.conf" -o -name "*.ie" -o -name "*.txt" -o -name "*.json" \) \
         | sort | xargs sha256sum > "$output_file"
-    
+
     log_success "Generated checksums for $(wc -l < "$output_file") files"
     log_info "Checksums written to: $output_file"
 }
@@ -197,35 +197,35 @@ generate_checksums() {
 main() {
     local model_dir="$1"
     local checksums_file="$2"
-    
+
     log_info "Starting model integrity verification"
     log_info "Model directory: $model_dir"
     log_info "Checksums file: $checksums_file"
-    
+
     # Check dependencies
     check_dependencies
-    
+
     # Perform verifications
     local exit_code=0
-    
+
     if ! verify_model_structure "$model_dir"; then
         exit_code=1
     fi
-    
+
     if ! verify_model_size "$model_dir"; then
         exit_code=1
     fi
-    
+
     if ! verify_checksums "$model_dir" "$checksums_file"; then
         exit_code=1
     fi
-    
+
     if [[ $exit_code -eq 0 ]]; then
         log_success "All model integrity checks passed ✓"
     else
         log_error "Model integrity verification failed ✗"
     fi
-    
+
     return $exit_code
 }
 
