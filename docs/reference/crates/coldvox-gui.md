@@ -1,0 +1,1 @@
+../../../crates/coldvox-gui/README.md

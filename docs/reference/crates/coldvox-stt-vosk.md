@@ -1,0 +1,1 @@
+../../../crates/coldvox-stt-vosk/README.md
