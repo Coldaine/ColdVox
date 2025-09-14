@@ -150,4 +150,3 @@ path/to/file.ext
 
 ### Output block (append/replace, with stable markers)
 Write (or fully replace) a single block at the **end** of `docs/reference/fileInventory.md`, delimited exactly as below:
-

@@ -6,7 +6,7 @@ on:
     branches:
       - fedora-runner-test
     paths:
-      - '.github/workflows/runner-test.yml'
+      - ".github/workflows/runner-test.yml"
 
 jobs:
   test-runner:

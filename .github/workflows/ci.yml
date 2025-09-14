@@ -5,16 +5,16 @@ on:
   push:
     branches:
       - main
-      - 'release/*'
-      - 'feature/*'
-      - 'feat/*'
-      - 'fix/*'
+      - "release/*"
+      - "feature/*"
+      - "feat/*"
+      - "fix/*"
   pull_request:
     branches:
       - main
   workflow_dispatch:
   schedule:
-    - cron: '0 0 * * *'
+    - cron: "0 0 * * *"
 
 permissions:
   contents: read
@@ -101,7 +101,7 @@ jobs:
     needs: [setup-vosk-dependencies]
     strategy:
       matrix:
-        rust-version: [stable, '1.75'] # MSRV is 1.75
+        rust-version: [stable, "1.75"] # MSRV is 1.75
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
@@ -115,7 +115,7 @@ jobs:
       - name: Setup ColdVox
         uses: ./.github/actions/setup-coldvox
         with:
-          skip-toolchain: 'true'
+          skip-toolchain: "true"
 
       # Only run formatting and linting on stable
       - name: Check formatting
@@ -175,7 +175,6 @@ jobs:
             target/debug/build/
           retention-days: 7
 
-
   text_injection_tests:
     name: Text Injection Tests
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
@@ -196,13 +195,12 @@ jobs:
       - name: Setup ColdVox
         uses: ./.github/actions/setup-coldvox
 
-
       - name: Start and verify headless environment
         run: |
           set -euo pipefail
           # Use our custom headless environment script
           DISPLAY=:99 ${{ github.workspace }}/scripts/start-headless.sh
-          
+
           # Setup D-Bus session
           eval "$(dbus-launch --sh-syntax)"
           echo "DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS" >> $GITHUB_ENV

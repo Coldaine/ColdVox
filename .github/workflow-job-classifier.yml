@@ -63,18 +63,18 @@ job_classifications:
 classification_rules:
   - if: contains(steps.*.run, 'cargo build') && contains(steps.*.run, 'cargo test')
     then: heavy
-  
+
   - if: contains(steps.*.run, 'Xvfb') || contains(steps.*.run, 'integration')
     then: heavy
-    
+
   - if: contains(steps.*.run, 'cargo check') && !contains(steps.*.run, 'cargo build')
     then: medium
-    
+
   - if: contains(steps.*.run, 'cargo fmt') || contains(steps.*.run, 'cargo clippy')
     then: light
-    
+
   - if: name == 'validate-*' || name == '*-success'
     then: light
-    
+
   # Default fallback
   - default: medium
