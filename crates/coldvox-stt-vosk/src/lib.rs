@@ -14,6 +14,12 @@ pub use vosk_transcriber::VoskTranscriber;
 #[cfg(feature = "vosk")]
 pub mod model;
 
+#[cfg(feature = "vosk")]
+pub mod plugin;
+
+#[cfg(feature = "vosk")]
+pub use plugin::VoskPluginFactory;
+
 /// Create a new Vosk transcriber as a trait object
 #[cfg(feature = "vosk")]
 pub fn create_transcriber(

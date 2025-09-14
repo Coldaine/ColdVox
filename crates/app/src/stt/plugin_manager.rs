@@ -533,8 +533,8 @@ impl SttPluginManager {
         // Register Vosk plugin if the vosk feature is enabled in the app
         #[cfg(feature = "vosk")]
         {
-            use coldvox_stt::plugins::vosk::VoskPluginFactory;
-            registry.register(Box::new(VoskPluginFactory));
+            use coldvox_stt_vosk::plugin::VoskPluginFactory;
+            registry.register(Box::new(VoskPluginFactory::new()));
         }
 
         // Register Whisper plugin (always available as stub)
