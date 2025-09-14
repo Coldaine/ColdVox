@@ -1,7 +1,7 @@
 # Code Review: ColdVox Repository
 
-**Review Date:** 2025-09-11  
-**Reviewer:** Kilo Code (Senior Software Engineer)  
+**Review Date:** 2025-09-11
+**Reviewer:** Kilo Code (Senior Software Engineer)
 **Repository Context:** Rust-based voice-to-text pipeline for Linux desktop (Nobara/Fedora focus), with audio capture, VAD, STT (Vosk), text injection, GUI prototype. Recent commits (last week) emphasize runtime unification, text injection robustness, STT extensibility, CI improvements, and GUI groundwork. Changes span ~100 commits, primarily refactors, tests, and deps.
 
 ## Runtime Unification (crates/app/src/runtime.rs, main.rs)

@@ -1,7 +1,7 @@
 # ColdVox Self-Hosted Runner Complete Setup Documentation
 
-**Document Created**: 2025-09-11  
-**Purpose**: Exhaustive documentation of all configurations, settings, and workflow files  
+**Document Created**: 2025-09-11
+**Purpose**: Exhaustive documentation of all configurations, settings, and workflow files
 **Status**: Current as of commit 959a04a
 
 ---
@@ -9,22 +9,22 @@
 ## System Information
 
 ### Hardware Specifications
-- **Model**: HP EliteBook 840 14 inch G10 Notebook PC  
-- **CPU**: 13th Gen Intel Core i7-1365U (10 cores, 12 threads, up to 5.2GHz)  
-- **RAM**: 30GB  
-- **Storage**: 238.5GB NVMe SSD (/dev/nvme0n1)  
+- **Model**: HP EliteBook 840 14 inch G10 Notebook PC
+- **CPU**: 13th Gen Intel Core i7-1365U (10 cores, 12 threads, up to 5.2GHz)
+- **RAM**: 30GB
+- **Storage**: 238.5GB NVMe SSD (/dev/nvme0n1)
 - **Swap**: 42GB (34GB disk + 8GB zram)
 
 ### Operating System
-- **Distribution**: Nobara Linux 42 (KDE Plasma Desktop Edition)  
-- **Based on**: Fedora 42 (RHEL/CentOS compatible)  
-- **Kernel**: Linux 6.16.3-201.nobara.fc42.x86_64  
-- **Architecture**: x86_64  
+- **Distribution**: Nobara Linux 42 (KDE Plasma Desktop Edition)
+- **Based on**: Fedora 42 (RHEL/CentOS compatible)
+- **Kernel**: Linux 6.16.3-201.nobara.fc42.x86_64
+- **Architecture**: x86_64
 - **Package Manager**: DNF 5.2.16 (dnf5)
 
 ### Network Configuration
-- **Local IP**: 192.168.1.66  
-- **Hostname**: laptop-extra  
+- **Local IP**: 192.168.1.66
+- **Hostname**: laptop-extra
 - **Username**: coldaine
 
 ---
@@ -75,7 +75,7 @@ End of appended policy section.
 ```bash
 # Service files and processes
 coldaine  230516  /bin/bash /home/coldaine/Desktop/actions-runner-logs.sh
-coldaine  230517  journalctl -u actions-runner -f --no-pager  
+coldaine  230517  journalctl -u actions-runner -f --no-pager
 coldaine  298971  /bin/bash /home/coldaine/actions-runner/runsvc.sh
 ```
 
@@ -100,10 +100,10 @@ LANG=en_US.utf8
 ## System Library Configuration
 
 ### libvosk Installation
-**Location**: `/usr/local/lib/libvosk.so` (25,986,496 bytes)  
-**Header**: `/usr/local/include/vosk_api.h`  
+**Location**: `/usr/local/lib/libvosk.so` (25,986,496 bytes)
+**Header**: `/usr/local/include/vosk_api.h`
 
-**Dynamic Linker Configuration**:  
+**Dynamic Linker Configuration**:
 **File**: `/etc/ld.so.conf.d/vosk.conf`
 ```
 /usr/local/lib
@@ -116,10 +116,10 @@ libvosk.so (libc6,x86-64) => /usr/local/lib/libvosk.so
 ```
 
 ### System Dependencies Installed
-**Via DNF**: 
+**Via DNF**:
 ```bash
 alsa-lib-devel xdotool libXtst-devel wget unzip @development-tools
-xorg-x11-server-Xvfb fluxbox dbus-x11 at-spi2-core wl-clipboard 
+xorg-x11-server-Xvfb fluxbox dbus-x11 at-spi2-core wl-clipboard
 xclip ydotool xorg-x11-utils wmctrl gtk3-devel
 ```
 
@@ -206,17 +206,17 @@ jobs:
       download-outcome: success
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        
+
       - name: Setup Vosk Model from Cache
         run: |
           set -euo pipefail
-          
+
           # Use pre-cached models from permanent cache location
           CACHE_DIR="/home/coldaine/ActionRunnerCache/vosk-models"
           MODEL_DIR="models"
-          
+
           mkdir -p $MODEL_DIR
-          
+
           # Link the small model for tests (remove existing if present)
           if [ -d "$CACHE_DIR/vosk-model-small-en-us-0.15" ]; then
             rm -rf "$MODEL_DIR/vosk-model-small-en-us-0.15"
@@ -226,14 +226,14 @@ jobs:
             echo "❌ Error: Vosk model not found in cache at $CACHE_DIR"
             exit 1
           fi
-          
+
           # Link the production model if available
           if [ -d "$CACHE_DIR/vosk-model-en-us-0.22" ]; then
             rm -rf "$MODEL_DIR/vosk-model-en-us-0.22"
             ln -sf "$CACHE_DIR/vosk-model-en-us-0.22" "$MODEL_DIR/"
             echo "✅ Linked cached vosk-model-en-us-0.22"
           fi
-          
+
           echo ""
           echo "Model directory contents:"
           ls -la $MODEL_DIR/
@@ -625,13 +625,13 @@ jobs:
       - name: Setup Vosk Model from Cache
         run: |
           set -euo pipefail
-          
+
           # Use pre-cached models from permanent cache location
           CACHE_DIR="/home/coldaine/ActionRunnerCache/vosk-models"
           MODEL_DIR="models"
-          
+
           mkdir -p $MODEL_DIR
-          
+
           # Link the small model for tests (remove existing if present)
           if [ -d "$CACHE_DIR/vosk-model-small-en-us-0.15" ]; then
             rm -rf "$MODEL_DIR/vosk-model-small-en-us-0.15"
@@ -641,14 +641,14 @@ jobs:
             echo "❌ Error: Vosk model not found in cache at $CACHE_DIR"
             exit 1
           fi
-          
+
           # Link the production model if available
           if [ -d "$CACHE_DIR/vosk-model-en-us-0.22" ]; then
             rm -rf "$MODEL_DIR/vosk-model-en-us-0.22"
             ln -sf "$CACHE_DIR/vosk-model-en-us-0.22" "$MODEL_DIR/"
             echo "✅ Linked cached vosk-model-en-us-0.22"
           fi
-          
+
           ls -la $MODEL_DIR/
 
       - name: Install cargo-nextest
@@ -749,7 +749,7 @@ jobs:
             echo "Sudo access without password confirmed."
             echo "--- Attempting to install 'xdotool' (as a test) ---"
             sudo dnf install -y --skip-unavailable xdotool || echo "xdotool install failed"
-            echo "--- Verifying xdotool installation ---"            
+            echo "--- Verifying xdotool installation ---"
             command -v xdotool && xdotool --version || echo "xdotool not available"
           else
             echo "ERROR: Sudo requires a password or is not configured for this user."
@@ -933,12 +933,12 @@ MAX_RUNTIME=3600   # 1 hour max
 # Helper function to get system metrics
 get_system_metrics() {
     local load_avg memory_usage disk_usage runner_cpu runner_mem
-    
+
     # Fixed variable binding with proper defaults
     load_avg=$(cut -d' ' -f1 /proc/loadavg || echo "0.0")
     memory_usage=$(free -m | awk '/^Mem:/ {printf "%.1f", $3}' || echo "0.0")
     disk_usage=$(df /home/coldaine/actions-runner/_work 2>/dev/null | awk 'NR==2 {print $5}' | sed 's/%//' || echo "0")
-    
+
     # Runner process metrics with error handling
     local runner_pid
     runner_pid=$(pgrep -f "Runner.Listener" || echo "")
@@ -946,12 +946,12 @@ get_system_metrics() {
         local runner_stats
         runner_stats=$(ps -p "$runner_pid" -o %cpu,%mem --no-headers 2>/dev/null || echo "0.0 0.0")
         runner_cpu=$(echo "$runner_stats" | awk '{print $1}' || echo "0.0")
-        runner_mem=$(echo "$runner_stats" | awk '{print $2}' || echo "0.0") 
+        runner_mem=$(echo "$runner_stats" | awk '{print $2}' || echo "0.0")
     else
         runner_cpu="0.0"
         runner_mem="0.0"
     fi
-    
+
     echo "$load_avg,$memory_usage,$disk_usage,$runner_cpu,$runner_mem"
 }
 
@@ -959,30 +959,30 @@ get_system_metrics() {
 monitor_performance() {
     local start_time=$(date +%s)
     local log_file="$LOG_DIR/performance_$(date +%Y%m%d_%H%M%S).log"
-    
+
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting workflow performance monitoring..."
     echo "Monitor log: $log_file"
     echo "Sample interval: ${SAMPLE_INTERVAL}s, Max runtime: ${MAX_RUNTIME}s"
-    
+
     # CSV header
     echo "timestamp,load_avg,memory_mb,disk_pct,runner_cpu,runner_mem" > "$log_file"
-    
+
     while true; do
         local current_time=$(date +%s)
         local elapsed=$((current_time - start_time))
-        
+
         # Check max runtime
         if [[ $elapsed -gt $MAX_RUNTIME ]]; then
             echo "Max runtime reached, stopping monitor"
             break
         fi
-        
+
         # Get metrics and log
         local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
         local metrics
         metrics=$(get_system_metrics)
         echo "$timestamp,$metrics" >> "$log_file"
-        
+
         sleep $SAMPLE_INTERVAL
     done
 }
@@ -1030,7 +1030,7 @@ esac
 
 ### Planned Improvements (Phase 3)
 1. System package pre-installation (eliminate 200-400MB downloads)
-2. Enhanced Rust toolchain caching (eliminate 250-500MB downloads)  
+2. Enhanced Rust toolchain caching (eliminate 250-500MB downloads)
 3. Parallel job execution configuration (3-4x throughput improvement)
 
 ---

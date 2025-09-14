@@ -7,7 +7,7 @@ This document describes the model integrity verification system implemented to e
 The integrity verification system provides:
 
 - **Structural validation**: Ensures required directories and files exist
-- **Size validation**: Checks that model size meets minimum requirements  
+- **Size validation**: Checks that model size meets minimum requirements
 - **Checksum verification**: Validates file integrity against SHA256 hashes
 - **CI integration**: Automatic verification during GitHub Actions workflows
 - **Development mode**: Graceful handling when checksums are placeholder/missing
@@ -49,7 +49,7 @@ The verification is integrated into the `download-vosk-model` job in `.github/wo
   run: |
     export COLDVOX_VERIFY_VERBOSE=1
     export COLDVOX_MIN_MODEL_SIZE_MB=40
-    
+
     if ! ./scripts/verify-model-integrity.sh; then
       echo "FATAL: Model integrity verification failed"
       exit 1
@@ -64,7 +64,7 @@ Checks for required directories and files:
 
 **Required Directories**:
 - `am/` - Acoustic model files
-- `conf/` - Configuration files  
+- `conf/` - Configuration files
 - `ivector/` - I-vector extractor files
 
 **Critical Files**:
@@ -126,7 +126,7 @@ Validates file integrity using SHA256 hashes:
 - ✅ All checks pass: CI continues normally
 - ⚠️ Placeholder checksums detected: Warning logged, structure/size checks still performed
 
-### Failure Cases  
+### Failure Cases
 - ❌ Model directory missing: Job fails with clear error message
 - ❌ Required files missing: Job fails listing missing files
 - ❌ Model too small: Job fails indicating possible corruption
@@ -166,7 +166,7 @@ When integrity verification fails in CI:
 - Ensure the model is committed to the repository
 - Check that the model path is correct in the script
 
-**"Checksum verification failed"** 
+**"Checksum verification failed"**
 - Model files may be corrupted or modified
 - Regenerate checksums if model was intentionally updated
 - Check if files were modified by Git LFS or similar tools

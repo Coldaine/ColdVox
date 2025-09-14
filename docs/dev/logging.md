@@ -326,7 +326,7 @@ The system uses the `tracing` crate for structured, leveled logging (info, debug
 ## Current Logging Architecture
 
 ### Subscriber Initialization
-- **Main App** (`crates/app/src/main.rs`, lines 17-34): 
+- **Main App** (`crates/app/src/main.rs`, lines 17-34):
   - Creates `logs/` dir if missing.
   - Uses `tracing_appender::RollingFileAppender` for daily rotation.
   - Non-blocking writer with `WorkerGuard` kept alive via return value.

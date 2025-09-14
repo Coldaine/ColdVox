@@ -56,7 +56,7 @@ runs-on: [self-hosted, Linux, X64, fedora, nobara]
 - `.github/workflows/ci.yml` (8 jobs)
 - `.github/workflows/release.yml` (2 jobs)
 - `.github/workflows/runner-test.yml` (1 job)
-- `.github/workflows/vosk-integration.yml` (1 job)  
+- `.github/workflows/vosk-integration.yml` (1 job)
 - `.github/workflows/runner-diagnostic.yml` (1 job)
 
 ### Current Performance Characteristics
@@ -151,11 +151,11 @@ Hardware vs GitHub-hosted Comparison:
 
 ### 🚀 Phase 3: Performance Experimentation (CURRENT PRIORITY)
 
-**Timeline**: Flexible - This is for learning, not production  
+**Timeline**: Flexible - This is for learning, not production
 **Objective**: Maximize performance, explore hardware capabilities, learn from failures
 
 #### 3.1 Performance Testing Without Safety Nets (NEXT)
-**Philosophy:** 
+**Philosophy:**
 - **Failures are learning opportunities** - Not a problem if CI breaks
 - **No fallback needed** - If self-hosted fails, I'll fix it when I have time
 - **Experiment freely** - Try aggressive optimizations that production systems wouldn't risk
@@ -186,18 +186,18 @@ timeout-minutes: 360  # Go wild, we have time
 
 ### 🔄 Phase 4: Optimization & Hardening (FUTURE)
 
-**Timeline**: Ongoing  
+**Timeline**: Ongoing
 **Objective**: Long-term stability and performance
 
 #### 4.1 Security Hardening (PLANNED)
 - **Workspace isolation** strategies
-- **Secret handling** verification  
+- **Secret handling** verification
 - **Network access** controls
 - **Automated security updates**
 
 #### 4.2 Performance Optimization (PLANNED)
 - **Cargo cache** optimization (Priority 1)
-- **Parallel build** configuration  
+- **Parallel build** configuration
 - **Resource allocation** tuning
 - **Build time monitoring**
 
@@ -279,7 +279,7 @@ Root Access: No (GitHub) vs Yes (Self-hosted)
     # Check local cache first
     VOSK_CACHE="/home/coldaine/actions-runner/_cache/vosk-models"
     MODEL_NAME="vosk-model-small-en-us-0.15"
-    
+
     if [ -d "$VOSK_CACHE/$MODEL_NAME" ]; then
       echo "Using cached Vosk model: $MODEL_NAME"
       ln -sf "$VOSK_CACHE/$MODEL_NAME" .
@@ -291,7 +291,7 @@ Root Access: No (GitHub) vs Yes (Self-hosted)
       mv "$MODEL_NAME" "$VOSK_CACHE/"
       ln -sf "$VOSK_CACHE/$MODEL_NAME" .
     fi
-    
+
     # Vosk binaries already installed system-wide
     echo "Vosk setup complete (cached)"
 ```
@@ -347,7 +347,7 @@ cargo config set registry.local-mirror.index "file:///opt/cargo-registry"
 1. Investigate Vosk compilation errors
 2. Implement local Vosk model caching system
 3. Pre-install Vosk models in runner cache
-4. Update workflows to use cached models  
+4. Update workflows to use cached models
 5. Add model integrity verification
 6. Test manual build with cached models
 7. Enable CPU-specific optimizations
@@ -356,7 +356,7 @@ cargo config set registry.local-mirror.index "file:///opt/cargo-registry"
 ### Priority 2: Multi-Layer Caching Strategy
 ```yaml
 # Comprehensive caching approach:
-- name: Cache Rust dependencies  
+- name: Cache Rust dependencies
   uses: Swatinem/rust-cache@v2
   with:
     shared-key: "coldvox-${{ matrix.features || 'default' }}"
@@ -383,7 +383,7 @@ jobs:
       matrix:
         features: [default, vosk, text-injection]
         vosk-model: [small, standard]  # Test multiple models
-    # Resource limits per job  
+    # Resource limits per job
     env:
       CARGO_BUILD_JOBS: 6  # Leverage more cores per job
       RUST_BACKTRACE: 1
@@ -430,7 +430,7 @@ Pre-install: rust-analyzer, cargo-expand, cargo-llvm-cov
 Debug tools: gdb, valgrind, perf
 Custom binaries: project-specific tools
 
-# 3. Monitoring Integration  
+# 3. Monitoring Integration
 Real-time metrics: CPU, memory, disk, network
 Build analytics: timing breakdowns, resource usage
 Integration: Grafana dashboard, alerting
@@ -454,7 +454,7 @@ Compliance logging and audit trails
 - **Queue throughput**: 3-4 concurrent jobs
 - **Failure rate**: < 10% (currently 100% for Vosk tests)
 
-### Reliability Targets  
+### Reliability Targets
 - **Job completion rate**: > 95%
 - **Queue blocking**: Eliminated with timeouts
 - **Fallback activation**: < 5% of jobs
@@ -503,7 +503,7 @@ Current Status:
 ### Emergency Rollback (If Phase 3 Fails)
 ```bash
 1. Revert workflow files to ubuntu-latest
-2. Push changes to stop using self-hosted runner  
+2. Push changes to stop using self-hosted runner
 3. Monitor for restoration of normal operation
 4. Preserve runner setup for investigation
 ```
@@ -567,15 +567,15 @@ Current Status:
 ### Implementation Roadmap
 
 **Phase 3.1 (Week 1)**: Core reliability + caching
-**Phase 3.2 (Week 2)**: Hybrid strategy + concurrent execution  
+**Phase 3.2 (Week 2)**: Hybrid strategy + concurrent execution
 **Phase 3.3 (Week 3)**: Advanced optimizations + monitoring
 **Phase 4 (Ongoing)**: Security hardening + maintenance automation
 
 ---
 
-**Current Status**: Phase 2 Complete ✅ | Phase 3 Ready 🔄  
-**Critical Path**: Fix build failures → Enable caching → Deploy hybrid strategy  
-**Expected Timeline**: Phase 3 completion within 1 week with focused effort  
+**Current Status**: Phase 2 Complete ✅ | Phase 3 Ready 🔄
+**Critical Path**: Fix build failures → Enable caching → Deploy hybrid strategy
+**Expected Timeline**: Phase 3 completion within 1 week with focused effort
 **Strategic Value**: 2-3x performance improvement + unlimited scaling potential
 
 ---
@@ -677,7 +677,7 @@ GitHub-hosted runners:
 
 This is the PERFECT use case for self-hosted runners:
 - **Zero additional cost** (spare hardware)
-- **No reliability requirements** (personal project)  
+- **No reliability requirements** (personal project)
 - **Learning opportunity** (but keep it reasonable)
 - **Infinite CI/CD minutes** (vs 33 hours free tier)
 
