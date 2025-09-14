@@ -1,0 +1,1 @@
+../../../crates/coldvox-vad/README.md
