@@ -61,6 +61,11 @@ name = "tts_synthesis_example"
 path = "../../examples/tts_synthesis_example.rs"
 required-features = ["tts-espeak", "examples"]
 
+[[example]]
+name = "tts_integration_example"
+path = "../../examples/tts_integration_example.rs"
+required-features = ["tts-espeak", "examples"]
+
 [dependencies]
 zbus = { version = "5.11.0" }
 tokio = { version = "1", features = ["full"] }

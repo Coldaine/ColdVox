@@ -9,6 +9,8 @@ pub mod stt;
 pub mod telemetry;
 #[cfg(feature = "text-injection")]
 pub mod text_injection;
+#[cfg(feature = "tts")]
+pub mod tts;
 #[cfg(feature = "tui")]
 pub mod tui;
 pub mod vad;
