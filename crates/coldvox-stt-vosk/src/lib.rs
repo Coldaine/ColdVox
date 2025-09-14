@@ -38,6 +38,9 @@ pub fn default_model_path() -> String {
 }
 
 #[cfg(not(feature = "vosk"))]
-pub fn create_transcriber(_config: TranscriptionConfig, _sample_rate: f32) -> Result<Box<dyn EventBasedTranscriber>, String> {
+pub fn create_transcriber(
+    _config: TranscriptionConfig,
+    _sample_rate: f32,
+) -> Result<Box<dyn EventBasedTranscriber>, String> {
     Err("Vosk feature is not enabled. Enable with --features vosk".to_string())
 }
