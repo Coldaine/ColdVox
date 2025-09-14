@@ -106,7 +106,11 @@ struct SttArgs {
     preferred: Option<String>,
 
     /// Comma-separated list of fallback plugin IDs
-    #[arg(long = "stt-fallbacks", env = "COLDVOX_STT_FALLBACKS", value_delimiter = ',')]
+    #[arg(
+        long = "stt-fallbacks",
+        env = "COLDVOX_STT_FALLBACKS",
+        value_delimiter = ','
+    )]
     fallbacks: Option<Vec<String>>,
 
     /// Require local processing (no cloud STT services)
@@ -122,15 +126,27 @@ struct SttArgs {
     language: Option<String>,
 
     /// Number of consecutive errors before switching to fallback plugin
-    #[arg(long = "stt-failover-threshold", env = "COLDVOX_STT_FAILOVER_THRESHOLD", default_value = "3")]
+    #[arg(
+        long = "stt-failover-threshold",
+        env = "COLDVOX_STT_FAILOVER_THRESHOLD",
+        default_value = "3"
+    )]
     failover_threshold: u32,
 
     /// Cooldown period in seconds before retrying a failed plugin
-    #[arg(long = "stt-failover-cooldown-secs", env = "COLDVOX_STT_FAILOVER_COOLDOWN_SECS", default_value = "30")]
+    #[arg(
+        long = "stt-failover-cooldown-secs",
+        env = "COLDVOX_STT_FAILOVER_COOLDOWN_SECS",
+        default_value = "30"
+    )]
     failover_cooldown_secs: u32,
 
     /// Time to live in seconds for inactive models (GC threshold)
-    #[arg(long = "stt-model-ttl-secs", env = "COLDVOX_STT_MODEL_TTL_SECS", default_value = "300")]
+    #[arg(
+        long = "stt-model-ttl-secs",
+        env = "COLDVOX_STT_MODEL_TTL_SECS",
+        default_value = "300"
+    )]
     model_ttl_secs: u32,
 
     /// Disable garbage collection of inactive models
@@ -138,7 +154,11 @@ struct SttArgs {
     disable_gc: bool,
 
     /// Interval in seconds for periodic metrics logging (0 to disable)
-    #[arg(long = "stt-metrics-log-interval-secs", env = "COLDVOX_STT_METRICS_LOG_INTERVAL_SECS", default_value = "60")]
+    #[arg(
+        long = "stt-metrics-log-interval-secs",
+        env = "COLDVOX_STT_METRICS_LOG_INTERVAL_SECS",
+        default_value = "60"
+    )]
     metrics_log_interval_secs: u32,
 
     /// Enable debug dumping of transcription events to logs
@@ -233,8 +253,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Build STT configuration from CLI arguments
     let stt_selection = {
-        use coldvox_stt::plugin::{PluginSelectionConfig, FailoverConfig, GcPolicy, MetricsConfig};
-        
+        use coldvox_stt::plugin::{FailoverConfig, GcPolicy, MetricsConfig, PluginSelectionConfig};
+
         // Handle backward compatibility with VOSK_MODEL_PATH
         let mut preferred_plugin = cli.stt.preferred;
         if preferred_plugin.is_none() {
@@ -242,14 +262,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 tracing::warn!(
                     "VOSK_MODEL_PATH environment variable is deprecated. Use --stt-preferred=vosk instead."
                 );
-                tracing::info!("Setting preferred plugin to 'vosk' based on VOSK_MODEL_PATH={}", vosk_model_path);
+                tracing::info!(
+                    "Setting preferred plugin to 'vosk' based on VOSK_MODEL_PATH={}",
+                    vosk_model_path
+                );
                 preferred_plugin = Some("vosk".to_string());
             }
         }
-        
-        let fallback_plugins = cli.stt.fallbacks.unwrap_or_else(|| {
-            vec!["vosk".to_string(), "mock".to_string()]
-        });
+
+        let fallback_plugins = cli
+            .stt
+            .fallbacks
+            .unwrap_or_else(|| vec!["vosk".to_string(), "mock".to_string()]);
 
         let failover = FailoverConfig {
             failover_threshold: cli.stt.failover_threshold,
@@ -413,7 +437,7 @@ mod tests {
     fn test_cli_parsing_basic() {
         let args = vec!["coldvox"];
         let cli = Cli::try_parse_from(args).unwrap();
-        
+
         assert_eq!(cli.activation_mode, ActivationMode::Hotkey);
         assert_eq!(cli.stt.failover_threshold, 3);
         assert_eq!(cli.stt.failover_cooldown_secs, 30);
@@ -428,23 +452,34 @@ mod tests {
     fn test_cli_parsing_stt_flags() {
         let args = vec![
             "coldvox",
-            "--stt-preferred", "vosk",
-            "--stt-fallbacks", "whisper,mock",
+            "--stt-preferred",
+            "vosk",
+            "--stt-fallbacks",
+            "whisper,mock",
             "--stt-require-local",
-            "--stt-max-mem-mb", "512",
-            "--stt-language", "en",
-            "--stt-failover-threshold", "5",
-            "--stt-failover-cooldown-secs", "60",
-            "--stt-model-ttl-secs", "600",
+            "--stt-max-mem-mb",
+            "512",
+            "--stt-language",
+            "en",
+            "--stt-failover-threshold",
+            "5",
+            "--stt-failover-cooldown-secs",
+            "60",
+            "--stt-model-ttl-secs",
+            "600",
             "--stt-disable-gc",
-            "--stt-metrics-log-interval-secs", "120",
-            "--stt-debug-dump-events"
+            "--stt-metrics-log-interval-secs",
+            "120",
+            "--stt-debug-dump-events",
         ];
-        
+
         let cli = Cli::try_parse_from(args).unwrap();
-        
+
         assert_eq!(cli.stt.preferred, Some("vosk".to_string()));
-        assert_eq!(cli.stt.fallbacks, Some(vec!["whisper".to_string(), "mock".to_string()]));
+        assert_eq!(
+            cli.stt.fallbacks,
+            Some(vec!["whisper".to_string(), "mock".to_string()])
+        );
         assert!(cli.stt.require_local);
         assert_eq!(cli.stt.max_mem_mb, Some(512));
         assert_eq!(cli.stt.language, Some("en".to_string()));
@@ -458,8 +493,8 @@ mod tests {
 
     #[test]
     fn test_build_plugin_selection_config() {
-        use coldvox_stt::plugin::{PluginSelectionConfig, FailoverConfig, GcPolicy, MetricsConfig};
-        
+        use coldvox_stt::plugin::{FailoverConfig, GcPolicy, MetricsConfig, PluginSelectionConfig};
+
         let stt_args = SttArgs {
             preferred: Some("vosk".to_string()),
             fallbacks: Some(vec!["whisper".to_string()]),
@@ -489,7 +524,11 @@ mod tests {
                 enabled: !stt_args.disable_gc,
             }),
             metrics: Some(MetricsConfig {
-                log_interval_secs: if stt_args.metrics_log_interval_secs == 0 { None } else { Some(stt_args.metrics_log_interval_secs) },
+                log_interval_secs: if stt_args.metrics_log_interval_secs == 0 {
+                    None
+                } else {
+                    Some(stt_args.metrics_log_interval_secs)
+                },
                 debug_dump_events: stt_args.debug_dump_events,
             }),
         };
@@ -499,15 +538,15 @@ mod tests {
         assert!(config.require_local);
         assert_eq!(config.max_memory_mb, Some(256));
         assert_eq!(config.required_language, Some("fr".to_string()));
-        
+
         let failover = config.failover.unwrap();
         assert_eq!(failover.failover_threshold, 2);
         assert_eq!(failover.failover_cooldown_secs, 45);
-        
+
         let gc_policy = config.gc_policy.unwrap();
         assert_eq!(gc_policy.model_ttl_secs, 180);
         assert!(gc_policy.enabled);
-        
+
         let metrics = config.metrics.unwrap();
         assert_eq!(metrics.log_interval_secs, Some(90));
         assert!(metrics.debug_dump_events);

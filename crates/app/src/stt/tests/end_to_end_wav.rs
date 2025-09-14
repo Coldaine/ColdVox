@@ -25,7 +25,9 @@ use coldvox_vad::types::VadEvent;
 /// remains accurate.
 fn resolve_vosk_model_path() -> String {
     // 1. Environment override wins immediately
-    if let Ok(p) = std::env::var("VOSK_MODEL_PATH") { return p; }
+    if let Ok(p) = std::env::var("VOSK_MODEL_PATH") {
+        return p;
+    }
 
     // 2. Candidate relative names (could be expanded later)
     const CANDIDATES: &[&str] = &[
@@ -34,15 +36,22 @@ fn resolve_vosk_model_path() -> String {
         "../../models/vosk-model-small-en-us-0.15",
     ];
 
-    for cand in CANDIDATES { if std::path::Path::new(cand).join("graph").exists() { return cand.to_string(); } }
+    for cand in CANDIDATES {
+        if std::path::Path::new(cand).join("graph").exists() {
+            return cand.to_string();
+        }
+    }
 
     // 3. Walk upward a few levels to locate a models directory dynamically
     if let Ok(cwd) = std::env::current_dir() {
         let mut cur = Some(cwd.as_path());
-        for _ in 0..5 { // limit depth to avoid long walks
+        for _ in 0..5 {
+            // limit depth to avoid long walks
             if let Some(dir) = cur {
                 let candidate = dir.join("models/vosk-model-small-en-us-0.15");
-                if candidate.join("graph").exists() { return candidate.to_string_lossy().to_string(); }
+                if candidate.join("graph").exists() {
+                    return candidate.to_string_lossy().to_string();
+                }
                 cur = dir.parent();
             }
         }
@@ -1076,9 +1085,10 @@ mod tests {
                 // Note: timeout wrapper flattens the result, so we need to handle the inner result separately
                 let timeout_result = crate::stt::tests::timeout_utils::with_injection_timeout(
                     injector.inject_text(test_text),
-                    "AT-SPI injection test"
-                ).await;
-                
+                    "AT-SPI injection test",
+                )
+                .await;
+
                 match timeout_result {
                     Ok(injection_result) => match injection_result {
                         Ok(_) => info!("AT-SPI injection successful"),
@@ -1103,11 +1113,16 @@ mod tests {
             match crate::stt::tests::timeout_utils::with_timeout(
                 test_future,
                 Some(Duration::from_secs(15)),
-                "AT-SPI desktop test"
-            ).await {
-                Ok(_) => {},
+                "AT-SPI desktop test",
+            )
+            .await
+            {
+                Ok(_) => {}
                 Err(timeout_msg) => {
-                    eprintln!("AT-SPI test timed out - skipping (desktop likely unavailable): {}", timeout_msg);
+                    eprintln!(
+                        "AT-SPI test timed out - skipping (desktop likely unavailable): {}",
+                        timeout_msg
+                    );
                 }
             }
         }

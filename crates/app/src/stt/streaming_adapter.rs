@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 
-use coldvox_stt::{StreamingStt, TranscriptionEvent, next_utterance_id};
+use coldvox_stt::{next_utterance_id, StreamingStt, TranscriptionEvent};
 
 /// Adapter that exposes SttPluginManager as a StreamingStt engine
 pub struct ManagerStreamingAdapter {
@@ -10,8 +10,13 @@ pub struct ManagerStreamingAdapter {
 }
 
 impl ManagerStreamingAdapter {
-    pub fn new(manager: Arc<tokio::sync::RwLock<crate::stt::plugin_manager::SttPluginManager>>) -> Self {
-        Self { manager, current_utterance_id: next_utterance_id() }
+    pub fn new(
+        manager: Arc<tokio::sync::RwLock<crate::stt::plugin_manager::SttPluginManager>>,
+    ) -> Self {
+        Self {
+            manager,
+            current_utterance_id: next_utterance_id(),
+        }
     }
 }
 
@@ -21,14 +26,35 @@ impl StreamingStt for ManagerStreamingAdapter {
         let mut mgr = self.manager.write().await;
         match mgr.process_audio(samples).await {
             Ok(Some(e)) => Some(match e {
-                TranscriptionEvent::Partial { utterance_id: _, text, t0, t1 } =>
-                    TranscriptionEvent::Partial { utterance_id: self.current_utterance_id, text, t0, t1 },
-                TranscriptionEvent::Final { utterance_id: _, text, words } =>
-                    TranscriptionEvent::Final { utterance_id: self.current_utterance_id, text, words },
-                TranscriptionEvent::Error { code, message } => TranscriptionEvent::Error { code, message },
+                TranscriptionEvent::Partial {
+                    utterance_id: _,
+                    text,
+                    t0,
+                    t1,
+                } => TranscriptionEvent::Partial {
+                    utterance_id: self.current_utterance_id,
+                    text,
+                    t0,
+                    t1,
+                },
+                TranscriptionEvent::Final {
+                    utterance_id: _,
+                    text,
+                    words,
+                } => TranscriptionEvent::Final {
+                    utterance_id: self.current_utterance_id,
+                    text,
+                    words,
+                },
+                TranscriptionEvent::Error { code, message } => {
+                    TranscriptionEvent::Error { code, message }
+                }
             }),
             Ok(None) => None,
-            Err(err) => Some(TranscriptionEvent::Error { code: "PLUGIN_PROCESS_ERROR".to_string(), message: err }),
+            Err(err) => Some(TranscriptionEvent::Error {
+                code: "PLUGIN_PROCESS_ERROR".to_string(),
+                message: err,
+            }),
         }
     }
 
@@ -37,18 +63,39 @@ impl StreamingStt for ManagerStreamingAdapter {
         match mgr.finalize().await {
             Ok(Some(e)) => {
                 let mapped = match e {
-                    TranscriptionEvent::Partial { utterance_id: _, text, t0, t1 } =>
-                        TranscriptionEvent::Partial { utterance_id: self.current_utterance_id, text, t0, t1 },
-                    TranscriptionEvent::Final { utterance_id: _, text, words } =>
-                        TranscriptionEvent::Final { utterance_id: self.current_utterance_id, text, words },
-                    TranscriptionEvent::Error { code, message } => TranscriptionEvent::Error { code, message },
+                    TranscriptionEvent::Partial {
+                        utterance_id: _,
+                        text,
+                        t0,
+                        t1,
+                    } => TranscriptionEvent::Partial {
+                        utterance_id: self.current_utterance_id,
+                        text,
+                        t0,
+                        t1,
+                    },
+                    TranscriptionEvent::Final {
+                        utterance_id: _,
+                        text,
+                        words,
+                    } => TranscriptionEvent::Final {
+                        utterance_id: self.current_utterance_id,
+                        text,
+                        words,
+                    },
+                    TranscriptionEvent::Error { code, message } => {
+                        TranscriptionEvent::Error { code, message }
+                    }
                 };
                 // Advance utterance for next segment
                 self.current_utterance_id = next_utterance_id();
                 Some(mapped)
             }
             Ok(None) => None,
-            Err(err) => Some(TranscriptionEvent::Error { code: "PLUGIN_FINALIZE_ERROR".to_string(), message: err }),
+            Err(err) => Some(TranscriptionEvent::Error {
+                code: "PLUGIN_FINALIZE_ERROR".to_string(),
+                message: err,
+            }),
         }
     }
 
@@ -58,4 +105,3 @@ impl StreamingStt for ManagerStreamingAdapter {
         let _ = mgr.reset().await; // best effort
     }
 }
-

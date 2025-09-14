@@ -587,10 +587,17 @@ impl SttProcessor {
     async fn send_event(&self, event: TranscriptionEvent) {
         // Log the event
         match &event {
-            TranscriptionEvent::Partial { utterance_id, text, .. } => {
+            TranscriptionEvent::Partial {
+                utterance_id, text, ..
+            } => {
                 tracing::info!(target = "stt.transcript", event = "partial", utterance_id = %utterance_id, text = %text, "STT partial transcript");
             }
-            TranscriptionEvent::Final { utterance_id, text, words, .. } => {
+            TranscriptionEvent::Final {
+                utterance_id,
+                text,
+                words,
+                ..
+            } => {
                 let word_count = words.as_ref().map(|w| w.len()).unwrap_or(0);
                 tracing::info!(target = "stt.transcript", event = "final", utterance_id = %utterance_id, words = %word_count, text = %text, "STT final transcript");
             }
@@ -887,7 +894,10 @@ impl PluginSttProcessor {
 
     /// Handle speech end event
     async fn handle_speech_end(&mut self, timestamp_ms: u64, duration_ms: Option<u64>) {
-        println!("DEBUG: PluginSttProcessor::handle_speech_end called with {}ms", timestamp_ms);
+        println!(
+            "DEBUG: PluginSttProcessor::handle_speech_end called with {}ms",
+            timestamp_ms
+        );
         tracing::info!(
             target: "stt",
             "Plugin STT processor received SpeechEnd at {}ms (duration: {:?}ms)",
@@ -914,13 +924,16 @@ impl PluginSttProcessor {
             if !audio_buffer.is_empty() {
                 // Process audio with plugin manager - call process_audio multiple times to simulate streaming
                 let mut plugin_manager = self.plugin_manager.write().await;
-                
+
                 // Split the buffer into chunks and process each one
                 const CHUNK_SIZE: usize = 512; // 32ms at 16kHz
                 let mut transcription_events = Vec::new();
                 let chunks: Vec<&[i16]> = audio_buffer.chunks(CHUNK_SIZE).collect();
-                println!("DEBUG: Processing {} chunks from buffered audio", chunks.len());
-                
+                println!(
+                    "DEBUG: Processing {} chunks from buffered audio",
+                    chunks.len()
+                );
+
                 for (i, chunk) in chunks.iter().enumerate() {
                     println!("DEBUG: Processing chunk {} of size {}", i, chunk.len());
                     match plugin_manager.process_audio(chunk).await {
@@ -942,11 +955,11 @@ impl PluginSttProcessor {
                         }
                     }
                 }
-                
+
                 // Send any transcription events that were generated
                 for event in transcription_events {
                     self.send_event(event).await;
-                    
+
                     // Update metrics
                     let mut metrics = self.metrics.write();
                     metrics.frames_out += frames_buffered;

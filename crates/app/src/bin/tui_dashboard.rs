@@ -3,6 +3,7 @@
 // - Controlled via RUST_LOG (e.g., "info", "debug").
 // - File output uses a non-blocking writer; logs/ is created if missing.
 // - Useful for post-session analysis even when the TUI is active.
+use chrono::Local;
 use clap::{Parser, ValueEnum};
 use coldvox_app::runtime::{self as app_runtime, ActivationMode};
 #[cfg(feature = "vosk")]
@@ -13,6 +14,7 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use hound::{SampleFormat, WavSpec, WavWriter};
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
@@ -22,18 +24,16 @@ use ratatui::{
     Frame, Terminal,
 };
 use std::collections::VecDeque;
+use std::fs;
 use std::io;
 use std::io::Write as _;
+use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
-use chrono::Local;
-use std::fs;
-use std::path::PathBuf;
-use hound::{WavSpec, WavWriter, SampleFormat};
 
 fn init_logging(cli_level: &str) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all("logs")?;
@@ -180,7 +180,8 @@ struct DashboardState {
     last_transcript: Option<String>,
 
     #[cfg(feature = "vosk")]
-    plugin_manager: Option<Arc<tokio::sync::RwLock<coldvox_app::stt::plugin_manager::SttPluginManager>>>,
+    plugin_manager:
+        Option<Arc<tokio::sync::RwLock<coldvox_app::stt::plugin_manager::SttPluginManager>>>,
 
     #[cfg(feature = "vosk")]
     plugin_current: Option<String>,
@@ -1123,7 +1124,9 @@ fn draw_logs(f: &mut Frame, area: Rect, state: &DashboardState) {
 }
 
 fn draw_plugins(f: &mut Frame, area: Rect, _state: &DashboardState) {
-    let block = Block::default().title("Available Plugins").borders(Borders::ALL);
+    let block = Block::default()
+        .title("Available Plugins")
+        .borders(Borders::ALL);
 
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -1144,7 +1147,10 @@ fn draw_plugins(f: &mut Frame, area: Rect, _state: &DashboardState) {
                     } else {
                         ""
                     };
-                    plugin_lines.push(Line::from(format!("{} - {}{}", plugin.id, plugin.name, status)));
+                    plugin_lines.push(Line::from(format!(
+                        "{} - {}{}",
+                        plugin.id, plugin.name, status
+                    )));
                 }
             } else {
                 plugin_lines.push(Line::from("Loading plugins..."));
@@ -1164,7 +1170,9 @@ fn draw_plugins(f: &mut Frame, area: Rect, _state: &DashboardState) {
 }
 
 fn draw_plugin_status(f: &mut Frame, area: Rect, _state: &DashboardState) {
-    let block = Block::default().title("Plugin Status").borders(Borders::ALL);
+    let block = Block::default()
+        .title("Plugin Status")
+        .borders(Borders::ALL);
 
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -1177,7 +1185,12 @@ fn draw_plugin_status(f: &mut Frame, area: Rect, _state: &DashboardState) {
         let current = state.plugin_current.as_deref().unwrap_or("None");
         status_lines.push(Line::from(vec![
             Span::raw("Current: "),
-            Span::styled(current, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                current,
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]));
 
         // Active count
@@ -1186,12 +1199,30 @@ fn draw_plugin_status(f: &mut Frame, area: Rect, _state: &DashboardState) {
         // Real-time metrics from shared sink
         if let Some(app) = &state.app {
             let metrics = &app.metrics;
-            status_lines.push(Line::from(format!("Requests: {}", metrics.stt_transcription_requests.load(Ordering::Relaxed))));
-            status_lines.push(Line::from(format!("Success: {}", metrics.stt_transcription_success.load(Ordering::Relaxed))));
-            status_lines.push(Line::from(format!("Failures: {}", metrics.stt_transcription_failures.load(Ordering::Relaxed))));
-            status_lines.push(Line::from(format!("Load Count: {}", metrics.stt_load_count.load(Ordering::Relaxed))));
-            status_lines.push(Line::from(format!("Unload Count: {}", metrics.stt_unload_count.load(Ordering::Relaxed))));
-            status_lines.push(Line::from(format!("Failovers: {}", metrics.stt_failover_count.load(Ordering::Relaxed))));
+            status_lines.push(Line::from(format!(
+                "Requests: {}",
+                metrics.stt_transcription_requests.load(Ordering::Relaxed)
+            )));
+            status_lines.push(Line::from(format!(
+                "Success: {}",
+                metrics.stt_transcription_success.load(Ordering::Relaxed)
+            )));
+            status_lines.push(Line::from(format!(
+                "Failures: {}",
+                metrics.stt_transcription_failures.load(Ordering::Relaxed)
+            )));
+            status_lines.push(Line::from(format!(
+                "Load Count: {}",
+                metrics.stt_load_count.load(Ordering::Relaxed)
+            )));
+            status_lines.push(Line::from(format!(
+                "Unload Count: {}",
+                metrics.stt_unload_count.load(Ordering::Relaxed)
+            )));
+            status_lines.push(Line::from(format!(
+                "Failovers: {}",
+                metrics.stt_failover_count.load(Ordering::Relaxed)
+            )));
         } else {
             status_lines.push(Line::from("Requests: N/A"));
             status_lines.push(Line::from("Success: N/A"));

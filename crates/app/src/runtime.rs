@@ -1,10 +1,10 @@
 use std::env;
 use std::sync::Arc;
 
-use tokio::sync::{broadcast, mpsc, RwLock, Mutex};
-use tokio::task::JoinHandle;
 use tokio::signal;
-use tracing::{info, error};
+use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
+use tokio::task::JoinHandle;
+use tracing::{error, info};
 
 use coldvox_audio::{
     AudioCaptureThread, AudioChunker, AudioRingBuffer, ChunkerConfig, FrameReader, ResamplerQuality,
@@ -16,17 +16,17 @@ use coldvox_vad::{UnifiedVadConfig, VadEvent, VadMode, FRAME_SIZE_SAMPLES, SAMPL
 
 use crate::hotkey::spawn_hotkey_listener;
 
-use coldvox_stt::{TranscriptionEvent, TranscriptionConfig};
+use crate::stt::plugin_manager::SttPluginManager;
 #[cfg(feature = "vosk")]
 use crate::stt::processor::PluginSttProcessor;
 use coldvox_stt::plugin::PluginSelectionConfig;
-use crate::stt::plugin_manager::SttPluginManager;
+use coldvox_stt::{TranscriptionConfig, TranscriptionEvent};
 
-use coldvox_stt::{StreamingAudioFrame, StreamingVadEvent};
-#[cfg(feature = "vosk")]
-use coldvox_stt::streaming_processor::StreamingSttProcessor;
 #[cfg(feature = "vosk")]
 use crate::stt::streaming_adapter::ManagerStreamingAdapter;
+#[cfg(feature = "vosk")]
+use coldvox_stt::streaming_processor::StreamingSttProcessor;
+use coldvox_stt::{StreamingAudioFrame, StreamingVadEvent};
 
 /// Activation strategy for push-to-talk vs voice activation
 #[derive(PartialEq, Copy, Clone, Debug)]
@@ -111,7 +111,7 @@ impl AppHandle {
     /// Gracefully stop the pipeline and wait for shutdown
     pub async fn shutdown(self: Arc<Self>) {
         info!("Shutting down ColdVox runtime...");
-        
+
         // Try to unwrap the Arc to get ownership
         let this = match Arc::try_unwrap(self) {
             Ok(handle) => handle,
@@ -120,7 +120,7 @@ impl AppHandle {
                 return;
             }
         };
-        
+
         // Stop audio capture first to quiesce the source
         this.audio_capture.stop();
 
@@ -164,7 +164,7 @@ impl AppHandle {
         if let Some(h) = this.injection_handle {
             let _ = h.await;
         }
-        
+
         info!("ColdVox runtime shutdown complete");
     }
 
@@ -190,16 +190,16 @@ impl AppHandle {
         if *old == mode {
             return Ok(());
         }
-        
+
         info!("Switching activation mode from {:?} to {:?}", *old, mode);
-        
+
         // Unload STT plugins before switching modes to ensure clean state
         #[cfg(feature = "vosk")]
         if let Some(ref pm) = self.plugin_manager {
             info!("Unloading STT plugins before activation mode switch");
             let _ = pm.read().await.unload_all_plugins().await;
         }
-        
+
         {
             let trigger_guard = self.trigger_handle.lock().await;
             trigger_guard.abort();
@@ -256,7 +256,7 @@ impl AppHandle {
             *trigger_guard = new_handle;
         }
         *old = mode;
-        
+
         info!("Successfully switched to {:?} activation mode", mode);
         Ok(())
     }
@@ -371,7 +371,9 @@ pub async fn start(
                     manager.set_selection_config(config).await;
                 } // else use defaults
                 manager.initialize().await?;
-                Ok::<_, Box<dyn std::error::Error + Send + Sync>>(Arc::new(tokio::sync::RwLock::new(manager)))
+                Ok::<_, Box<dyn std::error::Error + Send + Sync>>(Arc::new(
+                    tokio::sync::RwLock::new(manager),
+                ))
             }
         };
 
@@ -394,15 +396,18 @@ pub async fn start(
     #[cfg(not(feature = "vosk"))]
     let (_stt_tx, _stt_rx) = mpsc::channel::<TranscriptionEvent>(100); // stt_rx not used
     let (_text_injection_tx, text_injection_rx) = mpsc::channel::<TranscriptionEvent>(100);
-    
+
     // 6) STT Processor and Fanout - branched by architecture
-    let (_stt_handle, vad_fanout_handle) = if let Some(ref _plugin_manager) = plugin_manager {
+    let (stt_handle, vad_fanout_handle) = if let Some(ref _pm) = plugin_manager {
         if stt_arch == "legacy" {
             // Legacy path: existing PluginSttProcessor
             let (stt_vad_tx, _stt_vad_rx) = mpsc::channel::<VadEvent>(100);
-            let _stt_audio_rx = audio_tx.subscribe();
+            let stt_audio_rx = audio_tx.subscribe();
             #[cfg(feature = "vosk")]
-            let stt_config = TranscriptionConfig { streaming: false, ..Default::default() };
+            let stt_config = TranscriptionConfig {
+                streaming: false,
+                ..Default::default()
+            };
             #[cfg(not(feature = "vosk"))]
             let _stt_config = TranscriptionConfig::default();
             #[cfg(feature = "vosk")]
@@ -440,7 +445,9 @@ pub async fn start(
                 tokio::spawn(async move {
                     let mut rx = audio_rx;
                     while let Ok(frame) = rx.recv().await {
-                        let i16_samples: Vec<i16> = frame.samples.iter()
+                        let i16_samples: Vec<i16> = frame
+                            .samples
+                            .iter()
                             .map(|&s| ((s.clamp(-1.0, 1.0) * 32767.0) as i16))
                             .collect();
                         let stream_frame = StreamingAudioFrame {
@@ -453,8 +460,8 @@ pub async fn start(
                     }
                 });
             }
-            let _stream_audio_rx = stream_audio_tx.subscribe();
-            let (stream_vad_tx, _stream_vad_rx) = mpsc::channel::<StreamingVadEvent>(100);
+            let stream_audio_rx = stream_audio_tx.subscribe();
+            let (stream_vad_tx, stream_vad_rx) = mpsc::channel::<StreamingVadEvent>(100);
             let vad_bcast_tx_clone = vad_bcast_tx.clone();
             let stream_vad_tx_clone = stream_vad_tx.clone();
             let vad_fanout_handle = tokio::spawn(async move {
@@ -466,19 +473,32 @@ pub async fn start(
                             let stream_ev = StreamingVadEvent::SpeechStart { timestamp_ms };
                             let _ = stream_vad_tx_clone.send(stream_ev).await;
                         }
-                        VadEvent::SpeechEnd { timestamp_ms, duration_ms, .. } => {
-                            let stream_ev = StreamingVadEvent::SpeechEnd { timestamp_ms, duration_ms };
+                        VadEvent::SpeechEnd {
+                            timestamp_ms,
+                            duration_ms,
+                            ..
+                        } => {
+                            let stream_ev = StreamingVadEvent::SpeechEnd {
+                                timestamp_ms,
+                                duration_ms,
+                            };
                             let _ = stream_vad_tx_clone.send(stream_ev).await;
                         }
                     }
                 }
             });
             #[cfg(feature = "vosk")]
-            let stt_config = TranscriptionConfig { streaming: true, ..Default::default() };
+            let stt_config = TranscriptionConfig {
+                streaming: true,
+                ..Default::default()
+            };
             #[cfg(not(feature = "vosk"))]
-            let _stt_config = TranscriptionConfig { streaming: true, ..Default::default() };
+            let _stt_config = TranscriptionConfig {
+                streaming: true,
+                ..Default::default()
+            };
             #[cfg(feature = "vosk")]
-            let adapter = ManagerStreamingAdapter::new(plugin_manager.clone());
+            let adapter = ManagerStreamingAdapter::new(plugin_manager.clone().expect("plugin manager missing"));
             #[cfg(feature = "vosk")]
             let processor = StreamingSttProcessor::new(
                 stream_audio_rx,
@@ -593,11 +613,11 @@ pub async fn start(
 #[cfg(test)]
 mod tests {
     #[allow(unused_imports)]
-    use std::time::Duration;
+    use coldvox_stt::plugin::{FailoverConfig, GcPolicy};
     #[allow(unused_imports)]
     use std::env;
     #[allow(unused_imports)]
-    use coldvox_stt::plugin::{FailoverConfig, GcPolicy};
+    use std::time::Duration;
 
     #[cfg(feature = "vosk")]
     #[tokio::test]
@@ -643,7 +663,10 @@ mod tests {
             timestamp_ms: 1000,
             energy_db: -20.0,
         };
-        app.raw_vad_tx.send(speech_start).await.expect("Failed to send VAD event");
+        app.raw_vad_tx
+            .send(speech_start)
+            .await
+            .expect("Failed to send VAD event");
 
         // Send multiple dummy audio frames (5 frames to trigger mock transcription)
         for i in 0..5 {
@@ -651,9 +674,12 @@ mod tests {
             let audio_frame = coldvox_audio::AudioFrame {
                 samples: dummy_samples,
                 sample_rate: 16000,
-                timestamp: std::time::Instant::now() + std::time::Duration::from_millis(i as u64 * 32), // 32ms per frame
+                timestamp: std::time::Instant::now()
+                    + std::time::Duration::from_millis(i as u64 * 32), // 32ms per frame
             };
-            app.audio_tx.send(audio_frame).expect("Failed to send audio frame");
+            app.audio_tx
+                .send(audio_frame)
+                .expect("Failed to send audio frame");
             // Small delay to allow processing
             tokio::time::sleep(Duration::from_millis(1)).await;
         }
@@ -664,7 +690,10 @@ mod tests {
             duration_ms: 1000,
             energy_db: -20.0,
         };
-        app.raw_vad_tx.send(speech_end).await.expect("Failed to send VAD event");
+        app.raw_vad_tx
+            .send(speech_end)
+            .await
+            .expect("Failed to send VAD event");
 
         // Wait for transcription events with timeout
         let mut received_events = Vec::new();
@@ -675,23 +704,34 @@ mod tests {
             match tokio::time::timeout(Duration::from_millis(100), stt_rx.recv()).await {
                 Ok(Some(event)) => {
                     received_events.push(event);
-                    if received_events.len() >= 2 { // Expect at least partial and final events
+                    if received_events.len() >= 2 {
+                        // Expect at least partial and final events
                         break;
                     }
                 }
-                Ok(None) => break, // Channel closed
+                Ok(None) => break,  // Channel closed
                 Err(_) => continue, // Timeout, try again
             }
         }
 
         // Verify we received transcription events
-        assert!(!received_events.is_empty(), "Should receive at least one transcription event");
+        assert!(
+            !received_events.is_empty(),
+            "Should receive at least one transcription event"
+        );
 
         // Check that we got the expected event types
-        let has_partial = received_events.iter().any(|e| matches!(e, TranscriptionEvent::Partial { .. }));
-        let has_final = received_events.iter().any(|e| matches!(e, TranscriptionEvent::Final { .. }));
+        let has_partial = received_events
+            .iter()
+            .any(|e| matches!(e, TranscriptionEvent::Partial { .. }));
+        let has_final = received_events
+            .iter()
+            .any(|e| matches!(e, TranscriptionEvent::Final { .. }));
 
-        assert!(has_partial || has_final, "Should receive either partial or final transcription events");
+        assert!(
+            has_partial || has_final,
+            "Should receive either partial or final transcription events"
+        );
 
         // Clean shutdown
         Arc::new(app).shutdown().await;
@@ -741,7 +781,10 @@ mod tests {
             timestamp_ms: 1000,
             energy_db: -20.0,
         };
-        app.raw_vad_tx.send(speech_start).await.expect("Failed to send VAD event");
+        app.raw_vad_tx
+            .send(speech_start)
+            .await
+            .expect("Failed to send VAD event");
 
         // Send multiple dummy audio frames (5 frames to trigger mock transcription)
         for i in 0..5 {
@@ -749,9 +792,12 @@ mod tests {
             let audio_frame = coldvox_audio::AudioFrame {
                 samples: dummy_samples,
                 sample_rate: 16000,
-                timestamp: std::time::Instant::now() + std::time::Duration::from_millis(i as u64 * 32), // 32ms per frame
+                timestamp: std::time::Instant::now()
+                    + std::time::Duration::from_millis(i as u64 * 32), // 32ms per frame
             };
-            app.audio_tx.send(audio_frame).expect("Failed to send audio frame");
+            app.audio_tx
+                .send(audio_frame)
+                .expect("Failed to send audio frame");
             // Small delay to allow processing and forwarding
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
@@ -762,7 +808,10 @@ mod tests {
             duration_ms: 1000,
             energy_db: -20.0,
         };
-        app.raw_vad_tx.send(speech_end).await.expect("Failed to send VAD event");
+        app.raw_vad_tx
+            .send(speech_end)
+            .await
+            .expect("Failed to send VAD event");
 
         // Wait for transcription events with timeout (longer for streaming)
         let mut received_events = Vec::new();
@@ -773,20 +822,29 @@ mod tests {
             match tokio::time::timeout(Duration::from_millis(200), stt_rx.recv()).await {
                 Ok(Some(event)) => {
                     received_events.push(event);
-                    if received_events.len() >= 1 { // At least one final event for mock
+                    if received_events.len() >= 1 {
+                        // At least one final event for mock
                         break;
                     }
                 }
-                Ok(None) => break, // Channel closed
+                Ok(None) => break,  // Channel closed
                 Err(_) => continue, // Timeout, try again
             }
         }
 
         // Verify we received at least one transcription event
-        assert!(!received_events.is_empty(), "Should receive at least one transcription event");
+        assert!(
+            !received_events.is_empty(),
+            "Should receive at least one transcription event"
+        );
 
-        let has_final = received_events.iter().any(|e| matches!(e, TranscriptionEvent::Final { .. }));
-        assert!(has_final, "Should receive a final transcription event in streaming mode");
+        let has_final = received_events
+            .iter()
+            .any(|e| matches!(e, TranscriptionEvent::Final { .. }));
+        assert!(
+            has_final,
+            "Should receive a final transcription event in streaming mode"
+        );
 
         // Clean shutdown
         Arc::new(app).shutdown().await;
