@@ -3,20 +3,25 @@
 //! This crate provides Vosk-specific implementations of the ColdVox STT traits.
 //! The implementation is feature-gated behind the "vosk" feature.
 
+use coldvox_stt::{EventBasedTranscriber, TranscriptionConfig};
+
 #[cfg(feature = "vosk")]
 pub mod vosk_transcriber;
 
 #[cfg(feature = "vosk")]
 pub use vosk_transcriber::VoskTranscriber;
 
-// Re-export common types
-pub use coldvox_stt::{
-    next_utterance_id, EventBasedTranscriber, Transcriber, TranscriptionConfig, TranscriptionEvent,
-    WordInfo,
-};
-
 #[cfg(feature = "vosk")]
 pub mod model;
+
+/// Create a new Vosk transcriber as a trait object
+#[cfg(feature = "vosk")]
+pub fn create_transcriber(
+    config: TranscriptionConfig,
+    sample_rate: f32,
+) -> Result<Box<dyn EventBasedTranscriber>, String> {
+    VoskTranscriber::new(config, sample_rate).map(|t| Box::new(t) as Box<dyn EventBasedTranscriber>)
+}
 
 /// Get default model path from environment or fallback (string form).
 /// Delegates to `model::default_model_path` when the feature is enabled.
@@ -33,6 +38,6 @@ pub fn default_model_path() -> String {
 }
 
 #[cfg(not(feature = "vosk"))]
-pub fn create_default_transcriber(_config: TranscriptionConfig) -> Result<(), String> {
+pub fn create_transcriber(_config: TranscriptionConfig, _sample_rate: f32) -> Result<Box<dyn EventBasedTranscriber>, String> {
     Err("Vosk feature is not enabled. Enable with --features vosk".to_string())
 }

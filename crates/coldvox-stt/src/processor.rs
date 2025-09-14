@@ -5,7 +5,7 @@
 //! to work with any VAD system and any STT implementation.
 
 use crate::types::{TranscriptionConfig, TranscriptionEvent};
-use crate::EventBasedTranscriber;
+use crate::StreamingStt;
 /// Minimal audio frame type (i16 PCM) used by the generic STT processor
 #[derive(Debug, Clone)]
 pub struct AudioFrame {
@@ -62,16 +62,16 @@ pub struct SttMetrics {
     pub last_event_time: Option<Instant>,
 }
 
-/// Generic STT processor that works with any transcriber implementation
-pub struct SttProcessor<T: EventBasedTranscriber> {
+/// Generic STT processor that works with any streaming STT implementation
+pub struct SttProcessor<T: StreamingStt> {
     /// Audio frame receiver (broadcast from pipeline)
     audio_rx: broadcast::Receiver<AudioFrame>,
     /// VAD event receiver
     vad_event_rx: mpsc::Receiver<VadEvent>,
     /// Transcription event sender
     event_tx: mpsc::Sender<TranscriptionEvent>,
-    /// Transcriber implementation
-    transcriber: T,
+    /// Streaming STT implementation
+    stt_engine: T,
     /// Current utterance state
     state: UtteranceState,
     /// Metrics
@@ -80,13 +80,13 @@ pub struct SttProcessor<T: EventBasedTranscriber> {
     config: TranscriptionConfig,
 }
 
-impl<T: EventBasedTranscriber + Send> SttProcessor<T> {
+impl<T: StreamingStt + Send> SttProcessor<T> {
     /// Create a new STT processor
     pub fn new(
         audio_rx: broadcast::Receiver<AudioFrame>,
         vad_event_rx: mpsc::Receiver<VadEvent>,
         event_tx: mpsc::Sender<TranscriptionEvent>,
-        transcriber: T,
+        stt_engine: T,
         config: TranscriptionConfig,
     ) -> Self {
         // Check if STT is enabled
@@ -98,7 +98,7 @@ impl<T: EventBasedTranscriber + Send> SttProcessor<T> {
             audio_rx,
             vad_event_rx,
             event_tx,
-            transcriber,
+            stt_engine,
             state: UtteranceState::Idle,
             metrics: Arc::new(parking_lot::RwLock::new(SttMetrics::default())),
             config,
@@ -182,10 +182,8 @@ impl<T: EventBasedTranscriber + Send> SttProcessor<T> {
             frames_buffered: 0,
         };
 
-        // Reset transcriber for new utterance
-        if let Err(e) = self.transcriber.reset() {
-            warn!(target: "stt", "Failed to reset transcriber: {}", e);
-        }
+        // Reset STT engine for new utterance
+        self.stt_engine.reset().await;
 
         info!(target: "stt", "Started buffering audio for new utterance");
     }
@@ -216,61 +214,25 @@ impl<T: EventBasedTranscriber + Send> SttProcessor<T> {
             );
 
             if !audio_buffer.is_empty() {
-                // Send the entire buffer to the transcriber at once
-                match self.transcriber.accept_frame(audio_buffer) {
-                    Ok(Some(event)) => {
+                // Send the entire buffer to the STT engine
+                // Stream model expects per-frame feeding; here we feed the whole buffered audio
+                // in chunks to preserve event semantics.
+                for chunk in audio_buffer.chunks(16000) { // 1 second chunks arbitrary; adjust later if needed
+                    if let Some(event) = self.stt_engine.on_speech_frame(chunk).await {
                         self.send_event(event).await;
-
-                        // Update metrics
-                        let mut metrics = self.metrics.write();
-                        metrics.frames_out += frames_buffered;
-                        metrics.last_event_time = Some(Instant::now());
-                    }
-                    Ok(None) => {
-                        debug!(target: "stt", "No transcription from buffered audio");
-                    }
-                    Err(e) => {
-                        error!(target: "stt", "Failed to process buffered audio: {}", e);
-
-                        // Send error event
-                        let error_event = TranscriptionEvent::Error {
-                            code: "BUFFER_PROCESS_ERROR".to_string(),
-                            message: e,
-                        };
-                        self.send_event(error_event).await;
-
-                        // Update metrics
-                        self.metrics.write().error_count += 1;
                     }
                 }
+                let mut metrics = self.metrics.write();
+                metrics.frames_out += frames_buffered;
+                metrics.last_event_time = Some(Instant::now());
             }
 
             // Finalize to get any remaining transcription
-            match self.transcriber.finalize_utterance() {
-                Ok(Some(event)) => {
-                    self.send_event(event).await;
-
-                    // Update metrics
-                    let mut metrics = self.metrics.write();
-                    metrics.final_count += 1;
-                    metrics.last_event_time = Some(Instant::now());
-                }
-                Ok(None) => {
-                    debug!(target: "stt", "No final transcription available");
-                }
-                Err(e) => {
-                    error!(target: "stt", "Failed to finalize transcription: {}", e);
-
-                    // Send error event
-                    let error_event = TranscriptionEvent::Error {
-                        code: "FINALIZE_ERROR".to_string(),
-                        message: e,
-                    };
-                    self.send_event(error_event).await;
-
-                    // Update metrics
-                    self.metrics.write().error_count += 1;
-                }
+            if let Some(event) = self.stt_engine.on_speech_end().await {
+                self.send_event(event).await;
+                let mut metrics = self.metrics.write();
+                metrics.final_count += 1;
+                metrics.last_event_time = Some(Instant::now());
             }
         }
 

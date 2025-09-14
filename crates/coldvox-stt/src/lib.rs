@@ -3,14 +3,21 @@
 //! This crate provides the core abstractions for speech-to-text functionality,
 //! including transcription events, configuration, and the base Transcriber trait.
 
+use async_trait::async_trait;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 pub mod plugin;
+pub mod plugin_types;
 pub mod plugins;
-pub mod processor;
+pub mod processor; // legacy (EventBasedTranscriber-based) processor
 pub mod types;
+pub mod plugin_adapter; // new adapter implementing StreamingStt
+pub mod streaming_processor; // new async StreamingStt processor (under migration)
 
 pub use types::{TranscriptionConfig, TranscriptionEvent, WordInfo};
+pub use plugin::{SttPlugin, SttPluginError};
+pub use plugin_adapter::PluginAdapter; // adapter for plugin → StreamingStt
+pub use streaming_processor::{StreamingSttProcessor, AudioFrame as StreamingAudioFrame, VadEvent as StreamingVadEvent};
 
 /// Generates unique utterance IDs
 static UTTERANCE_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -49,4 +56,15 @@ pub trait EventBasedTranscriber {
 
     /// Get current configuration
     fn config(&self) -> &TranscriptionConfig;
+}
+
+/// Streaming STT interface used by the new async processor.
+/// This mirrors the agent branch simpler interface: per-frame processing,
+/// finalize at speech end, and reset. Additional richer streaming methods
+/// can be layered later if needed.
+#[async_trait]
+pub trait StreamingStt: Send + Sync {
+    async fn on_speech_frame(&mut self, samples: &[i16]) -> Option<TranscriptionEvent>;
+    async fn on_speech_end(&mut self) -> Option<TranscriptionEvent>;
+    async fn reset(&mut self);
 }

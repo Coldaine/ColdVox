@@ -5,6 +5,14 @@ Minimal root README. Full developer & architecture guide: see [`CLAUDE.md`](CLAU
 ## Overview
 ColdVox is a modular Rust workspace providing real‑time audio capture, VAD, STT (Vosk), and cross‑platform text injection.
 
+## STT Plugins
+Supports Vosk (default), NoOp/Mock fallbacks. Config via --stt-* flags. Migration: Remove VOSK_MODEL_PATH; use --stt-preferred=vosk.
+
+Example:
+```bash
+cargo run --features vosk -- --stt-preferred=vosk
+```
+
 ## Quick Start
 ```bash
 cargo run --features vosk         # Run with Vosk STT (requires model)

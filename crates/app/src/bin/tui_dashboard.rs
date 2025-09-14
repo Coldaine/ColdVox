@@ -23,11 +23,17 @@ use ratatui::{
 };
 use std::collections::VecDeque;
 use std::io;
+use std::io::Write as _;
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use chrono::Local;
+use std::fs;
+use std::path::PathBuf;
+use hound::{WavSpec, WavWriter, SampleFormat};
 
 fn init_logging(cli_level: &str) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all("logs")?;
@@ -79,15 +85,41 @@ struct Cli {
     /// Log level filter (overrides RUST_LOG)
     #[arg(
         long = "log-level",
-        default_value = "info,stt=debug,coldvox_audio=debug,coldvox_app=debug,coldvox_vad=debug"
+        // Default to full debug for TUI runs unless user specifies otherwise
+        default_value = "debug"
     )]
     log_level: String,
+
+    /// Enable dumping raw audio to disk
+    #[arg(long = "dump-audio", default_value_t = false)]
+    dump_audio: bool,
+
+    /// Directory to save audio dumps (defaults to logs/audio_dumps)
+    #[arg(long = "dump-dir")]
+    dump_dir: Option<String>,
+
+    /// Dump format: pcm or wav
+    #[arg(long = "dump-format", value_enum, default_value = "pcm")]
+    dump_format: DumpFormat,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum CliActivationMode {
     Vad,
     Hotkey,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum DumpFormat {
+    Pcm,
+    Wav,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Tab {
+    Audio,
+    Logs,
+    Plugins,
 }
 
 #[allow(dead_code)]
@@ -98,6 +130,14 @@ enum AppEvent {
     AppReplaced(app_runtime::AppHandle),
     #[cfg(feature = "vosk")]
     Transcription(TranscriptionEvent),
+    #[cfg(feature = "vosk")]
+    PluginLoad(String),
+    #[cfg(feature = "vosk")]
+    PluginUnload(String),
+    #[cfg(feature = "vosk")]
+    PluginSwitch(String),
+    #[cfg(feature = "vosk")]
+    PluginStatusUpdate,
 }
 
 struct PipelineMetricsSnapshot {
@@ -134,9 +174,33 @@ struct DashboardState {
     resampler_quality: coldvox_audio::ResamplerQuality,
     metrics: PipelineMetricsSnapshot,
     has_metrics_snapshot: bool,
+    current_tab: Tab,
     /// Last final transcript (if STT enabled)
     #[cfg(feature = "vosk")]
     last_transcript: Option<String>,
+
+    #[cfg(feature = "vosk")]
+    plugin_manager: Option<Arc<tokio::sync::RwLock<coldvox_app::stt::plugin_manager::SttPluginManager>>>,
+
+    #[cfg(feature = "vosk")]
+    plugin_current: Option<String>,
+
+    #[cfg(feature = "vosk")]
+    plugin_active_count: usize,
+
+    #[cfg(feature = "vosk")]
+    plugin_transcription_requests: u64,
+
+    #[cfg(feature = "vosk")]
+    plugin_success: u64,
+
+    #[cfg(feature = "vosk")]
+    plugin_failures: u64,
+
+    // Audio dump options
+    dump_audio: bool,
+    dump_dir: Option<String>,
+    dump_format: DumpFormat,
 }
 
 #[derive(Clone)]
@@ -204,8 +268,25 @@ impl Default for DashboardState {
                 chunker_frames: 0,
             },
             has_metrics_snapshot: false,
+            current_tab: Tab::Audio,
             #[cfg(feature = "vosk")]
             last_transcript: None,
+            #[cfg(feature = "vosk")]
+            plugin_manager: None,
+            #[cfg(feature = "vosk")]
+            plugin_current: None,
+            #[cfg(feature = "vosk")]
+            plugin_active_count: 0,
+            #[cfg(feature = "vosk")]
+            plugin_transcription_requests: 0,
+            #[cfg(feature = "vosk")]
+            plugin_success: 0,
+            #[cfg(feature = "vosk")]
+            plugin_failures: 0,
+
+            dump_audio: false,
+            dump_dir: None,
+            dump_format: DumpFormat::Pcm,
         }
     }
 }
@@ -290,6 +371,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         _ => coldvox_audio::ResamplerQuality::Balanced,
     };
 
+    // Audio dump settings from CLI
+    state.dump_audio = cli.dump_audio;
+    state.dump_dir = cli.dump_dir;
+    state.dump_format = cli.dump_format;
+
     let res = run_app(&mut terminal, &mut state, tx, rx).await;
 
     disable_raw_mode()?;
@@ -332,7 +418,7 @@ async fn run_app(
                             if state.is_running {
                                 if let Some(app) = state.app.take() {
                                     // Best-effort shutdown
-                                    tokio::spawn(async move { app.shutdown().await; });
+                                    tokio::spawn(async move { Arc::new(app).shutdown().await; });
                                 }
                             }
                             return Ok(());
@@ -345,10 +431,7 @@ async fn run_app(
                                     device: if state.selected_device == "default" || state.selected_device.is_empty() { None } else { Some(state.selected_device.clone()) },
                                     activation_mode: state.activation_mode,
                                     resampler_quality: state.resampler_quality,
-                                    #[cfg(feature = "vosk")]
-                                    vosk_model_path: None,
-                                    #[cfg(feature = "vosk")]
-                                    stt_enabled: None,
+                                    stt_selection: Some(coldvox_stt::plugin::PluginSelectionConfig::default()),
                                     #[cfg(feature = "text-injection")]
                                     injection: None,
                                 };
@@ -359,6 +442,11 @@ async fn run_app(
                                     Ok(app) => {
                                         #[allow(unused_mut)]
                                         let mut app = app;
+                                        // Extract plugin manager for UI access before moving app
+                                        #[cfg(feature = "vosk")]
+                                        {
+                                            state.plugin_manager = app.plugin_manager.clone();
+                                        }
                                         // Forward VAD events to UI
                                         let mut vad_rx = app.subscribe_vad();
                                         tokio::spawn(async move {
@@ -378,8 +466,133 @@ async fn run_app(
                                             });
                                         }
 
+                                        // Optional: dump raw audio to disk if enabled and not disabled by env
+                                        let dump_enabled = state.dump_audio;
+                                        let dump_dir = state.dump_dir.clone();
+                                        let dump_format = state.dump_format;
+                                        if dump_enabled {
+                                            let env_disable = std::env::var("COLDVOX_DISABLE_AUDIO_DUMP").unwrap_or_default().to_lowercase();
+                                            if matches!(env_disable.as_str(), "1" | "true" | "yes") {
+                                                let _ = tx.send(AppEvent::Log(LogLevel::Warning, "Audio dump disabled by COLDVOX_DISABLE_AUDIO_DUMP".to_string())).await;
+                                            } else {
+                                                let mut audio_rx = app.subscribe_audio();
+                                                let ui_tx3 = tx.clone();
+                                                tokio::spawn(async move {
+                                                    // Resolve output directory
+                                                    let base_dir = dump_dir.unwrap_or_else(|| "logs/audio_dumps".to_string());
+                                                    if let Err(e) = fs::create_dir_all(&base_dir) {
+                                                        let _ = ui_tx3.send(AppEvent::Log(LogLevel::Error, format!("Failed to create dump dir '{}': {}", base_dir, e))).await;
+                                                        return;
+                                                    }
+
+                                                    let ts = Local::now().format("%Y%m%d_%H%M%S").to_string();
+                                                    match dump_format {
+                                                        DumpFormat::Pcm => {
+                                                            let mut path = PathBuf::from(&base_dir);
+                                                            path.push(format!("audio_{}.pcm", ts));
+                                                            let _ = ui_tx3.send(AppEvent::Log(LogLevel::Info, format!("Audio dump enabled: {}", path.display()))).await;
+
+                                                            let mut writer = match std::fs::File::create(&path).map(std::io::BufWriter::new) {
+                                                                Ok(w) => w,
+                                                                Err(e) => {
+                                                                    let _ = ui_tx3.send(AppEvent::Log(LogLevel::Error, format!("Failed to open '{}': {}", path.display(), e))).await;
+                                                                    return;
+                                                                }
+                                                            };
+
+                                                            loop {
+                                                                match audio_rx.recv().await {
+                                                                    Ok(frame) => {
+                                                                        // Convert f32 [-1,1] to i16 LE and write
+                                                                        let mut buf = Vec::with_capacity(frame.samples.len() * 2);
+                                                                        for &s in frame.samples.iter() {
+                                                                            let i = (s.clamp(-1.0, 1.0) * 32767.0) as i16;
+                                                                            let b = i.to_le_bytes();
+                                                                            buf.push(b[0]);
+                                                                            buf.push(b[1]);
+                                                                        }
+                                                                        if let Err(e) = writer.write_all(&buf) {
+                                                                            let _ = ui_tx3.send(AppEvent::Log(LogLevel::Error, format!("PCM write error: {}", e))).await;
+                                                                            break;
+                                                                        }
+                                                                    }
+                                                                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                                                                        let _ = ui_tx3.send(AppEvent::Log(LogLevel::Debug, format!("Audio dump lagged; dropped {} frames", n))).await;
+                                                                        continue;
+                                                                    }
+                                                                    Err(_) => {
+                                                                        // Channel closed or canceled
+                                                                        break;
+                                                                    }
+                                                                }
+                                                            }
+                                                            let _ = writer.flush();
+                                                            let _ = ui_tx3.send(AppEvent::Log(LogLevel::Info, "Audio dump stopped".to_string())).await;
+                                                        }
+                                                        DumpFormat::Wav => {
+                                                            let mut path = PathBuf::from(&base_dir);
+                                                            path.push(format!("audio_{}.wav", ts));
+                                                            // Grab the first frame to determine sample rate
+                                                            let first_frame = match audio_rx.recv().await {
+                                                                Ok(f) => f,
+                                                                Err(e) => {
+                                                                    let _ = ui_tx3.send(AppEvent::Log(LogLevel::Error, format!("Failed to start WAV dump: {}", e))).await;
+                                                                    return;
+                                                                }
+                                                            };
+                                                            let spec = WavSpec {
+                                                                channels: 1,
+                                                                sample_rate: first_frame.sample_rate,
+                                                                bits_per_sample: 16,
+                                                                sample_format: SampleFormat::Int,
+                                                            };
+                                                            let mut wav = match WavWriter::create(&path, spec) {
+                                                                Ok(w) => w,
+                                                                Err(e) => {
+                                                                    let _ = ui_tx3.send(AppEvent::Log(LogLevel::Error, format!("Failed to open '{}': {}", path.display(), e))).await;
+                                                                    return;
+                                                                }
+                                                            };
+                                                            let _ = ui_tx3.send(AppEvent::Log(LogLevel::Info, format!("Audio dump enabled: {} ({} Hz)", path.display(), first_frame.sample_rate))).await;
+                                                            // Write first frame
+                                                            for &s in first_frame.samples.iter() {
+                                                                let i = (s.clamp(-1.0, 1.0) * 32767.0) as i16;
+                                                                if wav.write_sample(i).is_err() { break; }
+                                                            }
+                                                            // Remaining frames
+                                                            loop {
+                                                                match audio_rx.recv().await {
+                                                                    Ok(frame) => {
+                                                                        for &s in frame.samples.iter() {
+                                                                            let i = (s.clamp(-1.0, 1.0) * 32767.0) as i16;
+                                                                            if let Err(e) = wav.write_sample(i) {
+                                                                                let _ = ui_tx3.send(AppEvent::Log(LogLevel::Error, format!("WAV write error: {}", e))).await;
+                                                                                break;
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                                                                        let _ = ui_tx3.send(AppEvent::Log(LogLevel::Debug, format!("Audio dump lagged; dropped {} frames", n))).await;
+                                                                        continue;
+                                                                    }
+                                                                    Err(_) => break,
+                                                                }
+                                                            }
+                                                            let _ = wav.flush();
+                                                            if let Err(e) = wav.finalize() {
+                                                                let _ = ui_tx3.send(AppEvent::Log(LogLevel::Error, format!("Error finalizing WAV: {}", e))).await;
+                                                            } else {
+                                                                let _ = ui_tx3.send(AppEvent::Log(LogLevel::Info, "Audio dump stopped".to_string())).await;
+                                                            }
+                                                        }
+                                                    }
+                                                });
+                                            }
+                                        }
+
                                         state.app = Some(app);
                                         state.is_running = true;
+                                        state.log(LogLevel::Success, "Pipeline fully started".to_string());
                                         state.log(LogLevel::Success, "Pipeline fully started".to_string());
                                     }
                                     Err(e) => {
@@ -404,6 +617,69 @@ async fn run_app(
                         }
                         KeyCode::Char('r') | KeyCode::Char('R') => {
                             state.reset_metrics();
+                        }
+                        KeyCode::Char('p') | KeyCode::Char('P') => {
+                            // Toggle between tabs
+                            state.current_tab = match state.current_tab {
+                                Tab::Audio => Tab::Logs,
+                                Tab::Logs => Tab::Plugins,
+                                Tab::Plugins => Tab::Audio,
+                            };
+                            state.log(LogLevel::Info, format!("Switched to {:?} tab", state.current_tab));
+                        }
+                        KeyCode::Char('l') | KeyCode::Char('L') => {
+                            // Load plugin (only when running)
+                            if state.is_running {
+                                #[cfg(feature = "vosk")]
+                                {
+                                    if let Some(ref pm) = state.plugin_manager {
+                                        let pm_clone = pm.clone();
+                                        let tx_clone = tx.clone();
+                                        tokio::spawn(async move {
+                                            let result = pm_clone.write().await.switch_plugin("mock").await;
+                                            let _ = tx_clone.send(AppEvent::PluginSwitch("mock".to_string())).await;
+                                            if result.is_ok() {
+                                                let _ = tx_clone.send(AppEvent::PluginLoad("mock".to_string())).await;
+                                            }
+                                        });
+                                    }
+                                }
+                                state.log(LogLevel::Info, "Loading plugin...".to_string());
+                            }
+                        }
+                        KeyCode::Char('u') | KeyCode::Char('U') => {
+                            // Unload plugin (only when running)
+                            if state.is_running {
+                                #[cfg(feature = "vosk")]
+                                {
+                                    if let Some(ref pm) = state.plugin_manager {
+                                        let pm_clone = pm.clone();
+                                        let tx_clone = tx.clone();
+                                        tokio::spawn(async move {
+                                            let _result = pm_clone.write().await.unload_plugin("mock").await;
+                                            let _ = tx_clone.send(AppEvent::PluginUnload("mock".to_string())).await;
+                                        });
+                                    }
+                                }
+                                state.log(LogLevel::Info, "Unloading plugin...".to_string());
+                            }
+                        }
+                        KeyCode::Char('w') | KeyCode::Char('W') => {
+                            // Switch plugin (only when running and in plugins tab)
+                            if state.is_running && matches!(state.current_tab, Tab::Plugins) {
+                                #[cfg(feature = "vosk")]
+                                {
+                                    if let Some(ref pm) = state.plugin_manager {
+                                        let pm_clone = pm.clone();
+                                        let tx_clone = tx.clone();
+                                        tokio::spawn(async move {
+                                            let _result = pm_clone.write().await.switch_plugin("noop").await;
+                                            let _ = tx_clone.send(AppEvent::PluginSwitch("noop".to_string())).await;
+                                        });
+                                    }
+                                }
+                                state.log(LogLevel::Info, "Switching plugin...".to_string());
+                            }
                         }
                         _ => {}
                     }
@@ -451,6 +727,50 @@ async fn run_app(
                                     state.log(LogLevel::Error, format!("[STT error:{}] {}", code, message));
                                 }
                             }
+                        }
+                        #[cfg(feature = "vosk")]
+                        AppEvent::PluginLoad(plugin_id) => {
+                            state.plugin_current = Some(plugin_id.clone());
+                            state.plugin_active_count += 1;
+                            // Update metrics from shared sink
+                            if let Some(app) = &state.app {
+                                state.plugin_transcription_requests = app.metrics.stt_transcription_requests.load(Ordering::Relaxed) as u64;
+                                state.plugin_success = app.metrics.stt_transcription_success.load(Ordering::Relaxed) as u64;
+                                state.plugin_failures = app.metrics.stt_transcription_failures.load(Ordering::Relaxed) as u64;
+                            }
+                            state.log(LogLevel::Success, format!("Plugin loaded: {}", plugin_id));
+                        }
+                        #[cfg(feature = "vosk")]
+                        AppEvent::PluginUnload(plugin_id) => {
+                            if state.plugin_current.as_ref() == Some(&plugin_id) {
+                                state.plugin_current = None;
+                            }
+                            if state.plugin_active_count > 0 {
+                                state.plugin_active_count -= 1;
+                            }
+                            // Update metrics from shared sink
+                            if let Some(app) = &state.app {
+                                state.plugin_transcription_requests = app.metrics.stt_transcription_requests.load(Ordering::Relaxed) as u64;
+                                state.plugin_success = app.metrics.stt_transcription_success.load(Ordering::Relaxed) as u64;
+                                state.plugin_failures = app.metrics.stt_transcription_failures.load(Ordering::Relaxed) as u64;
+                            }
+                            state.log(LogLevel::Info, format!("Plugin unloaded: {}", plugin_id));
+                        }
+                        #[cfg(feature = "vosk")]
+                        AppEvent::PluginSwitch(plugin_id) => {
+                            state.plugin_current = Some(plugin_id.clone());
+                            // Update metrics from shared sink
+                            if let Some(app) = &state.app {
+                                state.plugin_transcription_requests = app.metrics.stt_transcription_requests.load(Ordering::Relaxed) as u64;
+                                state.plugin_success = app.metrics.stt_transcription_success.load(Ordering::Relaxed) as u64;
+                                state.plugin_failures = app.metrics.stt_transcription_failures.load(Ordering::Relaxed) as u64;
+                            }
+                            state.log(LogLevel::Info, format!("Switched to plugin: {}", plugin_id));
+                        }
+                        #[cfg(feature = "vosk")]
+                        AppEvent::PluginStatusUpdate => {
+                            // Update plugin status (could refresh metrics)
+                            state.log(LogLevel::Debug, "Plugin status updated".to_string());
                         }
                 }
             }
@@ -509,8 +829,20 @@ fn draw_ui(f: &mut Frame, state: &DashboardState) {
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
         .split(main_chunks[1]);
 
-    draw_metrics(f, middle_chunks[0], state);
-    draw_status(f, middle_chunks[1], state);
+    match state.current_tab {
+        Tab::Audio => {
+            draw_metrics(f, middle_chunks[0], state);
+            draw_status(f, middle_chunks[1], state);
+        }
+        Tab::Logs => {
+            draw_logs(f, middle_chunks[0], state);
+            draw_status(f, middle_chunks[1], state);
+        }
+        Tab::Plugins => {
+            draw_plugins(f, middle_chunks[0], state);
+            draw_plugin_status(f, middle_chunks[1], state);
+        }
+    }
 
     draw_logs(f, main_chunks[2], state);
 }
@@ -787,5 +1119,96 @@ fn draw_logs(f: &mut Frame, area: Rect, state: &DashboardState) {
         .collect();
 
     let paragraph = Paragraph::new(log_lines);
+    f.render_widget(paragraph, inner);
+}
+
+fn draw_plugins(f: &mut Frame, area: Rect, _state: &DashboardState) {
+    let block = Block::default().title("Available Plugins").borders(Borders::ALL);
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let mut plugin_lines: Vec<Line> = Vec::new();
+
+    #[cfg(feature = "vosk")]
+    {
+        // Display available plugins from plugin manager
+        if let Some(ref pm) = state.plugin_manager {
+            // Try to get plugin list without blocking
+            let pm_read = pm.try_read();
+            if let Ok(pm_guard) = pm_read {
+                let plugins = pm_guard.list_plugins_sync();
+                for plugin in plugins {
+                    let status = if Some(&plugin.id) == state.plugin_current.as_ref() {
+                        " [ACTIVE]"
+                    } else {
+                        ""
+                    };
+                    plugin_lines.push(Line::from(format!("{} - {}{}", plugin.id, plugin.name, status)));
+                }
+            } else {
+                plugin_lines.push(Line::from("Loading plugins..."));
+            }
+        } else {
+            plugin_lines.push(Line::from("Plugin manager not available"));
+        }
+    }
+
+    #[cfg(not(feature = "vosk"))]
+    {
+        plugin_lines.push(Line::from("STT plugins require 'vosk' feature"));
+    }
+
+    let paragraph = Paragraph::new(plugin_lines);
+    f.render_widget(paragraph, inner);
+}
+
+fn draw_plugin_status(f: &mut Frame, area: Rect, _state: &DashboardState) {
+    let block = Block::default().title("Plugin Status").borders(Borders::ALL);
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let mut status_lines: Vec<Line> = Vec::new();
+
+    #[cfg(feature = "vosk")]
+    {
+        // Current plugin
+        let current = state.plugin_current.as_deref().unwrap_or("None");
+        status_lines.push(Line::from(vec![
+            Span::raw("Current: "),
+            Span::styled(current, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        ]));
+
+        // Active count
+        status_lines.push(Line::from(format!("Active: {}", state.plugin_active_count)));
+
+        // Real-time metrics from shared sink
+        if let Some(app) = &state.app {
+            let metrics = &app.metrics;
+            status_lines.push(Line::from(format!("Requests: {}", metrics.stt_transcription_requests.load(Ordering::Relaxed))));
+            status_lines.push(Line::from(format!("Success: {}", metrics.stt_transcription_success.load(Ordering::Relaxed))));
+            status_lines.push(Line::from(format!("Failures: {}", metrics.stt_transcription_failures.load(Ordering::Relaxed))));
+            status_lines.push(Line::from(format!("Load Count: {}", metrics.stt_load_count.load(Ordering::Relaxed))));
+            status_lines.push(Line::from(format!("Unload Count: {}", metrics.stt_unload_count.load(Ordering::Relaxed))));
+            status_lines.push(Line::from(format!("Failovers: {}", metrics.stt_failover_count.load(Ordering::Relaxed))));
+        } else {
+            status_lines.push(Line::from("Requests: N/A"));
+            status_lines.push(Line::from("Success: N/A"));
+            status_lines.push(Line::from("Failures: N/A"));
+        }
+
+        status_lines.push(Line::from(""));
+        status_lines.push(Line::from("Controls:"));
+        status_lines.push(Line::from("[P] Toggle Tab  [L] Load Plugin"));
+        status_lines.push(Line::from("[U] Unload Plugin  [W] Switch"));
+    }
+
+    #[cfg(not(feature = "vosk"))]
+    {
+        status_lines.push(Line::from("STT plugins require 'vosk' feature"));
+    }
+
+    let paragraph = Paragraph::new(status_lines);
     f.render_widget(paragraph, inner);
 }

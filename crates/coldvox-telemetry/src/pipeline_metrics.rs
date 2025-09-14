@@ -9,7 +9,7 @@ use coldvox_text_injection::types::InjectionMetrics;
 use parking_lot::Mutex;
 
 /// Shared metrics for cross-thread pipeline monitoring
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct PipelineMetrics {
     // Audio level monitoring
     pub current_peak: Arc<AtomicI16>, // Peak sample value in current window
@@ -49,9 +49,118 @@ pub struct PipelineMetrics {
     // Error tracking
     pub capture_errors: Arc<AtomicU64>,
     pub chunker_errors: Arc<AtomicU64>,
+
+    // STT metrics (plugin manager)
+    pub stt_failover_count: Arc<AtomicU64>,
+    pub stt_total_errors: Arc<AtomicU64>,
+    /// Seconds since process start of last failover (0 = none)
+    pub stt_last_failover_secs: Arc<AtomicU64>,
+    /// Number of successful plugin unloads
+    pub stt_unload_count: Arc<AtomicU64>,
+    /// Number of plugin unload errors
+    pub stt_unload_errors: Arc<AtomicU64>,
+
+    /// Number of successful plugin loads
+    pub stt_load_count: Arc<AtomicU64>,
+    /// Number of plugin load errors
+    pub stt_load_errors: Arc<AtomicU64>,
+    /// Number of successful initializations
+    pub stt_init_success: Arc<AtomicU64>,
+    /// Number of initialization failures
+    pub stt_init_failures: Arc<AtomicU64>,
+    /// Current number of active plugins
+    pub stt_active_plugins: Arc<AtomicUsize>,
+    /// Number of transcription requests
+    pub stt_transcription_requests: Arc<AtomicU64>,
+    /// Number of successful transcriptions
+    pub stt_transcription_success: Arc<AtomicU64>,
+    /// Number of transcription failures
+    pub stt_transcription_failures: Arc<AtomicU64>,
+    /// Last transcription latency in ms
+    pub stt_last_transcription_latency_ms: Arc<AtomicU64>,
+    /// Last plugin load duration in ms
+    pub stt_last_load_duration_ms: Arc<AtomicU64>,
+    /// Last initialization duration in ms
+    pub stt_last_init_duration_ms: Arc<AtomicU64>,
+    /// Last unload duration in ms
+    pub stt_last_unload_duration_ms: Arc<AtomicU64>,
+    /// Audio processing FPS * 10
+    pub stt_audio_fps: Arc<AtomicU64>,
+    /// Number of GC runs
+    pub stt_gc_runs: Arc<AtomicU64>,
     // Text Injection Metrics
     #[cfg(feature = "text-injection")]
     pub injection: Arc<Mutex<InjectionMetrics>>,
+}
+
+impl Default for PipelineMetrics {
+    fn default() -> Self {
+        Self {
+            // Audio level monitoring
+            current_peak: Arc::new(AtomicI16::new(0)),
+            current_rms: Arc::new(AtomicU64::new(0)),
+            audio_level_db: Arc::new(AtomicI16::new(-900)),
+
+            // Pipeline stage tracking
+            stage_capture: Arc::new(AtomicBool::new(false)),
+            stage_chunker: Arc::new(AtomicBool::new(false)),
+            stage_vad: Arc::new(AtomicBool::new(false)),
+            stage_output: Arc::new(AtomicBool::new(false)),
+
+            // Buffer monitoring
+            capture_buffer_fill: Arc::new(AtomicUsize::new(0)),
+            chunker_buffer_fill: Arc::new(AtomicUsize::new(0)),
+            vad_buffer_fill: Arc::new(AtomicUsize::new(0)),
+
+            // Frame rate tracking
+            capture_fps: Arc::new(AtomicU64::new(0)),
+            chunker_fps: Arc::new(AtomicU64::new(0)),
+            vad_fps: Arc::new(AtomicU64::new(0)),
+
+            // Event counters
+            capture_frames: Arc::new(AtomicU64::new(0)),
+            chunker_frames: Arc::new(AtomicU64::new(0)),
+
+            // Latency tracking
+            capture_to_chunker_ms: Arc::new(AtomicU64::new(0)),
+            chunker_to_vad_ms: Arc::new(AtomicU64::new(0)),
+            end_to_end_ms: Arc::new(AtomicU64::new(0)),
+
+            // Activity indicators
+            is_speaking: Arc::new(AtomicBool::new(false)),
+            last_speech_time: Arc::new(RwLock::new(None)),
+            speech_segments_count: Arc::new(AtomicU64::new(0)),
+
+            // Error tracking
+            capture_errors: Arc::new(AtomicU64::new(0)),
+            chunker_errors: Arc::new(AtomicU64::new(0)),
+
+            // STT metrics (plugin manager)
+            stt_failover_count: Arc::new(AtomicU64::new(0)),
+            stt_total_errors: Arc::new(AtomicU64::new(0)),
+            stt_last_failover_secs: Arc::new(AtomicU64::new(0)),
+            stt_unload_count: Arc::new(AtomicU64::new(0)),
+            stt_unload_errors: Arc::new(AtomicU64::new(0)),
+            stt_load_count: Arc::new(AtomicU64::new(0)),
+            stt_load_errors: Arc::new(AtomicU64::new(0)),
+            stt_init_success: Arc::new(AtomicU64::new(0)),
+            stt_init_failures: Arc::new(AtomicU64::new(0)),
+            stt_active_plugins: Arc::new(AtomicUsize::new(0)),
+            stt_transcription_requests: Arc::new(AtomicU64::new(0)),
+            stt_transcription_success: Arc::new(AtomicU64::new(0)),
+            stt_transcription_failures: Arc::new(AtomicU64::new(0)),
+            stt_last_transcription_latency_ms: Arc::new(AtomicU64::new(0)),
+            stt_last_load_duration_ms: Arc::new(AtomicU64::new(0)),
+            stt_last_init_duration_ms: Arc::new(AtomicU64::new(0)),
+            stt_last_unload_duration_ms: Arc::new(AtomicU64::new(0)),
+            stt_audio_fps: Arc::new(AtomicU64::new(0)),
+            stt_gc_runs: Arc::new(AtomicU64::new(0)),
+
+            // Text Injection Metrics
+            #[cfg(feature = "text-injection")]
+            injection: Arc::new(Mutex::new(InjectionMetrics::default())),
+        }
+    }
 }
 
 impl PipelineMetrics {
