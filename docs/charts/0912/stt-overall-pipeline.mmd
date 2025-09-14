@@ -1,34 +1,34 @@
 flowchart TD
     %% External inputs
     MIC[Microphone Input] --> CAPTURE[AudioCaptureThread]
-    
+
     %% Ingestion & preprocessing
     CAPTURE --> CHUNKER[AudioChunker<br/>Resampler 16kHz]
     CHUNKER --> AUDIOTX{Audio TX<br/>broadcast<AudioFrame f32>}
-    
+
     VADPROC[VadProcessor<br/>Silero VAD] --> RAWVADTX{Raw VAD TX<br/>mpsc<VadEvent>}
     HOTKEY[Hotkey Listener] -.->|optional| RAWVADTX
-    
+
     %% Messaging / fan-out
     RAWVADTX --> VADTX[VAD TX<br/>broadcast<VadEvent> to UI]
     RAWVADTX --> FANOUT[VAD Fanout Task]
-    
+
     %% Core processing - Branch by COLDVOX_STT_ARCH
     ARCH{STT Architecture<br/>env: legacy|streaming} -->|legacy| LEGACY[PluginSttProcessor<br/>Batch Processing]
     ARCH -->|streaming| STREAMING[StreamingSttProcessor<br/>Async Incremental]
-    
+
     %% Domain engines & adapters
     PLUGINMGR[SttPluginManager<br/>Mock/NoOp/Whisper] -.->|load/failover| LEGACY
     PLUGINMGR -.->|load/failover| ADAPTER[ManagerStreamingAdapter<br/>Plugin Bridge]
     ADAPTER --> STREAMING
-    
+
     %% Legacy path details
     AUDIOTX -->|subscribe| LEGACY_AUDIO[Audio RX<br/>f32 frames]
     FANOUT -->|VadEvent| LEGACY_VAD[STT VAD RX<br/>mpsc<VadEvent>]
     LEGACY_AUDIO --> LEGACY
     LEGACY_VAD --> LEGACY
     LEGACY --> STTTX[STT TX<br/>mpsc<TranscriptionEvent>]
-    
+
     %% Streaming path details
     AUDIOTX --> FORWARDER[Audio Forwarder Task<br/>f32→i16 16kHz]
     FORWARDER -->|StreamingAudioFrame| STREAM_AUDIOTX{Stream Audio TX<br/>broadcast<i16 frames>}
@@ -38,13 +38,13 @@ flowchart TD
     STREAM_AUDIO --> STREAMING
     STREAM_VAD --> STREAMING
     STREAMING --> STTTX
-    
+
     %% Downstream consumers
     STTTX --> TUI[TUI/UI Display]
     STTTX -.->|optional| INJECTION[Text Injection<br/>Processor]
-    
+
     VADTX --> TUI
-    
+
     %% Foundation components
     subgraph Foundation [Foundation Layer]
         METRICS[Metrics<br/>PipelineMetrics]
@@ -52,21 +52,21 @@ flowchart TD
         SH[Shutdown<br/>AppHandle]
         TRACING[Tracing & Logging]
     end
-    
+
     %% Observability
     CHUNKER -.->|frames| METRICS
     VADPROC -.->|events| METRICS
     LEGACY -.->|transcriptions| METRICS
     STREAMING -.->|transcriptions| METRICS
     PLUGINMGR -.->|loads/errors| METRICS
-    
+
     %% Shutdown & resilience
     SH -->|abort tasks| FORWARDER
     SH -->|abort tasks| STREAMING
     SH -->|abort tasks| LEGACY
     SH -->|unload plugins| PLUGINMGR
     PLUGINMGR -.->|GC/failover| METRICS
-    
+
     %% Component classes
     classDef input fill:#4a90e2,stroke:#333,stroke-width:2px,color:#fff
     classDef msg fill:#50e3c2,stroke:#333,stroke-width:2px,color:#000
@@ -77,7 +77,7 @@ flowchart TD
     classDef foundation fill:#d0021b,stroke:#333,stroke-width:2px,color:#fff
     classDef observability fill:#9b9b9b,stroke:#333,stroke-width:2px,color:#fff
     classDef resilience fill:#8b572a,stroke:#333,stroke-width:2px,color:#fff
-    
+
     class MIC,CAPTURE input
     class AUDIOTX,RAWVADTX,VADTX,FANOUT,STREAM_AUDIOTX,STREAM_VADTX msg
     class CHUNKER,VADPROC,FORWARDER core

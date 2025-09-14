@@ -217,7 +217,8 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
                 // Send the entire buffer to the STT engine
                 // Stream model expects per-frame feeding; here we feed the whole buffered audio
                 // in chunks to preserve event semantics.
-                for chunk in audio_buffer.chunks(16000) { // 1 second chunks arbitrary; adjust later if needed
+                for chunk in audio_buffer.chunks(16000) {
+                    // 1 second chunks arbitrary; adjust later if needed
                     if let Some(event) = self.stt_engine.on_speech_frame(chunk).await {
                         self.send_event(event).await;
                     }

@@ -1,9 +1,9 @@
 # Phase 3 Tactical Implementation Plan
 ## Self-Hosted Runner Production Migration with Safety Rails
 
-**Document Created**: 2025-09-11  
+**Document Created**: 2025-09-11
 **Last Updated**: 2025-09-11 - Added Stage 1 Comprehensive Dependency Caching
-**Phase**: Phase 3 - Production Migration with Safety Rails  
+**Phase**: Phase 3 - Production Migration with Safety Rails
 **Prerequisites**: ✅ Phase 2 Complete (Vosk model caching, full CI validation)
 
 ---
@@ -78,7 +78,7 @@
 - **Create performance dashboard**: Show time savings from caching
 - **Establish new baseline**: Document post-caching performance
 
-### Stage 3: Hybrid Matrix Implementation (Priority 3)  
+### Stage 3: Hybrid Matrix Implementation (Priority 3)
 **Timeline**: 2-3 days
 **Objective**: Implement fallback strategy with safety rails
 
@@ -91,23 +91,23 @@ strategy:
       - runner: [self-hosted, Linux, X64, fedora]
         experimental: false
         cache-strategy: "local"
-      - runner: ubuntu-latest  
+      - runner: ubuntu-latest
         experimental: true
         cache-strategy: "download"
   fail-fast: false
-  
+
 jobs:
   build:
     runs-on: ${{ matrix.runner-config.runner }}
     continue-on-error: ${{ matrix.runner-config.experimental }}
-    
+
     steps:
       - name: Conditional Vosk Model Setup
         if: contains(matrix.runner-config.runner, 'self-hosted')
         run: |
           # Use local cache
           ln -sf /home/coldaine/ActionRunnerCache/vosk-models/vosk-model-small-en-us-0.15 models/
-      
+
       - name: Conditional Vosk Model Download
         if: contains(matrix.runner-config.runner, 'ubuntu-latest')
         # Download logic for GitHub-hosted runners
@@ -116,7 +116,7 @@ jobs:
 #### 3.2 Progressive Workflow Migration
 1. **Documentation workflows** (lowest risk)
 2. **Linting and formatting** (low risk)
-3. **Unit tests** (medium risk) 
+3. **Unit tests** (medium risk)
 4. **Integration tests** (high risk)
 5. **Release workflows** (highest risk - Phase 4)
 
@@ -126,7 +126,7 @@ jobs:
 
 #### 4.1 Gradual Rollout Plan
 - **Day 1**: Update documentation workflows
-- **Day 2**: Update ci.yml with hybrid strategy  
+- **Day 2**: Update ci.yml with hybrid strategy
 - **Day 3**: Update vosk-integration.yml with hybrid strategy
 - **Day 4-5**: Monitor, tune, and validate stability
 
@@ -162,7 +162,7 @@ git push origin main
 
 #### Gradual Rollback (Planned)
 1. Update matrix strategy to prefer ubuntu-latest
-2. Monitor for stability restoration  
+2. Monitor for stability restoration
 3. Remove self-hosted from matrix entirely
 4. Document lessons learned
 
@@ -190,7 +190,7 @@ git push origin main
 
 ### Stage 1: Comprehensive Dependency Caching (NEW - PRIORITY 1)
 - [ ] Create system package installation script
-- [ ] Pre-install all dnf packages on runner  
+- [ ] Pre-install all dnf packages on runner
 - [ ] Set up Rust toolchain cache directories
 - [ ] Cache stable and MSRV 1.75 toolchains
 - [ ] Pre-extract and install libvosk permanently
@@ -229,12 +229,12 @@ git push origin main
 # Enhanced monitoring with proper error handling
 get_system_metrics() {
     local load_avg memory_usage disk_usage runner_cpu runner_mem
-    
+
     # Fixed variable binding with proper defaults
     load_avg=$(cut -d' ' -f1 /proc/loadavg || echo "0.0")
     memory_usage=$(free -m | awk '/^Mem:/ {printf "%.1f", $3}' || echo "0.0")
     disk_usage=$(df /home/coldaine/actions-runner/_work 2>/dev/null | awk 'NR==2 {print $5}' | sed 's/%//' || echo "0")
-    
+
     # Runner process metrics with error handling
     local runner_pid
     runner_pid=$(pgrep -f "Runner.Listener" || echo "")
@@ -242,12 +242,12 @@ get_system_metrics() {
         local runner_stats
         runner_stats=$(ps -p "$runner_pid" -o %cpu,%mem --no-headers 2>/dev/null || echo "0.0 0.0")
         runner_cpu=$(echo "$runner_stats" | awk '{print $1}' || echo "0.0")
-        runner_mem=$(echo "$runner_stats" | awk '{print $2}' || echo "0.0") 
+        runner_mem=$(echo "$runner_stats" | awk '{print $2}' || echo "0.0")
     else
         runner_cpu="0.0"
         runner_mem="0.0"
     fi
-    
+
     echo "$load_avg,$memory_usage,$disk_usage,$runner_cpu,$runner_mem"
 }
 ```
@@ -298,7 +298,7 @@ jobs:
 ## Phase 4: Advanced Runner Optimization (Future)
 
 ### Parallel Job Execution Implementation
-**Timeline**: 2-3 days  
+**Timeline**: 2-3 days
 **Objective**: Maximize hardware utilization through concurrent job execution
 **Expected Impact**: 3-4x throughput improvement, reduced queue times
 
@@ -333,7 +333,7 @@ systemctl restart actions-runner
 # Runner 1: Primary builder (6 cores, 16GB RAM)
 ./config.sh --name coldaine-builder --labels self-hosted,Linux,X64,fedora,nobara,heavy-build
 
-# Runner 2: Test runner (2 cores, 8GB RAM) 
+# Runner 2: Test runner (2 cores, 8GB RAM)
 ./config.sh --name coldaine-tester --labels self-hosted,Linux,X64,fedora,nobara,light-test
 
 # Runner 3: Linting/docs (2 cores, 4GB RAM)
@@ -358,7 +358,7 @@ runs-on: [self-hosted, Linux, X64, fedora, nobara, heavy-build]
 env:
   CARGO_BUILD_JOBS: 6  # Use 6 cores for compilation
 
-# Light jobs (formatting, linting, documentation)  
+# Light jobs (formatting, linting, documentation)
 runs-on: [self-hosted, Linux, X64, fedora, nobara, light-job]
 env:
   CARGO_BUILD_JOBS: 1  # Use 1 core for lightweight tasks
@@ -396,7 +396,7 @@ env:
 - Implement job-specific resource limits
 - Validate no resource contention
 
-**Phase 4.3: Optimization & Tuning (Day 3)**  
+**Phase 4.3: Optimization & Tuning (Day 3)**
 - Fine-tune concurrent job limits based on monitoring
 - Optimize cache sharing across concurrent jobs
 - Document optimal configuration
@@ -409,7 +409,7 @@ env:
 
 **With Parallel Execution**:
 - 3-4 concurrent light jobs: ~3-4 minutes total
-- Heavy + light job mixing: ~6-8 minutes total  
+- Heavy + light job mixing: ~6-8 minutes total
 - **Overall throughput**: 3-4x improvement
 
 #### Risk Mitigation
@@ -421,7 +421,7 @@ env:
 | **I/O contention** | SSD monitoring, staggered heavy jobs | Disk usage spikes |
 
 #### Success Criteria
-- [ ] 3+ concurrent jobs executing successfully  
+- [ ] 3+ concurrent jobs executing successfully
 - [ ] No resource-related build failures
 - [ ] 2-3x throughput improvement measured
 - [ ] Cache hit rates maintained across parallel jobs

@@ -24,9 +24,9 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 // Reuse global tracing subscriber initialized in `main.rs`.
 
+use crate::runtime::ActivationMode;
 #[cfg(feature = "vosk")]
 use crate::stt::TranscriptionEvent;
-use crate::runtime::ActivationMode;
 use coldvox_vad::types::VadEvent;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -243,7 +243,9 @@ impl DashboardState {
 }
 
 /// Run the TUI dashboard with the given app handle
-pub async fn run_tui(app: std::sync::Arc<crate::runtime::AppHandle>) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn run_tui(
+    app: std::sync::Arc<crate::runtime::AppHandle>,
+) -> Result<(), Box<dyn std::error::Error>> {
     // TUI runs in the same process as `main` which already initializes tracing.
     // Avoid re-initializing the global subscriber here (double-init causes errors
     // and creating another file appender+guard can interfere with the main guard
@@ -284,7 +286,6 @@ pub async fn run_tui(app: std::sync::Arc<crate::runtime::AppHandle>) -> Result<(
 
     Ok(())
 }
-
 
 async fn run_app(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
@@ -803,7 +804,9 @@ fn draw_logs(f: &mut Frame, area: Rect, state: &DashboardState) {
 }
 
 fn draw_plugins(f: &mut Frame, area: Rect, _state: &DashboardState) {
-    let block = Block::default().title("Available Plugins").borders(Borders::ALL);
+    let block = Block::default()
+        .title("Available Plugins")
+        .borders(Borders::ALL);
 
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -830,7 +833,9 @@ fn draw_plugins(f: &mut Frame, area: Rect, _state: &DashboardState) {
 }
 
 fn draw_plugin_status(f: &mut Frame, area: Rect, state: &DashboardState) {
-    let block = Block::default().title("Plugin Status").borders(Borders::ALL);
+    let block = Block::default()
+        .title("Plugin Status")
+        .borders(Borders::ALL);
 
     let inner = block.inner(area);
     f.render_widget(block, area);
@@ -842,12 +847,20 @@ fn draw_plugin_status(f: &mut Frame, area: Rect, state: &DashboardState) {
         let current = state.plugin_current.as_deref().unwrap_or("None");
         status_lines.push(Line::from(vec![
             Span::raw("Current: "),
-            Span::styled(current, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                current,
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]));
 
         status_lines.push(Line::from(format!("Active: {}", state.plugin_active_count)));
 
-        status_lines.push(Line::from(format!("Requests: {}", state.plugin_transcription_requests)));
+        status_lines.push(Line::from(format!(
+            "Requests: {}",
+            state.plugin_transcription_requests
+        )));
         status_lines.push(Line::from(format!("Success: {}", state.plugin_success)));
         status_lines.push(Line::from(format!("Failures: {}", state.plugin_failures)));
 

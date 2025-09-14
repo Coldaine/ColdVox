@@ -7,17 +7,19 @@ use async_trait::async_trait;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 pub mod plugin;
+pub mod plugin_adapter; // new adapter implementing StreamingStt
 pub mod plugin_types;
 pub mod plugins;
 pub mod processor; // legacy (EventBasedTranscriber-based) processor
-pub mod types;
-pub mod plugin_adapter; // new adapter implementing StreamingStt
-pub mod streaming_processor; // new async StreamingStt processor (under migration)
+pub mod streaming_processor;
+pub mod types; // new async StreamingStt processor (under migration)
 
-pub use types::{TranscriptionConfig, TranscriptionEvent, WordInfo};
 pub use plugin::{SttPlugin, SttPluginError};
 pub use plugin_adapter::PluginAdapter; // adapter for plugin → StreamingStt
-pub use streaming_processor::{StreamingSttProcessor, AudioFrame as StreamingAudioFrame, VadEvent as StreamingVadEvent};
+pub use streaming_processor::{
+    AudioFrame as StreamingAudioFrame, StreamingSttProcessor, VadEvent as StreamingVadEvent,
+};
+pub use types::{TranscriptionConfig, TranscriptionEvent, WordInfo};
 
 /// Generates unique utterance IDs
 static UTTERANCE_ID_COUNTER: AtomicU64 = AtomicU64::new(1);

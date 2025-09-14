@@ -1,15 +1,15 @@
 # ColdVox Self-Hosted Runner: Practical Next Steps
 
-**Date**: 2025-09-11  
-**Context**: Post-analysis of CI failures and realistic solutions for personal development setup  
-**Goal**: Fix the blockers with minimal complexity  
+**Date**: 2025-09-11
+**Context**: Post-analysis of CI failures and realistic solutions for personal development setup
+**Goal**: Fix the blockers with minimal complexity
 
 ---
 
 ## Current Blockers (What's Actually Broken)
 
 1. **Cache conflicts**: "Failed to CreateCacheEntry: (409) Conflict" errors
-2. **Performance monitor script**: `unbound variable: cpu_usage` error  
+2. **Performance monitor script**: `unbound variable: cpu_usage` error
 3. **Workflow cancellations**: Jobs cancelled by "higher priority waiting request"
 4. **Slow CI**: 500MB-1GB downloads per job (5-10 min waste)
 5. **Flaky GUI/audio tests**: Xvfb/D-Bus setup issues causing hangs
@@ -47,14 +47,14 @@ get_system_metrics() {
     local load_avg="0.0"
     local memory_usage="0"
     local disk_usage="0"
-    local runner_cpu="0.0" 
+    local runner_cpu="0.0"
     local runner_mem="0.0"
-    
+
     # Get actual values
     load_avg=$(cut -d' ' -f1 /proc/loadavg 2>/dev/null || echo "0.0")
     memory_usage=$(free -m | awk '/^Mem:/ {print $3}' 2>/dev/null || echo "0")
     disk_usage=$(df /home | awk 'NR==2 {gsub(/%/, "", $5); print $5}' 2>/dev/null || echo "0")
-    
+
     # Runner process stats
     if pgrep -f "Runner.Listener" >/dev/null; then
         local runner_pid=$(pgrep -f "Runner.Listener" | head -1)
@@ -62,7 +62,7 @@ get_system_metrics() {
         runner_cpu=$(echo "$stats" | awk '{print $1}')
         runner_mem=$(echo "$stats" | awk '{print $2}')
     fi
-    
+
     echo "$load_avg,$memory_usage,$disk_usage,$runner_cpu,$runner_mem"
 }
 
@@ -102,7 +102,7 @@ export DISPLAY=:99
 timeout 30 Xvfb :99 -screen 0 1280x1024x24 -ac &
 sleep 2
 
-# Start window manager  
+# Start window manager
 timeout 30 fluxbox -display :99 &
 sleep 1
 
@@ -112,7 +112,7 @@ export DBUS_SESSION_BUS_ADDRESS
 export DBUS_SESSION_BUS_PID
 
 echo "Headless environment ready"
-echo "DISPLAY=$DISPLAY" >> $GITHUB_ENV  
+echo "DISPLAY=$DISPLAY" >> $GITHUB_ENV
 echo "DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS" >> $GITHUB_ENV
 echo "DBUS_SESSION_BUS_PID=$DBUS_SESSION_BUS_PID" >> $GITHUB_ENV
 ```
@@ -129,7 +129,7 @@ set -euo pipefail
 
 echo "=== One-time runner optimization ==="
 
-# Install all system dependencies permanently  
+# Install all system dependencies permanently
 sudo dnf install -y --skip-unavailable \
     alsa-lib-devel pulseaudio-libs-devel pipewire-devel \
     libXtst-devel gtk3-devel qt6-qtbase-devel \
@@ -155,19 +155,19 @@ echo "✅ Runner optimized! Expected savings: 5-10 minutes per job"
 
 ## What NOT to Implement (Overengineered)
 
-❌ **Multi-runner pool** - You have one laptop  
-❌ **Smart dispatcher** - If laptop is busy, job waits  
-❌ **Security sandboxing** - You're running your own code  
-❌ **Performance monitoring dashboards** - Simple logs are fine  
-❌ **Feature matrix explosion** - Test what you're working on  
-❌ **Historical analytics** - Not worth the complexity  
+❌ **Multi-runner pool** - You have one laptop
+❌ **Smart dispatcher** - If laptop is busy, job waits
+❌ **Security sandboxing** - You're running your own code
+❌ **Performance monitoring dashboards** - Simple logs are fine
+❌ **Feature matrix explosion** - Test what you're working on
+❌ **Historical analytics** - Not worth the complexity
 
 ## Testing the Fixes
 
 After implementing:
 
 1. **Test cache fix**: Push a commit, verify no 409 conflicts
-2. **Test performance script**: Run `./scripts/performance_monitor.sh start` 
+2. **Test performance script**: Run `./scripts/performance_monitor.sh start`
 3. **Test GUI environment**: Run `./scripts/start-headless.sh` and verify no hangs
 4. **Test dependency pre-install**: Time a full CI job (should be <5 minutes)
 
@@ -183,7 +183,7 @@ After implementing:
 **Optional improvements** (only if the above isn't enough):
 
 - Add basic job timeout protection
-- Improve error messages in scripts  
+- Improve error messages in scripts
 - Add simple health check before jobs
 - Create a "nuke and restart" script for when things go wrong
 
@@ -196,7 +196,7 @@ After implementing:
 3. **Next week**: GUI test improvements (if still having issues)
 4. **Future**: Consider fallback strategy if laptop reliability becomes an issue
 
-**Total time investment**: ~2 hours  
+**Total time investment**: ~2 hours
 **Expected benefit**: Reliable, fast CI that "just works"
 
 The goal is a boring, reliable CI system that you never have to think about.

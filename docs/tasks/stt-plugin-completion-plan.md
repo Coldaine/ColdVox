@@ -63,7 +63,7 @@ Steps are ordered: integration first (foundation), then features/tests, finally 
 - **Step 2.1:** In crates/coldvox-stt-vosk/src/lib.rs (VoskTranscriber::process_audio), add confidence extraction from Vosk result (e.g., event.confidence = result.result.confidence).
 - **Step 2.2:** Map events: Emit TranscriptionEvent::Partial for interim_results; ::Final on finalize() call (flush pending in VoskPlugin::finalize()).
 - **Step 2.3:** Implement finalize() in VoskPlugin: Call transcriber.finalize() if active; emit final event. **Note:** Semantics: finalize() flushes pending audio and emits final events only (not unload).
-- **Step 2.4:** Extend SttPluginError: Add variants Transient(AudioBufferEmpty), Fatal(ModelLoadFail); classify in VoskPlugin::process_audio (e.g., if err.is_transient() { return Err(transient) }). Use extensible error wrapper for compatibility:  
+- **Step 2.4:** Extend SttPluginError: Add variants Transient(AudioBufferEmpty), Fatal(ModelLoadFail); classify in VoskPlugin::process_audio (e.g., if err.is_transient() { return Err(transient) }). Use extensible error wrapper for compatibility:
   ```rust
   // In SttPluginError enum, add:
   pub enum SttPluginError {
@@ -94,7 +94,7 @@ Steps are ordered: integration first (foundation), then features/tests, finally 
 - **Validation:** Test fallback: Set preferred="whisper"; confirm noop fallback.
 
 ### 5. Logging Normalization
-- **Step 5.1:** In plugin_manager.rs process_audio/attempt_failover, replace warn!/error! with structured log:  
+- **Step 5.1:** In plugin_manager.rs process_audio/attempt_failover, replace warn!/error! with structured log:
   ```rust
   tracing::warn!(
       plugin_id = %plugin_id,
@@ -104,7 +104,7 @@ Steps are ordered: integration first (foundation), then features/tests, finally 
       "Plugin failed, attempting failover"
   );
   ```
-- **Step 5.2:** Ensure all STT logs use target: "coldvox::stt"; add plugin_id where applicable. **Test:** Use tracing-test to assert structured fields exist. Example:  
+- **Step 5.2:** Ensure all STT logs use target: "coldvox::stt"; add plugin_id where applicable. **Test:** Use tracing-test to assert structured fields exist. Example:
   ```rust
   #[test]
   fn test_failover_log() {

@@ -57,12 +57,12 @@ get_workflow_runs() {
 calculate_duration() {
     local start_time="$1"
     local end_time="$2"
-    
+
     # Convert ISO timestamps to seconds since epoch
     local start_epoch end_epoch duration
     start_epoch=$(date -d "$start_time" +%s 2>/dev/null || echo "0")
     end_epoch=$(date -d "$end_time" +%s 2>/dev/null || echo "0")
-    
+
     if [[ $start_epoch -gt 0 && $end_epoch -gt 0 ]]; then
         duration=$((end_epoch - start_epoch))
         echo "$duration"
@@ -75,50 +75,50 @@ monitor_workflows() {
     log "Starting workflow performance monitoring..."
     log "Monitor log: $MONITOR_LOG"
     log "Sample interval: ${SAMPLE_INTERVAL}s, Max runtime: ${MAX_RUNTIME}s"
-    
+
     # CSV header
     echo "timestamp,load_avg,memory_mb,disk_percent,runner_cpu_percent,runner_mem_percent,runner_status" >> "$MONITOR_LOG"
-    
+
     local start_time=$(date +%s)
     local sample_count=0
-    
+
     while [[ $(($(date +%s) - start_time)) -lt $MAX_RUNTIME ]]; do
         local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
         local metrics=$(get_system_metrics)
         local runner_status=$(get_runner_status)
-        
+
         # Log metrics in CSV format
         echo "$timestamp,$metrics,$runner_status" >> "$MONITOR_LOG"
-        
+
         # Progress update every 10 samples
         ((sample_count++))
         if [[ $((sample_count % 10)) -eq 0 ]]; then
             log "Sample $sample_count: Load ${metrics#*,}"
         fi
-        
+
         sleep "$SAMPLE_INTERVAL"
     done
-    
+
     log "Monitoring completed after $sample_count samples"
 }
 
 analyze_recent_performance() {
     log "Analyzing recent workflow performance..."
-    
+
     local workflows
     workflows=$(get_workflow_runs)
-    
+
     if [[ "$workflows" == "[]" ]]; then
         log "No recent workflow data available"
         return 1
     fi
-    
+
     # Parse and analyze workflow data
-    echo "$workflows" | jq -r '.[] | 
+    echo "$workflows" | jq -r '.[] |
         select(.status != null and .createdAt != null) |
-        [.workflowName, .status, .conclusion, .createdAt, .updatedAt, .databaseId] | 
+        [.workflowName, .status, .conclusion, .createdAt, .updatedAt, .databaseId] |
         @csv' | while IFS=',' read -r workflow status conclusion created updated run_id; do
-        
+
         # Remove quotes from jq CSV output
         workflow=${workflow//\"/}
         status=${status//\"/}
@@ -126,7 +126,7 @@ analyze_recent_performance() {
         created=${created//\"/}
         updated=${updated//\"/}
         run_id=${run_id//\"/}
-        
+
         if [[ "$status" == "completed" && -n "$updated" ]]; then
             local duration
             duration=$(calculate_duration "$created" "$updated")
@@ -139,9 +139,9 @@ analyze_recent_performance() {
 
 generate_performance_report() {
     log "Generating performance report..."
-    
+
     local report_file="$LOG_DIR/performance_report_${TIMESTAMP}.md"
-    
+
     cat > "$report_file" << EOF
 # ColdVox Self-Hosted Runner Performance Report
 
@@ -157,22 +157,22 @@ generate_performance_report() {
 
 ## Workflow Analysis
 EOF
-    
+
     # Add workflow performance data
     analyze_recent_performance >> "$report_file"
-    
+
     # Add system metrics summary
     if [[ -f "$MONITOR_LOG" ]]; then
         echo "" >> "$report_file"
         echo "## Resource Utilization Summary" >> "$report_file"
         echo "" >> "$report_file"
-        
+
         # Calculate averages from monitoring data
         local avg_load avg_memory avg_disk
         avg_load=$(tail -n +2 "$MONITOR_LOG" | awk -F',' '{sum+=$2; count++} END {if(count>0) printf "%.2f", sum/count; else print "N/A"}')
         avg_memory=$(tail -n +2 "$MONITOR_LOG" | awk -F',' '{sum+=$3; count++} END {if(count>0) printf "%.1f", sum/count; else print "N/A"}')
         avg_disk=$(tail -n +2 "$MONITOR_LOG" | awk -F',' '{sum+=$4; count++} END {if(count>0) printf "%.1f", sum/count; else print "N/A"}')
-        
+
         cat >> "$report_file" << EOF
 - **Average Load**: $avg_load
 - **Average Memory Usage**: ${avg_memory}MB
@@ -183,21 +183,21 @@ See: \`$MONITOR_LOG\`
 
 ## Recommendations
 EOF
-        
+
         # Add performance recommendations based on data
         if (( $(echo "$avg_load > 8.0" | bc -l 2>/dev/null || echo 0) )); then
             echo "- ⚠️  **High CPU Load**: Consider enabling parallel job limits" >> "$report_file"
         fi
-        
+
         if [[ "$avg_memory" != "N/A" ]] && (( $(echo "$avg_memory > 20000" | bc -l 2>/dev/null || echo 0) )); then
             echo "- ⚠️  **High Memory Usage**: Monitor for memory leaks in long-running jobs" >> "$report_file"
         fi
-        
+
         if [[ "$avg_disk" != "N/A" ]] && (( $(echo "$avg_disk > 70" | bc -l 2>/dev/null || echo 0) )); then
             echo "- ⚠️  **High Disk Usage**: Implement aggressive workspace cleanup" >> "$report_file"
         fi
     fi
-    
+
     log "Performance report generated: $report_file"
     echo "$report_file"
 }
@@ -217,7 +217,7 @@ main() {
         *)
             echo "Usage: $0 [monitor|analyze|report]"
             echo "  monitor  - Start continuous monitoring (default)"
-            echo "  analyze  - Analyze recent workflow performance"  
+            echo "  analyze  - Analyze recent workflow performance"
             echo "  report   - Generate performance report"
             exit 1
             ;;

@@ -203,7 +203,9 @@ mod tests {
     fn test_transition_error_to_idle() {
         let mut bridge = create_bridge();
         bridge.as_mut().set_state(AppState::Error);
-        bridge.as_mut().set_last_error("Something went wrong".to_string());
+        bridge
+            .as_mut()
+            .set_last_error("Something went wrong".to_string());
         bridge.as_mut().cmd_clear_error();
         assert_eq!(*bridge.as_ref().state(), AppState::Idle);
         assert_eq!(*bridge.as_ref().last_error(), "");

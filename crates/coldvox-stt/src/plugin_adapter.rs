@@ -46,13 +46,29 @@ impl StreamingStt for PluginAdapter {
         let mut plugin = self.plugin.write().await;
         match plugin.process_audio(samples).await {
             Ok(event) => event.map(|e| match e {
-                TranscriptionEvent::Partial { utterance_id: _, text, t0, t1 } => {
-                    TranscriptionEvent::Partial { utterance_id: self.current_utterance_id, text, t0, t1 }
+                TranscriptionEvent::Partial {
+                    utterance_id: _,
+                    text,
+                    t0,
+                    t1,
+                } => TranscriptionEvent::Partial {
+                    utterance_id: self.current_utterance_id,
+                    text,
+                    t0,
+                    t1,
+                },
+                TranscriptionEvent::Final {
+                    utterance_id: _,
+                    text,
+                    words,
+                } => TranscriptionEvent::Final {
+                    utterance_id: self.current_utterance_id,
+                    text,
+                    words,
+                },
+                TranscriptionEvent::Error { code, message } => {
+                    TranscriptionEvent::Error { code, message }
                 }
-                TranscriptionEvent::Final { utterance_id: _, text, words } => {
-                    TranscriptionEvent::Final { utterance_id: self.current_utterance_id, text, words }
-                }
-                TranscriptionEvent::Error { code, message } => TranscriptionEvent::Error { code, message },
             }),
             Err(e) => {
                 tracing::error!(target: "stt", "STT plugin error during frame processing: {}", e);
@@ -70,13 +86,29 @@ impl StreamingStt for PluginAdapter {
         match plugin.finalize().await {
             Ok(event) => {
                 let mapped = event.map(|e| match e {
-                    TranscriptionEvent::Partial { utterance_id: _, text, t0, t1 } => {
-                        TranscriptionEvent::Partial { utterance_id: self.current_utterance_id, text, t0, t1 }
+                    TranscriptionEvent::Partial {
+                        utterance_id: _,
+                        text,
+                        t0,
+                        t1,
+                    } => TranscriptionEvent::Partial {
+                        utterance_id: self.current_utterance_id,
+                        text,
+                        t0,
+                        t1,
+                    },
+                    TranscriptionEvent::Final {
+                        utterance_id: _,
+                        text,
+                        words,
+                    } => TranscriptionEvent::Final {
+                        utterance_id: self.current_utterance_id,
+                        text,
+                        words,
+                    },
+                    TranscriptionEvent::Error { code, message } => {
+                        TranscriptionEvent::Error { code, message }
                     }
-                    TranscriptionEvent::Final { utterance_id: _, text, words } => {
-                        TranscriptionEvent::Final { utterance_id: self.current_utterance_id, text, words }
-                    }
-                    TranscriptionEvent::Error { code, message } => TranscriptionEvent::Error { code, message },
                 });
                 if mapped.is_some() {
                     // Start new utterance for next speech segment

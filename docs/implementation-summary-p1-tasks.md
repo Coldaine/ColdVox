@@ -247,7 +247,7 @@ COLDVOX_VERIFY_VERBOSE=1 ./scripts/verify-model-integrity.sh
 These 4 P1 tasks significantly improve ColdVox's development and deployment reliability:
 
 1. **Reduced Noise**: Cleaner logs make debugging more efficient
-2. **Consistency**: Centralized utilities reduce duplication and inconsistency  
+2. **Consistency**: Centralized utilities reduce duplication and inconsistency
 3. **Reliability**: Timeout wrappers prevent CI hangs and provide clear diagnostics
 4. **Integrity**: Model verification ensures tests run on valid data
 

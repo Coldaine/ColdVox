@@ -1,10 +1,9 @@
+pub mod timeout_utils;
 /// STT test utilities and end-to-end tests
-/// 
+///
 /// This module provides utilities for testing speech-to-text functionality,
 /// including WER calculation, timeout handling, and integration tests.
-
 pub mod wer_utils;
-pub mod timeout_utils;
 
 #[cfg(feature = "vosk")]
 pub mod end_to_end_wav;

@@ -1,8 +1,8 @@
 # Comprehensive Dependency Caching Strategy
 ## Beyond Vosk Models: Complete Self-Hosted Runner Optimization
 
-**Document Created**: 2025-09-11  
-**Objective**: Minimize all dependency downloads through comprehensive caching strategy  
+**Document Created**: 2025-09-11
+**Objective**: Minimize all dependency downloads through comprehensive caching strategy
 **Expected Impact**: Reduce job execution time by 2-5 minutes per run, improve reliability
 
 ---
@@ -21,18 +21,18 @@
 # Base dependencies (setup-coldvox): ~50-100MB
 alsa-lib-devel, xdotool, libXtst-devel, wget, unzip, @development-tools
 
-# Text injection tests (text_injection_tests job): ~150-300MB  
+# Text injection tests (text_injection_tests job): ~150-300MB
 xorg-x11-server-Xvfb, fluxbox, dbus-x11, at-spi2-core,
 wl-clipboard, xclip, ydotool, xorg-x11-utils, wmctrl, gtk3-devel
 ```
-**Time Cost**: 30-120 seconds per job  
-**Network Cost**: 200-400MB total downloads  
+**Time Cost**: 30-120 seconds per job
+**Network Cost**: 200-400MB total downloads
 **Reliability Risk**: External package repository failures
 
 #### **2. Rust Toolchains (High Impact)**
 **Current Downloads per Job**:
 - Rust stable toolchain: ~100-200MB
-- Rust 1.75 MSRV toolchain: ~100-200MB  
+- Rust 1.75 MSRV toolchain: ~100-200MB
 - Components (rustfmt, clippy): ~50-100MB
 **Time Cost**: 60-180 seconds per job
 **Network Cost**: 250-500MB per unique toolchain
@@ -64,7 +64,7 @@ sudo cp vosk_api.h /usr/local/include/
 
 ### **Confirmed Industry Standards**:
 1. **Tool Cache**: GitHub's `$RUNNER_TOOL_CACHE` for actions and toolchains
-2. **Package Manager Caching**: Pre-installed packages or persistent package cache  
+2. **Package Manager Caching**: Pre-installed packages or persistent package cache
 3. **Local Cache Actions**: Direct filesystem caching on self-hosted runners
 4. **Docker Layer Caching**: Pre-baked container images with dependencies
 5. **Persistent Storage**: Dedicated cache volumes for large binaries
@@ -101,7 +101,7 @@ sudo dnf install -y \
   unzip \
   @development-tools
 
-# Text injection dependencies (for text_injection_tests)  
+# Text injection dependencies (for text_injection_tests)
 sudo dnf install -y \
   xorg-x11-server-Xvfb \
   fluxbox \
@@ -128,7 +128,7 @@ echo "✅ System packages pre-installed"
 #### A.2 Workflow Integration
 ```yaml
 # Replace package installation with validation
-- name: Validate System Dependencies  
+- name: Validate System Dependencies
   run: |
     echo "Validating pre-installed system dependencies..."
     command -v xdotool >/dev/null || { echo "ERROR: xdotool not found"; exit 1; }
@@ -147,7 +147,7 @@ echo "✅ System packages pre-installed"
 /home/coldaine/ActionRunnerCache/rust-toolchains/
 ├── stable/
 │   ├── bin/rustc
-│   ├── bin/cargo  
+│   ├── bin/cargo
 │   ├── bin/rustfmt
 │   └── bin/clippy
 ├── 1.75/
@@ -164,9 +164,9 @@ echo "✅ System packages pre-installed"
   run: |
     CACHE_DIR="/home/coldaine/ActionRunnerCache/rust-toolchains"
     TOOLCHAIN="${{ matrix.toolchain || 'stable' }}"
-    
+
     if [ -d "$CACHE_DIR/$TOOLCHAIN" ]; then
-      echo "✅ Using cached Rust $TOOLCHAIN toolchain"  
+      echo "✅ Using cached Rust $TOOLCHAIN toolchain"
       export PATH="$CACHE_DIR/$TOOLCHAIN/bin:$PATH"
       rustc --version
     else
@@ -192,20 +192,20 @@ CACHE_DIR="/home/coldaine/ActionRunnerCache/libvosk"
 
 if [ ! -f "/usr/local/lib/libvosk.so" ]; then
   echo "Installing libvosk $VOSK_VER permanently..."
-  
+
   cd "$CACHE_DIR"
   unzip -q "../vendor/vosk-linux-x86_64-${VOSK_VER}.zip"
   sudo cp "vosk-linux-x86_64-${VOSK_VER}/libvosk.so" /usr/local/lib/
   sudo cp "vosk-linux-x86_64-${VOSK_VER}/vosk_api.h" /usr/local/include/
   sudo ldconfig
-  
+
   echo "✅ libvosk installed permanently"
 else
   echo "✅ libvosk already available"
 fi
 ```
 
-#### C.2 Workflow Simplification  
+#### C.2 Workflow Simplification
 ```yaml
 # Replace extraction with validation
 - name: Validate libvosk Installation
@@ -228,7 +228,7 @@ fi
 # For self-hosted: $RUNNER_TOOL_CACHE (default: /home/coldaine/actions-runner/_work/_tool)
 $RUNNER_TOOL_CACHE/
 ├── actions-checkout/
-├── rust-toolchain/  
+├── rust-toolchain/
 ├── security-audit/
 └── cache-action/
 ```
@@ -247,7 +247,7 @@ $RUNNER_TOOL_CACHE/
 
 ### **Priority 1: System Package Pre-Installation (Week 1)**
 - **Impact**: Highest ROI - eliminates largest downloads
-- **Effort**: Low - one-time runner setup  
+- **Effort**: Low - one-time runner setup
 - **Risk**: Low - packages are stable, well-tested
 
 **Actions**:
@@ -255,7 +255,7 @@ $RUNNER_TOOL_CACHE/
 2. Update workflows to validate instead of install
 3. Test on development workflows first
 
-### **Priority 2: Enhanced Rust Toolchain Caching (Week 1-2)**  
+### **Priority 2: Enhanced Rust Toolchain Caching (Week 1-2)**
 - **Impact**: High ROI - eliminates toolchain downloads
 - **Effort**: Medium - requires workflow integration
 - **Risk**: Medium - toolchain compatibility considerations
@@ -271,7 +271,7 @@ $RUNNER_TOOL_CACHE/
 - **Effort**: Low - simple pre-extraction
 - **Risk**: Low - binary compatibility is stable
 
-**Actions**:  
+**Actions**:
 1. Pre-extract libvosk to system locations
 2. Update setup-coldvox action to validate instead of extract
 3. Verify library compatibility across all workflows
@@ -287,14 +287,14 @@ $RUNNER_TOOL_CACHE/
 
 ### **Performance Improvements (Conservative Estimates)**
 - **Job Execution Time**: -2 to -5 minutes per job (20-40% faster)
-- **Network Usage**: -500MB to -1GB per job (60-80% reduction)  
+- **Network Usage**: -500MB to -1GB per job (60-80% reduction)
 - **Reliability**: Eliminate external dependency failures during package downloads
 - **Cost**: Reduced GitHub Actions minutes usage
 
 ### **Specific Job Improvements**
 ```
 build_and_check:        12 min → 8-10 min  (-20-33%)
-text_injection_tests:   15 min → 10-12 min (-20-33%)  
+text_injection_tests:   15 min → 10-12 min (-20-33%)
 msrv-check:            10 min → 7-8 min   (-20-30%)
 Overall CI pipeline:    35 min → 25-30 min (-15-30%)
 ```
@@ -320,7 +320,7 @@ Overall CI pipeline:    35 min → 25-30 min (-15-30%)
 
 ### **Fallback Strategies**
 - **Cache miss handling**: Automatic fallback to download-based installation
-- **Cache corruption**: Automated cache rebuild procedures  
+- **Cache corruption**: Automated cache rebuild procedures
 - **Disk space**: Automatic cleanup of oldest/unused cache entries
 - **Emergency rollback**: Quick reversion to current download-based workflows
 
@@ -333,7 +333,7 @@ Overall CI pipeline:    35 min → 25-30 min (-15-30%)
 # Weekly cache maintenance script
 /home/coldaine/ActionRunnerCache/maintenance.sh:
 - Cleanup unused cache entries (>30 days old)
-- Update system packages 
+- Update system packages
 - Refresh toolchain caches
 - Validate cache integrity
 - Generate cache usage reports
@@ -356,7 +356,7 @@ Overall CI pipeline:    35 min → 25-30 min (-15-30%)
 - [ ] Test package availability across all workflow jobs
 - [ ] Measure performance improvement
 
-### **Phase B: Enhanced Toolchain Caching**  
+### **Phase B: Enhanced Toolchain Caching**
 - [ ] Set up persistent Rust toolchain cache directories
 - [ ] Create enhanced toolchain setup scripts
 - [ ] Update workflows with conditional caching logic
@@ -380,7 +380,7 @@ Overall CI pipeline:    35 min → 25-30 min (-15-30%)
 
 ## Expected Timeline: 1-2 Weeks
 
-**Week 1**: Focus on highest impact items (system packages, toolchain caching)  
+**Week 1**: Focus on highest impact items (system packages, toolchain caching)
 **Week 2**: Complete binary pre-processing, monitoring, and validation
 
 **Total Expected Improvement**: 2-5 minutes faster per job, 500MB-1GB less network usage per job, significantly improved reliability by eliminating external download dependencies.

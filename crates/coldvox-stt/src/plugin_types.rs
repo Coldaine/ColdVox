@@ -156,39 +156,44 @@ impl Default for PluginMetrics {
 
 impl PluginMetrics {
     /// Update metrics with a new transcription
-    pub fn record_transcription(&mut self, audio_duration_ms: u64, latency_ms: u64, confidence: f32) {
+    pub fn record_transcription(
+        &mut self,
+        audio_duration_ms: u64,
+        latency_ms: u64,
+        confidence: f32,
+    ) {
         self.total_audio_ms += audio_duration_ms;
         self.total_transcriptions += 1;
-        
+
         // Update average latency (running average)
         let n = self.total_transcriptions as f64;
         self.avg_latency_ms = (self.avg_latency_ms * (n - 1.0) + latency_ms as f64) / n;
-        
+
         // Update average confidence
         self.avg_confidence = (self.avg_confidence * (n - 1.0) as f32 + confidence) / n as f32;
-        
+
         self.last_updated = std::time::Instant::now();
     }
-    
+
     /// Record an error
     pub fn record_error(&mut self) {
         self.total_errors += 1;
         self.last_updated = std::time::Instant::now();
     }
-    
+
     /// Update resource usage
     pub fn update_resources(&mut self, memory_mb: u32, cpu_percent: f32) {
         self.current_memory_mb = memory_mb;
         if memory_mb > self.peak_memory_mb {
             self.peak_memory_mb = memory_mb;
         }
-        
+
         // Update average CPU (exponential moving average)
         self.avg_cpu_percent = self.avg_cpu_percent * 0.9 + cpu_percent * 0.1;
-        
+
         self.last_updated = std::time::Instant::now();
     }
-    
+
     /// Calculate success rate
     pub fn success_rate(&self) -> f32 {
         let total_attempts = self.total_transcriptions + self.total_errors;
@@ -266,9 +271,7 @@ pub enum UserFeedback {
         reason: Option<String>,
     },
     /// User reported good experience
-    Satisfied {
-        plugin_id: String,
-    },
+    Satisfied { plugin_id: String },
 }
 
 /// Plugin state for lifecycle management
@@ -310,32 +313,32 @@ pub struct EnhancedPluginInfo {
     pub id: String,
     pub name: String,
     pub description: String,
-    
+
     /// Enhanced metadata
     pub version: String,
     pub author: String,
     pub license: String,
     pub homepage: Option<String>,
-    
+
     /// Performance characteristics
     pub accuracy_level: AccuracyLevel,
     pub latency_profile: LatencyProfile,
     pub resource_profile: ResourceProfile,
     pub model_size: ModelSize,
-    
+
     /// Language support
     pub languages: Vec<LanguageSupport>,
-    
+
     /// Requirements
     pub requires_internet: bool,
     pub requires_gpu: bool,
     pub requires_license_key: bool,
-    
+
     /// Status
     pub is_beta: bool,
     pub is_deprecated: bool,
     pub source: PluginSource,
-    
+
     /// Metrics (if available)
     pub metrics: Option<PluginMetrics>,
 }

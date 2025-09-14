@@ -18,7 +18,7 @@ Transform ColdVox's STT system into a truly modular plugin architecture that sup
 
 ### Existing Components
 - **Basic plugin system**: `SttPlugin` trait, registry, factory pattern
-- **Vosk implementation**: Separate crate with `VoskTranscriber` 
+- **Vosk implementation**: Separate crate with `VoskTranscriber`
 - **Mock/NoOp plugins**: Basic testing and fallback support
 - **Plugin manager**: Simple selection and switching logic
 
@@ -91,7 +91,7 @@ pub struct PluginCapabilities {
     // Existing...
     pub streaming: bool,
     pub batch: bool,
-    
+
     // New capabilities
     pub languages: Vec<Language>,
     pub model_sizes: Vec<ModelSize>,
@@ -123,10 +123,10 @@ pub struct PluginMetrics {
 pub trait PluginDiscovery {
     /// Scan for available plugins at runtime
     async fn discover_plugins(&self) -> Vec<PluginInfo>;
-    
+
     /// Load plugin from path/URL
     async fn load_plugin(&self, source: PluginSource) -> Result<Box<dyn SttPlugin>>;
-    
+
     /// Check system requirements
     fn check_requirements(&self, plugin: &PluginInfo) -> PluginRequirements;
 }
@@ -156,10 +156,10 @@ impl VoskPlugin {
     pub async fn new() -> Result<Self> {
         // Auto-detect model location
         let model_path = Self::find_model().await?;
-        
+
         // Initialize with optimal settings
         let config = VoskConfig::optimal_for_system()?;
-        
+
         Ok(Self {
             transcriber: None,
             config,
@@ -167,7 +167,7 @@ impl VoskPlugin {
             state: PluginState::Uninitialized,
         })
     }
-    
+
     async fn find_model() -> Result<PathBuf> {
         // Search order:
         // 1. VOSK_MODEL_PATH env var
@@ -290,13 +290,13 @@ impl IntelligentSelector {
         // 2. Performance history (if available)
         // 3. User preferences
         // 4. System resources
-        
+
         let scored = available
             .iter()
             .filter(|p| self.satisfies_constraints(p))
             .map(|p| (p, self.calculate_score(p, metrics)))
             .collect::<Vec<_>>();
-        
+
         scored
             .into_iter()
             .max_by_key(|(_, score)| *score)
@@ -321,7 +321,7 @@ impl AdaptivePluginManager {
         // - Transcription corrections
         // - Manual plugin switches
         // - Performance complaints
-        
+
         match feedback {
             UserFeedback::Correction { plugin, .. } => {
                 // Lower accuracy weight for this plugin
@@ -373,16 +373,16 @@ impl PluginTestSuite {
     pub async fn test_plugin(&self, plugin: &mut dyn SttPlugin) -> TestResults {
         // Test accuracy
         let accuracy = self.test_accuracy(plugin).await?;
-        
+
         // Test latency
         let latency = self.test_latency(plugin).await?;
-        
+
         // Test memory usage
         let memory = self.test_memory(plugin).await?;
-        
+
         // Test error handling
         let robustness = self.test_robustness(plugin).await?;
-        
+
         TestResults {
             accuracy,
             latency,
@@ -449,10 +449,10 @@ model_path = "models/leopard-en.pv"
 pub fn create_transcriber(config: LegacyConfig) -> Box<dyn Transcriber> {
     // Map legacy config to plugin system
     let plugin_config = PluginConfig::from_legacy(config);
-    
+
     // Create plugin manager
     let manager = PluginManager::new(plugin_config);
-    
+
     // Return compatibility wrapper
     Box::new(LegacyTranscriberAdapter::new(manager))
 }

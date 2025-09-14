@@ -303,7 +303,7 @@ impl Default for PluginSelectionConfig {
 pub struct FailoverConfig {
     /// Number of consecutive transient errors before switching plugins
     pub failover_threshold: u32,
-    
+
     /// Cooldown period in seconds before retrying a failed plugin
     pub failover_cooldown_secs: u32,
 }
@@ -322,7 +322,7 @@ impl Default for FailoverConfig {
 pub struct GcPolicy {
     /// Time to live in seconds for inactive model instances
     pub model_ttl_secs: u32,
-    
+
     /// Whether garbage collection is enabled
     pub enabled: bool,
 }
@@ -341,7 +341,7 @@ impl Default for GcPolicy {
 pub struct MetricsConfig {
     /// Interval in seconds for periodic metrics logging
     pub log_interval_secs: Option<u32>,
-    
+
     /// Enable debug dumping of transcription events
     pub debug_dump_events: bool,
 }

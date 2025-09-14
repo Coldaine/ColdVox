@@ -24,14 +24,14 @@ fi
 # Analyze each workflow
 echo "$RUNS" | jq -r '.[] | "\(.databaseId) \(.name)"' | while read -r run_id run_name; do
     echo "Analyzing run: $run_name (ID: $run_id)"
-    
+
     # Get job details
     JOBS=$(gh run view "$run_id" --json jobs 2>/dev/null || echo "{}")
-    
+
     if [[ "$JOBS" == "{}" ]]; then
         continue
     fi
-    
+
     # Parse job information
     echo "$JOBS" | jq -r '.jobs[] | "\(.name)|\(.startedAt)|\(.completedAt)|\(.conclusion)"' | while IFS='|' read -r job_name started completed conclusion; do
         if [[ -n "$started" && -n "$completed" ]]; then
@@ -40,21 +40,21 @@ echo "$RUNS" | jq -r '.[] | "\(.databaseId) \(.name)"' | while read -r run_id ru
             end_epoch=$(date -d "$completed" +%s 2>/dev/null || echo 0)
             duration=$((end_epoch - start_epoch))
             duration_min=$((duration / 60))
-            
+
             # Classify based on duration and name patterns
             classification="medium"
             color="$YELLOW"
-            
+
             # Heavy classification rules
             if [[ "$job_name" =~ (build|test|integration|e2e) ]] && [[ $duration_min -gt 5 ]]; then
                 classification="heavy"
                 color="$RED"
-            # Light classification rules  
+            # Light classification rules
             elif [[ "$job_name" =~ (validate|format|lint|success) ]] || [[ $duration_min -lt 2 ]]; then
                 classification="light"
                 color="$GREEN"
             fi
-            
+
             printf "  ${color}%-40s %3d min  [%s]${NC}\n" "$job_name" "$duration_min" "$classification"
         fi
     done

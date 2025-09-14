@@ -5,10 +5,10 @@
 //! the older implementation.
 
 use crate::{StreamingStt, TranscriptionConfig, TranscriptionEvent};
+use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::{broadcast, mpsc};
-use std::sync::Arc;
-use tracing::{info, debug};
+use tracing::{debug, info};
 
 /// Minimal audio frame used by the streaming processor
 #[derive(Debug, Clone)]
@@ -31,7 +31,7 @@ pub enum UtteranceState {
     SpeechActive {
         started_at: Instant,
         frames_buffered: u64,
-    }
+    },
 }
 
 #[derive(Debug, Clone, Default)]
@@ -76,10 +76,14 @@ impl<T: StreamingStt> StreamingSttProcessor<T> {
         }
     }
 
-    pub fn metrics(&self) -> StreamingMetrics { self.metrics.read().clone() }
+    pub fn metrics(&self) -> StreamingMetrics {
+        self.metrics.read().clone()
+    }
 
     pub async fn run(mut self) {
-        if !self.config.enabled { return; }
+        if !self.config.enabled {
+            return;
+        }
         info!(target: "stt", "Streaming STT processor starting (partials: {}, words: {})", self.config.partial_results, self.config.include_words);
         loop {
             tokio::select! {
@@ -101,22 +105,32 @@ impl<T: StreamingStt> StreamingSttProcessor<T> {
 
     async fn on_speech_start(&mut self, _timestamp_ms: u64) {
         debug!(target: "stt", "SpeechStart received");
-        self.state = UtteranceState::SpeechActive { started_at: Instant::now(), frames_buffered: 0 };
+        self.state = UtteranceState::SpeechActive {
+            started_at: Instant::now(),
+            frames_buffered: 0,
+        };
         self.engine.reset().await;
     }
 
     async fn on_speech_end(&mut self, _timestamp_ms: u64, _duration_ms: u64) {
         debug!(target: "stt", "SpeechEnd received");
-        if let Some(event) = self.engine.on_speech_end().await { self.forward_event(event).await; }
+        if let Some(event) = self.engine.on_speech_end().await {
+            self.forward_event(event).await;
+        }
         self.state = UtteranceState::Idle;
     }
 
     async fn on_audio_frame(&mut self, frame: AudioFrame) {
         self.metrics.write().frames_in += 1;
         match self.state {
-            UtteranceState::SpeechActive { ref mut frames_buffered, .. } => {
+            UtteranceState::SpeechActive {
+                ref mut frames_buffered,
+                ..
+            } => {
                 *frames_buffered += 1;
-                if let Some(evt) = self.engine.on_speech_frame(&frame.data).await { self.forward_event(evt).await; }
+                if let Some(evt) = self.engine.on_speech_frame(&frame.data).await {
+                    self.forward_event(evt).await;
+                }
             }
             UtteranceState::Idle => { /* discard frames until speech active */ }
         }
@@ -128,6 +142,8 @@ impl<T: StreamingStt> StreamingSttProcessor<T> {
             TranscriptionEvent::Final { .. } => self.metrics.write().final_count += 1,
             TranscriptionEvent::Error { .. } => self.metrics.write().error_count += 1,
         }
-        if let Err(e) = self.event_tx.send(event).await { debug!(target: "stt", "Failed sending event (channel closed): {}", e); }
+        if let Err(e) = self.event_tx.send(event).await {
+            debug!(target: "stt", "Failed sending event (channel closed): {}", e);
+        }
     }
 }

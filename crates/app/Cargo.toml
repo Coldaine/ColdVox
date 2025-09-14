@@ -101,7 +101,7 @@ rand = "0.8"
 [features]
 default = ["silero", "text-injection"]
 live-hardware-tests = []
-vosk = ["dep:coldvox-stt-vosk"]
+vosk = ["dep:coldvox-stt-vosk", "coldvox-stt-vosk/vosk"]
 parakeet = []
 whisper = []
 no-stt = []
