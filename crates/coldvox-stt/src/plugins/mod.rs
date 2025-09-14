@@ -4,8 +4,6 @@ pub mod mock;
 pub mod noop;
 pub mod whisper_plugin;
 
-pub mod vosk;
-
 #[cfg(feature = "parakeet")]
 pub mod parakeet;
 

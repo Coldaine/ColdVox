@@ -1,5 +1,5 @@
 {
-  "preferred_plugin": null,
+  "preferred_plugin": "vosk",
   "fallback_plugins": [
     "vosk",
     "whisper-local",

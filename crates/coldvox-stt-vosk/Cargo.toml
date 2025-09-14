@@ -10,6 +10,7 @@ thiserror = "2.0"
 tracing = "0.1"
 vosk = { version = "0.3", features = ["batch"] }
 coldvox-stt = { path = "../coldvox-stt" }
+async-trait = "0.1"
 
 [features]
 default = []

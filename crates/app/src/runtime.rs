@@ -401,7 +401,7 @@ pub async fn start(
     let (stt_handle, vad_fanout_handle) = if let Some(ref _pm) = plugin_manager {
         if stt_arch == "legacy" {
             // Legacy path: existing PluginSttProcessor
-            let (stt_vad_tx, _stt_vad_rx) = mpsc::channel::<VadEvent>(100);
+            let (stt_vad_tx, stt_vad_rx) = mpsc::channel::<VadEvent>(100);
             let stt_audio_rx = audio_tx.subscribe();
             #[cfg(feature = "vosk")]
             let stt_config = TranscriptionConfig {
@@ -415,7 +415,7 @@ pub async fn start(
                 stt_audio_rx,
                 stt_vad_rx,
                 stt_tx.clone(),
-                plugin_manager.clone(),
+                plugin_manager.clone().expect("Plugin manager should be initialized for legacy STT path"),
                 stt_config,
             );
             let stt_vad_tx_clone = stt_vad_tx.clone();
