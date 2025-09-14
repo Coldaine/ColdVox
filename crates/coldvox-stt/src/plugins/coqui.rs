@@ -4,13 +4,13 @@
 //! TensorFlow, offering good accuracy with moderate resource usage.
 
 use async_trait::async_trait;
+use parking_lot::RwLock;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use parking_lot::RwLock;
 
 use crate::plugin::*;
 use crate::plugin_types::*;
-use crate::types::{TranscriptionEvent, TranscriptionConfig};
+use crate::types::{TranscriptionConfig, TranscriptionEvent};
 
 /// Coqui STT model configuration
 #[derive(Debug, Clone)]
@@ -43,7 +43,7 @@ impl Default for CoquiConfig {
 }
 
 /// Coqui STT Plugin (formerly Mozilla DeepSpeech)
-/// 
+///
 /// This is a stub for the Coqui STT engine, which provides:
 /// - TensorFlow-based acoustic models
 /// - CTC decoding with language model scoring
@@ -62,7 +62,7 @@ impl CoquiPlugin {
     pub fn new() -> Self {
         Self::with_config(CoquiConfig::default())
     }
-    
+
     pub fn with_config(config: CoquiConfig) -> Self {
         Self {
             config,
@@ -70,7 +70,7 @@ impl CoquiPlugin {
             metrics: Arc::new(RwLock::new(PluginMetrics::default())),
         }
     }
-    
+
     pub fn enhanced_info() -> EnhancedPluginInfo {
         EnhancedPluginInfo {
             id: "coqui".to_string(),
@@ -80,7 +80,7 @@ impl CoquiPlugin {
             author: "Coqui AI".to_string(),
             license: "MPL-2.0".to_string(),
             homepage: Some("https://github.com/coqui-ai/STT".to_string()),
-            
+
             accuracy_level: AccuracyLevel::High,
             latency_profile: LatencyProfile {
                 avg_ms: 200,
@@ -95,7 +95,7 @@ impl CoquiPlugin {
                 disk_space_mb: 200,
             },
             model_size: ModelSize::Medium,
-            
+
             languages: vec![
                 LanguageSupport {
                     code: "en".to_string(),
@@ -105,15 +105,15 @@ impl CoquiPlugin {
                 },
                 // Additional languages available with different models
             ],
-            
+
             requires_internet: false,
             requires_gpu: false,
             requires_license_key: false,
-            
+
             is_beta: false,
             is_deprecated: false,
             source: PluginSource::BuiltIn,
-            
+
             metrics: None,
         }
     }
@@ -133,7 +133,7 @@ impl SttPlugin for CoquiPlugin {
             memory_usage_mb: Some(200),
         }
     }
-    
+
     fn capabilities(&self) -> PluginCapabilities {
         PluginCapabilities {
             streaming: true,
@@ -145,27 +145,30 @@ impl SttPlugin for CoquiPlugin {
             custom_vocabulary: true,
         }
     }
-    
+
     async fn is_available(&self) -> Result<bool, SttPluginError> {
         Ok(false) // Not yet implemented
     }
-    
+
     async fn initialize(&mut self, _config: TranscriptionConfig) -> Result<(), SttPluginError> {
         Err(SttPluginError::NotAvailable {
             reason: "Coqui STT integration not yet implemented".to_string(),
         })
     }
-    
-    async fn process_audio(&mut self, _samples: &[i16]) -> Result<Option<TranscriptionEvent>, SttPluginError> {
+
+    async fn process_audio(
+        &mut self,
+        _samples: &[i16],
+    ) -> Result<Option<TranscriptionEvent>, SttPluginError> {
         Err(SttPluginError::NotAvailable {
             reason: "Coqui STT plugin not yet implemented".to_string(),
         })
     }
-    
+
     async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, SttPluginError> {
         Ok(None)
     }
-    
+
     async fn reset(&mut self) -> Result<(), SttPluginError> {
         Ok(())
     }
@@ -187,11 +190,11 @@ impl SttPluginFactory for CoquiPluginFactory {
     fn create(&self) -> Result<Box<dyn SttPlugin>, SttPluginError> {
         Ok(Box::new(CoquiPlugin::with_config(self.config.clone())))
     }
-    
+
     fn plugin_info(&self) -> PluginInfo {
         CoquiPlugin::new().info()
     }
-    
+
     fn check_requirements(&self) -> Result<(), SttPluginError> {
         Err(SttPluginError::NotAvailable {
             reason: "Coqui STT not yet integrated".to_string(),

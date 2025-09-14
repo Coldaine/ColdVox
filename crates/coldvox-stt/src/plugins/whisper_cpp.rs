@@ -4,14 +4,14 @@
 //! that uses ggml quantization for efficient inference on CPU.
 
 use async_trait::async_trait;
+use parking_lot::RwLock;
 use std::path::PathBuf;
 use std::sync::Arc;
-use parking_lot::RwLock;
 use tracing::info;
 
 use crate::plugin::*;
 use crate::plugin_types::*;
-use crate::types::{TranscriptionEvent, TranscriptionConfig};
+use crate::types::{TranscriptionConfig, TranscriptionEvent};
 
 /// Whisper model types (ggml quantized)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,7 +46,7 @@ impl WhisperModelType {
             Self::Large => 1550,
         }
     }
-    
+
     pub fn expected_accuracy(&self) -> AccuracyLevel {
         match self {
             Self::Tiny | Self::TinyEn => AccuracyLevel::Low,
@@ -56,11 +56,14 @@ impl WhisperModelType {
             Self::Large => AccuracyLevel::VeryHigh,
         }
     }
-    
+
     pub fn is_english_only(&self) -> bool {
-        matches!(self, Self::TinyEn | Self::BaseEn | Self::SmallEn | Self::MediumEn)
+        matches!(
+            self,
+            Self::TinyEn | Self::BaseEn | Self::SmallEn | Self::MediumEn
+        )
     }
-    
+
     pub fn filename(&self) -> &str {
         match self {
             Self::Tiny => "ggml-tiny.bin",
@@ -113,7 +116,7 @@ impl Default for WhisperCppConfig {
 }
 
 /// Whisper.cpp STT Plugin
-/// 
+///
 /// This is a stub implementation for whisper.cpp integration.
 /// Once implemented, it will provide:
 /// - Quantized model support (ggml format)
@@ -131,26 +134,27 @@ impl WhisperCppPlugin {
     pub fn new() -> Self {
         Self::with_config(WhisperCppConfig::default())
     }
-    
+
     pub fn with_config(config: WhisperCppConfig) -> Self {
         Self {
             config,
             state: Arc::new(RwLock::new(PluginState::Uninitialized)),
         }
     }
-    
+
     pub fn enhanced_info() -> EnhancedPluginInfo {
         let config = WhisperCppConfig::default();
-        
+
         EnhancedPluginInfo {
             id: "whisper-cpp".to_string(),
             name: "Whisper.cpp".to_string(),
-            description: "Lightweight C++ implementation of OpenAI Whisper with quantized models".to_string(),
+            description: "Lightweight C++ implementation of OpenAI Whisper with quantized models"
+                .to_string(),
             version: "1.5.0".to_string(),
             author: "ggerganov".to_string(),
             license: "MIT".to_string(),
             homepage: Some("https://github.com/ggerganov/whisper.cpp".to_string()),
-            
+
             accuracy_level: config.model_type.expected_accuracy(),
             latency_profile: LatencyProfile {
                 avg_ms: 100,
@@ -165,7 +169,7 @@ impl WhisperCppPlugin {
                 disk_space_mb: config.model_type.model_size_mb(),
             },
             model_size: ModelSize::from_mb(config.model_type.model_size_mb()),
-            
+
             languages: if config.model_type.is_english_only() {
                 vec![LanguageSupport {
                     code: "en".to_string(),
@@ -175,24 +179,22 @@ impl WhisperCppPlugin {
                 }]
             } else {
                 // Whisper supports 99+ languages
-                vec![
-                    LanguageSupport {
-                        code: "multi".to_string(),
-                        name: "Multilingual".to_string(),
-                        quality: LanguageQuality::Stable,
-                        variants: vec![],
-                    },
-                ]
+                vec![LanguageSupport {
+                    code: "multi".to_string(),
+                    name: "Multilingual".to_string(),
+                    quality: LanguageQuality::Stable,
+                    variants: vec![],
+                }]
             },
-            
+
             requires_internet: false,
             requires_gpu: false,
             requires_license_key: false,
-            
+
             is_beta: false,
             is_deprecated: false,
             source: PluginSource::BuiltIn,
-            
+
             metrics: None,
         }
     }
@@ -222,7 +224,7 @@ impl SttPlugin for WhisperCppPlugin {
             memory_usage_mb: Some(self.config.model_type.model_size_mb()),
         }
     }
-    
+
     fn capabilities(&self) -> PluginCapabilities {
         PluginCapabilities {
             streaming: true,
@@ -234,41 +236,44 @@ impl SttPlugin for WhisperCppPlugin {
             custom_vocabulary: false,
         }
     }
-    
+
     async fn is_available(&self) -> Result<bool, SttPluginError> {
         // Check if whisper.cpp library is available
         // In the future, check for:
         // 1. whisper.cpp shared library
         // 2. Model file existence
         // 3. CPU features (AVX, etc.)
-        
+
         Ok(false) // Not yet implemented
     }
-    
+
     async fn initialize(&mut self, _config: TranscriptionConfig) -> Result<(), SttPluginError> {
         info!("Whisper.cpp plugin is a stub - not yet implemented");
-        
+
         // Future implementation:
         // 1. Find or download model
         // 2. Initialize whisper context
         // 3. Configure parameters
         // 4. Warm up with test audio
-        
+
         Err(SttPluginError::NotAvailable {
             reason: "Whisper.cpp integration not yet implemented".to_string(),
         })
     }
-    
-    async fn process_audio(&mut self, _samples: &[i16]) -> Result<Option<TranscriptionEvent>, SttPluginError> {
+
+    async fn process_audio(
+        &mut self,
+        _samples: &[i16],
+    ) -> Result<Option<TranscriptionEvent>, SttPluginError> {
         Err(SttPluginError::NotAvailable {
             reason: "Whisper.cpp plugin not yet implemented".to_string(),
         })
     }
-    
+
     async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, SttPluginError> {
         Ok(None)
     }
-    
+
     async fn reset(&mut self) -> Result<(), SttPluginError> {
         *self.state.write() = PluginState::Ready;
         Ok(())
@@ -286,13 +291,16 @@ impl WhisperCppPluginFactory {
             config: WhisperCppConfig::default(),
         }
     }
-    
+
     pub fn with_config(config: WhisperCppConfig) -> Self {
         Self { config }
     }
-    
+
     pub fn with_model(model_type: WhisperModelType) -> Self {
-        let config = WhisperCppConfig { model_type, ..Default::default() };
+        let config = WhisperCppConfig {
+            model_type,
+            ..Default::default()
+        };
         Self { config }
     }
 }
@@ -307,16 +315,16 @@ impl SttPluginFactory for WhisperCppPluginFactory {
     fn create(&self) -> Result<Box<dyn SttPlugin>, SttPluginError> {
         Ok(Box::new(WhisperCppPlugin::with_config(self.config.clone())))
     }
-    
+
     fn plugin_info(&self) -> PluginInfo {
         WhisperCppPlugin::new().info()
     }
-    
+
     fn check_requirements(&self) -> Result<(), SttPluginError> {
         // Check for whisper.cpp library
         // Check for model files
         // Check CPU features
-        
+
         Err(SttPluginError::NotAvailable {
             reason: "Whisper.cpp not yet integrated".to_string(),
         })
@@ -324,29 +332,29 @@ impl SttPluginFactory for WhisperCppPluginFactory {
 }
 
 // Future implementation notes:
-// 
+//
 // Integration with whisper.cpp will require:
-// 
+//
 // 1. FFI Bindings:
 //    - Create Rust bindings for whisper.cpp C API
 //    - Handle memory management safely
 //    - Implement streaming interface
-// 
+//
 // 2. Model Management:
 //    - Download models from Hugging Face
 //    - Convert models to ggml format if needed
 //    - Cache models efficiently
-// 
+//
 // 3. Performance Optimizations:
 //    - Use CPU SIMD instructions (AVX, NEON)
 //    - Implement batch processing
 //    - Add model quantization options
-// 
+//
 // 4. Advanced Features:
 //    - Language detection
 //    - Translation mode
 //    - Diarization (future whisper.cpp feature)
-// 
+//
 // Example usage:
 // ```rust
 // let plugin = WhisperCppPlugin::with_config(WhisperCppConfig {

@@ -4,13 +4,13 @@
 //! similar to their VAD models but for full transcription.
 
 use async_trait::async_trait;
+use parking_lot::RwLock;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use parking_lot::RwLock;
 
 use crate::plugin::*;
 use crate::plugin_types::*;
-use crate::types::{TranscriptionEvent, TranscriptionConfig};
+use crate::types::{TranscriptionConfig, TranscriptionEvent};
 
 /// Silero STT model variants
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,7 +31,7 @@ impl SileroSttModel {
             Self::Large => 200,
         }
     }
-    
+
     pub fn expected_accuracy(&self) -> AccuracyLevel {
         match self {
             Self::Small => AccuracyLevel::Medium,
@@ -69,7 +69,7 @@ impl Default for SileroSttConfig {
 }
 
 /// Silero STT Plugin
-/// 
+///
 /// ONNX-based STT engine providing:
 /// - Lightweight models
 /// - Good accuracy for common languages
@@ -89,7 +89,7 @@ impl SileroSttPlugin {
     pub fn new() -> Self {
         Self::with_config(SileroSttConfig::default())
     }
-    
+
     pub fn with_config(config: SileroSttConfig) -> Self {
         Self {
             config,
@@ -97,7 +97,7 @@ impl SileroSttPlugin {
             metrics: Arc::new(RwLock::new(PluginMetrics::default())),
         }
     }
-    
+
     pub fn enhanced_info() -> EnhancedPluginInfo {
         EnhancedPluginInfo {
             id: "silero-stt".to_string(),
@@ -107,7 +107,7 @@ impl SileroSttPlugin {
             author: "Silero Team".to_string(),
             license: "MIT".to_string(),
             homepage: Some("https://github.com/snakers4/silero-models".to_string()),
-            
+
             accuracy_level: AccuracyLevel::Medium,
             latency_profile: LatencyProfile {
                 avg_ms: 60,
@@ -122,7 +122,7 @@ impl SileroSttPlugin {
                 disk_space_mb: 50,
             },
             model_size: ModelSize::Small,
-            
+
             languages: vec![
                 LanguageSupport {
                     code: "en".to_string(),
@@ -149,15 +149,15 @@ impl SileroSttPlugin {
                     variants: vec![],
                 },
             ],
-            
+
             requires_internet: false,
             requires_gpu: false,
             requires_license_key: false,
-            
+
             is_beta: true,
             is_deprecated: false,
             source: PluginSource::BuiltIn,
-            
+
             metrics: None,
         }
     }
@@ -173,11 +173,16 @@ impl SttPlugin for SileroSttPlugin {
             requires_network: false,
             is_local: true,
             is_available: false,
-            supported_languages: vec!["en".to_string(), "ru".to_string(), "de".to_string(), "es".to_string()],
+            supported_languages: vec![
+                "en".to_string(),
+                "ru".to_string(),
+                "de".to_string(),
+                "es".to_string(),
+            ],
             memory_usage_mb: Some(self.config.model.model_size_mb()),
         }
     }
-    
+
     fn capabilities(&self) -> PluginCapabilities {
         PluginCapabilities {
             streaming: true,
@@ -189,34 +194,37 @@ impl SttPlugin for SileroSttPlugin {
             custom_vocabulary: false,
         }
     }
-    
+
     async fn is_available(&self) -> Result<bool, SttPluginError> {
         // Check for ONNX runtime
         // Check for model file
         Ok(false) // Not yet implemented
     }
-    
+
     async fn initialize(&mut self, _config: TranscriptionConfig) -> Result<(), SttPluginError> {
         // Future:
         // 1. Load ONNX model
         // 2. Initialize tokenizer
         // 3. Setup ONNX session
-        
+
         Err(SttPluginError::NotAvailable {
             reason: "Silero STT integration not yet implemented".to_string(),
         })
     }
-    
-    async fn process_audio(&mut self, _samples: &[i16]) -> Result<Option<TranscriptionEvent>, SttPluginError> {
+
+    async fn process_audio(
+        &mut self,
+        _samples: &[i16],
+    ) -> Result<Option<TranscriptionEvent>, SttPluginError> {
         Err(SttPluginError::NotAvailable {
             reason: "Silero STT plugin not yet implemented".to_string(),
         })
     }
-    
+
     async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, SttPluginError> {
         Ok(None)
     }
-    
+
     async fn reset(&mut self) -> Result<(), SttPluginError> {
         Ok(())
     }
@@ -238,11 +246,11 @@ impl SttPluginFactory for SileroSttPluginFactory {
     fn create(&self) -> Result<Box<dyn SttPlugin>, SttPluginError> {
         Ok(Box::new(SileroSttPlugin::with_config(self.config.clone())))
     }
-    
+
     fn plugin_info(&self) -> PluginInfo {
         SileroSttPlugin::new().info()
     }
-    
+
     fn check_requirements(&self) -> Result<(), SttPluginError> {
         Err(SttPluginError::NotAvailable {
             reason: "Silero STT not yet integrated".to_string(),
@@ -251,24 +259,24 @@ impl SttPluginFactory for SileroSttPluginFactory {
 }
 
 // Future implementation notes:
-// 
+//
 // Silero STT integration will require:
-// 
+//
 // 1. ONNX Runtime:
 //    - Use ort crate for ONNX inference
 //    - Support CPU and GPU backends
 //    - Optimize for mobile/edge devices
-// 
+//
 // 2. Tokenization:
 //    - Implement Silero's tokenizer
 //    - Handle multiple languages
 //    - Support subword tokenization
-// 
+//
 // 3. Model Management:
 //    - Download models from Silero's repository
 //    - Cache models locally
 //    - Support model updates
-// 
+//
 // 4. Performance:
 //    - Batch processing for efficiency
 //    - Streaming support with buffering

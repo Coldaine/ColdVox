@@ -374,20 +374,20 @@ impl SttPlugin for WhisperPlugin {
         // Check if already unloaded
         if !self.initialized {
             return Err(SttPluginError::AlreadyUnloaded(
-                "Whisper plugin is already unloaded".to_string()
+                "Whisper plugin is already unloaded".to_string(),
             ));
         }
-        
+
         // In a real implementation, this would:
         // 1. Unload the Whisper model from memory
         // 2. Free any GPU/CPU resources used by the model
         // 3. Close any file handles or network connections
         // 4. Clear any cached data or temporary files
-        
+
         // For now, just reset the state
         self.initialized = false;
         self.model_path = None;
-        
+
         tracing::info!("Whisper plugin unloaded successfully");
         Ok(())
     }

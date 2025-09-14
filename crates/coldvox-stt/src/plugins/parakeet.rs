@@ -10,7 +10,7 @@ use tracing::warn;
 
 use crate::plugin::*;
 use crate::plugin_types::*;
-use crate::types::{TranscriptionEvent, TranscriptionConfig};
+use crate::types::{TranscriptionConfig, TranscriptionEvent};
 
 /// Parakeet model variants
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,7 +31,7 @@ impl ParakeetModel {
             Self::SmallWave => 100,
         }
     }
-    
+
     pub fn expected_accuracy(&self) -> AccuracyLevel {
         match self {
             Self::TinyWave => AccuracyLevel::Low,
@@ -69,7 +69,7 @@ impl Default for ParakeetConfig {
 }
 
 /// Mozilla Parakeet STT Plugin
-/// 
+///
 /// This is a stub implementation for the future Parakeet engine.
 /// Once Mozilla releases Parakeet, this will be implemented with:
 /// - WebAssembly runtime for sandboxing
@@ -88,14 +88,14 @@ impl ParakeetPlugin {
     pub fn new() -> Self {
         Self::with_config(ParakeetConfig::default())
     }
-    
+
     pub fn with_config(config: ParakeetConfig) -> Self {
         Self {
             config,
             state: Arc::new(RwLock::new(PluginState::Uninitialized)),
         }
     }
-    
+
     pub fn enhanced_info() -> EnhancedPluginInfo {
         EnhancedPluginInfo {
             id: "parakeet".to_string(),
@@ -105,7 +105,7 @@ impl ParakeetPlugin {
             author: "Mozilla".to_string(),
             license: "MPL-2.0".to_string(),
             homepage: Some("https://github.com/mozilla/parakeet".to_string()),
-            
+
             accuracy_level: AccuracyLevel::Medium,
             latency_profile: LatencyProfile {
                 avg_ms: 50,
@@ -120,24 +120,22 @@ impl ParakeetPlugin {
                 disk_space_mb: 50,
             },
             model_size: ModelSize::Tiny,
-            
-            languages: vec![
-                LanguageSupport {
-                    code: "en".to_string(),
-                    name: "English".to_string(),
-                    quality: LanguageQuality::Beta,
-                    variants: vec!["en-US".to_string()],
-                },
-            ],
-            
+
+            languages: vec![LanguageSupport {
+                code: "en".to_string(),
+                name: "English".to_string(),
+                quality: LanguageQuality::Beta,
+                variants: vec!["en-US".to_string()],
+            }],
+
             requires_internet: false,
             requires_gpu: false,
             requires_license_key: false,
-            
+
             is_beta: true,
             is_deprecated: false,
             source: PluginSource::BuiltIn,
-            
+
             metrics: None,
         }
     }
@@ -163,7 +161,7 @@ impl SttPlugin for ParakeetPlugin {
             memory_usage_mb: Some(self.config.model.model_size_mb()),
         }
     }
-    
+
     fn capabilities(&self) -> PluginCapabilities {
         PluginCapabilities {
             streaming: true,
@@ -175,39 +173,46 @@ impl SttPlugin for ParakeetPlugin {
             custom_vocabulary: false,
         }
     }
-    
+
     async fn is_available(&self) -> Result<bool, SttPluginError> {
         // Parakeet is not yet released
         Ok(false)
     }
-    
+
     async fn initialize(&mut self, _config: TranscriptionConfig) -> Result<(), SttPluginError> {
         warn!("Parakeet plugin is a stub - not yet implemented");
-        
+
         // In the future:
         // 1. Download model if needed
         // 2. Initialize WASM runtime
         // 3. Load Parakeet engine
         // 4. Configure VAD if enabled
-        
+
         Err(SttPluginError::NotAvailable {
             reason: "Parakeet is not yet released by Mozilla".to_string(),
         })
     }
-    
-    async fn process_audio(&mut self, _samples: &[i16]) -> Result<Option<TranscriptionEvent>, SttPluginError> {
+
+    async fn process_audio(
+        &mut self,
+        _samples: &[i16],
+    ) -> Result<Option<TranscriptionEvent>, SttPluginError> {
         // Stub implementation
         Err(SttPluginError::NotAvailable {
             reason: "Parakeet plugin not yet implemented".to_string(),
         })
     }
-    
+
     async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, SttPluginError> {
         Ok(None)
     }
-    
+
     async fn reset(&mut self) -> Result<(), SttPluginError> {
-        *self.state.write().map_err(|_| SttPluginError::ProcessingError("Lock poisoned".to_string()))? = PluginState::Ready;
+        *self
+            .state
+            .write()
+            .map_err(|_| SttPluginError::ProcessingError("Lock poisoned".to_string()))? =
+            PluginState::Ready;
         Ok(())
     }
 }
@@ -223,7 +228,7 @@ impl ParakeetPluginFactory {
             config: ParakeetConfig::default(),
         }
     }
-    
+
     pub fn with_config(config: ParakeetConfig) -> Self {
         Self { config }
     }
@@ -239,11 +244,11 @@ impl SttPluginFactory for ParakeetPluginFactory {
     fn create(&self) -> Result<Box<dyn SttPlugin>, SttPluginError> {
         Ok(Box::new(ParakeetPlugin::with_config(self.config.clone())))
     }
-    
+
     fn plugin_info(&self) -> PluginInfo {
         ParakeetPlugin::new().info()
     }
-    
+
     fn check_requirements(&self) -> Result<(), SttPluginError> {
         // Parakeet is not yet available
         Err(SttPluginError::NotAvailable {
@@ -253,39 +258,39 @@ impl SttPluginFactory for ParakeetPluginFactory {
 }
 
 // Future implementation notes:
-// 
+//
 // When Parakeet is released, implement:
-// 
+//
 // 1. WASM Runtime Integration:
 //    - Use wasmtime or wasmer for sandboxed execution
 //    - Load Parakeet WASM module
 //    - Set up memory limits and sandboxing
-// 
+//
 // 2. Model Management:
 //    - Download models from Mozilla CDN
 //    - Cache models locally
 //    - Support model updates
-// 
+//
 // 3. Audio Processing:
 //    - Convert audio to Parakeet's expected format
 //    - Handle streaming with small chunks
 //    - Implement efficient buffering
-// 
+//
 // 4. Performance Optimizations:
 //    - Use SIMD if available
 //    - Implement audio preprocessing in Rust
 //    - Cache frequently used phrases
-// 
+//
 // 5. Integration Features:
 //    - Built-in noise suppression
 //    - Automatic gain control
 //    - Voice activity detection
-// 
+//
 // Example future API:
 // ```rust
 // let engine = ParakeetEngine::new()?;
 // engine.load_model(ParakeetModel::BaseWave)?;
 // engine.enable_vad(true);
-// 
+//
 // let result = engine.transcribe_stream(audio_stream).await?;
 // ```

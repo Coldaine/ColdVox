@@ -1,6 +1,9 @@
 use std::path::PathBuf;
 
-use crate::{plugin::{PluginInfo, PluginCapabilities, SttPluginFactory}, SttPlugin, SttPluginError, TranscriptionEvent, TranscriptionConfig};
+use crate::{
+    plugin::{PluginCapabilities, PluginInfo, SttPluginFactory},
+    SttPlugin, SttPluginError, TranscriptionConfig, TranscriptionEvent,
+};
 
 /// Vosk STT plugin - stub implementation
 /// The actual Vosk implementation is in the coldvox-stt-vosk crate
@@ -54,7 +57,10 @@ impl SttPlugin for VoskPlugin {
         })
     }
 
-    async fn process_audio(&mut self, _samples: &[i16]) -> Result<Option<TranscriptionEvent>, SttPluginError> {
+    async fn process_audio(
+        &mut self,
+        _samples: &[i16],
+    ) -> Result<Option<TranscriptionEvent>, SttPluginError> {
         Err(SttPluginError::NotAvailable {
             reason: "Vosk plugin is implemented in coldvox-stt-vosk crate".to_string(),
         })
@@ -72,7 +78,10 @@ impl SttPlugin for VoskPlugin {
         })
     }
 
-    async fn load_model(&mut self, _model_path: Option<&std::path::Path>) -> Result<(), SttPluginError> {
+    async fn load_model(
+        &mut self,
+        _model_path: Option<&std::path::Path>,
+    ) -> Result<(), SttPluginError> {
         Err(SttPluginError::NotAvailable {
             reason: "Vosk plugin is implemented in coldvox-stt-vosk crate".to_string(),
         })
@@ -89,7 +98,9 @@ impl SttPlugin for VoskPlugin {
 pub struct VoskPluginFactory;
 
 impl VoskPluginFactory {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 }
 
 impl Default for VoskPluginFactory {
@@ -100,18 +111,24 @@ impl Default for VoskPluginFactory {
 
 impl SttPluginFactory for VoskPluginFactory {
     fn create(&self) -> Result<Box<dyn SttPlugin>, SttPluginError> {
-        let model_path = std::env::var("VOSK_MODEL_PATH").map(PathBuf::from)
+        let model_path = std::env::var("VOSK_MODEL_PATH")
+            .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from("models/vosk-model-small-en-us-0.15"));
         let language = std::env::var("VOSK_LANGUAGE").unwrap_or_else(|_| "en".to_string());
         Ok(Box::new(VoskPlugin::new(model_path, language)))
     }
 
     fn plugin_info(&self) -> PluginInfo {
-        VoskPlugin::new(PathBuf::from("models/vosk-model-small-en-us-0.15"), "en".into()).info()
+        VoskPlugin::new(
+            PathBuf::from("models/vosk-model-small-en-us-0.15"),
+            "en".into(),
+        )
+        .info()
     }
 
     fn check_requirements(&self) -> Result<(), SttPluginError> {
-        let path = std::env::var("VOSK_MODEL_PATH").map(PathBuf::from)
+        let path = std::env::var("VOSK_MODEL_PATH")
+            .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from("models/vosk-model-small-en-us-0.15"));
         if path.exists() {
             Err(SttPluginError::NotAvailable {
@@ -119,7 +136,10 @@ impl SttPluginFactory for VoskPluginFactory {
             })
         } else {
             Err(SttPluginError::NotAvailable {
-                reason: format!("Vosk model missing at {} and requires coldvox-stt-vosk crate", path.display()),
+                reason: format!(
+                    "Vosk model missing at {} and requires coldvox-stt-vosk crate",
+                    path.display()
+                ),
             })
         }
     }

@@ -4,13 +4,13 @@
 //! resource-constrained environments with excellent accuracy.
 
 use async_trait::async_trait;
+use parking_lot::RwLock;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use parking_lot::RwLock;
 
 use crate::plugin::*;
 use crate::plugin_types::*;
-use crate::types::{TranscriptionEvent, TranscriptionConfig};
+use crate::types::{TranscriptionConfig, TranscriptionEvent};
 
 /// Leopard configuration
 #[derive(Debug, Clone)]
@@ -37,7 +37,7 @@ impl Default for LeopardConfig {
 }
 
 /// Picovoice Leopard STT Plugin
-/// 
+///
 /// Commercial ultra-lightweight STT with:
 /// - ~30MB model size
 /// - Excellent accuracy for English
@@ -56,7 +56,7 @@ impl LeopardPlugin {
     pub fn new() -> Self {
         Self::with_config(LeopardConfig::default())
     }
-    
+
     pub fn with_config(config: LeopardConfig) -> Self {
         Self {
             config,
@@ -64,7 +64,7 @@ impl LeopardPlugin {
             metrics: Arc::new(RwLock::new(PluginMetrics::default())),
         }
     }
-    
+
     pub fn enhanced_info() -> EnhancedPluginInfo {
         EnhancedPluginInfo {
             id: "leopard".to_string(),
@@ -74,7 +74,7 @@ impl LeopardPlugin {
             author: "Picovoice".to_string(),
             license: "Commercial".to_string(),
             homepage: Some("https://picovoice.ai/platform/leopard/".to_string()),
-            
+
             accuracy_level: AccuracyLevel::High,
             latency_profile: LatencyProfile {
                 avg_ms: 40,
@@ -89,24 +89,22 @@ impl LeopardPlugin {
                 disk_space_mb: 30,
             },
             model_size: ModelSize::Tiny,
-            
-            languages: vec![
-                LanguageSupport {
-                    code: "en".to_string(),
-                    name: "English".to_string(),
-                    quality: LanguageQuality::Premium,
-                    variants: vec!["en-US".to_string(), "en-GB".to_string()],
-                },
-            ],
-            
+
+            languages: vec![LanguageSupport {
+                code: "en".to_string(),
+                name: "English".to_string(),
+                quality: LanguageQuality::Premium,
+                variants: vec!["en-US".to_string(), "en-GB".to_string()],
+            }],
+
             requires_internet: false,
             requires_gpu: false,
             requires_license_key: true,
-            
+
             is_beta: false,
             is_deprecated: false,
             source: PluginSource::BuiltIn,
-            
+
             metrics: None,
         }
     }
@@ -126,7 +124,7 @@ impl SttPlugin for LeopardPlugin {
             memory_usage_mb: Some(30),
         }
     }
-    
+
     fn capabilities(&self) -> PluginCapabilities {
         PluginCapabilities {
             streaming: false, // Leopard is file-based
@@ -138,7 +136,7 @@ impl SttPlugin for LeopardPlugin {
             custom_vocabulary: false,
         }
     }
-    
+
     async fn is_available(&self) -> Result<bool, SttPluginError> {
         // Check for access key
         if self.config.access_key.is_empty() {
@@ -146,29 +144,32 @@ impl SttPlugin for LeopardPlugin {
         }
         Ok(false) // Not yet implemented
     }
-    
+
     async fn initialize(&mut self, _config: TranscriptionConfig) -> Result<(), SttPluginError> {
         if self.config.access_key.is_empty() {
             return Err(SttPluginError::ConfigurationError(
-                "PICOVOICE_ACCESS_KEY required for Leopard".to_string()
+                "PICOVOICE_ACCESS_KEY required for Leopard".to_string(),
             ));
         }
-        
+
         Err(SttPluginError::NotAvailable {
             reason: "Leopard SDK integration not yet implemented".to_string(),
         })
     }
-    
-    async fn process_audio(&mut self, _samples: &[i16]) -> Result<Option<TranscriptionEvent>, SttPluginError> {
+
+    async fn process_audio(
+        &mut self,
+        _samples: &[i16],
+    ) -> Result<Option<TranscriptionEvent>, SttPluginError> {
         Err(SttPluginError::NotAvailable {
             reason: "Leopard plugin not yet implemented".to_string(),
         })
     }
-    
+
     async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, SttPluginError> {
         Ok(None)
     }
-    
+
     async fn reset(&mut self) -> Result<(), SttPluginError> {
         Ok(())
     }
@@ -190,18 +191,18 @@ impl SttPluginFactory for LeopardPluginFactory {
     fn create(&self) -> Result<Box<dyn SttPlugin>, SttPluginError> {
         Ok(Box::new(LeopardPlugin::with_config(self.config.clone())))
     }
-    
+
     fn plugin_info(&self) -> PluginInfo {
         LeopardPlugin::new().info()
     }
-    
+
     fn check_requirements(&self) -> Result<(), SttPluginError> {
         if self.config.access_key.is_empty() {
             return Err(SttPluginError::NotAvailable {
                 reason: "Picovoice access key required".to_string(),
             });
         }
-        
+
         Err(SttPluginError::NotAvailable {
             reason: "Leopard SDK not yet integrated".to_string(),
         })
