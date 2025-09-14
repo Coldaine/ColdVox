@@ -2,23 +2,28 @@
 name = "coldvox-gui"
 version = "0.1.0"
 edition = "2021"
-description = "GUI frontend for ColdVox (placeholder crate for future development)"
+rust-version = "1.75"
 build = "build.rs"
 
-[[bin]]
-name = "coldvox-gui"
-path = "src/main.rs"
+[features]
+# Keep the feature you referenced. It just forwards to cxx-qt-lib's full feature set.
+default = ["qt-ui"]
+qt-ui = ["cxx-qt-lib/full"]
 
 [dependencies]
-# Groundwork: Qt 6 + CXX-Qt, gated behind feature `qt-ui`
-cxx = "1"
-cxx-qt = { version = "0.7", optional = true }
-cxx-qt-lib = { version = "0.7", features = ["qt_qml", "qt_gui"], optional = true }
+# CXX-Qt runtime and Qt bindings
+cxx-qt = "0.7"
+cxx-qt-lib = { version = "0.7", features = ["full"] }
+
+# Optional: logging while debugging
+log = "0.4"
 
 [build-dependencies]
+# The ONLY build helper you need. Do NOT include `cxx-build`.
 cxx-qt-build = "0.7"
 
-[features]
-default = []
-# Enable this feature to build the Qt/CXX-Qt UI scaffolding
-qt-ui = ["dep:cxx-qt", "dep:cxx-qt-lib"]
+[profile.release]
+lto = "thin"
+
+[profile.dev]
+debug = 1
