@@ -7,8 +7,7 @@ on:
 jobs:
   diagnose:
     name: Run Diagnostic Checks
-    runs-on: [self-hosted, Linux, X64, fedora, nobara] # Ensure this matches my runner's labels
-
+    runs-on: [self-hosted, Linux, X64, fedora, nobara]
     steps:
       - name: 1. Print Runner Environment Details
         run: |
@@ -44,8 +43,8 @@ jobs:
           if sudo -n true 2>/dev/null; then
             echo "Sudo access without password confirmed."
             echo "--- Attempting to install 'xdotool' (as a test) ---"
-            sudo dnf install -y xdotool || echo "xdotool install failed"
-            echo "--- Verifying xdotool installation ---"            
+            sudo dnf install -y --skip-unavailable xdotool || echo "xdotool install failed"
+            echo "--- Verifying xdotool installation ---"
             command -v xdotool && xdotool --version || echo "xdotool not available"
           else
             echo "ERROR: Sudo requires a password or is not configured for this user."

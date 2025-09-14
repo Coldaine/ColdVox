@@ -1,0 +1,80 @@
+# Job Classification Configuration
+# Used to determine resource allocation for parallel execution
+
+job_classifications:
+  heavy:
+    # High resource consumption jobs
+    patterns:
+      - "cargo build"
+      - "cargo test"
+      - "cargo doc"
+      - "integration.*test"
+      - "e2e.*test"
+      - "Xvfb"
+      - "full.*workspace"
+    expected_resources:
+      cpu_cores: 6
+      memory_gb: 12
+      time_minutes: "5-15"
+    concurrent_limit: 1
+    examples:
+      - build_and_check
+      - text_injection_tests
+      - msrv-check
+
+  medium:
+    # Moderate resource consumption
+    patterns:
+      - "cargo check"
+      - "cargo audit"
+      - "model.*setup"
+      - "cache.*operation"
+      - "dependency.*scan"
+    expected_resources:
+      cpu_cores: 3
+      memory_gb: 6
+      time_minutes: "2-5"
+    concurrent_limit: 2
+    examples:
+      - setup-vosk-model
+      - gui-groundwork
+      - security
+
+  light:
+    # Minimal resource consumption
+    patterns:
+      - "cargo fmt"
+      - "cargo clippy"
+      - "validate"
+      - "status.*check"
+      - "workflow.*lint"
+      - "documentation.*only"
+    expected_resources:
+      cpu_cores: 1
+      memory_gb: 2
+      time_minutes: "<2"
+    concurrent_limit: 4
+    examples:
+      - validate-workflows
+      - ci-success
+      - format-check
+
+# Automatic classification rules
+classification_rules:
+  - if: contains(steps.*.run, 'cargo build') && contains(steps.*.run, 'cargo test')
+    then: heavy
+  
+  - if: contains(steps.*.run, 'Xvfb') || contains(steps.*.run, 'integration')
+    then: heavy
+    
+  - if: contains(steps.*.run, 'cargo check') && !contains(steps.*.run, 'cargo build')
+    then: medium
+    
+  - if: contains(steps.*.run, 'cargo fmt') || contains(steps.*.run, 'cargo clippy')
+    then: light
+    
+  - if: name == 'validate-*' || name == '*-success'
+    then: light
+    
+  # Default fallback
+  - default: medium

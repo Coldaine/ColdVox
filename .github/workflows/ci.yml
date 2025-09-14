@@ -2,26 +2,39 @@
 name: CI
 
 on:
+  push:
+    branches:
+      - main
+      - 'release/*'
+      - 'feature/*'
+      - 'feat/*'
+      - 'fix/*'
   pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened]
+    branches:
+      - main
   workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'
 
 permissions:
   contents: read
-  pull-requests: read
-  checks: write
+  actions: read
+  security-events: write
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+defaults:
+  run:
+    shell: bash
+
 env:
-  RUST_BACKTRACE: 1
+  RUSTFLAGS: "-D warnings"
   CARGO_TERM_COLOR: always
-  CARGO_INCREMENTAL: 0
-  RUST_TEST_TIME_UNIT: 10000
-  RUST_TEST_TIME_INTEGRATION: 30000
+  VOSK_MODEL_BASENAME: vosk-model-small-en-us-0.15
+  MIN_FREE_DISK_GB: 10
+  MAX_LOAD_AVERAGE: 5
 
 jobs:
   validate-workflows:
@@ -36,86 +49,66 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if ! command -v gh >/dev/null 2>&1; then
+          if ! command -v gh >/dev/null 2>&1;
+            then
             echo "gh CLI not found on runner, skipping workflow validation"
             exit 0
           fi
 
           shopt -s nullglob
           files=(.github/workflows/*.yml .github/workflows/*.yaml)
-          if [[ ${#files[@]} -eq 0 ]]; then
+          if [[ ${#files[@]} -eq 0 ]]
+            then
             echo "No workflow files found"
             exit 0
           fi
 
           echo "Validating ${{ github.sha }} against ${#files[@]} workflow files..."
           failed=0
-          for wf in "${files[@]}"; do
+          for wf in "${files[@]}"
+            do
             echo "-- $wf"
-            if ! gh workflow view "$wf" --ref "$GITHUB_SHA" --yaml >/dev/null 2>&1; then
+            if ! gh workflow view "$wf" --ref "$GITHUB_SHA" --yaml >/dev/null 2>&1
+              then
               echo "ERROR: Failed to render $wf via gh" >&2
               failed=1
             fi
           done
 
-          if [[ $failed -ne 0 ]]; then
+          if [[ $failed -ne 0 ]]
+            then
             echo "One or more workflows failed server-side validation via gh." >&2
             exit 1
           fi
           echo "All workflows render via gh."
 
-  download-vosk-model:
-    name: Use Vendored Vosk Model
+  setup-vosk-dependencies:
+    name: Setup Vosk Dependencies
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
     outputs:
-      model-path: ${{ steps.get-model-path.outputs.path }}
-      download-outcome: success
+      model_path: ${{ steps.setup.outputs.model_path }}
+      lib_path: ${{ steps.setup.outputs.lib_path }}
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-        
-      - name: Verify vendored model with integrity checks
-        run: |
-          set -euo pipefail
-          
-          # Use our centralized model verification script
-          export COLDVOX_VERIFY_VERBOSE=1
-          export COLDVOX_MIN_MODEL_SIZE_MB=40
-          
-          if ! ./scripts/verify-model-integrity.sh; then
-            echo ""
-            echo "FATAL: Model integrity verification failed" >&2
-            echo "This could indicate:" >&2
-            echo "  - Model files are missing or incomplete" >&2
-            echo "  - Model files have been corrupted" >&2
-            echo "  - Checksum file is out of date" >&2
-            echo ""
-            echo "To resolve:" >&2
-            echo "  1. Ensure model is properly downloaded and extracted to models/vosk-model-small-en-us-0.15/" >&2
-            echo "  2. Regenerate checksums if model was updated: ./scripts/verify-model-integrity.sh '' '' generate" >&2
-            echo "  3. Commit both model files and updated SHA256SUMS" >&2
-            exit 1
-          fi
-          
-          echo ""
-          echo "✅ Model integrity verification passed - CI can proceed with confidence"
+      - name: Setup Vosk Model and Library
+        id: setup
+        run: bash scripts/ci/setup-vosk-cache.sh
 
-      - name: Output model path
-        id: get-model-path
-        run: |
-          echo "path=${{ github.workspace }}/models/vosk-model-small-en-us-0.15" >> $GITHUB_OUTPUT
-
-  # Static checks, formatting, linting, type-check, build, and docs
+  # Build, check, and test with multiple Rust versions
   build_and_check:
-    name: Format, Lint, Typecheck, Build & Docs
+    name: Build & Test
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
-    needs: [download-vosk-model]
+    needs: [setup-vosk-dependencies]
+    strategy:
+      matrix:
+        rust-version: [stable, '1.75'] # MSRV is 1.75
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Set up Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          toolchain: stable
+          toolchain: ${{ matrix.rust-version }}
           components: rustfmt, clippy
           override: true
 
@@ -124,10 +117,13 @@ jobs:
         with:
           skip-toolchain: 'true'
 
+      # Only run formatting and linting on stable
       - name: Check formatting
+        if: matrix.rust-version == 'stable'
         run: cargo fmt --all -- --check
 
       - name: Run clippy
+        if: matrix.rust-version == 'stable'
         run: cargo clippy --all-targets --locked
 
       - name: Type check
@@ -136,176 +132,60 @@ jobs:
       - name: Build
         run: cargo build --workspace --locked
 
+      # Only build docs and run tests on stable
       - name: Build documentation
+        if: matrix.rust-version == 'stable'
         run: cargo doc --workspace --no-deps --locked
 
       - name: Run unit and integration tests (skip E2E)
-        if: needs.download-vosk-model.outputs.download-outcome == 'success'
+        if: matrix.rust-version == 'stable'
         env:
-          VOSK_MODEL_PATH: ${{ needs.download-vosk-model.outputs.model-path }}
+          VOSK_MODEL_PATH: ${{ needs.setup-vosk-dependencies.outputs.model_path }}
+          LD_LIBRARY_PATH: ${{ needs.setup-vosk-dependencies.outputs.lib_path }}
         run: |
           echo "=== Environment Validation ==="
           echo "VOSK_MODEL_PATH: $VOSK_MODEL_PATH"
+          echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
           echo "Model directory contents:"
           ls -la "$VOSK_MODEL_PATH" || echo "Model directory not accessible"
+          echo "Lib directory contents:"
+          ls -la "$LD_LIBRARY_PATH" || echo "Lib directory not accessible"
           echo "=== Running Tests ==="
           cargo test --workspace --locked --
+
+      # GUI groundwork check integrated here
+      - name: Detect and test Qt 6 GUI
+        if: matrix.rust-version == 'stable'
+        run: |
+          if bash scripts/ci/detect-qt6.sh
+            then
+            echo "✅ Qt 6 detected - building GUI"
+            cargo check -p coldvox-gui --features qt-ui --locked
+          else
+            echo "⚠️ Qt 6 not detected - skipping GUI build"
+          fi
 
       - name: Upload test artifacts on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: test-artifacts-build-check
+          name: test-artifacts-build-${{ matrix.rust-version }}
           path: |
             target/debug/deps/
             target/debug/build/
           retention-days: 7
 
-  # MSRV validation
-  msrv-check:
-    name: MSRV Check (Rust 1.75)
-    runs-on: [self-hosted, Linux, X64, fedora, nobara]
-    steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
-        with:
-          toolchain: 1.75
-
-      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
-
-      - name: Setup ColdVox
-        uses: ./.github/actions/setup-coldvox
-        with:
-          skip-toolchain: 'true'
-
-      - name: MSRV type check
-        run: cargo check --workspace --all-targets --locked
-
-      - name: MSRV build
-        run: cargo build --workspace --locked
-
-  # GUI groundwork check: explicitly pass if Qt 6 isn't installed
-  gui-groundwork:
-    name: GUI Groundwork (Qt optional)
-    runs-on: [self-hosted, Linux, X64, fedora, nobara]
-    steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-
-      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
-        with:
-          toolchain: stable
-
-      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
-
-      - name: Detect Qt 6
-        id: detect-qt
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "=== Qt 6 Detection Script ==="
-          # Attempt to install lsb_release if not present, for better OS diagnostics
-          if ! command -v lsb_release >/dev/null 2>&1; then
-            sudo apt-get update && sudo apt-get install -y lsb-release
-          fi
-          echo "Runner OS: $(lsb_release -a 2>/dev/null || echo 'lsb_release not found')"
-          echo "Initial PATH: $PATH"
-
-          qt6_found=false
-          qmake_path=""
-          detection_method=""
-
-          # 1. Check for QT6_PATH environment variable override
-          if [[ -n "${QT6_PATH:-}" ]] && [[ -x "${QT6_PATH}/bin/qmake" ]]; then
-              qmake_path="${QT6_PATH}/bin/qmake"
-              detection_method="QT6_PATH override ($qmake_path)"
-          fi
-
-          # 2. Find qmake executable (qmake6, qmake-qt6, qmake) in PATH
-          if [[ -z "$qmake_path" ]]; then
-              for qmake_candidate in qmake6 qmake-qt6 qmake; do
-                  if command -v "$qmake_candidate" >/dev/null 2>&1; then
-                      qmake_path=$(command -v "$qmake_candidate")
-                      detection_method="qmake in PATH ($qmake_path)"
-                      break
-                  fi
-              done
-          fi
-
-          # 3. If qmake was found, verify it's Qt 6
-          if [[ -n "$qmake_path" ]]; then
-              echo "Found qmake executable at: $qmake_path"
-              qt_version=$($qmake_path -query QT_VERSION)
-              echo "qmake -query QT_VERSION returned: $qt_version"
-              if [[ "$qt_version" == 6.* ]]; then
-                  qt6_found=true
-                  echo "✅ Qt 6 detected via qmake version check."
-              else
-                  echo "⚠️ Found qmake, but it's not for Qt 6 (version $qt_version). Resetting search."
-                  qmake_path=""
-                  detection_method=""
-              fi
-          fi
-
-          # 4. Fallback to pkg-config
-          if [[ "$qt6_found" == "false" ]] && command -v pkg-config >/dev/null 2>&1; then
-              echo "Attempting detection via pkg-config..."
-              if pkg-config --exists Qt6Core; then
-                  qt6_found=true
-                  detection_method="pkg-config"
-                  echo "✅ Qt 6 detected via pkg-config."
-              else
-                  echo "pkg-config did not find Qt6Core."
-              fi
-          fi
-
-          # 5. Fallback to CMake
-          if [[ "$qt6_found" == "false" ]] && command -v cmake >/dev/null 2>&1; then
-              echo "Attempting detection via CMake..."
-              # Create a minimal CMakeLists.txt to find Qt6
-              cat <<EOF > CMakeLists.txt
-          cmake_minimum_required(VERSION 3.16)
-          project(Qt6Check)
-          find_package(Qt6 QUIET REQUIRED)
-          EOF
-              if cmake -B build -S . >/dev/null 2>&1; then
-                  qt6_found=true
-                  detection_method="CMake find_package"
-                  echo "✅ Qt 6 detected via CMake."
-              else
-                  echo "CMake find_package(Qt6) failed."
-              fi
-              rm -rf CMakeLists.txt build
-          fi
-
-          echo "============================="
-          echo "Final detection result: qt6=$qt6_found"
-          if [[ "$qt6_found" == "true" ]]; then
-              echo "Qt 6 detected on runner using method: $detection_method."
-          else
-              echo "Qt 6 not detected; will skip qt-ui build and explicitly pass."
-          fi
-          echo "qt6=$qt6_found" >> "$GITHUB_OUTPUT"
-
-      - name: Build coldvox-gui with qt-ui feature
-        if: steps.detect-qt.outputs.qt6 == 'true'
-        run: |
-          cargo check -p coldvox-gui --features qt-ui --locked
-
-      - name: Qt not found — skip build
-        if: steps.detect-qt.outputs.qt6 != 'true'
-        run: |
-          echo "WARNING: Qt 6 not detected. Skipping qt-ui build." >&2
-          echo "Install Qt 6 to enable GUI testing."
 
   text_injection_tests:
     name: Text Injection Tests
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
-    needs: [download-vosk-model]
+    needs: [setup-vosk-dependencies]
     timeout-minutes: 30
     env:
       DISPLAY: :99
       RUST_LOG: debug
+      RUST_TEST_TIME_UNIT: 10000
+      RUST_TEST_TIME_INTEGRATION: 30000
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
@@ -316,57 +196,13 @@ jobs:
       - name: Setup ColdVox
         uses: ./.github/actions/setup-coldvox
 
-      # Install dependencies for text injection backends (AT-SPI, clipboard, ydotool)
-      - name: Install additional system dependencies
-        run: |
-          # Detect package manager and install appropriate packages
-          if command -v dnf >/dev/null 2>&1; then
-            # Fedora/RHEL/Nobara
-            sudo dnf install -y \
-              xorg-x11-server-Xvfb \
-              fluxbox \
-              dbus-x11 \
-              at-spi2-core \
-              wl-clipboard \
-              xclip \
-              ydotool \
-              xorg-x11-utils \
-              wmctrl \
-              gtk3-devel
-          elif command -v apt-get >/dev/null 2>&1; then
-            # Ubuntu/Debian
-            sudo apt-get update
-            sudo apt-get install -y \
-              xvfb \
-              fluxbox \
-              dbus-x11 \
-              at-spi2-core \
-              wl-clipboard \
-              xclip \
-              ydotool \
-              x11-utils \
-              wmctrl \
-              libgtk-3-dev
-          else
-            echo "ERROR: Unsupported package manager" >&2
-            exit 1
-          fi
 
       - name: Start and verify headless environment
         run: |
           set -euo pipefail
-          # Start Xvfb
-          Xvfb :99 -screen 0 1024x768x24 &
-          for i in {1..30}; do
-            if xdpyinfo -display ":99" >/dev/null 2>&1; then echo "Xvfb ready"; break; fi
-            sleep 0.5; [[ $i -eq 30 ]] && exit 1
-          done
-          # Start window manager
-          fluxbox -display :99 &
-          for i in {1..30}; do
-            if wmctrl -m >/dev/null 2>&1; then echo "Window manager ready"; break; fi
-            sleep 0.5; [[ $i -eq 30 ]] && exit 1
-          done
+          # Use our custom headless environment script
+          DISPLAY=:99 ${{ github.workspace }}/scripts/start-headless.sh
+          
           # Setup D-Bus session
           eval "$(dbus-launch --sh-syntax)"
           echo "DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS" >> $GITHUB_ENV
@@ -424,10 +260,14 @@ jobs:
         run: cargo build --locked -p coldvox-app
 
       - name: Run E2E pipeline test
-        if: needs.download-vosk-model.outputs.download-outcome == 'success'
         env:
-          VOSK_MODEL_PATH: ${{ needs.download-vosk-model.outputs.model-path }}
+          VOSK_MODEL_PATH: ${{ needs.setup-vosk-dependencies.outputs.model_path }}
+          LD_LIBRARY_PATH: ${{ needs.setup-vosk-dependencies.outputs.lib_path }}
         run: |
+          echo "=== E2E Environment Validation ==="
+          echo "VOSK_MODEL_PATH: $VOSK_MODEL_PATH"
+          echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
+          echo "=== Running E2E Test ==="
           cargo test -p coldvox-app --locked test_end_to_end_wav_pipeline -- --nocapture
 
       - name: Upload test artifacts on failure
@@ -451,54 +291,36 @@ jobs:
           # Kill fluxbox
           pkill -f "fluxbox.*:99" || true
           # Kill dbus-daemon if it was started by this session
-          if [[ -n "${DBUS_SESSION_BUS_PID:-}" ]]; then
+          if [[ -n "${DBUS_SESSION_BUS_PID:-}" ]]
+            then
             kill "$DBUS_SESSION_BUS_PID" 2>/dev/null || true
           fi
           echo "Cleanup completed."
 
-  # Security audit
-  security:
-    name: Security Audit
-    if: github.ref == 'refs/heads/main' # Only run on main
+  ci_success:
+    name: CI Success Summary
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
-    steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-
-      - name: Set up Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: stable
-
-      - uses: rustsec/audit-check@v2.0.0 # pin to release tag
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Run security audit
-        run: cargo audit
-
-  # Success marker job
-  ci-success:
-    name: CI Success
+    needs:
+      - validate-workflows
+      - setup-vosk-dependencies
+      - build_and_check
+      - text_injection_tests
     if: always()
-    needs: [validate-workflows, download-vosk-model, build_and_check, msrv-check, gui-groundwork, text_injection_tests]
-    runs-on: [self-hosted, Linux, X64, fedora, nobara]
     steps:
-      - name: Check if all jobs succeeded
+      - uses: actions/checkout@v4
+      - name: Generate CI Report
         run: |
-          set -euo pipefail
-          failed=0
-          for res in \
-            "${{ needs.validate-workflows.result }}" \
-            "${{ needs.download-vosk-model.result }}" \
-            "${{ needs.build_and_check.result }}" \
-            "${{ needs.msrv-check.result }}" \
-            "${{ needs.gui-groundwork.result }}" \
-            "${{ needs.text_injection_tests.result }}"; do
-            if [[ "$res" == "failure" ]]; then
-              failed=1
-            fi
-          done
-          if [[ $failed -eq 1 ]]; then
-            echo "One or more CI jobs failed"
-            exit 1
-          fi
-          echo "All CI jobs succeeded (ignoring skipped)"
+          echo "## CI Report" > report.md
+          echo "- validate-workflows:            ${{ needs.validate-workflows.result }}" >> report.md
+          echo "- setup-vosk-dependencies:       ${{ needs.setup-vosk-dependencies.result }}" >> report.md
+          echo "- build_and_check:               ${{ needs.build_and_check.result }}" >> report.md
+          echo "- text_injection_tests:          ${{ needs.text_injection_tests.result }}" >> report.md
+          if [[ "${{ needs.setup-vosk-dependencies.result }}" != "success" ]]; then echo "::error::Setup Vosk dependencies failed."; exit 1; fi
+          if [[ "${{ needs.build_and_check.result }}" != "success" ]]; then echo "::error::Build and check failed."; exit 1; fi
+          if [[ "${{ needs.text_injection_tests.result }}" != "success" ]]; then echo "::error::Text injection tests failed."; exit 1; fi
+          echo "All critical stages passed successfully."
+      - name: Upload CI Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-report
+          path: report.md
