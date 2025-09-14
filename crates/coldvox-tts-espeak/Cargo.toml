@@ -1,0 +1,22 @@
+[package]
+name = "coldvox-tts-espeak"
+version = "0.1.0"
+edition = "2021"
+description = "eSpeak TTS engine implementation for ColdVox"
+
+[dependencies]
+coldvox-tts = { path = "../coldvox-tts", features = ["async"] }
+async-trait = "0.1"
+tokio = { version = "1", features = ["process", "io-util", "fs", "test-util"] }
+thiserror = "2.0"
+tracing = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+regex = "1.0"
+
+[dev-dependencies]
+tokio-test = "0.4"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+[features]
+default = ["espeak"]
+espeak = []

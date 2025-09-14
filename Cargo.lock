@@ -619,6 +619,8 @@ dependencies = [
  "coldvox-stt-vosk",
  "coldvox-telemetry",
  "coldvox-text-injection",
+ "coldvox-tts",
+ "coldvox-tts-espeak",
  "coldvox-vad",
  "coldvox-vad-silero",
  "cpal",
@@ -751,6 +753,31 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "wl-clipboard-rs",
+]
+
+[[package]]
+name = "coldvox-tts"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "thiserror 2.0.16",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "coldvox-tts-espeak"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "coldvox-tts",
+ "regex",
+ "serde",
+ "thiserror 2.0.16",
+ "tokio",
+ "tokio-test",
+ "tracing",
 ]
 
 [[package]]

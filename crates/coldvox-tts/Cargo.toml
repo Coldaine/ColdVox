@@ -1,0 +1,18 @@
+[package]
+name = "coldvox-tts"
+version = "0.1.0"
+edition = "2021"
+description = "Text-to-speech abstraction layer for ColdVox"
+
+[dependencies]
+async-trait = "0.1"
+thiserror = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+tokio = { version = "1", features = ["process", "io-util"], optional = true }
+tracing = "0.1"
+
+[features]
+default = []
+async = ["tokio"]
+espeak = ["async"]
+festival = ["async"]
