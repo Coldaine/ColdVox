@@ -49,6 +49,12 @@ pub struct SttPluginManager {
     last_unloaded_plugin_id: Arc<RwLock<Option<String>>>,
 }
 
+impl Default for SttPluginManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SttPluginManager {
     /// Create a new plugin manager with default configuration
     pub fn new() -> Self {
@@ -80,8 +86,9 @@ impl SttPluginManager {
             last_unloaded_plugin_id: Arc::new(RwLock::new(None)),
         };
 
-        // Load existing configuration if available
-        let _ = manager.load_config();
+    // Load existing configuration if available
+    #[allow(clippy::let_underscore_future)]
+    let _ = manager.load_config();
 
         manager
     }
@@ -105,7 +112,7 @@ impl SttPluginManager {
 
     /// Update plugin selection configuration at runtime
     pub async fn set_selection_config(&mut self, cfg: PluginSelectionConfig) {
-        let gc_enabled = cfg.gc_policy.as_ref().map_or(false, |gc| gc.enabled);
+    let gc_enabled = cfg.gc_policy.as_ref().is_some_and(|gc| gc.enabled);
         let metrics_enabled = cfg.metrics.is_some();
         
         self.selection_config = cfg;
@@ -566,7 +573,7 @@ impl SttPluginManager {
                         metrics.stt_load_errors.fetch_add(1, Ordering::Relaxed);
                     }
                     // Fall back to best available
-                    match self.create_fallback_plugin(&*registry) {
+                    match self.create_fallback_plugin(&registry) {
                         Ok(p) => {
                             if let Some(ref metrics) = self.metrics_sink {
                                 metrics.stt_load_count.fetch_add(1, Ordering::Relaxed);
@@ -584,7 +591,7 @@ impl SttPluginManager {
             }
         } else {
             // Use best available
-            match self.create_fallback_plugin(&*registry) {
+            match self.create_fallback_plugin(&registry) {
                 Ok(p) => {
                     if let Some(ref metrics) = self.metrics_sink {
                         metrics.stt_load_count.fetch_add(1, Ordering::Relaxed);
@@ -1122,6 +1129,7 @@ impl Drop for SttPluginManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use coldvox_stt::plugin::{FailoverConfig, GcPolicy};
 
     #[tokio::test]
     async fn test_unload_plugin() {

@@ -143,6 +143,12 @@ impl ParakeetPlugin {
     }
 }
 
+impl Default for ParakeetPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[async_trait]
 impl SttPlugin for ParakeetPlugin {
     fn info(&self) -> PluginInfo {
@@ -220,6 +226,12 @@ impl ParakeetPluginFactory {
     
     pub fn with_config(config: ParakeetConfig) -> Self {
         Self { config }
+    }
+}
+
+impl Default for ParakeetPluginFactory {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

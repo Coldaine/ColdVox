@@ -92,6 +92,12 @@ impl VoskPluginFactory {
     pub fn new() -> Self { Self }
 }
 
+impl Default for VoskPluginFactory {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SttPluginFactory for VoskPluginFactory {
     fn create(&self) -> Result<Box<dyn SttPlugin>, SttPluginError> {
         let model_path = std::env::var("VOSK_MODEL_PATH").map(PathBuf::from)

@@ -198,6 +198,12 @@ impl WhisperCppPlugin {
     }
 }
 
+impl Default for WhisperCppPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[async_trait]
 impl SttPlugin for WhisperCppPlugin {
     fn info(&self) -> PluginInfo {
@@ -286,9 +292,14 @@ impl WhisperCppPluginFactory {
     }
     
     pub fn with_model(model_type: WhisperModelType) -> Self {
-        let mut config = WhisperCppConfig::default();
-        config.model_type = model_type;
+        let config = WhisperCppConfig { model_type, ..Default::default() };
         Self { config }
+    }
+}
+
+impl Default for WhisperCppPluginFactory {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
