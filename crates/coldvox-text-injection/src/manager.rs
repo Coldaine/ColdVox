@@ -202,7 +202,7 @@ impl StrategyManager {
     ) -> Self {
         let backend_detector = BackendDetector::new(config.clone());
         let log_throttle = Mutex::new(LogThrottle::new());
-        
+
         if let Some(backend) = backend_detector.get_preferred_backend() {
             // Throttle backend selection logs to reduce noise
             if let Ok(mut throttle) = log_throttle.lock() {
