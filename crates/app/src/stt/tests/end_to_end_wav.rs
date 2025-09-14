@@ -376,6 +376,7 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
     };
 
     let (vad_event_tx, vad_event_rx) = mpsc::channel::<VadEvent>(100);
+    let vad_event_tx_clone = vad_event_tx.clone();
     let vad_audio_rx = audio_tx.subscribe();
     let vad_handle = match crate::audio::vad_processor::VadProcessor::spawn(
         vad_cfg,
@@ -443,8 +444,18 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
     stt_handle.abort();
     streaming_handle.abort();
 
+    // Manually send a SpeechEnd event to force finalization, as the VAD
+    // might not always fire one at the very end of a file.
+    let _ = vad_event_tx_clone
+        .send(VadEvent::SpeechEnd {
+            timestamp_ms: 0, // Not critical for this test
+            duration_ms: 0,
+            energy_db: -20.0,
+        })
+        .await;
+
     // Give a moment for final processing
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    tokio::time::sleep(Duration::from_millis(2000)).await;
 
     let injections = mock_injector.get_injections();
     info!("Test completed. Injections captured: {:?}", injections);

@@ -46,7 +46,7 @@ pub trait Transcriber {
 /// Modern event-based transcription interface
 ///
 /// Implementations should prefer this interface over the legacy Transcriber trait.
-pub trait EventBasedTranscriber {
+pub trait EventBasedTranscriber: Send + Sync {
     /// Accept PCM16 audio and return transcription events
     fn accept_frame(&mut self, pcm: &[i16]) -> Result<Option<TranscriptionEvent>, String>;
 
