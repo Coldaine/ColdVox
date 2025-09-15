@@ -45,3 +45,8 @@ if [[ "${RUN_REAL_INJECTION_SMOKE:-}" == "1" ]]; then
         set -e
     fi
 fi
+
+# Run the VOSK E2E test hook
+echo "--- Chaining VOSK E2E pre-commit hook ---"
+bash .git-hooks/pre-commit-vosk-e2e
+echo "-------------------------------------------"

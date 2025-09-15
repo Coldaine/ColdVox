@@ -1312,7 +1312,7 @@ mod tests {
         let mut manager = SttPluginManager::new().with_metrics_sink(metrics.clone());
 
         // Initialize with a plugin
-        let _plugin_id = manager.initialize().await.unwrap();
+        let plugin_id = manager.initialize().await.unwrap();
 
         // Verify initial metrics
         assert_eq!(
@@ -1329,7 +1329,7 @@ mod tests {
         );
 
         // Unload the plugin
-        let result = manager.unload_plugin("noop").await;
+        let result = manager.unload_plugin(&plugin_id).await;
         assert!(result.is_ok());
 
         // Verify metrics were updated

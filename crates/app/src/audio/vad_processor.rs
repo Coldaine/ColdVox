@@ -103,6 +103,15 @@ impl VadProcessor {
                     }
                 }
 
+                debug!(
+                    "VAD event: {:?} @ {}ms",
+                    event,
+                    match &event {
+                        VadEvent::SpeechStart { timestamp_ms, .. } => *timestamp_ms,
+                        VadEvent::SpeechEnd { timestamp_ms, .. } => *timestamp_ms,
+                    }
+                );
+
                 if let Err(e) = self.event_tx.send(event).await {
                     error!("Failed to send VAD event: {}", e);
                 }

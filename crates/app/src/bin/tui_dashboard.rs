@@ -1138,8 +1138,7 @@ fn draw_plugins(f: &mut Frame, area: Rect, state: &DashboardState) {
         // Display available plugins from plugin manager
         if let Some(ref pm) = state.plugin_manager {
             // Try to get plugin list without blocking
-            let pm_read = pm.try_read();
-            if let Ok(pm_guard) = pm_read {
+            if let Ok(pm_guard) = pm.try_read() {
                 let plugins = pm_guard.list_plugins_sync();
                 for plugin in plugins {
                     let status = if Some(&plugin.id) == state.plugin_current.as_ref() {

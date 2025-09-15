@@ -12,33 +12,33 @@ graph TD
     ROOT --> GUI[coldvox-gui]:::partial
 
     %% coldvox-app (partial ~55%)
-    APP --> AUDIO_MOD[src/audio: Partial 70% (vad_processor.rs, vad_adapter.rs)]:::partial
-    APP --> BIN_MOD[src/bin: None 0% (mic_probe.rs, tui_dashboard.rs)]:::none
-    APP --> FOUNDATION_MOD[src/foundation: None 0% (mod.rs)]:::none
-    APP --> HOTKEY_MOD[src/hotkey: Partial 50% (backend.rs, listener.rs)]:::partial
-    APP --> PROBES_MOD[src/probes: Partial 60% (mic_capture.rs, vad_mic.rs)]:::partial
-    APP --> STT_MOD[src/stt: Partial 80% (processor.rs, vosk.rs)]:::partial
-    APP --> TELEMETRY_MOD[src/telemetry: None 0% (mod.rs)]:::none
-    APP --> TEXT_INJECTION_MOD[src/text_injection: None 0% (mod.rs)]:::none
-    APP --> VAD_MOD[src/vad: None 0% (mod.rs)]:::none
-    APP --> RUNTIME_MOD[runtime.rs: Partial 40% (init, shutdown)]:::partial
+    APP --> AUDIO_MOD[src/audio: Partial 70% vad_processor.rs_vad_adapter.rs]:::partial
+    APP --> BIN_MOD[src/bin: None 0% mic_probe.rs - tui_dashboard.rs]:::none
+    APP --> FOUNDATION_MOD[src/foundation: None 0% mod.rs]:::none
+    APP --> HOTKEY_MOD[src/hotkey: Partial 50% backend.rs - listener.rs]:::partial
+    APP --> PROBES_MOD[src/probes: Partial 60% mic_capture.rs - vad_mic.rs]:::partial
+    APP --> STT_MOD[src/stt: Partial 80% processor.rs - vosk.rs]:::partial
+    APP --> TELEMETRY_MOD[src/telemetry: None 0% mod.rs]:::none
+    APP --> TEXT_INJECTION_MOD[src/text_injection: None 0% mod.rs]:::none
+    APP --> VAD_MOD[src/vad: None 0% mod.rs]:::none
+    APP --> RUNTIME_MOD[runtime.rs: Partial 40% init - shutdown]:::partial
     APP --> MAIN_MOD[main.rs: None 0%]:::none
     APP --> LIB_MOD[lib.rs: None 0%]:::none
-    APP --> TESTS_UNIT[tests/unit: Partial 50% (silence_detector_test.rs, watchdog_test.rs)]:::partial
-    APP --> TESTS_INTEGRATION[tests/integration: Partial 70% (capture_integration_test.rs, text_injection_integration_test.rs)]:::partial
+    APP --> TESTS_UNIT[tests/unit: Partial 50% silence_detector_test.rs - watchdog_test.rs]:::partial
+    APP --> TESTS_INTEGRATION[tests/integration: Partial 70% capture_integration_test.rs - text_injection_integration_test.rs]:::partial
 
     %% coldvox-audio (partial ~65%)
-    AUDIO --> CAPTURE_MOD[src/capture.rs: Partial 60% (basic, shutdown)]:::partial
-    AUDIO --> CHUNKER_MOD[src/chunker.rs: Partial 70% (resampling, flush)]:::partial
-    AUDIO --> DETECTOR_MOD[src/detector.rs: Partial 50% (is_silence)]:::partial
-    AUDIO --> DEVICE_MOD[src/device.rs: None 0% (enumerate, open)]:::none
-    AUDIO --> FRAME_READER_MOD[src/frame_reader.rs: None 0% (read_frame)]:::none
-    AUDIO --> MONITOR_MOD[src/monitor.rs: None 0% (device_monitor)]:::none
-    AUDIO --> RESAMPLER_MOD[src/resampler.rs: Partial 60% (process, reset)]:::partial
-    AUDIO --> RING_BUFFER_MOD[src/ring_buffer.rs: Partial 70% (write, read)]:::partial
-    AUDIO --> WATCHDOG_MOD[src/watchdog.rs: Partial 80% (start, stop, pet)]:::partial
+    AUDIO --> CAPTURE_MOD[src/capture.rs: Partial 60% basic - shutdown]:::partial
+    AUDIO --> CHUNKER_MOD[src/chunker.rs: Partial 70% resampling - flush]:::partial
+    AUDIO --> DETECTOR_MOD[src/detector.rs: Partial 50% is_silence]:::partial
+    AUDIO --> DEVICE_MOD[src/device.rs: None 0% enumerate - open]:::none
+    AUDIO --> FRAME_READER_MOD[src/frame_reader.rs: None 0% read_frame]:::none
+    AUDIO --> MONITOR_MOD[src/monitor.rs: None 0% device_monitor]:::none
+    AUDIO --> RESAMPLER_MOD[src/resampler.rs: Partial 60% process - reset]:::partial
+    AUDIO --> RING_BUFFER_MOD[src/ring_buffer.rs: Partial 70% write - read]:::partial
+    AUDIO --> WATCHDOG_MOD[src/watchdog.rs: Partial 80% start - stop - pet]:::partial
     AUDIO --> LIB_MOD_AUDIO[lib.rs: None 0%]:::none
-    AUDIO --> TESTS_AUDIO[tests: Partial 60% (device_hotplug_tests.rs)]:::partial
+    AUDIO --> TESTS_AUDIO[tests: Partial 60% device_hotplug_tests.rs]:::partial
 
     %% coldvox-foundation (none ~0%)
     FOUNDATION --> ERROR_MOD[src/error.rs: None 0%]:::none
@@ -49,11 +49,11 @@ graph TD
 
     %% coldvox-stt (partial ~45%)
     STT --> PLUGIN_MOD[src/plugin.rs: None 0%]:::none
-    STT --> PLUGINS_MOD[src/plugins: Partial 40% (mock.rs, noop.rs)]:::partial
-    STT --> PROCESSOR_MOD[src/processor.rs: Partial 70% (run, handle_audio_frame)]:::partial
+    STT --> PLUGINS_MOD[src/plugins: Partial 40% mock.rs - noop.rs]:::partial
+    STT --> PROCESSOR_MOD[src/processor.rs: Partial 70% run - handle_audio_frame]:::partial
     STT --> TYPES_MOD[src/types.rs: None 0%]:::none
     STT --> LIB_MOD_STT[lib.rs: None 0%]:::none
-    STT --> TESTS_STT[tests: Partial 50% (end_to_end_wav.rs)]:::partial
+    STT --> TESTS_STT[tests: Partial 50% end_to_end_wav.rs]:::partial
 
     %% coldvox-stt-vosk (none ~0%)
     STT_VOSK --> LIB_MOD_STT_VOSK[lib.rs: None 0%]:::none
@@ -65,25 +65,25 @@ graph TD
     TELEMETRY --> PIPELINE_METRICS_MOD[src/pipeline_metrics.rs: None 0%]:::none
     TELEMETRY --> STT_METRICS_MOD[src/stt_metrics.rs: None 0%]:::none
     TELEMETRY --> LIB_MOD_TELEMETRY[lib.rs: None 0%]:::none
-    TELEMETRY --> EXAMPLES_TELEMETRY[examples: None 0% (demo.rs, integration_example.rs)]:::none
+    TELEMETRY --> EXAMPLES_TELEMETRY[examples: None 0% demo.rs - integration_example.rs]:::none
 
     %% coldvox-text-injection (partial ~55%)
-    TEXT_INJECTION --> ATSP_MOD[src/atspi_injector.rs: Partial 60% (inject_text)]:::partial
-    TEXT_INJECTION --> BACKEND_MOD[src/backend.rs: None 0% (HotkeyBackend)]:::none
-    TEXT_INJECTION --> CLIPBOARD_MOD[src/clipboard_injector.rs: Partial 50% (save_clipboard)]:::partial
-    TEXT_INJECTION --> COMBO_CLIP_ATSP_MOD[src/combo_clip_atspi.rs: Partial 60% (inject)]:::partial
-    TEXT_INJECTION --> COMBO_CLIP_YDOT_MOD[src/combo_clip_ydotool.rs: Partial 60% (inject)]:::partial
-    TEXT_INJECTION --> ENIGO_MOD[src/enigo_injector.rs: Partial 50% (inject)]:::partial
-    TEXT_INJECTION --> FOCUS_MOD[src/focus.rs: None 0% (FocusProvider)]:::none
-    TEXT_INJECTION --> KDOTOOL_MOD[src/kdotool_injector.rs: Partial 50% (inject)]:::partial
+    TEXT_INJECTION --> ATSP_MOD[src/atspi_injector.rs: Partial 60% inject_text]:::partial
+    TEXT_INJECTION --> BACKEND_MOD[src/backend.rs: None 0% HotkeyBackend]:::none
+    TEXT_INJECTION --> CLIPBOARD_MOD[src/clipboard_injector.rs: Partial 50% save_clipboard]:::partial
+    TEXT_INJECTION --> COMBO_CLIP_ATSP_MOD[src/combo_clip_atspi.rs: Partial 60% inject]:::partial
+    TEXT_INJECTION --> COMBO_CLIP_YDOT_MOD[src/combo_clip_ydotool.rs: Partial 60% inject]:::partial
+    TEXT_INJECTION --> ENIGO_MOD[src/enigo_injector.rs: Partial 50% inject]:::partial
+    TEXT_INJECTION --> FOCUS_MOD[src/focus.rs: None 0% FocusProvider]:::none
+    TEXT_INJECTION --> KDOTOOL_MOD[src/kdotool_injector.rs: Partial 50% inject]:::partial
     TEXT_INJECTION --> LIB_MOD_TEXT_INJECTION[lib.rs: None 0%]:::none
-    TEXT_INJECTION --> MANAGER_MOD[src/manager.rs: Partial 70% (inject, get_method_order)]:::partial
-    TEXT_INJECTION --> NOOP_MOD[src/noop_injector.rs: Partial 40% (inject)]:::partial
-    TEXT_INJECTION --> PROCESSOR_MOD_TEXT[src/processor.rs: Partial 80% (handle_transcription)]:::partial
-    TEXT_INJECTION --> SESSION_MOD[src/session.rs: Partial 50% (add_transcription)]:::partial
-    TEXT_INJECTION --> TYPES_MOD_TEXT[src/types.rs: None 0% (InjectionConfig)]:::none
-    TEXT_INJECTION --> TESTS_TEXT_INJECTION[tests: Partial 60% (test_async_processor.rs, test_focus_enforcement.rs)]:::partial
-    TEXT_INJECTION --> TEST_APPS_TEXT_INJECTION[test-apps: Partial 50% (terminal-test-app)]:::partial
+    TEXT_INJECTION --> MANAGER_MOD[src/manager.rs: Partial 70% inject - get_method_order]:::partial
+    TEXT_INJECTION --> NOOP_MOD[src/noop_injector.rs: Partial 40% inject]:::partial
+    TEXT_INJECTION --> PROCESSOR_MOD_TEXT[src/processor.rs: Partial 80% handle_transcription]:::partial
+    TEXT_INJECTION --> SESSION_MOD[src/session.rs: Partial 50% add_transcription]:::partial
+    TEXT_INJECTION --> TYPES_MOD_TEXT[src/types.rs: None 0% InjectionConfig]:::none
+    TEXT_INJECTION --> TESTS_TEXT_INJECTION[tests: Partial 60% test_async_processor.rs - test_focus_enforcement.rs]:::partial
+    TEXT_INJECTION --> TEST_APPS_TEXT_INJECTION[test-apps: Partial 50% terminal-test-app]:::partial
 
     %% coldvox-vad (none ~0%)
     VAD --> CONFIG_MOD[src/config.rs: None 0%]:::none
@@ -104,7 +104,7 @@ graph TD
     GUI --> BRIDGE_MOD[src/bridge.rs: None 0%]:::none
     GUI --> MAIN_MOD_GUI[src/main.rs: None 0%]:::none
     GUI --> BUILD_RS[build.rs: None 0%]:::none
-    GUI --> CRATES_GUI[crates/coldvox-gui: Partial 30% (qml)]:::partial
+    GUI --> CRATES_GUI[crates/coldvox-gui: Partial 30% qml]:::partial
     GUI --> DOCS_GUI[docs: None 0%]:::none
     GUI --> QML_GUI[qml: None 0%]:::none
 

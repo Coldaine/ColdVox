@@ -1,0 +1,33 @@
+%%{init: {"theme": "base","themeVariables": {"primaryColor":"#f4f4f4","primaryTextColor":"#111","primaryBorderColor":"#666","lineColor":"#666","fontFamily":"Inter, Arial, sans-serif","fontSize":"14px"},"flowchart": {"htmlLabels": false, "curve": "linear"},"accTitle": "STT Legacy vs Streaming Interaction","accDescr": "Sequence showing differences between legacy plugin-based STT and streaming STT processor."}}%%
+sequenceDiagram
+  participant User
+  participant Audio as AudioChunker
+  participant VAD as VadProcessor
+  participant Fanout as VadFanout
+  participant Legacy as PluginSttProcessor
+  participant Streaming as StreamingSttProcessor
+  participant Manager as SttPluginManager
+  participant Vosk as VoskPlugin?
+
+  User->>Audio: Speak -> frames
+  Audio->>VAD: frames
+  VAD->>Fanout: SpeechStart/SpeechEnd events
+  Fanout->>Legacy: forward VadEvent
+  Fanout->>Streaming: forward StreamingVadEvent
+  Audio->>Legacy: audio frames (legacy path)
+  Audio->>Streaming: i16 frames forwarded (streaming path)
+
+  alt Legacy Path
+    Legacy->>Manager: request plugin (mock/vosk)
+    Manager-->>Legacy: plugin instance
+    Legacy->>Legacy: transcribe (blocking/legacy)
+    Legacy-->>Manager: emit TranscriptionEvent
+  else Streaming Path
+    Streaming->>Manager: adapter calls (streaming)
+    Manager-->>Streaming: plugin stream handle
+    Streaming->>Streaming: on_speech_frame / on_speech_end
+    Streaming-->>Manager: emit TranscriptionEvent
+  end
+
+  Manager-->>User: TranscriptionEvent (Partial/Final)
+
