@@ -166,6 +166,16 @@ classDiagram
         +confidence: f32
     }
 
+    class AppRuntime {
+        <<external>>
+        +main application
+    }
+
+    class Foundation {
+        <<external>>
+        +foundation services
+    }
+
     %% Relationships and Flows
     StrategyManager *-- "uses" Strategy
     StrategyManager ..> "configures" InjectionConfig
@@ -185,8 +195,8 @@ classDiagram
     InjectionContext ..> "contains" InjectionError
 
     %% App and Foundation Interactions
-    AppRuntime[App Runtime from coldvox-app] ..> AsyncInjectionProcessor : "spawns and configures"
-    Foundation[Foundation from coldvox-foundation] ..> InjectionMetrics : "provides metrics/logging"
+    AppRuntime --> AsyncInjectionProcessor : spawns and configures
+    Foundation --> InjectionMetrics : provides metrics/logging
     Foundation ..> StrategyManager : "provides config/state"
 
     %% Message Flows
