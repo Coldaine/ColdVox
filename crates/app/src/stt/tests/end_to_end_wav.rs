@@ -247,14 +247,14 @@ impl WavFileLoader {
 /// Mock injection processor that uses our mock injector
 pub struct MockInjectionProcessor {
     injector: MockTextInjector,
-    transcription_rx: mpsc::Receiver<TranscriptionEvent>,
+    transcription_rx: broadcast::Receiver<TranscriptionEvent>,
     shutdown_rx: mpsc::Receiver<()>,
 }
 
 impl MockInjectionProcessor {
     pub fn new(
         injector: MockTextInjector,
-        transcription_rx: mpsc::Receiver<TranscriptionEvent>,
+        transcription_rx: broadcast::Receiver<TranscriptionEvent>,
         shutdown_rx: mpsc::Receiver<()>,
     ) -> Self {
         Self {
@@ -272,7 +272,7 @@ impl MockInjectionProcessor {
         loop {
             tokio::select! {
                 // Handle transcription events
-                Some(event) = self.transcription_rx.recv() => {
+                Ok(event) = self.transcription_rx.recv() => {
                     match event {
                         TranscriptionEvent::Final { text, .. } => {
                             info!("Mock processor received final: {}", text);
@@ -372,6 +372,12 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
         mode: VadMode::Silero,
         frame_size_samples: FRAME_SIZE_SAMPLES,
         sample_rate_hz: SAMPLE_RATE_HZ,
+        silero: coldvox_vad::config::SileroConfig {
+            threshold: 0.3, // Default
+            min_speech_duration_ms: 250, // Default
+            min_silence_duration_ms: 100, // Lower to detect silence faster
+            window_size_samples: FRAME_SIZE_SAMPLES,
+        },
         ..Default::default()
     };
 
@@ -390,6 +396,19 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
 
     // Set up STT processor
     let (stt_transcription_tx, stt_transcription_rx) = mpsc::channel::<TranscriptionEvent>(100);
+    let (broadcast_tx, _) = broadcast::channel::<TranscriptionEvent>(100);
+    let stt_transcription_rx_clone = broadcast_tx.subscribe();
+
+    // Forward from mpsc to broadcast
+    let broadcast_tx_clone = broadcast_tx.clone();
+    tokio::spawn(async move {
+        let mut rx = stt_transcription_rx;
+        while let Some(event) = rx.recv().await {
+            let _ = broadcast_tx_clone.send(event);
+        }
+    });
+
+    let mut stt_transcription_rx = broadcast_tx.subscribe();
     let stt_config = TranscriptionConfig {
         enabled: true,
         streaming: true,
@@ -425,7 +444,7 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
     };
 
     let injection_processor =
-        MockInjectionProcessor::new(mock_injector_clone, stt_transcription_rx, shutdown_rx);
+        MockInjectionProcessor::new(mock_injector_clone, stt_transcription_rx_clone, shutdown_rx);
     let _injection_handle = tokio::spawn(async move { injection_processor.run().await });
 
     // Start streaming WAV data
@@ -444,18 +463,26 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
     stt_handle.abort();
     streaming_handle.abort();
 
-    // Manually send a SpeechEnd event to force finalization, as the VAD
-    // might not always fire one at the very end of a file.
-    let _ = vad_event_tx_clone
-        .send(VadEvent::SpeechEnd {
-            timestamp_ms: 0, // Not critical for this test
-            duration_ms: 0,
-            energy_db: -20.0,
-        })
-        .await;
-
-    // Give a moment for final processing
-    tokio::time::sleep(Duration::from_millis(2000)).await;
+    // Wait for Final event with timeout
+    let mut final_event_found = false;
+    let start = std::time::Instant::now();
+    while start.elapsed() < std::time::Duration::from_secs(3) {
+        match stt_transcription_rx.try_recv() {
+            Ok(TranscriptionEvent::Final { .. }) => {
+                final_event_found = true;
+                break;
+            }
+            Ok(_) => {} // Ignore partials
+            Err(_) => tokio::time::sleep(std::time::Duration::from_millis(10)).await,
+        }
+    }
+    assert!(
+        final_event_found,
+        "No Final event received after 3 seconds. Check VAD/STT logs for: 
+         - Did VAD emit SpeechEnd? 
+         - Did STT processor receive it? 
+         - Did plugin finalize succeed?"
+    );
 
     let injections = mock_injector.get_injections();
     info!("Test completed. Injections captured: {:?}", injections);

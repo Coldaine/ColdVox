@@ -967,6 +967,25 @@ impl PluginSttProcessor {
                     metrics.last_event_time = Some(Instant::now());
                 }
             }
+
+            // Finalize to get any remaining transcription
+            let mut plugin_manager = self.plugin_manager.write().await;
+            match plugin_manager.finalize().await {
+                Ok(Some(event)) => {
+                    tracing::debug!(target: "stt", "Plugin finalize returned Final event: {:?}", event);
+                    self.send_event(event).await;
+                    let mut metrics = self.metrics.write();
+                    metrics.final_count += 1;
+                    metrics.last_event_time = Some(Instant::now());
+                }
+                Ok(None) => {
+                    tracing::debug!(target: "stt", "Plugin finalize returned None (no event)");
+                }
+                Err(e) => {
+                    tracing::error!(target: "stt", "Plugin finalize failed: {}", e);
+                    panic!("Plugin finalize failed: {}", e);
+                }
+            }
         }
 
         // Reset to idle state

@@ -135,9 +135,11 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
                 Some(event) = self.vad_event_rx.recv() => {
                     match event {
                         VadEvent::SpeechStart { timestamp_ms } => {
+                            debug!(target: "stt", "Received SpeechStart event @ {}ms", timestamp_ms);
                             self.handle_speech_start(timestamp_ms).await;
                         }
                         VadEvent::SpeechEnd { timestamp_ms, duration_ms } => {
+                            debug!(target: "stt", "Received SpeechEnd event @ {}ms (duration={}ms)", timestamp_ms, duration_ms);
                             self.handle_speech_end(timestamp_ms, Some(duration_ms)).await;
                         }
                     }
@@ -189,13 +191,8 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
     }
 
     /// Handle speech end event
-    async fn handle_speech_end(&mut self, timestamp_ms: u64, duration_ms: Option<u64>) {
-        debug!(
-            target: "stt",
-            "STT processor received SpeechEnd at {}ms (duration: {:?}ms)",
-            timestamp_ms,
-            duration_ms
-        );
+    async fn handle_speech_end(&mut self, _timestamp_ms: u64, _duration_ms: Option<u64>) {
+        debug!(target: "stt", "Starting handle_speech_end()");
 
         // Process the buffered audio all at once
         if let UtteranceState::SpeechActive {
@@ -223,17 +220,25 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
                         self.send_event(event).await;
                     }
                 }
+                debug!(target: "stt", "Finished streaming frames to STT engine");
                 let mut metrics = self.metrics.write();
                 metrics.frames_out += frames_buffered;
                 metrics.last_event_time = Some(Instant::now());
             }
 
             // Finalize to get any remaining transcription
-            if let Some(event) = self.stt_engine.on_speech_end().await {
-                self.send_event(event).await;
-                let mut metrics = self.metrics.write();
-                metrics.final_count += 1;
-                metrics.last_event_time = Some(Instant::now());
+            let result = self.stt_engine.on_speech_end().await;
+            match result {
+                Some(event) => {
+                    debug!(target: "stt", "STT engine returned Final event: {:?}", event);
+                    self.send_event(event).await;
+                    let mut metrics = self.metrics.write();
+                    metrics.final_count += 1;
+                    metrics.last_event_time = Some(Instant::now());
+                }
+                None => {
+                    debug!(target: "stt", "STT engine returned None on speech end");
+                }
             }
         }
 
