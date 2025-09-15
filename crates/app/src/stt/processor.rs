@@ -206,7 +206,7 @@ impl SttProcessor {
             tokio::select! {
                 // Listen for VAD events
                 Some(event) = self.vad_event_rx.recv() => {
-                    println!("DEBUG: PluginSttProcessor received VAD event: {:?}", event);
+                    tracing::debug!(target: "stt", "PluginSttProcessor received VAD event: {:?}", event);
                     match event {
                         VadEvent::SpeechStart { timestamp_ms, .. } => {
                             self.handle_speech_start(timestamp_ms).await;
@@ -221,10 +221,10 @@ impl SttProcessor {
                 Ok(frame) = self.audio_rx.recv() => {
                     // Only process audio frames if we're actively buffering speech
                     if matches!(self.state, UtteranceState::SpeechActive { .. }) {
-                        println!("DEBUG: PluginSttProcessor received audio frame during speech");
+                        tracing::debug!(target: "stt", "PluginSttProcessor received audio frame during speech");
                         self.handle_audio_frame(frame).await;
                     } else {
-                        println!("DEBUG: PluginSttProcessor received audio frame but not in speech state: {:?}", self.state);
+                        tracing::debug!(target: "stt", "PluginSttProcessor received audio frame but not in speech state: {:?}", self.state);
                         // Discard frames when not in speech active state
                         // This prevents the broadcast receiver from lagging
                     }
@@ -307,7 +307,7 @@ impl SttProcessor {
             }
 
             if !audio_buffer.is_empty() {
-                println!("DEBUG: Audio buffer has {} samples", audio_buffer.len());
+                tracing::debug!(target: "stt", "Audio buffer has {} samples", audio_buffer.len());
                 // Time the preprocessing phase
                 let preprocessing_start = Instant::now();
 
@@ -805,7 +805,7 @@ impl PluginSttProcessor {
 
     /// Run the plugin-based STT processor loop
     pub async fn run(mut self) {
-        println!("DEBUG: PluginSttProcessor::run started");
+        tracing::debug!(target: "stt", "PluginSttProcessor::run started");
         // Exit early if STT is disabled
         if !self.config.enabled {
             tracing::info!(
@@ -831,7 +831,7 @@ impl PluginSttProcessor {
             tokio::select! {
                 // Listen for VAD events
                 Some(event) = self.vad_event_rx.recv() => {
-                    println!("DEBUG: PluginSttProcessor received VAD event: {:?}", event);
+                    tracing::debug!(target: "stt", "PluginSttProcessor received VAD event: {:?}", event);
                     match event {
                         VadEvent::SpeechStart { timestamp_ms, .. } => {
                             self.handle_speech_start(timestamp_ms).await;
@@ -846,10 +846,10 @@ impl PluginSttProcessor {
                 Ok(frame) = self.audio_rx.recv() => {
                     // Only process audio frames if we're actively buffering speech
                     if matches!(self.state, UtteranceState::SpeechActive { .. }) {
-                        println!("DEBUG: PluginSttProcessor received audio frame during speech");
+                        tracing::debug!(target: "stt", "PluginSttProcessor received audio frame during speech");
                         self.handle_audio_frame(frame).await;
                     } else {
-                        println!("DEBUG: PluginSttProcessor received audio frame but not in speech state: {:?}", self.state);
+                        tracing::debug!(target: "stt", "PluginSttProcessor received audio frame but not in speech state: {:?}", self.state);
                         // Discard frames when not in speech active state
                         // This prevents the broadcast receiver from lagging
                     }
@@ -894,8 +894,9 @@ impl PluginSttProcessor {
 
     /// Handle speech end event
     async fn handle_speech_end(&mut self, timestamp_ms: u64, duration_ms: Option<u64>) {
-        println!(
-            "DEBUG: PluginSttProcessor::handle_speech_end called with {}ms",
+        tracing::debug!(
+            target: "stt",
+            "PluginSttProcessor::handle_speech_end called with {}ms",
             timestamp_ms
         );
         tracing::info!(
@@ -929,23 +930,24 @@ impl PluginSttProcessor {
                 const CHUNK_SIZE: usize = 512; // 32ms at 16kHz
                 let mut transcription_events = Vec::new();
                 let chunks: Vec<&[i16]> = audio_buffer.chunks(CHUNK_SIZE).collect();
-                println!(
-                    "DEBUG: Processing {} chunks from buffered audio",
+                tracing::debug!(
+                    target: "stt",
+                    "Processing {} chunks from buffered audio",
                     chunks.len()
                 );
 
                 for (i, chunk) in chunks.iter().enumerate() {
-                    println!("DEBUG: Processing chunk {} of size {}", i, chunk.len());
+                    tracing::debug!(target: "stt", "Processing chunk {} of size {}", i, chunk.len());
                     match plugin_manager.process_audio(chunk).await {
                         Ok(Some(event)) => {
-                            println!("DEBUG: Plugin generated event: {:?}", event);
+                            tracing::debug!(target: "stt", "Plugin generated event: {:?}", event);
                             transcription_events.push(event);
                         }
                         Ok(None) => {
-                            println!("DEBUG: Plugin returned None for chunk {}", i);
+                            tracing::debug!(target: "stt", "Plugin returned None for chunk {}", i);
                         }
                         Err(e) => {
-                            println!("DEBUG: Plugin processing error: {}", e);
+                            tracing::debug!(target: "stt", "Plugin processing error: {}", e);
                             let error_event = TranscriptionEvent::Error {
                                 code: "PLUGIN_PROCESS_ERROR".to_string(),
                                 message: e,
@@ -983,7 +985,16 @@ impl PluginSttProcessor {
                 }
                 Err(e) => {
                     tracing::error!(target: "stt", "Plugin finalize failed: {}", e);
-                    panic!("Plugin finalize failed: {}", e);
+                    // Send error event instead of panicking
+                    let error_event = TranscriptionEvent::Error {
+                        code: "FINALIZE_FAILED".to_string(),
+                        message: e,
+                    };
+                    self.send_event(error_event).await;
+
+                    let mut metrics = self.metrics.write();
+                    metrics.error_count += 1;
+                    metrics.last_event_time = Some(Instant::now());
                 }
             }
         }

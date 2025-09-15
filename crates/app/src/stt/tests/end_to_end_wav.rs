@@ -7,6 +7,10 @@ use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, mpsc};
 use tracing::{debug, info};
 
+// Test constants
+const TEST_FINAL_EVENT_TIMEOUT: Duration = Duration::from_secs(3);
+const TEST_POLLING_INTERVAL: Duration = Duration::from_millis(10);
+
 use crate::stt::{processor::SttProcessor, TranscriptionConfig, TranscriptionEvent};
 use crate::text_injection::{AsyncInjectionProcessor, InjectionConfig};
 use coldvox_audio::chunker::AudioFrame;
@@ -382,7 +386,7 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
     };
 
     let (vad_event_tx, vad_event_rx) = mpsc::channel::<VadEvent>(100);
-    let vad_event_tx_clone = vad_event_tx.clone();
+    let _vad_event_tx_clone = vad_event_tx.clone();
     let vad_audio_rx = audio_tx.subscribe();
     let vad_handle = match crate::audio::vad_processor::VadProcessor::spawn(
         vad_cfg,
@@ -466,22 +470,23 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
     // Wait for Final event with timeout
     let mut final_event_found = false;
     let start = std::time::Instant::now();
-    while start.elapsed() < std::time::Duration::from_secs(3) {
+    while start.elapsed() < TEST_FINAL_EVENT_TIMEOUT {
         match stt_transcription_rx.try_recv() {
             Ok(TranscriptionEvent::Final { .. }) => {
                 final_event_found = true;
                 break;
             }
             Ok(_) => {} // Ignore partials
-            Err(_) => tokio::time::sleep(std::time::Duration::from_millis(10)).await,
+            Err(_) => tokio::time::sleep(TEST_POLLING_INTERVAL).await,
         }
     }
     assert!(
         final_event_found,
-        "No Final event received after 3 seconds. Check VAD/STT logs for: 
-         - Did VAD emit SpeechEnd? 
-         - Did STT processor receive it? 
-         - Did plugin finalize succeed?"
+        "No Final event received after {}s. Check VAD/STT logs for: \
+         - Did VAD emit SpeechEnd? \
+         - Did STT processor receive it? \
+         - Did plugin finalize succeed?",
+        TEST_FINAL_EVENT_TIMEOUT.as_secs()
     );
 
     let injections = mock_injector.get_injections();
