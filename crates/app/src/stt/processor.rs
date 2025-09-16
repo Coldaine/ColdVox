@@ -1,1039 +1,310 @@
-// Audio Buffering Strategy:
-// The STT processor buffers all audio frames during speech segments (SpeechStart → SpeechEnd)
-// and processes the entire buffer at once when speech ends. This provides better context
-// for the speech recognition model, leading to more accurate transcriptions.
-// Text injection happens immediately (0ms timeout) after transcription completes.
+// ---
+// Unified STT Processor
+//
+// This file contains the unified STT processor for ColdVox. It replaces the
+// previous dual-architecture system (legacy batch vs. streaming) with a single,
+// plugin-based processor.
+//
+// Key Design Principles:
+// - Single `run` loop using `tokio::select!` for handling multiple event sources.
+// - Abstracted session lifecycle via `SessionEvent` (from VAD or Hotkey).
+// - Non-blocking finalization: When an utterance ends, a background `tokio::task`
+//   is spawned to handle the potentially slow process of finalizing the
+//   transcription with the STT plugin. This prevents the main loop from blocking
+//   and dropping audio frames from a subsequent utterance.
+// - State management via a `parking_lot::Mutex` to allow safe concurrent access
+//   from the main loop and spawned tasks.
+// ---
 
-use crate::stt::{TranscriptionConfig, TranscriptionEvent};
+use crate::stt::{
+    session::{HotkeyBehavior, SessionEvent, Settings},
+    TranscriptionConfig, TranscriptionEvent,
+};
 use coldvox_audio::chunker::AudioFrame;
-use coldvox_vad::types::VadEvent;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::{broadcast, mpsc};
 
-#[cfg(feature = "vosk")]
-use coldvox_stt::EventBasedTranscriber;
-
-/// STT processor state
-#[derive(Debug, Clone)]
+/// Represents the current state of the STT processor's utterance handling.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UtteranceState {
-    /// No speech detected
+    /// Waiting for an utterance to begin.
     Idle,
-    /// Speech is active, buffering audio
-    SpeechActive {
-        /// Timestamp when speech started
-        started_at: Instant,
-        /// Buffered audio frames for this utterance
-        audio_buffer: Vec<i16>,
-        /// Number of frames buffered
-        frames_buffered: u64,
-    },
+    /// An utterance is actively being processed (either streaming or buffering).
+    SpeechActive,
+    /// The last utterance is being finalized. New audio is ignored until this completes.
+    Finalizing,
 }
 
-/// STT processor metrics
+/// A snapshot of performance and activity metrics for the STT processor.
 #[derive(Debug, Clone, Default)]
 pub struct SttMetrics {
-    /// Total frames received
     pub frames_in: u64,
-    /// Total frames processed
-    pub frames_out: u64,
-    /// Total frames dropped due to overflow
-    pub frames_dropped: u64,
-    /// Number of partial transcriptions
     pub partial_count: u64,
-    /// Number of final transcriptions
     pub final_count: u64,
-    /// Number of errors
     pub error_count: u64,
-    /// Current queue depth
-    pub queue_depth: usize,
-    /// Time since last STT event
     pub last_event_time: Option<Instant>,
-    /// Performance metrics (streaming STT)
-    pub perf: PerformanceMetrics,
-
-    // Enhanced telemetry metrics
-    /// Last end-to-end processing latency (microseconds)
-    pub last_e2e_latency_us: u64,
-    /// Last engine processing time (microseconds)
-    pub last_engine_time_us: u64,
-    /// Last preprocessing time (microseconds)
-    pub last_preprocessing_us: u64,
-    /// Average confidence score (0-1000 for precision)
-    pub avg_confidence_x1000: u64,
-    /// Total confidence measurements count
-    pub confidence_measurements: u64,
-    /// Memory usage estimate (bytes)
-    pub memory_usage_bytes: u64,
-    /// Buffer utilization percentage (0-100)
-    pub buffer_utilization_pct: u64,
 }
 
-/// Detailed performance metrics for streaming STT
-#[derive(Debug, Clone, Default)]
-pub struct PerformanceMetrics {
-    /// Total processing time spent in STT operations
-    pub total_processing_time_ns: u128,
-    /// Average processing latency per frame
-    pub avg_frame_latency_ns: u64,
-    /// Peak memory usage in bytes
-    pub peak_memory_usage_bytes: usize,
-    /// Current memory usage in bytes
-    pub current_memory_usage_bytes: usize,
-    /// Buffer allocation count
-    pub buffer_allocations: u64,
-    /// Buffer reallocation count
-    pub buffer_reallocations: u64,
-    /// Total audio samples processed
-    pub total_samples_processed: u64,
-    /// Processing throughput (samples/second)
-    pub throughput_samples_per_sec: f64,
-    /// Time spent waiting for audio frames
-    pub audio_wait_time_ns: u128,
-    /// Time spent processing audio frames
-    pub processing_time_ns: u128,
-}
+// A safety guard to prevent the audio buffer from growing indefinitely in batch mode.
+// 30 seconds of 16kHz 16-bit mono audio.
+const BUFFER_CEILING_SAMPLES: usize = 16000 * 30;
 
+/// The primary STT processor, designed to be unified and extensible.
+/// It uses the plugin manager to delegate STT work and handles different
+/// activation and processing strategies defined by `Settings`.
 #[cfg(feature = "vosk")]
-pub struct SttProcessor {
-    /// Audio frame receiver (broadcast from pipeline)
-    audio_rx: broadcast::Receiver<AudioFrame>,
-    /// VAD event receiver
-    vad_event_rx: mpsc::Receiver<VadEvent>,
-    /// Transcription event sender
-    event_tx: mpsc::Sender<TranscriptionEvent>,
-    /// STT transcriber instance
-    transcriber: Box<dyn EventBasedTranscriber>,
-    /// Current utterance state
-    state: UtteranceState,
-    /// Metrics
-    metrics: Arc<parking_lot::RwLock<SttMetrics>>,
-    /// Configuration
-    config: TranscriptionConfig,
-    /// Performance metrics for comprehensive monitoring
-    performance_metrics: Option<Arc<crate::telemetry::SttPerformanceMetrics>>,
-}
-
-#[cfg(feature = "vosk")]
-impl SttProcessor {
-    /// Create a new STT processor
-    pub fn new(
-        audio_rx: broadcast::Receiver<AudioFrame>,
-        vad_event_rx: mpsc::Receiver<VadEvent>,
-        event_tx: mpsc::Sender<TranscriptionEvent>,
-        config: TranscriptionConfig,
-    ) -> Result<Self, String> {
-        // Check if STT is enabled
-        if !config.enabled {
-            tracing::info!("STT processor disabled in configuration");
-        }
-
-        // Create transcriber with configuration
-        let transcriber = coldvox_stt_vosk::create_transcriber(config.clone(), 16000.0)?;
-
-        Ok(Self {
-            audio_rx,
-            vad_event_rx,
-            event_tx,
-            transcriber,
-            state: UtteranceState::Idle,
-            metrics: Arc::new(parking_lot::RwLock::new(SttMetrics::default())),
-            config,
-            performance_metrics: None,
-        })
-    }
-
-    /// Create with default configuration (backward compatibility)
-    pub fn new_with_default(
-        audio_rx: broadcast::Receiver<AudioFrame>,
-        vad_event_rx: mpsc::Receiver<VadEvent>,
-    ) -> Result<Self, String> {
-        // Create a simple event channel for compatibility
-        let (event_tx, _event_rx) = mpsc::channel(100);
-
-        // Use default config with the default model path
-        let config = TranscriptionConfig {
-            enabled: true,
-            model_path: crate::stt::vosk::default_model_path(),
-            partial_results: true,
-            max_alternatives: 1,
-            include_words: false,
-            buffer_size_ms: 512,
-            streaming: false,
-        };
-
-        Self::new(audio_rx, vad_event_rx, event_tx, config)
-    }
-
-    /// Get current metrics
-    pub fn metrics(&self) -> SttMetrics {
-        self.metrics.read().clone()
-    }
-
-    /// Set performance metrics for comprehensive monitoring
-    pub fn set_performance_metrics(
-        &mut self,
-        performance_metrics: Arc<crate::telemetry::SttPerformanceMetrics>,
-    ) {
-        self.performance_metrics = Some(performance_metrics);
-    }
-
-    /// Get performance metrics reference
-    pub fn performance_metrics(&self) -> Option<&Arc<crate::telemetry::SttPerformanceMetrics>> {
-        self.performance_metrics.as_ref()
-    }
-
-    /// Run the STT processor loop
-    pub async fn run(mut self) {
-        // Exit early if STT is disabled
-        if !self.config.enabled {
-            tracing::info!(
-                target: "stt",
-                "STT processor disabled - exiting immediately"
-            );
-            return;
-        }
-
-        tracing::info!(
-            target: "stt",
-            "STT processor starting (model: {}, partials: {}, words: {})",
-            self.config.model_path,
-            self.config.partial_results,
-            self.config.include_words
-        );
-
-        loop {
-            tokio::select! {
-                // Listen for VAD events
-                Some(event) = self.vad_event_rx.recv() => {
-                    tracing::debug!(target: "stt", "PluginSttProcessor received VAD event: {:?}", event);
-                    match event {
-                        VadEvent::SpeechStart { timestamp_ms, .. } => {
-                            self.handle_speech_start(timestamp_ms).await;
-                        }
-                        VadEvent::SpeechEnd { timestamp_ms, duration_ms, .. } => {
-                            self.handle_speech_end(timestamp_ms, Some(duration_ms)).await;
-                        }
-                    }
-                }
-
-                // Listen for audio frames (but limit processing to avoid starvation)
-                Ok(frame) = self.audio_rx.recv() => {
-                    // Only process audio frames if we're actively buffering speech
-                    if matches!(self.state, UtteranceState::SpeechActive { .. }) {
-                        tracing::debug!(target: "stt", "PluginSttProcessor received audio frame during speech");
-                        self.handle_audio_frame(frame).await;
-                    } else {
-                        tracing::debug!(target: "stt", "PluginSttProcessor received audio frame but not in speech state: {:?}", self.state);
-                        // Discard frames when not in speech active state
-                        // This prevents the broadcast receiver from lagging
-                    }
-                }
-
-                else => {
-                    tracing::info!(target: "stt", "Plugin STT processor shutting down: all channels closed");
-                    break;
-                }
-            }
-        }
-
-        // Log final metrics
-        let metrics = self.metrics.read();
-        tracing::info!(
-            target: "stt",
-            "STT processor final stats - frames in: {}, out: {}, dropped: {}, partials: {}, finals: {}, errors: {}",
-            metrics.frames_in,
-            metrics.frames_out,
-            metrics.frames_dropped,
-            metrics.partial_count,
-            metrics.final_count,
-            metrics.error_count
-        );
-    }
-
-    /// Handle speech start event
-    async fn handle_speech_start(&mut self, timestamp_ms: u64) {
-        tracing::info!(target: "stt", "STT processor received SpeechStart at {}ms", timestamp_ms);
-
-        // Store the start time as Instant for duration calculations
-        let start_instant = Instant::now();
-
-        self.state = UtteranceState::SpeechActive {
-            started_at: start_instant,
-            audio_buffer: Vec::with_capacity(16000 * 10), // Pre-allocate for up to 10 seconds
-            frames_buffered: 0,
-        };
-
-        // Reset transcriber for new utterance
-        if let Err(e) = self.transcriber.reset() {
-            tracing::warn!(target: "stt", "Failed to reset transcriber: {}", e);
-        }
-
-        tracing::info!(target: "stt", "Started buffering audio for new utterance");
-    }
-
-    /// Handle speech end event
-    async fn handle_speech_end(&mut self, timestamp_ms: u64, duration_ms: Option<u64>) {
-        tracing::info!(
-            target: "stt",
-            "STT processor received SpeechEnd at {}ms (duration: {:?}ms)",
-            timestamp_ms,
-            duration_ms
-        );
-
-        // Start timing the entire end-to-end process
-        let e2e_start = Instant::now();
-
-        // Process the buffered audio all at once
-        if let UtteranceState::SpeechActive {
-            audio_buffer,
-            frames_buffered,
-            started_at: _,
-        } = &self.state
-        {
-            let buffer_size = audio_buffer.len();
-            tracing::info!(
-                target: "stt",
-                "Processing buffered audio: {} samples ({:.2}s), {} frames",
-                buffer_size,
-                buffer_size as f32 / 16000.0,
-                frames_buffered
-            );
-
-            // Record memory usage estimate
-            let estimated_memory = buffer_size * std::mem::size_of::<i16>() + 1024; // Buffer + overhead
-            if let Some(perf_metrics) = &self.performance_metrics {
-                perf_metrics.update_memory_usage(estimated_memory as u64);
-            }
-
-            if !audio_buffer.is_empty() {
-                tracing::debug!(target: "stt", "Audio buffer has {} samples", audio_buffer.len());
-                // Time the preprocessing phase
-                let preprocessing_start = Instant::now();
-
-                // Calculate buffer utilization (assuming max 10 seconds)
-                let max_samples = 16000 * 10;
-                let _utilization = ((buffer_size * 100) / max_samples).min(100);
-
-                let preprocessing_time = preprocessing_start.elapsed();
-
-                // Retry logic with telemetry tracking
-                let mut attempts = 0;
-                let mut last_err: Option<String>;
-                loop {
-                    // Time the STT engine processing
-                    let engine_start = Instant::now();
-
-                    let res = self.transcriber.accept_frame(audio_buffer);
-                    match res {
-                        Ok(Some(event)) => {
-                            let engine_time = engine_start.elapsed();
-                            let delivery_start = Instant::now();
-
-                            self.send_event(event.clone()).await;
-
-                            let delivery_time = delivery_start.elapsed();
-                            let e2e_time = e2e_start.elapsed();
-
-                            // Update comprehensive metrics
-                            self.update_timing_metrics(
-                                e2e_time,
-                                engine_time,
-                                preprocessing_time,
-                                delivery_time,
-                            );
-
-                            // Extract confidence if available and update accuracy metrics
-                            self.update_accuracy_metrics(&event, true);
-
-                            // Update basic metrics
-                            let mut metrics = self.metrics.write();
-                            metrics.frames_out += frames_buffered;
-                            metrics.last_event_time = Some(Instant::now());
-                            break;
-                        }
-                        Ok(None) => {
-                            tracing::debug!(target: "stt", "No transcription from buffered audio");
-                            break;
-                        }
-                        Err(e) => {
-                            let engine_time = engine_start.elapsed();
-                            let e2e_time = e2e_start.elapsed();
-
-                            last_err = Some(e.clone());
-                            if attempts < 2 {
-                                attempts += 1;
-                                let _ = self.transcriber.reset();
-                                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                                continue;
-                            } else {
-                                let msg = last_err.unwrap_or_else(|| "unknown error".to_string());
-                                tracing::error!(target: "stt", "Failed to process buffered audio after retries: {}", msg);
-
-                                // Update error metrics
-                                self.update_accuracy_metrics(
-                                    &TranscriptionEvent::Error {
-                                        code: "BUFFER_PROCESS_ERROR".to_string(),
-                                        message: e.clone(),
-                                    },
-                                    false,
-                                );
-
-                                let error_event = TranscriptionEvent::Error {
-                                    code: "BUFFER_PROCESS_ERROR".to_string(),
-                                    message: msg,
-                                };
-                                self.send_event(error_event).await;
-
-                                // Update metrics including timing even for errors
-                                let mut metrics = self.metrics.write();
-                                metrics.error_count += 1;
-                                metrics.last_engine_time_us = engine_time.as_micros() as u64;
-                                metrics.last_e2e_latency_us = e2e_time.as_micros() as u64;
-
-                                if let Some(perf_metrics) = &self.performance_metrics {
-                                    perf_metrics.record_transcription_failure();
-                                    perf_metrics.record_error();
-                                }
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Finalize to get any remaining transcription
-            {
-                let mut attempts = 0;
-                let mut last_err: Option<String>;
-                loop {
-                    match self.transcriber.finalize_utterance() {
-                        Ok(Some(event)) => {
-                            self.send_event(event.clone()).await;
-
-                            // Update accuracy metrics
-                            self.update_accuracy_metrics(&event, true);
-
-                            // Update metrics
-                            let mut metrics = self.metrics.write();
-                            metrics.final_count += 1;
-                            metrics.last_event_time = Some(Instant::now());
-                            break;
-                        }
-                        Ok(None) => {
-                            tracing::debug!(target: "stt", "No final transcription available");
-                            break;
-                        }
-                        Err(e) => {
-                            last_err = Some(e.clone());
-                            if attempts < 2 {
-                                attempts += 1;
-                                let _ = self.transcriber.reset();
-                                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                                continue;
-                            } else {
-                                let msg = last_err.unwrap_or_else(|| "unknown error".to_string());
-                                tracing::error!(target: "stt", "Failed to finalize transcription after retries: {}", msg);
-
-                                // Update error metrics
-                                self.update_accuracy_metrics(
-                                    &TranscriptionEvent::Error {
-                                        code: "FINALIZE_ERROR".to_string(),
-                                        message: e.clone(),
-                                    },
-                                    false,
-                                );
-
-                                let error_event = TranscriptionEvent::Error {
-                                    code: "FINALIZE_ERROR".to_string(),
-                                    message: msg,
-                                };
-                                self.send_event(error_event).await;
-
-                                // Update metrics
-                                let mut metrics = self.metrics.write();
-                                metrics.error_count += 1;
-
-                                if let Some(perf_metrics) = &self.performance_metrics {
-                                    perf_metrics.record_transcription_failure();
-                                    perf_metrics.record_error();
-                                }
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        self.state = UtteranceState::Idle;
-    }
-
-    /// Handle incoming audio frame
-    async fn handle_audio_frame(&mut self, frame: AudioFrame) {
-        // Update metrics
-        self.metrics.write().frames_in += 1;
-
-        // Check if we're in streaming mode and speech is active
-        let is_streaming_and_active =
-            self.config.streaming && matches!(self.state, UtteranceState::SpeechActive { .. });
-
-        if is_streaming_and_active {
-            // Streaming mode: Process audio chunks incrementally
-            // Convert f32 samples to i16 (PCM)
-            let i16_samples: Vec<i16> = frame
-                .samples
-                .iter()
-                .map(|&sample| (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
-                .collect();
-
-            let event_result = self.transcriber.accept_frame(&i16_samples);
-
-            match event_result {
-                Ok(Some(event)) => {
-                    self.send_event(event).await;
-                    let mut metrics = self.metrics.write();
-                    metrics.frames_out += 1;
-                    metrics.last_event_time = Some(Instant::now());
-                }
-                Ok(None) => {}
-                Err(e) => {
-                    let mut attempts = 0;
-                    let mut last_err: Option<String> = Some(e);
-                    let mut handled = false;
-                    while attempts < 2 {
-                        attempts += 1;
-                        let _ = self.transcriber.reset();
-                        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                        match self.transcriber.accept_frame(&i16_samples) {
-                            Ok(Some(event)) => {
-                                self.send_event(event).await;
-                                let mut metrics = self.metrics.write();
-                                metrics.frames_out += 1;
-                                metrics.last_event_time = Some(Instant::now());
-                                handled = true;
-                                break;
-                            }
-                            Ok(None) => {
-                                handled = true;
-                                break;
-                            }
-                            Err(e2) => {
-                                last_err = Some(e2);
-                            }
-                        }
-                    }
-                    if !handled {
-                        let msg = last_err.unwrap_or_else(|| "unknown error".to_string());
-                        tracing::error!(target: "stt", "Failed to process streaming audio chunk after retries: {}", msg);
-                        let error_event = TranscriptionEvent::Error {
-                            code: "STREAMING_PROCESS_ERROR".to_string(),
-                            message: msg,
-                        };
-                        self.send_event(error_event).await;
-                        self.metrics.write().error_count += 1;
-                    }
-                }
-            }
-
-            // Update frame count for streaming mode
-            if let UtteranceState::SpeechActive {
-                ref mut frames_buffered,
-                ..
-            } = &mut self.state
-            {
-                *frames_buffered += 1;
-
-                // Log periodically
-                if *frames_buffered % 100 == 0 {
-                    tracing::debug!(
-                        target: "stt",
-                        "Streaming audio: {} frames processed",
-                        frames_buffered
-                    );
-                }
-            }
-        } else if let UtteranceState::SpeechActive {
-            ref mut audio_buffer,
-            ref mut frames_buffered,
-            ..
-        } = &mut self.state
-        {
-            // Batch mode: Buffer the audio frame
-            // Convert f32 samples to i16 (PCM)
-            let i16_samples: Vec<i16> = frame
-                .samples
-                .iter()
-                .map(|&sample| (sample.clamp(-1.0, 1.0) * i16::MAX as f32) as i16)
-                .collect();
-
-            audio_buffer.extend_from_slice(&i16_samples);
-            *frames_buffered += 1;
-
-            // Log periodically to show we're buffering
-            if *frames_buffered % 100 == 0 {
-                tracing::debug!(
-                    target: "stt",
-                    "Buffering audio: {} frames, {} samples ({:.2}s)",
-                    frames_buffered,
-                    audio_buffer.len(),
-                    audio_buffer.len() as f32 / 16000.0
-                );
-            }
-        }
-    }
-
-    /// Send transcription event
-    async fn send_event(&self, event: TranscriptionEvent) {
-        // Log the event
-        match &event {
-            TranscriptionEvent::Partial {
-                utterance_id, text, ..
-            } => {
-                tracing::info!(target = "stt.transcript", event = "partial", utterance_id = %utterance_id, text = %text, "STT partial transcript");
-            }
-            TranscriptionEvent::Final {
-                utterance_id,
-                text,
-                words,
-                ..
-            } => {
-                let word_count = words.as_ref().map(|w| w.len()).unwrap_or(0);
-                tracing::info!(target = "stt.transcript", event = "final", utterance_id = %utterance_id, words = %word_count, text = %text, "STT final transcript");
-            }
-            TranscriptionEvent::Error { code, message } => {
-                tracing::error!(target = "stt.transcript", event = "error", code = %code, message = %message, "STT error event");
-            }
-        }
-
-        // Send to channel with backpressure - wait if channel is full
-        // Use timeout to prevent indefinite blocking
-        match tokio::time::timeout(std::time::Duration::from_secs(5), self.event_tx.send(event))
-            .await
-        {
-            Ok(Ok(())) => {
-                // Successfully sent
-            }
-            Ok(Err(_)) => {
-                // Channel closed
-                tracing::debug!(target: "stt", "Event channel closed");
-            }
-            Err(_) => {
-                // Timeout - consumer is too slow
-                tracing::warn!(target: "stt", "Event channel send timed out after 5s - consumer too slow");
-                self.metrics.write().frames_dropped += 1;
-            }
-        }
-    }
-
-    /// Update timing metrics from processing measurements
-    fn update_timing_metrics(
-        &self,
-        e2e_time: std::time::Duration,
-        engine_time: std::time::Duration,
-        preprocessing_time: std::time::Duration,
-        delivery_time: std::time::Duration,
-    ) {
-        // Update basic metrics with latest timings
-        {
-            let mut metrics = self.metrics.write();
-            metrics.last_e2e_latency_us = e2e_time.as_micros() as u64;
-            metrics.last_engine_time_us = engine_time.as_micros() as u64;
-            metrics.last_preprocessing_us = preprocessing_time.as_micros() as u64;
-        }
-
-        // Update comprehensive performance metrics if available
-        if let Some(perf_metrics) = &self.performance_metrics {
-            perf_metrics.record_end_to_end_latency(e2e_time);
-            perf_metrics.record_engine_processing_time(engine_time);
-            perf_metrics.record_preprocessing_latency(preprocessing_time);
-            perf_metrics.record_result_delivery_latency(delivery_time);
-            perf_metrics.increment_requests();
-        }
-    }
-
-    /// Update accuracy metrics from transcription events
-    fn update_accuracy_metrics(&self, event: &TranscriptionEvent, success: bool) {
-        if let Some(perf_metrics) = &self.performance_metrics {
-            if success {
-                perf_metrics.record_transcription_success();
-
-                // Extract confidence from transcription events
-                match event {
-                    TranscriptionEvent::Final { words, .. } => {
-                        // Calculate average confidence from word-level data if available
-                        if let Some(word_list) = words {
-                            if !word_list.is_empty() {
-                                let avg_confidence: f64 =
-                                    word_list.iter().map(|w| w.conf as f64).sum::<f64>()
-                                        / word_list.len() as f64;
-                                perf_metrics.record_confidence_score(avg_confidence);
-                            }
-                        }
-                        perf_metrics.record_final_transcription();
-                    }
-                    TranscriptionEvent::Partial { .. } => {
-                        perf_metrics.record_partial_transcription();
-                    }
-                    TranscriptionEvent::Error { .. } => {
-                        perf_metrics.record_transcription_failure();
-                        perf_metrics.record_error();
-                    }
-                }
-            } else {
-                perf_metrics.record_transcription_failure();
-                perf_metrics.record_error();
-            }
-        }
-
-        // Update basic metrics
-        {
-            let mut metrics = self.metrics.write();
-            match event {
-                TranscriptionEvent::Final { words, .. } => {
-                    metrics.final_count += 1;
-
-                    // Update confidence if available
-                    if let Some(word_list) = words {
-                        if !word_list.is_empty() {
-                            let avg_confidence: f64 =
-                                word_list.iter().map(|w| w.conf as f64).sum::<f64>()
-                                    / word_list.len() as f64;
-
-                            // Update running average (stored as x1000 for precision)
-                            let confidence_x1000 = (avg_confidence * 1000.0) as u64;
-                            let current_sum =
-                                metrics.avg_confidence_x1000 * metrics.confidence_measurements;
-                            metrics.confidence_measurements += 1;
-                            metrics.avg_confidence_x1000 =
-                                (current_sum + confidence_x1000) / metrics.confidence_measurements;
-                        }
-                    }
-                }
-                TranscriptionEvent::Partial { .. } => {
-                    metrics.partial_count += 1;
-                }
-                TranscriptionEvent::Error { .. } => {
-                    metrics.error_count += 1;
-                }
-            }
-        }
-    }
-}
-
-#[cfg(not(feature = "vosk"))]
-pub struct SttProcessor;
-
-#[cfg(not(feature = "vosk"))]
-impl SttProcessor {
-    /// Create a stub STT processor when Vosk feature is disabled
-    pub fn new(
-        _audio_rx: broadcast::Receiver<AudioFrame>,
-        _vad_event_rx: mpsc::Receiver<VadEvent>,
-        _event_tx: mpsc::Sender<TranscriptionEvent>,
-        _config: TranscriptionConfig,
-    ) -> Result<Self, String> {
-        tracing::info!("STT processor disabled - Vosk feature not enabled");
-        Ok(Self)
-    }
-
-    /// Stub method for backward compatibility
-    pub fn new_with_default(
-        _audio_rx: broadcast::Receiver<AudioFrame>,
-        _vad_event_rx: mpsc::Receiver<VadEvent>,
-    ) -> Result<Self, String> {
-        Self::new(
-            _audio_rx,
-            _vad_event_rx,
-            mpsc::channel(1).0,
-            TranscriptionConfig::default(),
-        )
-    }
-
-    /// Get stub metrics
-    pub fn metrics(&self) -> SttMetrics {
-        SttMetrics::default()
-    }
-
-    /// Run stub processor
-    pub async fn run(self) {
-        tracing::info!("STT processor stub running - no actual processing (Vosk feature disabled)");
-        // Just sleep forever since there's nothing to do
-        loop {
-            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
-        }
-    }
-}
-
-/// Plugin-based STT processor that uses the plugin manager
 pub struct PluginSttProcessor {
-    /// Audio frame receiver (broadcast from pipeline)
     audio_rx: broadcast::Receiver<AudioFrame>,
-    /// VAD event receiver
-    vad_event_rx: mpsc::Receiver<VadEvent>,
-    /// Transcription event sender
+    session_event_rx: mpsc::Receiver<SessionEvent>,
     event_tx: mpsc::Sender<TranscriptionEvent>,
-    /// Plugin manager for STT processing
     plugin_manager: Arc<tokio::sync::RwLock<crate::stt::plugin_manager::SttPluginManager>>,
-    /// Current utterance state
-    state: UtteranceState,
-    /// Metrics
+    state: Arc<parking_lot::Mutex<State>>,
     metrics: Arc<parking_lot::RwLock<SttMetrics>>,
-    /// Configuration
     config: TranscriptionConfig,
+    settings: Settings,
 }
 
+/// The internal, mutable state of the processor, protected by a Mutex.
+#[cfg(feature = "vosk")]
+struct State {
+    pub state: UtteranceState,
+    pub source: crate::stt::session::SessionSource,
+    pub buffer: Vec<i16>,
+}
+
+#[cfg(feature = "vosk")]
 impl PluginSttProcessor {
-    /// Create a new plugin-based STT processor
+    /// Creates a new instance of the unified STT processor.
     pub fn new(
         audio_rx: broadcast::Receiver<AudioFrame>,
-        vad_event_rx: mpsc::Receiver<VadEvent>,
+        session_event_rx: mpsc::Receiver<SessionEvent>,
         event_tx: mpsc::Sender<TranscriptionEvent>,
         plugin_manager: Arc<tokio::sync::RwLock<crate::stt::plugin_manager::SttPluginManager>>,
         config: TranscriptionConfig,
+        settings: Settings,
     ) -> Self {
+        let internal_state = State {
+            state: UtteranceState::Idle,
+            source: crate::stt::session::SessionSource::Vad, // Default
+            buffer: Vec::with_capacity(16000 * 10),
+        };
+
         Self {
             audio_rx,
-            vad_event_rx,
+            session_event_rx,
             event_tx,
             plugin_manager,
-            state: UtteranceState::Idle,
+            state: Arc::new(parking_lot::Mutex::new(internal_state)),
             metrics: Arc::new(parking_lot::RwLock::new(SttMetrics::default())),
             config,
+            settings,
         }
     }
 
-    /// Run the plugin-based STT processor loop
+    /// The main run loop for the processor. It uses `tokio::select!` to concurrently
+    /// listen for session lifecycle events and incoming audio frames.
     pub async fn run(mut self) {
-        tracing::debug!(target: "stt", "PluginSttProcessor::run started");
-        // Exit early if STT is disabled
-        if !self.config.enabled {
-            tracing::info!(
-                target: "stt",
-                "Plugin STT processor disabled - exiting immediately"
-            );
-            return;
-        }
-
         tracing::info!(
             target: "stt",
-            "Plugin STT processor starting (partials: {}, words: {})",
+            "Unified STT processor starting (behavior: {:?}, partials: {})",
+            self.settings.hotkey_behavior,
             self.config.partial_results,
-            self.config.include_words
         );
 
-        // Drain any pending audio frames before starting
-        while let Ok(_) = self.audio_rx.try_recv() {
-            // Drain pending frames
-        }
+        // Clear any stale audio frames from the channel before starting.
+        while self.audio_rx.try_recv().is_ok() {}
 
         loop {
             tokio::select! {
-                // Listen for VAD events
-                Some(event) = self.vad_event_rx.recv() => {
-                    tracing::debug!(target: "stt", "PluginSttProcessor received VAD event: {:?}", event);
-                    match event {
-                        VadEvent::SpeechStart { timestamp_ms, .. } => {
-                            self.handle_speech_start(timestamp_ms).await;
-                        }
-                        VadEvent::SpeechEnd { timestamp_ms, duration_ms, .. } => {
-                            self.handle_speech_end(timestamp_ms, Some(duration_ms)).await;
-                        }
-                    }
+                Some(event) = self.session_event_rx.recv() => {
+                    self.handle_session_event(event).await;
                 }
-
-                // Listen for audio frames (but limit processing to avoid starvation)
                 Ok(frame) = self.audio_rx.recv() => {
-                    // Only process audio frames if we're actively buffering speech
-                    if matches!(self.state, UtteranceState::SpeechActive { .. }) {
-                        tracing::debug!(target: "stt", "PluginSttProcessor received audio frame during speech");
-                        self.handle_audio_frame(frame).await;
-                    } else {
-                        tracing::debug!(target: "stt", "PluginSttProcessor received audio frame but not in speech state: {:?}", self.state);
-                        // Discard frames when not in speech active state
-                        // This prevents the broadcast receiver from lagging
-                    }
+                    self.handle_audio_frame(frame).await;
                 }
-
                 else => {
-                    tracing::info!(target: "stt", "Plugin STT processor shutting down: all channels closed");
+                    tracing::info!(target: "stt", "Unified STT processor shutting down");
                     break;
                 }
             }
         }
-
-        // Log final metrics
-        let metrics = self.metrics.read();
-        tracing::info!(
-            target: "stt",
-            "Plugin STT processor final stats - frames in: {}, out: {}, dropped: {}, partials: {}, finals: {}, errors: {}",
-            metrics.frames_in,
-            metrics.frames_out,
-            metrics.frames_dropped,
-            metrics.partial_count,
-            metrics.final_count,
-            metrics.error_count
-        );
     }
 
-    /// Handle speech start event
-    async fn handle_speech_start(&mut self, timestamp_ms: u64) {
-        tracing::info!(target: "stt", "Plugin STT processor received SpeechStart at {}ms", timestamp_ms);
-
-        // Store the start time as Instant for duration calculations
-        let start_instant = Instant::now();
-
-        self.state = UtteranceState::SpeechActive {
-            started_at: start_instant,
-            audio_buffer: Vec::with_capacity(16000 * 10), // Pre-allocate for up to 10 seconds
-            frames_buffered: 0,
-        };
-
-        tracing::info!(target: "stt", "Started buffering audio for new utterance");
-    }
-
-    /// Handle speech end event
-    async fn handle_speech_end(&mut self, timestamp_ms: u64, duration_ms: Option<u64>) {
-        tracing::debug!(
-            target: "stt",
-            "PluginSttProcessor::handle_speech_end called with {}ms",
-            timestamp_ms
-        );
-        tracing::info!(
-            target: "stt",
-            "Plugin STT processor received SpeechEnd at {}ms (duration: {:?}ms)",
-            timestamp_ms,
-            duration_ms
-        );
-
-        // Process the buffered audio all at once
-        if let UtteranceState::SpeechActive {
-            audio_buffer,
-            frames_buffered,
-            started_at: _,
-        } = &self.state
-        {
-            let buffer_size = audio_buffer.len();
-            tracing::info!(
-                target: "stt",
-                "Processing buffered audio with plugin: {} samples ({:.2}s), {} frames",
-                buffer_size,
-                buffer_size as f32 / 16000.0,
-                frames_buffered
-            );
-
-            if !audio_buffer.is_empty() {
-                // Process audio with plugin manager - call process_audio multiple times to simulate streaming
-                let mut plugin_manager = self.plugin_manager.write().await;
-
-                // Split the buffer into chunks and process each one
-                const CHUNK_SIZE: usize = 512; // 32ms at 16kHz
-                let mut transcription_events = Vec::new();
-                let chunks: Vec<&[i16]> = audio_buffer.chunks(CHUNK_SIZE).collect();
-                tracing::debug!(
-                    target: "stt",
-                    "Processing {} chunks from buffered audio",
-                    chunks.len()
-                );
-
-                for (i, chunk) in chunks.iter().enumerate() {
-                    tracing::debug!(target: "stt", "Processing chunk {} of size {}", i, chunk.len());
-                    match plugin_manager.process_audio(chunk).await {
-                        Ok(Some(event)) => {
-                            tracing::debug!(target: "stt", "Plugin generated event: {:?}", event);
-                            transcription_events.push(event);
+    /// Handles session lifecycle events (Start, End, Abort).
+    async fn handle_session_event(&self, event: SessionEvent) {
+        let mut state = self.state.lock();
+        match event {
+            SessionEvent::Start(source, _instant) => {
+                if state.state == UtteranceState::Idle {
+                    tracing::info!(target: "stt", "Session started via {:?}", source);
+                    state.source = source;
+                    state.state = UtteranceState::SpeechActive;
+                    state.buffer.clear();
+                    let pm = self.plugin_manager.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = pm.write().await.begin_utterance().await {
+                            tracing::error!(target: "stt", "Plugin begin_utterance failed: {}", e);
                         }
-                        Ok(None) => {
-                            tracing::debug!(target: "stt", "Plugin returned None for chunk {}", i);
-                        }
-                        Err(e) => {
-                            tracing::debug!(target: "stt", "Plugin processing error: {}", e);
-                            let error_event = TranscriptionEvent::Error {
-                                code: "PLUGIN_PROCESS_ERROR".to_string(),
-                                message: e,
-                            };
-                            self.send_event(error_event).await;
-                            break;
-                        }
-                    }
+                    });
                 }
+            }
+            SessionEvent::End(source, _instant) => {
+                self.handle_session_end(source, false, &mut state);
+            }
+            SessionEvent::Abort(source, reason) => {
+                tracing::warn!(target: "stt", "Session aborted from {:?}: {}", source, reason);
+                self.handle_session_end(source, true, &mut state);
+            }
+        }
+    }
 
-                // Send any transcription events that were generated
-                for event in transcription_events {
-                    self.send_event(event).await;
+    /// Handles the end of an utterance. This is a critical path that spawns a
+    /// non-blocking task to finalize the transcription, ensuring the main loop
+    /// can immediately start processing the next utterance.
+    fn handle_session_end(&self, _source: crate::stt::session::SessionSource, is_abort: bool, state: &mut parking_lot::MutexGuard<'_, State>) {
+        if state.state != UtteranceState::SpeechActive {
+            return;
+        }
 
-                    // Update metrics
-                    let mut metrics = self.metrics.write();
-                    metrics.frames_out += frames_buffered;
-                    metrics.final_count += 1;
-                    metrics.last_event_time = Some(Instant::now());
+        if is_abort {
+            state.state = UtteranceState::Idle;
+            state.buffer.clear();
+            let pm = self.plugin_manager.clone();
+            tokio::spawn(async move {
+                if let Err(e) = pm.write().await.cancel_utterance().await {
+                    tracing::error!(target: "stt", "Plugin cancel_utterance failed: {}", e);
+                }
+            });
+            return;
+        }
+
+        state.state = UtteranceState::Finalizing;
+
+        let pm = self.plugin_manager.clone();
+        let event_tx = self.event_tx.clone();
+        let metrics = self.metrics.clone();
+        let behavior = self.settings.hotkey_behavior.clone();
+        let buffer = state.buffer.clone();
+        let state_arc = self.state.clone();
+
+        tokio::spawn(async move {
+            tracing::info!(target: "stt_debug", "Finalization task started.");
+            // In batch mode, send the entire buffer to the plugin first.
+            if behavior != HotkeyBehavior::Incremental && !buffer.is_empty() {
+                if let Err(e) = pm.write().await.process_audio(&buffer).await {
+                    tracing::error!(target: "stt", "Plugin batch processing error: {}", e);
                 }
             }
 
-            // Finalize to get any remaining transcription
-            let mut plugin_manager = self.plugin_manager.write().await;
-            match plugin_manager.finalize().await {
+            // Finalize the utterance to get the definitive transcription.
+            tracing::info!(target: "stt_debug", "Calling plugin.finalize().");
+            let finalize_result = pm.write().await.finalize().await;
+            tracing::info!(target: "stt_debug", "Plugin.finalize() returned.");
+
+            match finalize_result {
                 Ok(Some(event)) => {
-                    tracing::debug!(target: "stt", "Plugin finalize returned Final event: {:?}", event);
-                    self.send_event(event).await;
-                    let mut metrics = self.metrics.write();
-                    metrics.final_count += 1;
-                    metrics.last_event_time = Some(Instant::now());
+                    tracing::info!(target: "stt_debug", "Finalization produced event: {:?}", event);
+                    Self::send_event_static(&event_tx, &metrics, event).await;
                 }
                 Ok(None) => {
-                    tracing::debug!(target: "stt", "Plugin finalize returned None (no event)");
+                    tracing::info!(target: "stt_debug", "Finalization produced no event.");
                 }
                 Err(e) => {
-                    tracing::error!(target: "stt", "Plugin finalize failed: {}", e);
-                    // Send error event instead of panicking
-                    let error_event = TranscriptionEvent::Error {
+                    let err_event = TranscriptionEvent::Error {
                         code: "FINALIZE_FAILED".to_string(),
                         message: e,
                     };
-                    self.send_event(error_event).await;
+                    Self::send_event_static(&event_tx, &metrics, err_event).await;
+                }
+            }
 
-                    let mut metrics = self.metrics.write();
-                    metrics.error_count += 1;
-                    metrics.last_event_time = Some(Instant::now());
+            // Critical: Reset the state back to Idle so the next utterance can start.
+            let mut final_state = state_arc.lock();
+            final_state.state = UtteranceState::Idle;
+            final_state.buffer.clear();
+            tracing::info!(target: "stt_debug", "Finalization task finished, state reset to Idle.");
+        });
+    }
+
+    /// Handles an incoming chunk of audio frames.
+    async fn handle_audio_frame(&self, frame: AudioFrame) {
+        let behavior = self.settings.hotkey_behavior.clone();
+        let i16_samples: Vec<i16> = frame.samples.iter().map(|&s| (s * 32767.0) as i16).collect();
+
+        if behavior != HotkeyBehavior::Incremental {
+            // Batch mode: lock, buffer, and return.
+            let mut state = self.state.lock();
+            if state.state == UtteranceState::SpeechActive {
+                state.buffer.extend_from_slice(&i16_samples);
+                if state.buffer.len() > BUFFER_CEILING_SAMPLES {
+                    tracing::warn!(target: "stt", "Audio buffer ceiling reached. Defensively finalizing.");
+                    self.handle_session_end(state.source, false, &mut state);
+                }
+            }
+        } else {
+            // Incremental mode: check state, then await without holding lock.
+            let should_process = {
+                let state = self.state.lock();
+                state.state == UtteranceState::SpeechActive
+            };
+
+            if should_process {
+                match self.plugin_manager.write().await.process_audio(&i16_samples).await {
+                    Ok(Some(event)) => {
+                        Self::send_event_static(&self.event_tx, &self.metrics, event).await;
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        let err_event = TranscriptionEvent::Error {
+                            code: "PLUGIN_PROCESS_ERROR".to_string(),
+                            message: e,
+                        };
+                        Self::send_event_static(&self.event_tx, &self.metrics, err_event).await;
+                    }
                 }
             }
         }
-
-        // Reset to idle state
-        self.state = UtteranceState::Idle;
     }
 
-    /// Handle incoming audio frame
-    async fn handle_audio_frame(&mut self, frame: AudioFrame) {
-        // Update input metrics
+    /// A static helper to send transcription events and update metrics, callable
+    /// from spawned tasks.
+    async fn send_event_static(
+        event_tx: &mpsc::Sender<TranscriptionEvent>,
+        metrics_arc: &Arc<parking_lot::RwLock<SttMetrics>>,
+        event: TranscriptionEvent,
+    ) {
         {
-            let mut metrics = self.metrics.write();
-            metrics.frames_in += 1;
+            let mut metrics = metrics_arc.write();
+            match &event {
+                TranscriptionEvent::Partial { .. } => metrics.partial_count += 1,
+                TranscriptionEvent::Final { .. } => metrics.final_count += 1,
+                TranscriptionEvent::Error { .. } => metrics.error_count += 1,
+            }
+            metrics.last_event_time = Some(Instant::now());
         }
 
-        // Only buffer audio if we're in speech active state
-        if let UtteranceState::SpeechActive {
-            ref mut audio_buffer,
-            ref mut frames_buffered,
-            ..
-        } = self.state
-        {
-            // Convert f32 samples to i16 (assuming they're in [-1, 1] range)
-            let i16_samples: Vec<i16> = frame
-                .samples
-                .iter()
-                .map(|&s| (s * 32767.0) as i16)
-                .collect();
-
-            audio_buffer.extend(i16_samples);
-            *frames_buffered += 1;
+        if event_tx.send(event).await.is_err() {
+            tracing::warn!(target: "stt", "Failed to send transcription event: channel closed");
         }
     }
+}
 
-    /// Send transcription event
-    async fn send_event(&self, event: TranscriptionEvent) {
-        if let Err(e) = self.event_tx.send(event).await {
-            tracing::error!(target: "stt", "Failed to send transcription event: {}", e);
-        }
+/// A stub implementation of the processor for when the `vosk` feature is disabled.
+#[cfg(not(feature = "vosk"))]
+pub struct PluginSttProcessor;
+
+#[cfg(not(feature = "vosk"))]
+impl PluginSttProcessor {
+    pub fn new(
+        _audio_rx: broadcast::Receiver<AudioFrame>,
+        _session_event_rx: mpsc::Receiver<SessionEvent>,
+        _event_tx: mpsc::Sender<TranscriptionEvent>,
+        _plugin_manager: Arc<tokio::sync::RwLock<crate::stt::plugin_manager::SttPluginManager>>,
+        _config: TranscriptionConfig,
+        _settings: Settings,
+    ) -> Self { Self }
+    pub async fn run(self) {
+        tracing::info!("STT processor stub running - no actual processing (Vosk feature disabled)");
     }
 }

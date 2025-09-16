@@ -15,11 +15,12 @@ pub use vosk::VoskTranscriber;
 #[cfg(feature = "vosk")]
 pub mod processor;
 
+pub mod session;
+
 #[cfg(feature = "vosk")]
 pub mod persistence;
 
 pub mod plugin_manager;
-pub mod streaming_adapter;
 
 #[cfg(test)]
 mod tests;

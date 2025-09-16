@@ -195,39 +195,26 @@ mod vosk_tests {
 #[cfg(all(test, feature = "vosk"))]
 mod processor_tests {
     use crate::stt::processor::*;
-    use std::time::Instant;
 
     #[test]
     fn test_utterance_state_transitions() {
         let idle = UtteranceState::Idle;
         matches!(idle, UtteranceState::Idle);
 
-        let active = UtteranceState::SpeechActive {
-            started_at: Instant::now(),
-            audio_buffer: Vec::new(),
-            frames_buffered: 0,
-        };
+        let active = UtteranceState::SpeechActive;
+        matches!(active, UtteranceState::SpeechActive);
 
-        match active {
-            UtteranceState::SpeechActive {
-                frames_buffered, ..
-            } => {
-                assert_eq!(frames_buffered, 0);
-            }
-            _ => panic!("Expected SpeechActive state"),
-        }
+        let finalizing = UtteranceState::Finalizing;
+        matches!(finalizing, UtteranceState::Finalizing);
     }
 
     #[test]
     fn test_stt_metrics_default() {
         let metrics = SttMetrics::default();
         assert_eq!(metrics.frames_in, 0);
-        assert_eq!(metrics.frames_out, 0);
-        assert_eq!(metrics.frames_dropped, 0);
         assert_eq!(metrics.partial_count, 0);
         assert_eq!(metrics.final_count, 0);
         assert_eq!(metrics.error_count, 0);
-        assert_eq!(metrics.queue_depth, 0);
         assert!(metrics.last_event_time.is_none());
     }
 }

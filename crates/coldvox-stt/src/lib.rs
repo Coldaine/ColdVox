@@ -11,14 +11,10 @@ pub mod plugin_adapter; // new adapter implementing StreamingStt
 pub mod plugin_types;
 pub mod plugins;
 pub mod processor; // legacy (EventBasedTranscriber-based) processor
-pub mod streaming_processor;
-pub mod types; // new async StreamingStt processor (under migration)
+pub mod types;
 
 pub use plugin::{SttPlugin, SttPluginError};
 pub use plugin_adapter::PluginAdapter; // adapter for plugin → StreamingStt
-pub use streaming_processor::{
-    AudioFrame as StreamingAudioFrame, StreamingSttProcessor, VadEvent as StreamingVadEvent,
-};
 pub use types::{TranscriptionConfig, TranscriptionEvent, WordInfo};
 
 /// Generates unique utterance IDs
