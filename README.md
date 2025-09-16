@@ -7,24 +7,43 @@ Minimal root README. Full developer & architecture guide: see [`CLAUDE.md`](CLAU
 ## Overview
 ColdVox is a modular Rust workspace providing real‑time audio capture, VAD, STT (Vosk), and cross‑platform text injection.
 
-## STT Plugins
-Supports Vosk (default), NoOp/Mock fallbacks. Config via --stt-* flags. Migration: Remove VOSK_MODEL_PATH; use --stt-preferred=vosk.
-
-Example:
-```bash
-cargo run --features vosk -- --stt-preferred=vosk
-```
-
 ## Quick Start
+
+**For Voice Dictation (Recommended):**
 ```bash
-cargo run --features vosk         # Run with Vosk STT (requires model)
-cargo run                         # Run without STT (VAD + pipeline)
+# Run with default Vosk STT and text injection (model auto-discovered)
+cargo run --features text-injection
+
+# With specific microphone device
+cargo run --features text-injection -- --device "HyperX QuadCast"
+
+# TUI Dashboard with controls
+cargo run --bin tui_dashboard --features tui
 ```
 
-## Vosk Model
-Included small English model at `models/vosk-model-small-en-us-0.15/`.
-Integrity checks: `sha256sum -c models/vosk-model-small-en-us-0.15/SHA256SUMS`.
-More detail: `THIRDPARTY.md` and `crates/coldvox-stt-vosk/src/model.rs`.
+**Other Usage:**
+```bash
+# VAD-only mode (no speech recognition)
+cargo run
+
+# Test microphone setup
+cargo run --bin mic_probe -- list-devices
+```
+
+**Note on Defaults**: Vosk STT is now the default feature (enabled automatically), ensuring real speech recognition in the app and tests. This prevents fallback to the mock plugin, which skips transcription. Override with `--stt-preferred mock` or env `COLDVOX_STT_PREFERRED=mock` if needed for testing. For other STT backends (e.g., Whisper), enable their features and set preferred accordingly.
+
+### Vosk Model Setup
+- **Small Model** (~40MB, included): Located at `models/vosk-model-small-en-us-0.15/`
+- **Auto-Discovery**: Model automatically found when running from project root
+- **Manual Path**: Set `VOSK_MODEL_PATH` for custom locations if needed
+- **Verification**: `sha256sum -c models/vosk-model-small-en-us-0.15/SHA256SUMS`
+
+## How It Works
+1. **Audio Capture** → **VAD** → **STT** → **Text Injection**
+2. **Push-to-Talk**: Hold `Super+Ctrl`, speak, release (hotkey mode)
+3. **Voice Activation**: Automatically detects speech and transcribes (VAD mode)
+
+More detail: See [`CLAUDE.md`](CLAUDE.md) for full developer guide.
 
 ## Slow / Environment-Sensitive Tests
 Some end‑to‑end tests exercise real injection & STT. Gate them locally by setting an env variable (planned):

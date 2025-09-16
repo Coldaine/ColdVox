@@ -68,16 +68,13 @@ Multi-crate Cargo workspace:
 
 ## Development Commands
 
-**Working Directory**: `crates/app/` for all commands unless specified otherwise.
+**Working Directory**: Project root for all commands (standard Rust workspace practice).
 
 ### Building
 
 ```bash
-cd crates/app
-
 # Main app with default features (Silero VAD + text injection, no STT by default)
 cargo build
-cargo build --release
 
 # With Vosk STT
 cargo build --features vosk
@@ -85,21 +82,27 @@ cargo build --features vosk
 # Full feature set
 cargo build --features vosk,text-injection
 
-# Workspace build (from repo root)
+# Workspace build (all crates)
 cargo build --workspace
+
+# Release builds
+cargo build --release --features vosk,text-injection
 ```
 
 ### Running
 
 ```bash
-# Main application
+# Main application (default features)
 cargo run
 
 # With specific device
 cargo run -- --device "USB Microphone"
 
-# With Vosk STT
-cargo run --features vosk
+# With Vosk STT (for actual voice dictation)
+cargo run --features vosk,text-injection
+
+# With specific device and STT
+cargo run --features vosk,text-injection -- --device "HyperX QuadCast"
 
 # TUI Dashboard (shared runtime)
 cargo run --bin tui_dashboard  # S=Start, A=Toggle VAD/PTT, R=Reset, Q=Quit
@@ -132,8 +135,8 @@ cargo test -p coldvox-app
 # Integration tests
 cargo test integration
 
-# End-to-end WAV test (requires Vosk model)
-VOSK_MODEL_PATH=models/vosk-model-small-en-us-0.15 cargo test -p coldvox-app --features vosk test_end_to_end_wav -- --ignored --nocapture
+# End-to-end WAV test (requires Vosk model - auto-discovered from project root)
+cargo test -p coldvox-app --features vosk test_end_to_end_wav -- --ignored --nocapture
 ```
 
 ### Linting & Formatting

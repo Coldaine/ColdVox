@@ -22,8 +22,8 @@ fn init_logging() -> Result<tracing_appender::non_blocking::WorkerGuard, Box<dyn
     std::fs::create_dir_all("logs")?;
     let file_appender = RollingFileAppender::new(Rotation::DAILY, "logs", "coldvox.log");
     let (non_blocking_file, guard) = tracing_appender::non_blocking(file_appender);
-    let log_level = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
-    let env_filter = EnvFilter::try_new(log_level).unwrap_or_else(|_| EnvFilter::new("info"));
+    let log_level = std::env::var("RUST_LOG").unwrap_or_else(|_| "debug".to_string());
+    let env_filter = EnvFilter::try_new(log_level).unwrap_or_else(|_| EnvFilter::new("debug"));
 
     let stderr_layer = fmt::layer().with_writer(std::io::stderr);
     let file_layer = fmt::layer().with_writer(non_blocking_file).with_ansi(false);
@@ -255,8 +255,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let stt_selection = {
         use coldvox_stt::plugin::{FailoverConfig, GcPolicy, MetricsConfig, PluginSelectionConfig};
 
+        // Default to Vosk as preferred STT plugin
+        let mut preferred_plugin = cli.stt.preferred.clone().or(Some("vosk".to_string()));
+        tracing::info!("Defaulting to Vosk STT plugin as preferred");
+
         // Handle backward compatibility with VOSK_MODEL_PATH
-        let mut preferred_plugin = cli.stt.preferred;
         if preferred_plugin.is_none() {
             if let Ok(vosk_model_path) = std::env::var("VOSK_MODEL_PATH") {
                 tracing::warn!(
