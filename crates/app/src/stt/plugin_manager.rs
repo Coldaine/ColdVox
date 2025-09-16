@@ -711,7 +711,7 @@ impl SttPluginManager {
             Err(_) => {
                 // No fallback to NoOp; require real STT
                 Err(SttPluginError::ConfigurationError(
-                    "No real STT plugin available. Install Vosk model (VOSK_MODEL_PATH) and ensure libvosk is installed.".to_string()
+                    "No STT plugin available. Ensure required models and libraries are installed.".to_string()
                 ))
             }
         }
