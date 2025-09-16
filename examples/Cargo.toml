@@ -9,3 +9,11 @@ coldvox-telemetry = { path = "../crates/coldvox-telemetry" }
 [[bin]]
 name = "demo"
 path = "stt_performance_metrics_demo.rs"
+
+[[bin]]
+name = "record_10s"
+path = "record_10s.rs"
+
+[[bin]]
+name = "record_10s"
+path = "record_10s.rs"

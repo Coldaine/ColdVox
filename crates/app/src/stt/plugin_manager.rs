@@ -9,9 +9,7 @@ use std::time::{Duration, Instant};
 
 use std::sync::atomic::Ordering;
 
-use coldvox_stt::plugin::{
-    PluginSelectionConfig, SttPlugin, SttPluginError, SttPluginRegistry,
-};
+use coldvox_stt::plugin::{PluginSelectionConfig, SttPlugin, SttPluginError, SttPluginRegistry};
 use coldvox_stt::plugins::NoOpPlugin;
 use coldvox_stt::TranscriptionConfig;
 use coldvox_telemetry::pipeline_metrics::PipelineMetrics;
@@ -658,9 +656,7 @@ impl SttPluginManager {
 
         let mut plugin = plugin;
         // Initialize the plugin with a default config. The processor can re-initialize with specific settings if needed.
-        plugin
-            .initialize(TranscriptionConfig::default())
-            .await?;
+        plugin.initialize(TranscriptionConfig::default()).await?;
         let plugin_id = plugin.info().id.clone();
 
         // Store the selected plugin
@@ -713,9 +709,10 @@ impl SttPluginManager {
                 Ok(p)
             }
             Err(_) => {
-                // Ultimate fallback: NoOp plugin
-                warn!("No STT plugins available, using NoOp plugin");
-                Ok(Box::new(NoOpPlugin::new()))
+                // No fallback to NoOp; require real STT
+                Err(SttPluginError::ConfigurationError(
+                    "No real STT plugin available. Install Vosk model (VOSK_MODEL_PATH) and ensure libvosk is installed.".to_string()
+                ))
             }
         }
     }

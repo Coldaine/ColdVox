@@ -10,8 +10,8 @@ use coldvox_audio::{
     AudioCaptureThread, AudioChunker, AudioRingBuffer, ChunkerConfig, FrameReader, ResamplerQuality,
 };
 use coldvox_foundation::AudioConfig;
+use coldvox_stt::TranscriptionEvent;
 use coldvox_telemetry::PipelineMetrics;
-use coldvox_stt::{TranscriptionConfig, TranscriptionEvent};
 use coldvox_vad::config::SileroConfig;
 use coldvox_vad::{UnifiedVadConfig, VadEvent, VadMode, FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 
@@ -19,7 +19,11 @@ use crate::hotkey::spawn_hotkey_listener;
 use crate::stt::plugin_manager::SttPluginManager;
 #[cfg(feature = "vosk")]
 use crate::stt::processor::PluginSttProcessor;
-use crate::stt::session::{SessionEvent, SessionSource, Settings};
+use crate::stt::session::{SessionEvent, SessionSource};
+#[cfg(feature = "vosk")]
+use coldvox_stt::TranscriptionConfig;
+#[cfg(feature = "vosk")]
+use crate::stt::session::Settings;
 
 /// Activation strategy for push-to-talk vs voice activation
 #[derive(PartialEq, Copy, Clone, Debug)]
@@ -631,11 +635,15 @@ mod tests {
 
         assert!(!received_events.is_empty(), "Should receive events");
         assert!(
-            received_events.iter().any(|e| matches!(e, TranscriptionEvent::Partial { .. })),
+            received_events
+                .iter()
+                .any(|e| matches!(e, TranscriptionEvent::Partial { .. })),
             "Should receive at least one partial event in incremental mode"
         );
         assert!(
-            received_events.iter().any(|e| matches!(e, TranscriptionEvent::Final { .. })),
+            received_events
+                .iter()
+                .any(|e| matches!(e, TranscriptionEvent::Final { .. })),
             "Should receive a final event"
         );
 
@@ -694,7 +702,10 @@ mod tests {
             }
         }
 
-        assert!(received_final, "Should receive a final event in hotkey mode");
+        assert!(
+            received_final,
+            "Should receive a final event in hotkey mode"
+        );
 
         // Clean shutdown
         Arc::new(app).shutdown().await;

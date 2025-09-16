@@ -1,13 +1,12 @@
 {
-  "preferred_plugin": "vosk",
+  "preferred_plugin": null,
   "fallback_plugins": [
     "vosk",
-    "whisper-local",
-    "gcloud"
+    "mock"
   ],
   "require_local": false,
   "max_memory_mb": null,
-  "required_language": "en",
+  "required_language": null,
   "failover": {
     "failover_threshold": 3,
     "failover_cooldown_secs": 30

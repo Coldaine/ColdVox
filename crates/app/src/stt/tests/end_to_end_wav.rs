@@ -231,7 +231,8 @@ impl WavFileLoader {
 
         // After WAV is done, feed some silence to ensure VAD emits SpeechEnd.
         let silence_chunk = vec![0i16; self.frame_size_total];
-        for _ in 0..15 { // Feed ~500ms of silence (15 * 32ms)
+        for _ in 0..15 {
+            // Feed ~500ms of silence (15 * 32ms)
             let mut written = 0;
             while written < silence_chunk.len() {
                 if let Ok(count) = producer.write(&silence_chunk[written..]) {
@@ -867,9 +868,7 @@ async fn test_end_to_end_with_real_injection() {
     // We normalize to lowercase and compare presence of key fragments to allow minor ASR variance.
     let test_wav = "test_data/test_2.wav";
     let transcript_path = "test_data/test_2.txt";
-    if !std::path::Path::new(test_wav).exists()
-        || !std::path::Path::new(transcript_path).exists()
-    {
+    if !std::path::Path::new(test_wav).exists() || !std::path::Path::new(transcript_path).exists() {
         eprintln!(
             "Skipping test: required fixed test assets missing ({} / {})",
             test_wav, transcript_path
@@ -924,8 +923,8 @@ async fn test_end_to_end_with_real_injection() {
         resampler_quality: coldvox_audio::chunker::ResamplerQuality::Balanced,
     };
 
-    let chunker = AudioChunker::new(frame_reader, audio_tx.clone(), chunker_cfg)
-        .with_device_config(cfg_rx);
+    let chunker =
+        AudioChunker::new(frame_reader, audio_tx.clone(), chunker_cfg).with_device_config(cfg_rx);
     let chunker_handle = chunker.spawn();
 
     // Set up VAD processor
@@ -1134,7 +1133,12 @@ async fn test_end_to_end_with_real_injection() {
                 expected_ref,
                 combined.to_lowercase()
             );
-            eprintln!("No injection capture; used WER fallback (WER={:.3}, ref_words={}, hyp_words={})", wer, expected_ref.split_whitespace().count(), combined.split_whitespace().count());
+            eprintln!(
+                "No injection capture; used WER fallback (WER={:.3}, ref_words={}, hyp_words={})",
+                wer,
+                expected_ref.split_whitespace().count(),
+                combined.split_whitespace().count()
+            );
         } else {
             eprintln!("Warning: No injected text captured and no final transcripts aggregated. Headless environment likely prevented capture. Pipeline execution completed but verification degraded.");
         }
@@ -1167,9 +1171,7 @@ async fn test_atspi_injection() {
     init_test_infrastructure();
     #[cfg(feature = "text-injection")]
     {
-        use crate::text_injection::{
-            atspi_injector::AtspiInjector, InjectionConfig, TextInjector,
-        };
+        use crate::text_injection::{atspi_injector::AtspiInjector, InjectionConfig, TextInjector};
         use tokio::time::Duration;
 
         // Guard the whole test with a short timeout so CI doesn't hang if desktop isn't responsive

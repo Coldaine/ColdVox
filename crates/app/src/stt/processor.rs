@@ -162,7 +162,12 @@ impl PluginSttProcessor {
     /// Handles the end of an utterance. This is a critical path that spawns a
     /// non-blocking task to finalize the transcription, ensuring the main loop
     /// can immediately start processing the next utterance.
-    fn handle_session_end(&self, _source: crate::stt::session::SessionSource, is_abort: bool, state: &mut parking_lot::MutexGuard<'_, State>) {
+    fn handle_session_end(
+        &self,
+        _source: crate::stt::session::SessionSource,
+        is_abort: bool,
+        state: &mut parking_lot::MutexGuard<'_, State>,
+    ) {
         if state.state != UtteranceState::SpeechActive {
             return;
         }
@@ -230,7 +235,11 @@ impl PluginSttProcessor {
     /// Handles an incoming chunk of audio frames.
     async fn handle_audio_frame(&self, frame: AudioFrame) {
         let behavior = self.settings.hotkey_behavior.clone();
-        let i16_samples: Vec<i16> = frame.samples.iter().map(|&s| (s * 32767.0) as i16).collect();
+        let i16_samples: Vec<i16> = frame
+            .samples
+            .iter()
+            .map(|&s| (s * 32767.0) as i16)
+            .collect();
 
         if behavior != HotkeyBehavior::Incremental {
             // Batch mode: lock, buffer, and return.
@@ -250,7 +259,13 @@ impl PluginSttProcessor {
             };
 
             if should_process {
-                match self.plugin_manager.write().await.process_audio(&i16_samples).await {
+                match self
+                    .plugin_manager
+                    .write()
+                    .await
+                    .process_audio(&i16_samples)
+                    .await
+                {
                     Ok(Some(event)) => {
                         Self::send_event_static(&self.event_tx, &self.metrics, event).await;
                     }
@@ -303,7 +318,9 @@ impl PluginSttProcessor {
         _plugin_manager: Arc<tokio::sync::RwLock<crate::stt::plugin_manager::SttPluginManager>>,
         _config: TranscriptionConfig,
         _settings: Settings,
-    ) -> Self { Self }
+    ) -> Self {
+        Self
+    }
     pub async fn run(self) {
         tracing::info!("STT processor stub running - no actual processing (Vosk feature disabled)");
     }

@@ -5,7 +5,7 @@
 
 use async_trait::async_trait;
 use parking_lot::RwLock;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::plugin::*;
@@ -76,6 +76,7 @@ impl Default for SileroSttConfig {
 /// - CPU-optimized inference
 /// - Easy deployment
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct SileroSttPlugin {
     config: SileroSttConfig,
     state: Arc<RwLock<PluginState>>,
@@ -83,6 +84,12 @@ pub struct SileroSttPlugin {
     // Future: Add ONNX runtime
     // session: Option<OrtSession>,
     // tokenizer: Option<SileroTokenizer>,
+}
+
+impl Default for SileroSttPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SileroSttPlugin {
@@ -232,6 +239,12 @@ impl SttPlugin for SileroSttPlugin {
 
 pub struct SileroSttPluginFactory {
     config: SileroSttConfig,
+}
+
+impl Default for SileroSttPluginFactory {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SileroSttPluginFactory {

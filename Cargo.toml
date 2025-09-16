@@ -11,6 +11,8 @@ members = [
     "crates/coldvox-stt-vosk",
     "crates/coldvox-gui",
 ]
+
+exclude = ["examples"]
 resolver = "2"
 
 # Minimum Supported Rust Version (MSRV)
