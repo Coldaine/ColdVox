@@ -1,5 +1,7 @@
 # ColdVox
 
+> ⚠️ **Internal Alpha** - This project is in early development and not ready for production use.
+
 Minimal root README. Full developer & architecture guide: see [`CLAUDE.md`](CLAUDE.md).
 
 ## Overview

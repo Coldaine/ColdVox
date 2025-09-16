@@ -41,7 +41,7 @@ This design realizes the Vosk flagship backend in ColdVox's STT plugin system, w
 - **Tracking**: PluginMetrics updated in process: latency=now.elapsed(), audio_processed_ms += len/16kHz, transcriptions++ on Final, error_rate = failures / requests (atomic). Manager propagates: stt_transcription_requests++/success/failures, last_latency_ms store.
 - **Branch Patterns**: Periodic metrics_task (30s interval): Log summary (active_plugins, load/unload counts, failovers, requests/success/failures, gc_runs). Structured: target="coldvox::stt::metrics", fields atomic loads. Sink to PipelineMetrics (Arc<AtomicU64>).
 - **Adaptive**: Basic learning stub: update_preferences(feedback) adjusts selection weights (e.g., Correction lowers accuracy score for "vosk"). Future: MetricsHistory for score calc.
-- **Tradeoffs**: Atomics low-overhead (Relaxed), but no persistence (in-memory). Risk: Contention on high-load → Fine-grained (per-call increment). 
+- **Tradeoffs**: Atomics low-overhead (Relaxed), but no persistence (in-memory). Risk: Contention on high-load → Fine-grained (per-call increment).
 - **Validation**: Unit: Assert metrics ++ on process/success, propagate to sink. Integration: Run pipeline 10s audio, verify logs/counters. Benchmark: Latency overhead <1ms.
 
 ## Tradeoffs and Risks

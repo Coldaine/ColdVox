@@ -269,7 +269,7 @@ pub async fn start(
     // Metrics shared across components
     let metrics = Arc::new(PipelineMetrics::default());
 
-    let stt_arch = env::var("COLDVOX_STT_ARCH").unwrap_or_else(|_| "legacy".to_string());
+    let stt_arch = env::var("COLDVOX_STT_ARCH").unwrap_or_else(|_| "batch".to_string());
     info!("STT architecture: {}", stt_arch);
 
     // 1) Audio capture
@@ -379,7 +379,7 @@ pub async fn start(
 
         match stt_arch.as_str() {
             "streaming" => Some(create_manager(opts.stt_selection.clone()).await?),
-            "legacy" => {
+            "batch" => {
                 if opts.stt_selection.is_some() {
                     Some(create_manager(opts.stt_selection.clone()).await?)
                 } else {
@@ -398,10 +398,13 @@ pub async fn start(
     let (_text_injection_tx, text_injection_rx) = mpsc::channel::<TranscriptionEvent>(100);
 
     // 6) STT Processor and Fanout - branched by architecture
+    #[allow(unused_variables)]
     let (stt_handle, vad_fanout_handle) = if let Some(ref _pm) = plugin_manager {
-        if stt_arch == "legacy" {
-            // Legacy path: existing PluginSttProcessor
+        if stt_arch == "batch" {
+            // Batch path: existing PluginSttProcessor
+            #[allow(unused_variables)]
             let (stt_vad_tx, stt_vad_rx) = mpsc::channel::<VadEvent>(100);
+            #[allow(unused_variables)]
             let stt_audio_rx = audio_tx.subscribe();
             #[cfg(feature = "vosk")]
             let stt_config = TranscriptionConfig {
@@ -415,7 +418,9 @@ pub async fn start(
                 stt_audio_rx,
                 stt_vad_rx,
                 stt_tx.clone(),
-                plugin_manager.clone().expect("Plugin manager should be initialized for legacy STT path"),
+                plugin_manager
+                    .clone()
+                    .expect("Plugin manager should be initialized for batch STT path"),
                 stt_config,
             );
             let stt_vad_tx_clone = stt_vad_tx.clone();
@@ -460,7 +465,9 @@ pub async fn start(
                     }
                 });
             }
+            #[allow(unused_variables)]
             let stream_audio_rx = stream_audio_tx.subscribe();
+            #[allow(unused_variables)]
             let (stream_vad_tx, stream_vad_rx) = mpsc::channel::<StreamingVadEvent>(100);
             let vad_bcast_tx_clone = vad_bcast_tx.clone();
             let stream_vad_tx_clone = stream_vad_tx.clone();
@@ -498,7 +505,9 @@ pub async fn start(
                 ..Default::default()
             };
             #[cfg(feature = "vosk")]
-            let adapter = ManagerStreamingAdapter::new(plugin_manager.clone().expect("plugin manager missing"));
+            let adapter = ManagerStreamingAdapter::new(
+                plugin_manager.clone().expect("plugin manager missing"),
+            );
             #[cfg(feature = "vosk")]
             let processor = StreamingSttProcessor::new(
                 stream_audio_rx,
@@ -612,18 +621,20 @@ pub async fn start(
 
 #[cfg(test)]
 mod tests {
-    use super::{start, ActivationMode, AppRuntimeOptions, ResamplerQuality};
-    use coldvox_stt::plugin::{FailoverConfig, GcPolicy, PluginSelectionConfig};
-    use coldvox_stt::TranscriptionEvent;
-    use coldvox_vad::VadEvent;
+    use super::*;
     use std::env;
-    use std::sync::Arc;
     use std::time::Duration;
+    use coldvox_vad::VadEvent;
+
+    #[cfg(feature = "vosk")]
+    use coldvox_stt::plugin::{FailoverConfig, GcPolicy, PluginSelectionConfig};
+    #[cfg(feature = "vosk")]
+    use coldvox_stt::TranscriptionEvent;
 
     #[cfg(feature = "vosk")]
     #[tokio::test]
-    async fn end_to_end_legacy_stt_pipeline() {
-        env::set_var("COLDVOX_STT_ARCH", "legacy");
+    async fn end_to_end_batch_stt_pipeline() {
+        env::set_var("COLDVOX_STT_ARCH", "batch");
 
         // Create runtime options with STT enabled
         let opts = AppRuntimeOptions {

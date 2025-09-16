@@ -112,7 +112,8 @@ pub fn locate_model(config_path: Option<&str>) -> Result<ModelInfo, ModelError> 
     // 3.5 Check parent directories for models (for test environments)
     if let Ok(current_dir) = std::env::current_dir() {
         // Check one level up
-        let parent_candidate = current_dir.parent()
+        let parent_candidate = current_dir
+            .parent()
             .map(|p| p.join(MODELS_DIR).join(MODEL_DIR_NAME))
             .filter(|p| p.is_dir());
         if let Some(path) = parent_candidate {
@@ -121,9 +122,10 @@ pub fn locate_model(config_path: Option<&str>) -> Result<ModelInfo, ModelError> 
                 source: ModelSource::ModelsDir,
             });
         }
-        
+
         // Check two levels up
-        let grandparent_candidate = current_dir.parent()
+        let grandparent_candidate = current_dir
+            .parent()
             .and_then(|p| p.parent())
             .map(|p| p.join(MODELS_DIR).join(MODEL_DIR_NAME))
             .filter(|p| p.is_dir());
@@ -181,19 +183,21 @@ pub fn default_model_path() -> PathBuf {
     if candidate.is_dir() {
         return candidate;
     }
-    
+
     // Check parent directories for models (for test environments)
     if let Ok(current_dir) = std::env::current_dir() {
         // Check one level up
-        let parent_candidate = current_dir.parent()
+        let parent_candidate = current_dir
+            .parent()
             .map(|p| p.join(MODELS_DIR).join(MODEL_DIR_NAME))
             .filter(|p| p.is_dir());
         if let Some(path) = parent_candidate {
             return path;
         }
-        
+
         // Check two levels up
-        let grandparent_candidate = current_dir.parent()
+        let grandparent_candidate = current_dir
+            .parent()
             .and_then(|p| p.parent())
             .map(|p| p.join(MODELS_DIR).join(MODEL_DIR_NAME))
             .filter(|p| p.is_dir());
@@ -201,7 +205,7 @@ pub fn default_model_path() -> PathBuf {
             return path;
         }
     }
-    
+
     PathBuf::from(MODEL_DIR_NAME) // legacy fallback
 }
 

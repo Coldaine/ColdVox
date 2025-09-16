@@ -377,8 +377,8 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
         frame_size_samples: FRAME_SIZE_SAMPLES,
         sample_rate_hz: SAMPLE_RATE_HZ,
         silero: coldvox_vad::config::SileroConfig {
-            threshold: 0.3, // Default
-            min_speech_duration_ms: 250, // Default
+            threshold: 0.3,               // Default
+            min_speech_duration_ms: 250,  // Default
             min_silence_duration_ms: 100, // Lower to detect silence faster
             window_size_samples: FRAME_SIZE_SAMPLES,
         },

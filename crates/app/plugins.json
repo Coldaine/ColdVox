@@ -1,7 +1,7 @@
 {
-  "preferred_plugin": "noop",
+  "preferred_plugin": "mock",
   "fallback_plugins": [
-    "mock"
+    "noop"
   ],
   "require_local": true,
   "max_memory_mb": null,
@@ -11,8 +11,8 @@
     "failover_cooldown_secs": 1
   },
   "gc_policy": {
-    "model_ttl_secs": 1,
-    "enabled": true
+    "model_ttl_secs": 30,
+    "enabled": false
   },
   "metrics": null
 }

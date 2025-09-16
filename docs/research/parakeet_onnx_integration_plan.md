@@ -54,9 +54,9 @@ pub struct ParakeetTranscriber {
 impl ParakeetTranscriber {
     pub fn new() -> Result<Self, anyhow::Error> {
         let environment = Arc::new(Environment::builder().with_name("parakeet").build()?);
-        
+
         // The model path would be loaded from a config file
-        let model_path = "path/to/parakeet.onnx"; 
+        let model_path = "path/to/parakeet.onnx";
 
         let session = SessionBuilder::new(&environment)?
             .with_cuda_ep(Default::default())? // Enable CUDA
@@ -76,7 +76,7 @@ impl StreamingStt for ParakeetTranscriber {
         self.audio_buffer.extend_from_slice(samples);
         // For streaming, you might perform partial transcription here if the model supports it.
         // For simplicity, we'll do a full transcription on speech_end.
-        None 
+        None
     }
 
     async fn on_speech_end(&mut self) -> Option<TranscriptionEvent> {

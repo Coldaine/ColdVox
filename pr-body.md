@@ -27,7 +27,7 @@ This PR resolves the failing end-to-end (E2E) test for the Vosk Speech-to-Text (
   - Added a Git hook to run the E2E test on commit, ensuring regressions are caught early.
 
 #### Verification
-- Ran 
+- Ran
 running 1 test
 Running ALL 13 WAV samples...
 Testing with WAV file: test_data/pipeline_test.wav
