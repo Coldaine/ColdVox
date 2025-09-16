@@ -1,14 +1,6 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
-
-MODEL_PATH="${1:-models/vosk-model-small-en-us-0.15}"
-
-# Check required subdirectories
-for subdir in am conf graph ivector; do
-    if [[ ! -d "$MODEL_PATH/$subdir" ]]; then
-        echo "ERROR: Missing required subdirectory: $MODEL_PATH/$subdir"
-        exit 1
-    fi
-done
-
-echo "✓ Vosk model structure verified at $MODEL_PATH"
+# Thin wrapper (2025-09) around canonical integrity verifier.
+# Accepts same arguments; defers to verify-model-integrity.sh
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec "$SCRIPT_DIR/verify-model-integrity.sh" "${@}" || exit $?

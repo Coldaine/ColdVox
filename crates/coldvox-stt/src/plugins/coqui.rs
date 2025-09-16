@@ -5,7 +5,7 @@
 
 use async_trait::async_trait;
 use parking_lot::RwLock;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::plugin::*;
@@ -49,6 +49,7 @@ impl Default for CoquiConfig {
 /// - CTC decoding with language model scoring
 /// - Good accuracy for English and other languages
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct CoquiPlugin {
     config: CoquiConfig,
     state: Arc<RwLock<PluginState>>,
@@ -56,6 +57,12 @@ pub struct CoquiPlugin {
     // Future: Add actual Coqui STT model
     // model: Option<CoquiModel>,
     // stream: Option<CoquiStream>,
+}
+
+impl Default for CoquiPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CoquiPlugin {
@@ -176,6 +183,12 @@ impl SttPlugin for CoquiPlugin {
 
 pub struct CoquiPluginFactory {
     config: CoquiConfig,
+}
+
+impl Default for CoquiPluginFactory {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CoquiPluginFactory {

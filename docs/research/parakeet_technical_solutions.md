@@ -54,7 +54,7 @@ fn extract_mel_spectrogram(samples: &[f32], sample_rate: usize) -> Array3<f32> {
         hop_length: 160,
         ..Default::default()
     };
-    
+
     mel_spectrogram(samples, &config)
 }
 ```
@@ -82,7 +82,7 @@ fn setup_ctc_decoder(vocab: Vec<String>, lm_path: &str) -> BeamSearchDecoderWith
         beam_threshold: 10.0,
         lm_weight: 0.5,
     };
-    
+
     BeamSearchDecoderWithKenLM::new(options, lm_path, vocab)
         .expect("Failed to create CTC decoder")
 }
@@ -99,7 +99,7 @@ use ndarray::prelude::*;
 
 fn greedy_ctc_decode(logits: &Array3<f32>, vocab: &[char]) -> String {
     let blank_token = vocab.len(); // Assume blank is last token
-    
+
     // Get best path (argmax along vocab dimension)
     let best_path: Vec<usize> = logits.slice(s![0, .., ..]).rows()
         .into_iter()
@@ -110,18 +110,18 @@ fn greedy_ctc_decode(logits: &Array3<f32>, vocab: &[char]) -> String {
                 .unwrap().0
         })
         .collect();
-    
+
     // Remove consecutive duplicates and blanks
     let mut result = Vec::new();
     let mut prev_token = None;
-    
+
     for token in best_path {
         if token != blank_token && Some(token) != prev_token {
             result.push(vocab[token]);
         }
         prev_token = Some(token);
     }
-    
+
     result.into_iter().collect()
 }
 ```
@@ -149,7 +149,7 @@ fn create_onnx_session(model_path: &str) -> anyhow::Result<Session> {
         .with_optimization_level(GraphOptimizationLevel::Level3)?
         .with_inter_op_threads(4)?
         .commit_from_file(model_path)?;
-    
+
     Ok(session)
 }
 ```
@@ -181,14 +181,14 @@ fn inspect_model_metadata(session: &Session) -> anyhow::Result<()> {
         println!("  Shape: {:?}", input.dimensions);
         println!("  Type: {:?}", input.input_type);
     }
-    
+
     // Get output information
     for (i, output) in session.outputs.iter().enumerate() {
         println!("Output {}: {}", i, output.name);
         println!("  Shape: {:?}", output.dimensions);
         println!("  Type: {:?}", output.output_type);
     }
-    
+
     Ok(())
 }
 ```
@@ -205,19 +205,19 @@ fn run_inference(
 ) -> anyhow::Result<Array3<f32>> {
     // Convert ndarray to ONNX Value
     let input_tensor = Value::from_array(audio_tensor)?;
-    
+
     // Get input/output names
     let input_name = &session.inputs[0].name;
     let output_name = &session.outputs[0].name;
-    
+
     // Run inference
     let outputs = session.run(inputs![input_name => input_tensor]?)?;
-    
+
     // Extract output tensor
     let output_tensor: Array3<f32> = outputs[output_name]
         .try_extract_tensor()?
         .into_dimensionality()?;
-    
+
     Ok(output_tensor)
 }
 ```
@@ -242,17 +242,17 @@ use zip::ZipArchive;
 fn extract_vocab_from_nemo(nemo_path: &str) -> anyhow::Result<Vec<String>> {
     let file = File::open(nemo_path)?;
     let mut archive = ZipArchive::new(file)?;
-    
+
     // Extract vocab.txt
     let mut vocab_file = archive.by_name("vocab.txt")?;
     let mut contents = String::new();
     vocab_file.read_to_string(&mut contents)?;
-    
+
     let vocab: Vec<String> = contents
         .lines()
         .map(|line| line.trim().to_string())
         .collect();
-        
+
     Ok(vocab)
 }
 ```
@@ -296,7 +296,7 @@ This comprehensive guide addresses the four key challenges for implementing the 
 ## 1. Audio Preprocessing for Parakeet
 
 ### Input Requirements
-- **Format**: 16000 Hz mono-channel audio 
+- **Format**: 16000 Hz mono-channel audio
 - **Raw Input**: `Vec<i16>` audio samples
 - **Target**: Convert to appropriate tensor format for ONNX model
 
@@ -320,11 +320,11 @@ fn preprocess_audio_for_parakeet(samples: &[i16]) -> Array2<f32> {
     let normalized: Vec<f32> = samples.iter()
         .map(|&sample| sample as f32 / 32768.0)
         .collect();
-    
+
     // 2. Create tensor with batch dimension [1, num_samples]
     let audio_array = Array2::from_shape_vec((1, normalized.len()), normalized)
         .expect("Failed to create audio array");
-    
+
     audio_array
 }
 ```
@@ -346,7 +346,7 @@ fn extract_mel_spectrogram(samples: &[f32], sample_rate: usize) -> Array2<f32> {
         hop_length: 160,
         ..Default::default()
     };
-    
+
     mel_spectrogram(samples, &config)
 }
 ```
@@ -378,7 +378,7 @@ fn setup_ctc_decoder(vocab: Vec<String>, lm_path: &str) -> BeamSearchDecoderWith
         beam_threshold: 1.0,
         lm_weight: 0.5,
     };
-    
+
     BeamSearchDecoderWithKenLM::new(options, lm_path, vocab)
         .expect("Failed to create CTC decoder")
 }
@@ -394,7 +394,7 @@ fn decode_ctc_output(decoder: &BeamSearchDecoderWithKenLM, log_probs: &Array2<f3
 // Use git dependency or implement similar approach
 
 fn beam_search_decode(
-    posteriors: &Array2<f32>, 
+    posteriors: &Array2<f32>,
     alphabet: &[char],
     beam_size: usize,
     beam_cut_threshold: f32
@@ -411,7 +411,7 @@ use ndarray::prelude::*;
 
 fn greedy_ctc_decode(logits: &Array2<f32>, vocab: &[char]) -> String {
     let blank_token = vocab.len(); // Assume blank is last token
-    
+
     // Get best path (argmax along vocab dimension)
     let best_path: Vec<usize> = logits.rows()
         .into_iter()
@@ -422,18 +422,18 @@ fn greedy_ctc_decode(logits: &Array2<f32>, vocab: &[char]) -> String {
                 .unwrap().0
         })
         .collect();
-    
+
     // Remove consecutive duplicates and blanks
     let mut result = Vec::new();
     let mut prev_token = None;
-    
+
     for token in best_path {
         if token != blank_token && Some(token) != prev_token {
             result.push(vocab[token]);
         }
         prev_token = Some(token);
     }
-    
+
     result.into_iter().collect()
 }
 ```
@@ -457,7 +457,7 @@ fn create_onnx_session(model_path: &str) -> anyhow::Result<Session> {
         .with_optimization_level(ort::GraphOptimizationLevel::Level3)?
         .with_intra_threads(4)?
         .commit_from_file(model_path)?;
-    
+
     Ok(session)
 }
 ```
@@ -496,14 +496,14 @@ fn inspect_model_metadata(session: &Session) -> anyhow::Result<()> {
         println!("  Shape: {:?}", input.dimensions);
         println!("  Type: {:?}", input.input_type);
     }
-    
-    // Get output information  
+
+    // Get output information
     for (i, output) in session.outputs.iter().enumerate() {
         println!("Output {}: {}", i, output.name);
         println!("  Shape: {:?}", output.dimensions);
         println!("  Type: {:?}", output.output_type);
     }
-    
+
     Ok(())
 }
 ```
@@ -519,19 +519,19 @@ fn run_inference(
 ) -> anyhow::Result<Array2<f32>> {
     // Convert ndarray to ONNX Value
     let input_tensor = Value::from_array(audio_tensor)?;
-    
+
     // Get input/output names
     let input_name = &session.inputs[0].name;
     let output_name = &session.outputs[0].name;
-    
+
     // Run inference
     let outputs = session.run(inputs![input_name => input_tensor]?)?;
-    
+
     // Extract output tensor
     let output_tensor: Array2<f32> = outputs[output_name]
         .try_extract_tensor()?
         .into_dimensionality()?;
-    
+
     Ok(output_tensor)
 }
 ```
@@ -543,7 +543,7 @@ The vocabulary for Parakeet-TDT-1.1B is embedded within the model's `.nemo` file
 
 **File structure inside .nemo archive:**
 - `tokenizer.model` - SentencePiece model file
-- `tokenizer.vocab` - Vocabulary mappings  
+- `tokenizer.vocab` - Vocabulary mappings
 - `vocab.txt` - Plain text vocabulary list
 
 ### Extracting Vocabulary
@@ -554,17 +554,17 @@ use zip::ZipArchive;
 fn extract_vocab_from_nemo(nemo_path: &str) -> anyhow::Result<Vec<String>> {
     let file = File::open(nemo_path)?;
     let mut archive = ZipArchive::new(file)?;
-    
+
     // Extract vocab.txt
     let mut vocab_file = archive.by_name("vocab.txt")?;
     let mut contents = String::new();
     vocab_file.read_to_string(&mut contents)?;
-    
+
     let vocab: Vec<String> = contents
         .lines()
         .map(|line| line.trim().to_string())
         .collect();
-    
+
     Ok(vocab)
 }
 ```
@@ -592,23 +592,23 @@ impl ParakeetInference {
     fn new(model_path: &str, nemo_path: &str) -> Result<Self> {
         let session = create_onnx_session(model_path)?;
         let vocab = extract_vocab_from_nemo(nemo_path)?;
-        
+
         Ok(Self {
             session,
             vocab,
         })
     }
-    
+
     fn transcribe(&self, audio_samples: &[i16]) -> Result<String> {
         // 1. Preprocess audio
         let input_tensor = preprocess_audio_for_parakeet(audio_samples);
-        
+
         // 2. Run inference
         let logits = run_inference(&self.session, input_tensor)?;
-        
+
         // 3. CTC decode
         let transcript = greedy_ctc_decode(&logits, &self.vocab.iter().map(|s| s.chars().next().unwrap()).collect::<Vec<_>>());
-        
+
         Ok(transcript)
     }
 }

@@ -5,7 +5,7 @@
 
 use async_trait::async_trait;
 use parking_lot::RwLock;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::plugin::*;
@@ -44,12 +44,19 @@ impl Default for LeopardConfig {
 /// - Very low latency
 /// - Minimal resource usage
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct LeopardPlugin {
     config: LeopardConfig,
     state: Arc<RwLock<PluginState>>,
     metrics: Arc<RwLock<PluginMetrics>>,
     // Future: Add Leopard SDK
     // leopard: Option<Leopard>,
+}
+
+impl Default for LeopardPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl LeopardPlugin {
@@ -177,6 +184,12 @@ impl SttPlugin for LeopardPlugin {
 
 pub struct LeopardPluginFactory {
     config: LeopardConfig,
+}
+
+impl Default for LeopardPluginFactory {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl LeopardPluginFactory {

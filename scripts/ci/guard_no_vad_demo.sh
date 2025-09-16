@@ -2,7 +2,7 @@
 # CI Guard: Ensure vad_demo is not reintroduced
 # This script fails if any references to vad_demo are found in the repository
 
-set -euo pipefailuo pipefail
+set -euo pipefail
 
 echo "Checking for vad_demo references..."
 

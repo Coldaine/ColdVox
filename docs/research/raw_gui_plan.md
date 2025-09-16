@@ -258,7 +258,7 @@ tree:     cargo tree | rg 'cxx-qt|Qt6'
 
 * “unsupported attribute”: you’re not using the git 0.8 macros. Check `Cargo.lock` and `cargo tree`. All `cxx-qt*` must be `git+…#<REV>`.
 * Linker errors to Qt: reinstall Qt dev packages; ensure `qmake6 -query QT_VERSION` ≥ 6.6.
-* “Only trait declarations…”: move impl bodies outside `#[cxx_qt::bridge]`. 
+* “Only trait declarations…”: move impl bodies outside `#[cxx_qt::bridge]`.
 * QML “module not installed”: `qml_uri` and `import` must match (`com.coldvox.app 1.0`), and the bridge must compile.
 
 ### 11) Next features after minimal window
