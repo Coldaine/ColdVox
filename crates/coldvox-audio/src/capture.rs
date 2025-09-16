@@ -306,7 +306,7 @@ impl AudioCapture {
         audio_producer: AudioProducer,
         running: Arc<AtomicBool>,
     ) -> Result<Self, AudioError> {
-        Ok(Self {
+        let self_ = Self {
             device_manager: DeviceManager::new()?,
             stream: None,
             audio_producer: Arc::new(Mutex::new(audio_producer)),
@@ -318,7 +318,14 @@ impl AudioCapture {
             config_tx: None,
             device_event_tx: None,
             current_device_name: None,
-        })
+        };
+
+        // Check audio setup for PipeWire compatibility
+        if let Err(e) = self_.device_manager.check_audio_setup() {
+            tracing::error!("Audio setup check failed: {}", e);
+        }
+
+        Ok(self_)
     }
 
     pub fn with_config_channel(

@@ -1123,7 +1123,7 @@ fn draw_logs(f: &mut Frame, area: Rect, state: &DashboardState) {
     f.render_widget(paragraph, inner);
 }
 
-fn draw_plugins(f: &mut Frame, area: Rect, state: &DashboardState) {
+fn draw_plugins(f: &mut Frame, area: Rect, _state: &DashboardState) {
     let block = Block::default()
         .title("Available Plugins")
         .borders(Borders::ALL);
@@ -1168,7 +1168,7 @@ fn draw_plugins(f: &mut Frame, area: Rect, state: &DashboardState) {
     f.render_widget(paragraph, inner);
 }
 
-fn draw_plugin_status(f: &mut Frame, area: Rect, state: &DashboardState) {
+fn draw_plugin_status(f: &mut Frame, area: Rect, _state: &DashboardState) {
     let block = Block::default()
         .title("Plugin Status")
         .borders(Borders::ALL);

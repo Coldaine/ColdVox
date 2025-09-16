@@ -1,6 +1,7 @@
 use coldvox_foundation::AudioError;
 use cpal::traits::{DeviceTrait, HostTrait};
 use cpal::{Device, Host, StreamConfig};
+use std::process::Command;
 
 pub struct DeviceManager {
     host: Host,
@@ -21,6 +22,38 @@ impl DeviceManager {
 
     pub fn host_id(&self) -> cpal::HostId {
         self.host.id()
+    }
+
+    /// Check audio setup for PipeWire/Pulse compatibility and ALSA routing.
+    /// Warns on misconfigurations but does not fail hard.
+    pub fn check_audio_setup(&self) -> Result<(), AudioError> {
+        // Check pactl info for PulseAudio on PipeWire
+        match Command::new("pactl").arg("info").output() {
+            Ok(output) => {
+                let info = String::from_utf8_lossy(&output.stdout);
+                if !info.contains("PulseAudio (on PipeWire") {
+                    tracing::warn!("Warning: Pulse/PipeWire server not detected. Install/enable pipewire-pulse.");
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Warning: pactl not available (install pulseaudio-utils): {}", e);
+            }
+        }
+
+        // Check aplay -L for ALSA routing to PipeWire
+        match Command::new("aplay").arg("-L").output() {
+            Ok(output) => {
+                let list = String::from_utf8_lossy(&output.stdout);
+                if !list.contains("pulse") && !list.contains("pipewire") {
+                    tracing::warn!("Warning: ALSA default not routed to PipeWire. Install pipewire-alsa.");
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Warning: aplay not available (install alsa-utils): {}", e);
+            }
+        }
+
+        Ok(())
     }
 
     pub fn enumerate_devices(&self) -> Vec<DeviceInfo> {

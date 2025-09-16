@@ -52,3 +52,14 @@ let chunker = AudioChunker::new(chunker_config);
 - `rubato`: High-quality resampling
 - `rtrb`: Realtime-safe ring buffer
 - `parking_lot`: Efficient synchronization primitives
+
+## PipeWire Integration
+
+- **Default Device Selection**: Uses CPAL's default input device, respecting PipeWire's ALSA/Pulse compatibility layers (pipewire-alsa, pipewire-pulse).
+- **Health Check**: Automatic startup validation for PipeWire server and ALSA routing. Warns if shims are missing (e.g., no "PulseAudio (on PipeWire)" in `pactl info` or no "pulse/pipewire" in `aplay -L`).
+- **Device Recovery**: Monitors for device changes and restarts streams on disconnection, ensuring seamless switching to new defaults.
+- **Best Practices**: Prefers "pipewire" or "default" ALSA devices for DE-aware routing. No hardcoded device names to avoid bypassing system policy.
+
+For optimal performance on Linux:
+- Install `pipewire-alsa` and `pipewire-pulse` for compatibility.
+- Test with `pactl info` and `speaker-test -c2 -t wav`.
