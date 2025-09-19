@@ -99,11 +99,11 @@ graph TD
 
 ## Validation
 
-- **Compilation**: All crates build successfully
-- **Conflicts Resolved**: No merge conflicts remain
-- **Functionality Preserved**: All original PR features maintained
-- **Tests**: STT processor tests compilation issues resolved, all tests pass
-- **CI Ready**: Branch prepared for automated testing
+- **Compilation**: **FAILS**. The merged branch does not compile due to numerous errors.
+- **Conflicts Resolved**: **PARTIAL**. While git conflicts were resolved, logical conflicts and discrepancies remain.
+- **Functionality Preserved**: **UNKNOWN**. Cannot be verified until compilation and tests are fixed.
+- **Tests**: **FAIL**. Tests cannot be run because the code does not compile.
+- **CI Ready**: **NO**. The branch is not ready for CI.
 
 ## Fixes Applied
 
@@ -127,3 +127,43 @@ All changes preserve original author attribution through git commit history. The
 ---
 
 *Consolidated on 2025-09-19 by automated merge strategy implementation.*
+
+---
+
+## Post-Merge Audit & Known Discrepancies
+
+A post-merge audit revealed that while the refactoring steps from the PRs were applied, the execution was incomplete. Several of the key "conflicts resolved" are not accurately reflected in the code, leading to a non-compiling state with significant drift from the documented strategy.
+
+**Grade: C**
+
+The branch delivers many of the promised refactors, but several headline "conflicts resolved" in the plan aren’t reflected in code, leaving duplication, dead paths, and a lingering `SharedAudioFrame` gap.
+
+### Specific Discrepancies
+
+1.  **`AudioFrame` vs. `SharedAudioFrame` Mismatch:**
+    *   **Issue:** `crates/coldvox-stt/src/processor.rs` still defines and consumes a local, owned `AudioFrame` (`Vec<i16>`), while the upstream `chunker` produces `SharedAudioFrame` (`Arc<[i16]>`).
+    *   **Impact:** The "AudioFrame vs SharedAudioFrame" conflict was not fully reconciled. The performance benefits of `Arc`-based sharing are lost, and memory churn remains.
+
+2.  **Duplicate STT Constants:**
+    *   **Issue:** `crates/coldvox-stt/src/processor.rs` redefines `SAMPLE_RATE_HZ` and other tuning values locally, despite the plan to unify them in `crates/coldvox-stt/src/constants.rs`.
+    *   **Impact:** This reintroduces the "duplicate constant" conflict and risks divergence.
+
+3.  **Unused `process_chunks` Helper:**
+    *   **Issue:** The `handle_speech_end` method in `processor.rs` implements its own chunking loop instead of using the `AudioBufferManager::process_chunks` helper.
+    *   **Impact:** The promised "centralized chunk processing" is not wired in, leaving duplicate logic.
+
+4.  **Dead Code in `SttProcessor`:**
+    *   **Issue:** The `send_event` and `handle_finalization_result` methods remain in `processor.rs` but are never called.
+    *   **Impact:** This dead code contradicts the "clean separation" provided by `EventEmitter` and creates confusion about the authoritative code path.
+
+5.  **Unused Telemetry Hooks:**
+    *   **Issue:** `AudioBufferManager` contains a `started_at` field that is never read.
+    *   **Impact:** The advertised telemetry improvements are not fully implemented.
+
+### Next Steps (Remediation)
+
+*   Align `SttProcessor` with the shared-frame pipeline by having it consume `SharedAudioFrame`.
+*   Deduplicate the STT constants so there is a single source of truth.
+*   Route chunk processing and event emission through the new centralized helpers (`process_chunks`, `EventEmitter`) to match the documented strategy.
+*   Remove the dead code (`send_event`, `handle_finalization_result`) from `SttProcessor`.
+*   Trim unused fields from `AudioBufferManager` or wire them into the telemetry system.
