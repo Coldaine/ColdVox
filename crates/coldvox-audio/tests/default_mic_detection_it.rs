@@ -24,6 +24,15 @@ const APP_TAG: &str = "ColdVoxMicTest";
 #[cfg(target_os = "linux")]
 #[test]
 fn default_mic_is_detected_and_used_via_pulseaudio() {
+    // 0) Opt-in guard: only run this environment-dependent test when explicitly enabled.
+    // This avoids flaky failures on CI or systems without a stable desktop audio stack.
+    if std::env::var("COLDVOX_RUN_AUDIO_IT").ok().as_deref() != Some("1") {
+        eprintln!(
+            "Skipping: set COLDVOX_RUN_AUDIO_IT=1 to run default mic detection integration test"
+        );
+        return; // skip
+    }
+
     // 1) Pre-check: `pactl` availability and server readiness
     if Command::new("pactl").arg("info").output().is_err() {
         eprintln!("Skipping: pactl not available or PulseAudio/PipeWire not running");

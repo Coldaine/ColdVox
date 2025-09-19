@@ -18,5 +18,6 @@
   "metrics": {
     "log_interval_secs": 60,
     "debug_dump_events": false
-  }
+  },
+  "auto_extract_model": true
 }
