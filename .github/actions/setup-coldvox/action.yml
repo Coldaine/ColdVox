@@ -60,15 +60,15 @@ runs:
           failed=1
         fi
 
-    # Check for pkg-config dependencies (for -devel packages)
-    # atspi module name is 'atspi-2' (provided by at-spi2-core-devel / libatspi)
-    required_pkgs="alsa gtk+-3.0 atspi-2 xtst"
+        # Check for pkg-config dependencies (for -devel packages)
+        # atspi module name is 'atspi-2' (provided by at-spi2-core-devel / libatspi)
+        required_pkgs="alsa gtk+-3.0 atspi-2 xtst"
         echo "Checking for required libraries via pkg-config..."
         for pkg in $required_pkgs; do
-            if ! pkg-config --exists "$pkg"; then
-                echo "::error::Required library '$pkg' not found by pkg-config. Please install the corresponding -devel package on the runner."
-                failed=1
-            fi
+          if ! pkg-config --exists "$pkg"; then
+            echo "::error::Required library '$pkg' not found by pkg-config. Please install the corresponding -devel package on the runner."
+            failed=1
+          fi
         done
 
         if [[ $failed -ne 0 ]]; then
