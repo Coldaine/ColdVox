@@ -70,6 +70,7 @@ impl VoskTranscriber {
             include_words: false,
             buffer_size_ms: 512,
             streaming: false,
+            auto_extract_model: true,
         };
         Self::new(config, sample_rate)
     }
@@ -211,28 +212,61 @@ impl EventBasedTranscriber for VoskTranscriber {
         }
 
         // Pass the i16 samples directly - vosk expects i16
+        // Lightweight audio stats for debugging
+        #[allow(clippy::float_cmp)]
+        {
+            if tracing::level_enabled!(tracing::Level::DEBUG) {
+                if !pcm.is_empty() {
+                    let mut min = i16::MAX;
+                    let mut max = i16::MIN;
+                    let mut acc: f64 = 0.0;
+                    for &s in pcm {
+                        if s < min { min = s; }
+                        if s > max { max = s; }
+                        acc += (s as f64) * (s as f64);
+                    }
+                    let rms = (acc / (pcm.len() as f64)).sqrt();
+                    tracing::debug!(
+                        min_sample = min,
+                        max_sample = max,
+                        rms = rms,
+                        len = pcm.len(),
+                        "accept_frame: audio stats"
+                    );
+                } else {
+                    tracing::debug!("accept_frame: empty pcm slice");
+                }
+            }
+        }
+
         let state = self
             .recognizer
             .accept_waveform(pcm)
             .map_err(|e| format!("Vosk waveform acceptance failed: {:?}", e))?;
 
+        tracing::debug!(?state, "accept_frame: decoding state");
+
         match state {
             DecodingState::Finalized => {
                 // Get final result when speech segment is complete
                 let result = self.recognizer.result();
+                tracing::debug!("Vosk finalized result: {:?}", result);
                 let event = Self::parse_complete_result_static(
                     result,
                     self.current_utterance_id,
                     self.config.include_words,
                 );
+                tracing::debug!("Parsed finalized event: {:?}", event);
                 Ok(event)
             }
             DecodingState::Running => {
                 // Get partial result for ongoing speech if enabled
                 if self.config.partial_results {
                     let partial = self.recognizer.partial_result();
+                    tracing::debug!("Vosk partial result: {:?}", partial);
                     let event =
                         Self::parse_partial_result_static(partial, self.current_utterance_id);
+                    tracing::debug!("Parsed partial event: {:?}", event);
                     Ok(event)
                 } else {
                     Ok(None)
@@ -240,6 +274,7 @@ impl EventBasedTranscriber for VoskTranscriber {
             }
             DecodingState::Failed => {
                 // Recognition failed for this chunk
+                tracing::warn!("Vosk recognition failed for current chunk");
                 Ok(Some(TranscriptionEvent::Error {
                     code: "VOSK_DECODE_FAILED".to_string(),
                     message: "Vosk recognition failed for current chunk".to_string(),
@@ -251,11 +286,13 @@ impl EventBasedTranscriber for VoskTranscriber {
     /// Finalize current utterance and return final result
     fn finalize_utterance(&mut self) -> Result<Option<TranscriptionEvent>, String> {
         let final_result = self.recognizer.final_result();
+        tracing::debug!("Vosk final result on finalize: {:?}", final_result);
         let event = Self::parse_complete_result_static(
             final_result,
             self.current_utterance_id,
             self.config.include_words,
         );
+        tracing::debug!("Parsed final event on finalize: {:?}", event);
 
         // Start new utterance for next speech segment
         self.current_utterance_id = next_utterance_id();
