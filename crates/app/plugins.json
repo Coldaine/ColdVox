@@ -1,7 +1,6 @@
 {
-  "preferred_plugin": "vosk",
+  "preferred_plugin": "noop",
   "fallback_plugins": [
-    "vosk",
     "mock"
   ],
   "require_local": true,
@@ -12,12 +11,9 @@
     "failover_cooldown_secs": 1
   },
   "gc_policy": {
-    "model_ttl_secs": 30,
-    "enabled": false
+    "model_ttl_secs": 1,
+    "enabled": true
   },
-  "metrics": {
-    "log_interval_secs": 60,
-    "debug_dump_events": false
-  },
+  "metrics": null,
   "auto_extract_model": false
 }
