@@ -4,7 +4,8 @@
 //! edge devices and WebAssembly environments. It provides good accuracy with
 //! minimal resource usage.
 
-use crate::common::{noop_finalize, not_yet_available, unavailable_check};
+use crate::common::{noop_finalize, unavailable_check, not_yet_available};
+use crate::helpers::not_yet_implemented;
 
 use async_trait::async_trait;
 use std::sync::{Arc, RwLock};
@@ -197,10 +198,7 @@ impl SttPlugin for ParakeetPlugin {
         &mut self,
         _samples: &[i16],
     ) -> Result<Option<TranscriptionEvent>, SttPluginError> {
-        // Stub implementation
-        Err(SttPluginError::NotAvailable {
-            reason: "Parakeet plugin not yet implemented".to_string(),
-        })
+        not_yet_implemented("Parakeet")
     }
 
     async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, SttPluginError> {
