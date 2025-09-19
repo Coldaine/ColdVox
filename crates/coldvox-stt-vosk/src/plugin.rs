@@ -12,7 +12,7 @@ pub struct VoskPlugin {
     transcriber: Option<VoskTranscriber>,
     config: TranscriptionConfig,
     sample_rate: f32,
-    model_path: Option<PathBuf>,
+    resolved_model_path: Option<PathBuf>,
 }
 
 impl fmt::Debug for VoskPlugin {
@@ -24,7 +24,7 @@ impl fmt::Debug for VoskPlugin {
             )
             .field("config", &self.config)
             .field("sample_rate", &self.sample_rate)
-            .field("model_path", &self.model_path)
+            .field("resolved_model_path", &self.resolved_model_path)
             .finish()
     }
 }
@@ -35,7 +35,7 @@ impl VoskPlugin {
             transcriber: None,
             config: TranscriptionConfig::default(),
             sample_rate: 16000.0, // Vosk preferred sample rate
-            model_path: None,
+            resolved_model_path: None,
         }
     }
 }
@@ -49,7 +49,7 @@ impl SttPlugin for VoskPlugin {
             description: "Offline Vosk speech recognition".to_string(),
             requires_network: false,
             is_local: true,
-            is_available: self.model_path.is_some(),
+            is_available: self.resolved_model_path.is_some(),
             supported_languages: vec!["en-us".to_string()], // example, can be improved
             memory_usage_mb: None,                          // Could be estimated
         }
@@ -68,7 +68,7 @@ impl SttPlugin for VoskPlugin {
     }
 
     async fn is_available(&self) -> Result<bool, SttPluginError> {
-        Ok(self.model_path.is_some())
+        Ok(self.resolved_model_path.is_some())
     }
 
     async fn initialize(&mut self, config: TranscriptionConfig) -> Result<(), SttPluginError> {
@@ -78,7 +78,7 @@ impl SttPlugin for VoskPlugin {
             .map_err(|e| SttPluginError::InitializationFailed(e.to_string()))?;
 
         if let Some(info) = model_info {
-            self.model_path = Some(info.path.clone());
+            self.resolved_model_path = Some(info.path.clone());
             model::log_model_resolution(&info);
             let mut config_with_model = config.clone();
             config_with_model.model_path = info.path.to_string_lossy().to_string();
@@ -135,7 +135,7 @@ impl SttPlugin for VoskPlugin {
     async fn load_model(&mut self, model_path: Option<&Path>) -> Result<(), SttPluginError> {
         let path_to_load = match model_path {
             Some(p) => p.to_path_buf(),
-            None => self.model_path.clone().ok_or_else(|| SttPluginError::ModelLoadFailed("No model path available".to_string()))?,
+            None => self.resolved_model_path.clone().ok_or_else(|| SttPluginError::ModelLoadFailed("No resolved model path available".to_string()))?,
         };
 
         let mut config = self.config.clone();
@@ -145,7 +145,7 @@ impl SttPlugin for VoskPlugin {
             .map_err(|e| SttPluginError::ModelLoadFailed(e))?;
 
         self.transcriber = Some(transcriber);
-        self.model_path = Some(path_to_load);
+        self.resolved_model_path = Some(path_to_load);
         Ok(())
     }
 

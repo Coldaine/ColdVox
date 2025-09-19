@@ -515,6 +515,9 @@ mod tests {
             disable_gc: false,
             metrics_log_interval_secs: 90,
             debug_dump_events: true,
+            auto_extract: std::env::var("COLDVOX_STT_AUTO_EXTRACT")
+                .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+                .unwrap_or(true),
         };
 
         let config = PluginSelectionConfig {
@@ -539,6 +542,9 @@ mod tests {
                 },
                 debug_dump_events: stt_args.debug_dump_events,
             }),
+            auto_extract_model: std::env::var("COLDVOX_STT_AUTO_EXTRACT")
+                .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+                .unwrap_or(true),
         };
 
         assert_eq!(config.preferred_plugin, Some("vosk".to_string()));

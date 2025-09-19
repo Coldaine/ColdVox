@@ -3,8 +3,8 @@ use std::fmt;
 use std::io;
 use std::path::PathBuf;
 
-use zip::ZipArchive;
 use uuid::Uuid;
+use zip::ZipArchive;
 
 /// Preferred parent directory when models are organized semantically.
 pub const MODELS_DIR: &str = "models";
@@ -21,7 +21,7 @@ pub enum ModelSource {
     Env,
     Config,
     ModelsDir,
-    RepoRoot, // This is now effectively the same as ModelsDir with ancestor scanning
+    RepoRoot, // kept for compatibility; same as ModelsDir with ancestor scanning
     Extracted,
 }
 
@@ -57,6 +57,8 @@ pub fn locate_model(config_path: Option<&str>) -> Result<ModelInfo, ModelError> 
         let pb = PathBuf::from(&p);
         if pb.is_dir() {
             return Ok(ModelInfo { path: pb, source: ModelSource::Env });
+        } else {
+            return Err(ModelError::ExplicitPathMissing(p));
         }
     }
 
@@ -64,10 +66,15 @@ pub fn locate_model(config_path: Option<&str>) -> Result<ModelInfo, ModelError> 
         let pb = PathBuf::from(cp);
         if pb.is_dir() {
             return Ok(ModelInfo { path: pb, source: ModelSource::Config });
+        } else {
+            return Err(ModelError::ExplicitPathMissing(cp.to_string()));
         }
     }
 
     let candidates = find_model_candidates();
+    if !candidates.is_empty() {
+        tracing::debug!(count = candidates.len(), "Vosk model discovery candidates found");
+    }
     if let Some(best_candidate) = pick_best_candidate(candidates) {
         return Ok(ModelInfo { path: best_candidate, source: ModelSource::ModelsDir });
     }
@@ -104,13 +111,46 @@ fn find_model_candidates() -> Vec<PathBuf> {
 }
 
 fn pick_best_candidate(mut candidates: Vec<PathBuf>) -> Option<PathBuf> {
+    fn extract_trailing_version_nums(name: &str) -> Vec<u32> {
+        // Grab trailing run of digits/dots, e.g., "0.22" from "vosk-model-small-en-us-0.22"
+        let mut end = name.len();
+        for (idx, ch) in name.char_indices().rev() {
+            if ch.is_ascii_digit() || ch == '.' {
+                end = end.min(idx + ch.len_utf8());
+                continue;
+            }
+            if end < name.len() {
+                let start = idx + ch.len_utf8();
+                let slice = &name[start..end];
+                return slice
+                    .split('.')
+                    .filter_map(|part| part.parse::<u32>().ok())
+                    .collect();
+            }
+        }
+        let slice = &name[..end];
+        slice
+            .split('.')
+            .filter_map(|part| part.parse::<u32>().ok())
+            .collect()
+    }
+
     candidates.sort_by(|a, b| {
-        let a_name = a.file_name().unwrap_or_default().to_string_lossy();
-        let b_name = b.file_name().unwrap_or_default().to_string_lossy();
-        // A simple heuristic: prefer smaller models, then english, then sort alphabetically.
-        let a_score = (a_name.contains("small"), a_name.contains("en-us"));
-        let b_score = (b_name.contains("small"), b_name.contains("en-us"));
-        b_score.cmp(&a_score).then_with(|| a_name.cmp(&b_name))
+        let a_name = a.file_name().unwrap_or_default().to_string_lossy().to_ascii_lowercase();
+        let b_name = b.file_name().unwrap_or_default().to_string_lossy().to_ascii_lowercase();
+        let a_small = a_name.contains("small");
+        let b_small = b_name.contains("small");
+        let a_en = a_name.contains("en-us");
+        let b_en = b_name.contains("en-us");
+        let a_ver = extract_trailing_version_nums(&a_name);
+        let b_ver = extract_trailing_version_nums(&b_name);
+
+        // Order: small (true first), en-us (true first), version (descending), name (asc)
+        b_small
+            .cmp(&a_small)
+            .then_with(|| b_en.cmp(&a_en))
+            .then_with(|| b_ver.cmp(&a_ver))
+            .then_with(|| a_name.cmp(&b_name))
     });
     candidates.into_iter().next()
 }
@@ -155,6 +195,9 @@ pub fn ensure_model_available(auto_extract: bool) -> Result<Option<ModelInfo>, M
     }
 
     let zip_candidates = find_zip_candidates();
+    if !zip_candidates.is_empty() {
+        tracing::debug!(count = zip_candidates.len(), "Vosk zip candidates found for auto-extract");
+    }
     if let Some(best_zip) = pick_best_candidate(zip_candidates) {
         return extract_model(&best_zip).map(Some);
     }
@@ -168,7 +211,29 @@ fn extract_model(zip_path: &std::path::Path) -> Result<ModelInfo, ModelError> {
 
     let lock_path = models_dir.join(".extract.lock");
     if lock_path.exists() {
-        return Err(ModelError::ExtractionFailed("Extraction lock file exists".to_string()));
+        // Check if lock file is stale (older than 30 minutes)
+        if let Ok(metadata) = std::fs::metadata(&lock_path) {
+            if let Ok(modified) = metadata.modified() {
+                if let Ok(duration) = std::time::SystemTime::now().duration_since(modified) {
+                    if duration.as_secs() > 1800 {
+                        tracing::warn!(
+                            "Removing stale extraction lock file (age: {} seconds)",
+                            duration.as_secs()
+                        );
+                        let _ = std::fs::remove_file(&lock_path);
+                    } else {
+                        return Err(ModelError::ExtractionFailed(format!(
+                            "Extraction in progress (lock age: {} seconds)",
+                            duration.as_secs()
+                        )));
+                    }
+                }
+            }
+        }
+        // If we couldn't get lock file age, assume it's stale and remove it
+        if lock_path.exists() {
+            let _ = std::fs::remove_file(&lock_path);
+        }
     }
     std::fs::File::create(&lock_path).map_err(|e| ModelError::ExtractionFailed(e.to_string()))?;
 
@@ -214,7 +279,6 @@ fn extract_model(zip_path: &std::path::Path) -> Result<ModelInfo, ModelError> {
     extraction_result
 }
 
-
 impl From<io::Error> for ModelError {
     fn from(err: io::Error) -> Self {
         ModelError::ExtractionFailed(err.to_string())
@@ -234,9 +298,10 @@ impl From<&str> for ModelError {
 }
 
 pub fn default_model_path() -> PathBuf {
-    locate_model(None).map(|info| info.path).unwrap_or_else(|_| PathBuf::from("models/vosk-model-small-en-us-0.15"))
+    locate_model(None)
+        .map(|info| info.path)
+        .unwrap_or_else(|_| PathBuf::from("models/vosk-model-small-en-us-0.15"))
 }
-
 
 pub fn log_model_resolution(info: &ModelInfo) {
     let source_desc = match info.source {
@@ -261,5 +326,57 @@ mod tests {
     fn default_path_is_deterministic() {
         let p = default_model_path();
         assert!(p.to_string_lossy().contains("vosk-model"));
+    }
+
+    #[test]
+    fn pick_best_prefers_small_en_and_version() {
+        let base = std::env::temp_dir().join(format!("cvx-test-{}", Uuid::new_v4()));
+        let _ = std::fs::create_dir_all(base.join("models"));
+
+        let dirs = vec![
+            "vosk-model-en-us-0.15",
+            "vosk-model-small-en-us-0.9",
+            "vosk-model-small-en-us-0.22",
+            "vosk-model-small-de-0.30",
+        ];
+        for d in &dirs {
+            let _ = std::fs::create_dir_all(base.join("models").join(d));
+        }
+
+        let cwd = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&base).unwrap();
+        let found = super::find_model_candidates();
+        let best = super::pick_best_candidate(found).expect("a best candidate");
+        std::env::set_current_dir(cwd).unwrap();
+
+        assert!(best
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .contains("vosk-model-small-en-us-0.22"));
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn scan_includes_ancestors_up_to_three() {
+        let root = std::env::temp_dir().join(format!("cvx-scan-{}", Uuid::new_v4()));
+        let a = root.join("a");
+        let b = a.join("b");
+        let c = b.join("c");
+        let d = c.join("d"); // current dir
+        for p in [&root, &a, &b, &c, &d] {
+            let _ = std::fs::create_dir_all(p);
+        }
+        // Place model at root/models (3 ancestors from d)
+        let model_dir = root.join("models").join("vosk-model-small-en-us-0.15");
+        let _ = std::fs::create_dir_all(&model_dir);
+
+        let cwd = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&d).unwrap();
+        let info = locate_model(None).expect("should find ancestor model");
+        std::env::set_current_dir(cwd).unwrap();
+
+        assert_eq!(info.path, model_dir);
+        let _ = std::fs::remove_dir_all(root);
     }
 }
