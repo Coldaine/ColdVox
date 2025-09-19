@@ -53,6 +53,8 @@ pub struct TranscriptionConfig {
     pub buffer_size_ms: u32,
     /// Enable streaming mode (process audio incrementally vs batch)
     pub streaming: bool,
+    /// Automatically extract model from a zip archive if not found
+    pub auto_extract_model: bool,
 }
 
 impl Default for TranscriptionConfig {
@@ -69,6 +71,7 @@ impl Default for TranscriptionConfig {
             include_words: false,
             buffer_size_ms: 512,
             streaming: false, // Default to batch mode for backward compatibility
+            auto_extract_model: true,
         }
     }
 }
