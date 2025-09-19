@@ -201,10 +201,7 @@ mod tests {
             ..Default::default()
         };
         let timeout_config = TimeoutConfig::new(&config);
-        assert_eq!(
-            timeout_config.keystroke_delay(),
-            Duration::from_millis(20)
-        );
+        assert_eq!(timeout_config.keystroke_delay(), Duration::from_millis(20));
 
         // Test with zero rate to avoid division by zero
         let config = InjectionConfig {
@@ -212,9 +209,6 @@ mod tests {
             ..Default::default()
         };
         let timeout_config = TimeoutConfig::new(&config);
-        assert_eq!(
-            timeout_config.keystroke_delay(),
-            Duration::from_millis(50)
-        );
+        assert_eq!(timeout_config.keystroke_delay(), Duration::from_millis(50));
     }
 }

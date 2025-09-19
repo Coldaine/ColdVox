@@ -56,9 +56,7 @@ impl YdotoolInjector {
         let output = Command::new("which")
             .arg(binary_name)
             .output()
-            .map_err(|e| {
-                InjectionError::Process(format!("Failed to locate {binary_name}: {e}"))
-            })?;
+            .map_err(|e| InjectionError::Process(format!("Failed to locate {binary_name}: {e}")))?;
 
         if !output.status.success() {
             return Err(InjectionError::MethodUnavailable(format!(
@@ -95,9 +93,9 @@ impl YdotoolInjector {
             Ok(_) => Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
                 // Check if user is in input group
-                let groups = Command::new("groups").output().map_err(|e| {
-                    InjectionError::Process(format!("Failed to check groups: {e}"))
-                })?;
+                let groups = Command::new("groups")
+                    .output()
+                    .map_err(|e| InjectionError::Process(format!("Failed to check groups: {e}")))?;
 
                 let groups_str = String::from_utf8_lossy(&groups.stdout);
                 if !groups_str.contains("input") {

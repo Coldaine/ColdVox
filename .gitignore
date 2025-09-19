@@ -5,7 +5,8 @@
 *.pdb
 
 # IDE and editor files
-.vscode/
+.vscode/*
+!.vscode/settings.json
 .idea/
 *.swp
 *.swo
@@ -23,6 +24,7 @@ flamegraph.svg
 .env
 .env.local
 .venv/
+.coldvox-setup-complete
 
 # Logs
 logs/

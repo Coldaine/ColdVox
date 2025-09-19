@@ -8,6 +8,7 @@ members = [
     "crates/coldvox-vad-silero",
     "crates/coldvox-text-injection",
     "crates/coldvox-stt",
+    "crates/coldvox-stt-parakeet-onnx",
     "crates/coldvox-stt-vosk",
     "crates/coldvox-gui",
 ]

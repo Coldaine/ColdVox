@@ -510,7 +510,7 @@ impl AudioCapture {
         // Use thread-local buffers to avoid allocations in the audio callback
         thread_local! {
             static CONVERT_BUFFER: std::cell::RefCell<Vec<i16>> = const { std::cell::RefCell::new(Vec::new()) }
-        }
+        };
         CONVERT_BUFFER.with(|buf| {
             let mut v = buf.borrow_mut();
             ensure_buffer_capacity(&mut v, 131072);

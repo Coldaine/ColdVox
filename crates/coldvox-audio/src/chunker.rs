@@ -195,7 +195,7 @@ impl ChunkerWorker {
         while self.buffer.len() >= fs {
             let out = self.extract_samples_from_buffer(fs);
 
-            let vf = self.create_audio_frame(out);
+            let vf = self.create_shared_audio_frame(out);
 
             // A send on a broadcast channel can fail if there are no receivers.
             // This is not a critical error for us; it just means no one is listening.
@@ -230,19 +230,16 @@ impl ChunkerWorker {
     }
 
     /// Create an AudioFrame from raw samples with proper timestamp calculation
-    fn create_audio_frame(&self, samples: Vec<i16>) -> AudioFrame {
+    fn create_shared_audio_frame(&self, samples: Vec<i16>) -> SharedAudioFrame {
         // Calculate timestamp based on samples emitted
         let timestamp_ms =
             (self.samples_emitted as u128 * 1000 / self.cfg.sample_rate_hz as u128) as u64;
         let timestamp = self.start_time + std::time::Duration::from_millis(timestamp_ms);
 
-        AudioFrame {
-            samples: samples
-                .into_iter()
-                .map(|s| s as f32 / i16::MAX as f32)
-                .collect(),
-            sample_rate: self.cfg.sample_rate_hz,
+        SharedAudioFrame {
+            samples: Arc::from(samples),
             timestamp,
+            sample_rate: self.cfg.sample_rate_hz,
         }
     }
 
@@ -319,7 +316,7 @@ mod tests {
         let rb = AudioRingBuffer::new(1024);
         let (_prod, cons) = rb.split();
         let reader = FrameReader::new(cons, 48_000, 2, 1024, None);
-        let (tx, _rx) = broadcast::channel::<AudioFrame>(8);
+        let (tx, _rx) = broadcast::channel::<SharedAudioFrame>(8);
         let cfg = ChunkerConfig {
             frame_size_samples: FRAME_SIZE_SAMPLES,
             sample_rate_hz: SAMPLE_RATE_HZ,
@@ -353,7 +350,7 @@ mod tests {
         let rb = AudioRingBuffer::new(1024);
         let (_prod, cons) = rb.split();
         let reader = FrameReader::new(cons, DEFAULT_SAMPLE_RATE_HZ, 2, 1024, None);
-        let (tx, _rx) = broadcast::channel::<AudioFrame>(8);
+        let (tx, _rx) = broadcast::channel::<SharedAudioFrame>(8);
         let cfg = ChunkerConfig {
             frame_size_samples: DEFAULT_FRAME_SIZE_SAMPLES,
             sample_rate_hz: DEFAULT_SAMPLE_RATE_HZ,

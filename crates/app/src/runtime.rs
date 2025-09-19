@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::time::{Instant, Ordering};
+use std::time::Instant;
 
 use tokio::signal;
 use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
@@ -7,8 +7,8 @@ use tokio::task::JoinHandle;
 use tracing::{error, info};
 
 use coldvox_audio::{
-    AudioCaptureThread, AudioChunker, AudioRingBuffer, ChunkerConfig, FrameReader, ResamplerQuality,
-    SharedAudioFrame,
+    AudioCaptureThread, AudioChunker, AudioRingBuffer, ChunkerConfig, FrameReader,
+    ResamplerQuality, SharedAudioFrame,
 };
 use coldvox_foundation::AudioConfig;
 use coldvox_stt::TranscriptionEvent;

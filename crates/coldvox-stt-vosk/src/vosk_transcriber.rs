@@ -317,9 +317,7 @@ impl Transcriber for VoskTranscriber {
     fn accept_pcm16(&mut self, pcm: &[i16]) -> Result<Option<String>, String> {
         match self.accept_frame(pcm)? {
             Some(TranscriptionEvent::Final { text, .. }) => Ok(Some(text)),
-            Some(TranscriptionEvent::Partial { text, .. }) => {
-                Ok(Some(format!("[partial] {text}")))
-            }
+            Some(TranscriptionEvent::Partial { text, .. }) => Ok(Some(format!("[partial] {text}"))),
             Some(TranscriptionEvent::Error { message, .. }) => Err(message),
             None => Ok(None),
         }

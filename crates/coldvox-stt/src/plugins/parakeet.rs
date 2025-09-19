@@ -4,7 +4,7 @@
 //! edge devices and WebAssembly environments. It provides good accuracy with
 //! minimal resource usage.
 
-use crate::common::{noop_finalize, unavailable_check, not_yet_available};
+use crate::common::{noop_finalize, not_yet_available, unavailable_check};
 use crate::helpers::not_yet_implemented;
 
 use async_trait::async_trait;

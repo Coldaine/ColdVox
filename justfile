@@ -5,6 +5,26 @@
 default:
     @just --list
 
+# One-shot environment setup (safe, no sudo)
+setup:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    bash scripts/dev-setup.sh
+    echo "✅ Setup complete. Tip: copy .env.example to .env and adjust as needed."
+
+# Idempotent quick check used by other recipes
+ensure-deps:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    bash scripts/ensure-deps.sh
+
+# Heavier automation entrypoint that feels automatic (no sudo)
+setup-auto:
+    just ensure-deps
+    cargo fetch
+    pre-commit run --all-files || true
+    echo "✅ Auto-setup done. For text injection (sudo), run: scripts/setup_text_injection.sh"
+
 # Run local CI checks (mirrors GitHub Actions exactly)
 ci:
     ./scripts/local_ci.sh
@@ -42,6 +62,14 @@ test-nextest:
         export VOSK_MODEL_PATH="models/vosk-model-small-en-us-0.15"
     fi
     cargo nextest run --workspace --locked
+
+# Start development: ensure deps then run the app with common features
+dev *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    bash scripts/ensure-deps.sh
+    cd crates/app
+    cargo run --features vosk,text-injection --locked -- {{args}}
 
 # Coverage for core crates only, with Vosk enabled; excludes GUI & Text Injection initially
 test-coverage:

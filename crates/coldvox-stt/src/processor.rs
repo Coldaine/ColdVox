@@ -4,18 +4,11 @@
 //! segments and processes transcription when speech ends. The processor is designed
 //! to work with any VAD system and any STT implementation.
 
-use crate::constants::*;
+use crate::helpers::{AudioBufferManager, EventEmitter};
 use crate::types::{TranscriptionConfig, TranscriptionEvent};
 use crate::StreamingStt;
-use crate::helpers::*;
-use coldvox_telemetry::{stt_metrics::SttPerformanceMetrics, pipeline_metrics::PipelineMetrics};
-/// Minimal audio frame type (i16 PCM) used by the generic STT processor
-#[derive(Debug, Clone)]
-pub struct AudioFrame {
-    pub data: Vec<i16>,
-    pub timestamp_ms: u64,
-    pub sample_rate: u32,
-}
+use coldvox_audio::SharedAudioFrame;
+use coldvox_telemetry::{pipeline_metrics::PipelineMetrics, stt_metrics::SttPerformanceMetrics};
 
 /// Minimal VAD event type mirrored here to avoid cross-crate deps
 #[derive(Debug, Clone, Copy)]
@@ -23,11 +16,11 @@ pub enum VadEvent {
     SpeechStart { timestamp_ms: u64 },
     SpeechEnd { timestamp_ms: u64, duration_ms: u64 },
 }
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Instant;
-use std::sync::atomic::Ordering;
 use tokio::sync::{broadcast, mpsc};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info};
 
 /// STT processor state
 #[derive(Debug, Clone)]
@@ -74,11 +67,9 @@ impl SttMetrics {
 /// Generic STT processor that works with any streaming STT implementation
 pub struct SttProcessor<T: StreamingStt> {
     /// Audio frame receiver (broadcast from pipeline)
-    audio_rx: broadcast::Receiver<AudioFrame>,
+    audio_rx: broadcast::Receiver<SharedAudioFrame>,
     /// VAD event receiver
     vad_event_rx: mpsc::Receiver<VadEvent>,
-    /// Transcription event sender
-    event_tx: mpsc::Sender<TranscriptionEvent>,
     /// Streaming STT implementation
     stt_engine: T,
     /// Current utterance state
@@ -100,7 +91,7 @@ pub struct SttProcessor<T: StreamingStt> {
 impl<T: StreamingStt + Send> SttProcessor<T> {
     /// Create a new STT processor
     pub fn new(
-        audio_rx: broadcast::Receiver<AudioFrame>,
+        audio_rx: broadcast::Receiver<SharedAudioFrame>,
         vad_event_rx: mpsc::Receiver<VadEvent>,
         event_tx: mpsc::Sender<TranscriptionEvent>,
         stt_engine: T,
@@ -114,10 +105,11 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
         }
 
         let metrics = Arc::new(parking_lot::RwLock::new(SttMetrics::default()));
+        let stt_metrics_clone = stt_metrics.clone();
+        let pipeline_metrics_clone = pipeline_metrics.clone();
         Self {
             audio_rx,
             vad_event_rx,
-            event_tx: event_tx.clone(),
             stt_engine,
             state: UtteranceState::Idle,
             metrics: metrics.clone(),
@@ -125,7 +117,12 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
             pipeline_metrics,
             config,
             buffer_mgr: None,
-            emitter: EventEmitter::new(event_tx, metrics, stt_metrics.clone(), pipeline_metrics.clone()),
+            emitter: EventEmitter::new(
+                event_tx,
+                metrics,
+                stt_metrics_clone,
+                pipeline_metrics_clone,
+            ),
         }
     }
 
@@ -199,7 +196,9 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
     async fn handle_speech_start(&mut self, timestamp_ms: u64) {
         debug!(target: "stt", "STT processor received SpeechStart at {}ms", timestamp_ms);
 
-        self.pipeline_metrics.speech_segments_count.fetch_add(1, Ordering::Relaxed);
+        self.pipeline_metrics
+            .speech_segments_count
+            .fetch_add(1, Ordering::Relaxed);
 
         // Store the start time as Instant for duration calculations
         let start_instant = Instant::now();
@@ -220,132 +219,62 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
     async fn handle_speech_end(&mut self, _timestamp_ms: u64, _duration_ms: Option<u64>) {
         debug!(target: "stt", "Starting handle_speech_end()");
 
-        // Process the buffered audio all at once
         if let Some(mgr) = &mut self.buffer_mgr {
             mgr.log_processing_info();
 
             if mgr.buffer_size() > 0 {
-                // Process chunks and emit events
-                for chunk in mgr.chunks(SAMPLE_RATE_HZ as usize) {
-                    if let Some(event) = self.stt_engine.on_speech_frame(chunk).await {
-                        self.emitter.emit(event).await.ok();
+                let frames_buffered = mgr.frames_buffered();
+
+                // Borrow stt_engine and process buffered chunks through it
+                let events = mgr.process_chunks_with_engine(&mut self.stt_engine).await;
+
+                debug!(
+                    target: "stt",
+                    "Finished streaming {} frames to STT engine",
+                    frames_buffered
+                );
+
+                for event in events {
+                    if let Some(ev) = event {
+                        self.emitter.emit(ev).await.ok();
                     }
                 }
-                debug!(target: "stt", "Finished streaming frames to STT engine");
-                let mut metrics = self.metrics.write();
-                metrics.frames_out += mgr.frames_buffered();
-                metrics.last_event_time = Some(Instant::now());
-                mgr.clear();
-            }
 
-            // Finalize to get any remaining transcription
-            let result = self.stt_engine.on_speech_end().await;
-            match result {
-                Some(event) => {
-                    debug!(target: "stt", "STT engine returned Final event: {:?}", event);
-                    self.emitter.emit(event).await.ok();
-                }
-                None => {
-                    debug!(target: "stt", "STT engine returned None on speech end");
+                if frames_buffered > 0 {
+                    self.metrics.write().frames_out += frames_buffered;
                 }
             }
 
-            // Clear the buffer manager
+            if let Some(event) = self.stt_engine.on_speech_end().await {
+                debug!(target: "stt", "STT engine returned Final event: {:?}", event);
+                self.emitter.emit(event).await.ok();
+            } else {
+                debug!(target: "stt", "STT engine returned None on speech end");
+            }
+
             self.buffer_mgr = None;
         }
 
         self.state = UtteranceState::Idle;
     }
 
-    /// Handle the result from finalizing the STT engine
-    async fn handle_finalization_result(&self, result: Option<TranscriptionEvent>) {
-        match result {
-            Some(event) => {
-                debug!(target: "stt", "STT engine returned Final event: {:?}", event);
-                self.send_event(event).await;
-                let mut metrics = self.metrics.write();
-                metrics.final_count += 1;
-                metrics.last_event_time = Some(Instant::now());
-            }
-            None => {
-                debug!(target: "stt", "STT engine returned None on speech end");
-            }
-        }
-    }
-
     /// Handle incoming audio frame
-    async fn handle_audio_frame(&mut self, frame: AudioFrame) {
+    async fn handle_audio_frame(&mut self, frame: SharedAudioFrame) {
         // Update metrics
         self.metrics.write().frames_in += 1;
-        self.pipeline_metrics.capture_frames.fetch_add(1, Ordering::Relaxed);
+        self.pipeline_metrics
+            .capture_frames
+            .fetch_add(1, Ordering::Relaxed);
 
         // Only buffer if speech is active
-        self.buffer_audio_frame_if_speech_active(frame);
+        self.buffer_audio_frame_if_speech_active(&frame);
     }
 
-    /// Buffer an audio frame if speech is active and log progress periodically
-    fn buffer_audio_frame_if_speech_active(&mut self, frame: AudioFrame) {
-        if let UtteranceState::SpeechActive {
-            ref mut audio_buffer,
-            ref mut frames_buffered,
-            ..
-        } = &mut self.state
-        {
-            // Buffer the audio frame (already i16 PCM)
-            audio_buffer.extend_from_slice(&frame.data);
-            *frames_buffered += 1;
-
-            // Log periodically to show we're buffering
-            if *frames_buffered % LOGGING_INTERVAL_FRAMES == 0 {
-                debug!(
-                    target: "stt",
-                    "Buffering audio: {} frames, {} samples ({:.2}s)",
-                    frames_buffered,
-                    audio_buffer.len(),
-                    audio_buffer.len() as f32 / SAMPLE_RATE_HZ as f32
-                );
-            }
-        }
-    }
-
-    /// Send transcription event
-    async fn send_event(&self, event: TranscriptionEvent) {
-        // Log the event
-        match &event {
-            TranscriptionEvent::Partial { text, .. } => {
-                info!(target: "stt", "Partial: {}", text);
-                self.metrics.write().partial_count += 1;
-            }
-            TranscriptionEvent::Final { text, words, .. } => {
-                let word_count = words.as_ref().map(|w| w.len()).unwrap_or(0);
-                info!(target: "stt", "Final: {} (words: {})", text, word_count);
-                self.metrics.write().final_count += 1;
-            }
-            TranscriptionEvent::Error { code, message } => {
-                error!(target: "stt", "Error [{}]: {}", code, message);
-                self.metrics.write().error_count += 1;
-            }
-        }
-
-        // Send to channel with backpressure - wait if channel is full
-        // Use timeout to prevent indefinite blocking
-        match tokio::time::timeout(
-            std::time::Duration::from_secs(SEND_TIMEOUT_SECONDS),
-            self.event_tx.send(event),
-        )
-        .await
-        {
-            Ok(Ok(())) => {
-                // Successfully sent
-            }
-            Ok(Err(_)) => {
-                // Channel closed
-                debug!(target: "stt", "Event channel closed");
-            }
-            Err(_) => {
-                // Timeout - consumer is too slow
-                warn!(target: "stt", "Event channel send timed out after 5s - consumer too slow");
-                self.metrics.write().frames_dropped += 1;
+    /// Buffer an audio frame if speech is active
+    fn buffer_audio_frame_if_speech_active(&mut self, frame: &SharedAudioFrame) {
+        if let UtteranceState::SpeechActive { .. } = &mut self.state {
+            if let Some(mgr) = &mut self.buffer_mgr {
+                mgr.add_frame(frame.samples.as_ref());
             }
         }
     }
@@ -354,11 +283,12 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::constants::SAMPLE_RATE_HZ;
     use crate::{StreamingStt, TranscriptionConfig};
     use std::sync::Arc;
     use std::sync::Mutex;
-    use tokio::sync::{mpsc};
     use std::time::Instant;
+    use tokio::sync::mpsc;
 
     // Helper to get text from event for assertions
     fn get_text(event: &TranscriptionEvent) -> Option<&str> {
@@ -411,7 +341,6 @@ mod tests {
         }
     }
 
-
     #[tokio::test]
     async fn test_processor_basic_flow() {
         // Setup event channel for testing
@@ -449,18 +378,24 @@ mod tests {
         // Test SpeechStart - should initialize buffer and reset STT
         let speech_start_timestamp = 100u64;
         processor.handle_speech_start(speech_start_timestamp).await;
-        
-        assert!(processor.buffer_mgr.is_some(), "Buffer manager should be initialized");
-        assert!(matches!(processor.state, UtteranceState::SpeechActive { .. }), "State should be SpeechActive");
+
+        assert!(
+            processor.buffer_mgr.is_some(),
+            "Buffer manager should be initialized"
+        );
+        assert!(
+            matches!(processor.state, UtteranceState::SpeechActive { .. }),
+            "State should be SpeechActive"
+        );
 
         // Test audio frame - should buffer if active
-        let frame = AudioFrame {
-            data: vec![42i16; 160], // 10ms of audio
-            timestamp_ms: 150,
-            sample_rate: 16000,
+        let frame = SharedAudioFrame {
+            samples: Arc::from(vec![42i16; 160]), // 10ms of audio
+            timestamp: Instant::now(),
+            sample_rate: SAMPLE_RATE_HZ,
         };
         processor.handle_audio_frame(frame.clone()).await;
-        
+
         let mgr = processor.buffer_mgr.as_ref().unwrap();
         assert_eq!(mgr.buffer_size(), 160, "Frame should be buffered");
         assert_eq!(mgr.frames_buffered(), 1, "One frame should be counted");
@@ -482,12 +417,21 @@ mod tests {
         }
 
         assert_eq!(events.len(), 2, "Should receive partial and final events");
-        assert!(events.iter().any(|e| get_text(e) == Some("partial mock")), "Should have partial event");
-        assert!(events.iter().any(|e| get_text(e) == Some("final mock")), "Should have final event");
+        assert!(
+            events.iter().any(|e| get_text(e) == Some("partial mock")),
+            "Should have partial event"
+        );
+        assert!(
+            events.iter().any(|e| get_text(e) == Some("final mock")),
+            "Should have final event"
+        );
 
         // Verify buffer cleared and state reset
         assert!(processor.buffer_mgr.is_none(), "Buffer should be cleared");
-        assert!(matches!(processor.state, UtteranceState::Idle), "State should be Idle");
+        assert!(
+            matches!(processor.state, UtteranceState::Idle),
+            "State should be Idle"
+        );
 
         // Verify metrics updated
         let metrics = processor.metrics();
