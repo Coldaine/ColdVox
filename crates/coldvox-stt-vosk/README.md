@@ -52,19 +52,15 @@ match transcriber.accept_frame(&pcm_samples)? {
 
 ## Model Setup
 
-1. Download a Vosk model from https://alphacephei.com/vosk/models
-2. Extract to `models/vosk-model-small-en-us-0.15` (or set `VOSK_MODEL_PATH`)
-3. The model path can be configured via:
-   - `TranscriptionConfig::model_path` field
-   - `VOSK_MODEL_PATH` environment variable
-   - Default: `models/vosk-model-small-en-us-0.15`
+- **Automatic**: Place a `vosk-model-*.zip` file in the project root or `models/` directory. The model will be automatically extracted on first run.
+- **Manual**: Extract a Vosk model to `models/vosk-model-*`.
 
-Example setup:
-```bash
-wget https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip
-unzip vosk-model-small-en-us-0.15.zip
-mv vosk-model-small-en-us-0.15 models/
-```
+The model path is resolved as follows:
+1.  `VOSK_MODEL_PATH` environment variable.
+2.  Path from configuration.
+3.  Autodetection of `vosk-model-*` directories in `models/` and up to 3 parent directories.
+4.  Auto-extraction of `vosk-model-*.zip` files in the same locations.
+
 
 ## Configuration Options
 
@@ -74,6 +70,7 @@ mv vosk-model-small-en-us-0.15 models/
 - `max_alternatives`: Number of alternative transcriptions (1-10)
 - `include_words`: Include word-level timing information
 - `buffer_size_ms`: Audio buffer size in milliseconds
+- `auto_extract_model`: Enable/disable automatic model extraction.
 
 ## Performance Notes
 
