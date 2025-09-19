@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 coldvox-foundation = { path = "../coldvox-foundation" }
-coldvox-telemetry = { path = "../coldvox-telemetry" }
+coldvox-telemetry = { path = "../coldvox-telemetry", optional = true }
 cpal = "0.16"
 rtrb = "0.3"
 dasp = { version = "0.11", features = ["all"] }
@@ -20,7 +20,8 @@ anyhow = "1.0"
 thiserror = "2.0"
 
 [features]
-default = []
+default = ["telemetry"]
+telemetry = ["dep:coldvox-telemetry"]
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }

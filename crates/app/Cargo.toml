@@ -85,7 +85,7 @@ coldvox-telemetry = { path = "../coldvox-telemetry" }
 coldvox-audio = { path = "../coldvox-audio" }
 coldvox-vad = { path = "../coldvox-vad" }
 coldvox-vad-silero = { path = "../coldvox-vad-silero", features = ["silero"] }
-coldvox-stt = { path = "../coldvox-stt", features = ["parakeet", "whisper"] }
+coldvox-stt = { path = "../coldvox-stt" }
 csv = "1.3"
 cpal = "0.16.0"
 coldvox-stt-vosk = { path = "../coldvox-stt-vosk", optional = true }
@@ -102,8 +102,8 @@ rand = "0.8"
 default = ["silero", "text-injection", "vosk"]
 live-hardware-tests = []
 vosk = ["dep:coldvox-stt-vosk", "coldvox-stt-vosk/vosk", "coldvox-stt/vosk"]
-parakeet = []
-whisper = []
+parakeet = ["coldvox-stt/parakeet"]
+whisper = ["coldvox-stt/whisper"]
 no-stt = []
 examples = []
 text-injection = ["dep:coldvox-text-injection"]

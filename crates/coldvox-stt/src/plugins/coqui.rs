@@ -3,6 +3,8 @@
 //! Coqui STT is an open-source speech recognition engine based on
 //! TensorFlow, offering good accuracy with moderate resource usage.
 
+use crate::common::{noop_finalize, not_yet_available, unavailable_check};
+use crate::helpers::not_yet_implemented;
 use async_trait::async_trait;
 use parking_lot::RwLock;
 use std::path::PathBuf;
@@ -154,26 +156,22 @@ impl SttPlugin for CoquiPlugin {
     }
 
     async fn is_available(&self) -> Result<bool, SttPluginError> {
-        Ok(false) // Not yet implemented
+        unavailable_check().await
     }
 
     async fn initialize(&mut self, _config: TranscriptionConfig) -> Result<(), SttPluginError> {
-        Err(SttPluginError::NotAvailable {
-            reason: "Coqui STT integration not yet implemented".to_string(),
-        })
+        Err(not_yet_available("coqui"))
     }
 
     async fn process_audio(
         &mut self,
         _samples: &[i16],
     ) -> Result<Option<TranscriptionEvent>, SttPluginError> {
-        Err(SttPluginError::NotAvailable {
-            reason: "Coqui STT plugin not yet implemented".to_string(),
-        })
+        not_yet_implemented("Coqui STT")
     }
 
     async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, SttPluginError> {
-        Ok(None)
+        noop_finalize().await
     }
 
     async fn reset(&mut self) -> Result<(), SttPluginError> {

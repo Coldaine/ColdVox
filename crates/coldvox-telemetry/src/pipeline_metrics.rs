@@ -3,11 +3,6 @@ use std::sync::atomic::{AtomicBool, AtomicI16, AtomicU64, AtomicUsize, Ordering}
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-#[cfg(feature = "text-injection")]
-use coldvox_text_injection::types::InjectionMetrics;
-#[cfg(feature = "text-injection")]
-use parking_lot::Mutex;
-
 /// Shared metrics for cross-thread pipeline monitoring
 #[derive(Clone)]
 pub struct PipelineMetrics {
@@ -53,89 +48,61 @@ pub struct PipelineMetrics {
     // STT metrics (plugin manager)
     pub stt_failover_count: Arc<AtomicU64>,
     pub stt_total_errors: Arc<AtomicU64>,
-    /// Seconds since process start of last failover (0 = none)
     pub stt_last_failover_secs: Arc<AtomicU64>,
-    /// Number of successful plugin unloads
     pub stt_unload_count: Arc<AtomicU64>,
-    /// Number of plugin unload errors
     pub stt_unload_errors: Arc<AtomicU64>,
-
-    /// Number of successful plugin loads
     pub stt_load_count: Arc<AtomicU64>,
-    /// Number of plugin load errors
     pub stt_load_errors: Arc<AtomicU64>,
-    /// Number of successful initializations
     pub stt_init_success: Arc<AtomicU64>,
-    /// Number of initialization failures
     pub stt_init_failures: Arc<AtomicU64>,
-    /// Current number of active plugins
     pub stt_active_plugins: Arc<AtomicUsize>,
-    /// Number of transcription requests
     pub stt_transcription_requests: Arc<AtomicU64>,
-    /// Number of successful transcriptions
     pub stt_transcription_success: Arc<AtomicU64>,
-    /// Number of transcription failures
     pub stt_transcription_failures: Arc<AtomicU64>,
-    /// Last transcription latency in ms
     pub stt_last_transcription_latency_ms: Arc<AtomicU64>,
-    /// Last plugin load duration in ms
     pub stt_last_load_duration_ms: Arc<AtomicU64>,
-    /// Last initialization duration in ms
     pub stt_last_init_duration_ms: Arc<AtomicU64>,
-    /// Last unload duration in ms
     pub stt_last_unload_duration_ms: Arc<AtomicU64>,
-    /// Audio processing FPS * 10
     pub stt_audio_fps: Arc<AtomicU64>,
-    /// Number of GC runs
     pub stt_gc_runs: Arc<AtomicU64>,
-    // Text Injection Metrics
-    #[cfg(feature = "text-injection")]
-    pub injection: Arc<Mutex<InjectionMetrics>>,
+    pub vad_detection_latency_ms: Arc<AtomicU64>,
+    pub vad_to_stt_handoff_latency_ms: Arc<AtomicU64>,
 }
 
 impl Default for PipelineMetrics {
     fn default() -> Self {
         Self {
-            // Audio level monitoring
             current_peak: Arc::new(AtomicI16::new(0)),
             current_rms: Arc::new(AtomicU64::new(0)),
             audio_level_db: Arc::new(AtomicI16::new(-900)),
 
-            // Pipeline stage tracking
             stage_capture: Arc::new(AtomicBool::new(false)),
             stage_chunker: Arc::new(AtomicBool::new(false)),
             stage_vad: Arc::new(AtomicBool::new(false)),
             stage_output: Arc::new(AtomicBool::new(false)),
 
-            // Buffer monitoring
             capture_buffer_fill: Arc::new(AtomicUsize::new(0)),
             chunker_buffer_fill: Arc::new(AtomicUsize::new(0)),
             vad_buffer_fill: Arc::new(AtomicUsize::new(0)),
 
-            // Frame rate tracking
             capture_fps: Arc::new(AtomicU64::new(0)),
             chunker_fps: Arc::new(AtomicU64::new(0)),
             vad_fps: Arc::new(AtomicU64::new(0)),
 
-            // Event counters
             capture_frames: Arc::new(AtomicU64::new(0)),
             chunker_frames: Arc::new(AtomicU64::new(0)),
 
-            // Latency tracking
             capture_to_chunker_ms: Arc::new(AtomicU64::new(0)),
             chunker_to_vad_ms: Arc::new(AtomicU64::new(0)),
             end_to_end_ms: Arc::new(AtomicU64::new(0)),
 
-            // Activity indicators
             is_speaking: Arc::new(AtomicBool::new(false)),
             last_speech_time: Arc::new(RwLock::new(None)),
             speech_segments_count: Arc::new(AtomicU64::new(0)),
 
-            // Error tracking
             capture_errors: Arc::new(AtomicU64::new(0)),
             chunker_errors: Arc::new(AtomicU64::new(0)),
 
-            // STT metrics (plugin manager)
             stt_failover_count: Arc::new(AtomicU64::new(0)),
             stt_total_errors: Arc::new(AtomicU64::new(0)),
             stt_last_failover_secs: Arc::new(AtomicU64::new(0)),
@@ -155,40 +122,33 @@ impl Default for PipelineMetrics {
             stt_last_unload_duration_ms: Arc::new(AtomicU64::new(0)),
             stt_audio_fps: Arc::new(AtomicU64::new(0)),
             stt_gc_runs: Arc::new(AtomicU64::new(0)),
-
-            // Text Injection Metrics
-            #[cfg(feature = "text-injection")]
-            injection: Arc::new(Mutex::new(InjectionMetrics::default())),
+            vad_detection_latency_ms: Arc::new(AtomicU64::new(0)),
+            vad_to_stt_handoff_latency_ms: Arc::new(AtomicU64::new(0)),
         }
     }
 }
 
 impl PipelineMetrics {
-    /// Update audio level from samples
     pub fn update_audio_level(&self, samples: &[i16]) {
         if samples.is_empty() {
             return;
         }
 
-        // Calculate peak
         let peak = samples.iter().map(|&s| s.abs()).max().unwrap_or(0);
         self.current_peak.store(peak, Ordering::Relaxed);
 
-        // Calculate RMS
         let sum: i64 = samples.iter().map(|&s| s as i64 * s as i64).sum();
         let rms = ((sum as f64 / samples.len() as f64).sqrt() * 1000.0) as u64;
         self.current_rms.store(rms, Ordering::Relaxed);
 
-        // Calculate dB (reference: 32768 = 0dB)
         let db = if peak > 0 {
             (20.0 * (peak as f64 / 32768.0).log10() * 10.0) as i16
         } else {
-            -900 // -90.0 dB
+            -900
         };
         self.audio_level_db.store(db, Ordering::Relaxed);
     }
 
-    /// Mark a pipeline stage as active (with decay)
     pub fn mark_stage_active(&self, stage: PipelineStage) {
         match stage {
             PipelineStage::Capture => self.stage_capture.store(true, Ordering::Relaxed),
@@ -198,16 +158,13 @@ impl PipelineMetrics {
         }
     }
 
-    /// Clear stage activity (for decay effect in UI)
     pub fn decay_stages(&self) {
-        // Called periodically to create a "pulse" effect
         self.stage_capture.store(false, Ordering::Relaxed);
         self.stage_chunker.store(false, Ordering::Relaxed);
         self.stage_vad.store(false, Ordering::Relaxed);
         self.stage_output.store(false, Ordering::Relaxed);
     }
 
-    /// Update buffer fill percentage (0-100)
     pub fn update_buffer_fill(&self, buffer: BufferType, fill_percent: usize) {
         let fill = fill_percent.min(100);
         match buffer {
@@ -218,13 +175,11 @@ impl PipelineMetrics {
     }
 
     pub fn update_capture_fps(&self, fps: f64) {
-        self.capture_fps
-            .store((fps * 10.0) as u64, Ordering::Relaxed);
+        self.capture_fps.store((fps * 10.0) as u64, Ordering::Relaxed);
     }
 
     pub fn update_chunker_fps(&self, fps: f64) {
-        self.chunker_fps
-            .store((fps * 10.0) as u64, Ordering::Relaxed);
+        self.chunker_fps.store((fps * 10.0) as u64, Ordering::Relaxed);
     }
 
     pub fn update_vad_fps(&self, fps: f64) {
@@ -237,6 +192,20 @@ impl PipelineMetrics {
 
     pub fn increment_chunker_frames(&self) {
         self.chunker_frames.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn update_vad_detection_latency(&self, latency_ms: u64) {
+        let current = self.vad_detection_latency_ms.load(Ordering::Relaxed);
+        if latency_ms > current {
+            self.vad_detection_latency_ms.store(latency_ms, Ordering::Relaxed);
+        }
+    }
+
+    pub fn update_vad_to_stt_handoff_latency(&self, latency_ms: u64) {
+        let current = self.vad_to_stt_handoff_latency_ms.load(Ordering::Relaxed);
+        if latency_ms > current {
+            self.vad_to_stt_handoff_latency_ms.store(latency_ms, Ordering::Relaxed);
+        }
     }
 }
 
@@ -269,8 +238,6 @@ impl FpsTracker {
         }
     }
 
-    // Call this for every frame processed.
-    // It returns the new FPS value once per second.
     pub fn tick(&mut self) -> Option<f64> {
         self.frame_count += 1;
         let elapsed = self.last_update.elapsed();

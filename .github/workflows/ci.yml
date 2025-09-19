@@ -101,7 +101,7 @@ jobs:
     needs: [setup-vosk-dependencies]
     strategy:
       matrix:
-        rust-version: [stable, "1.75"] # MSRV is 1.75
+        rust-version: [stable, "1.90"] # MSRV is 1.90
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
@@ -286,8 +286,9 @@ jobs:
           echo "Cleaning up background processes..."
           # Kill Xvfb
           pkill -f "Xvfb.*:99" || true
-          # Kill fluxbox
+          # Kill fluxbox/openbox
           pkill -f "fluxbox.*:99" || true
+          pkill -f "openbox.*:99" || true
           # Kill dbus-daemon if it was started by this session
           if [[ -n "${DBUS_SESSION_BUS_PID:-}" ]]
             then

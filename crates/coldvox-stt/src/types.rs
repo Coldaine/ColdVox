@@ -1,7 +1,7 @@
 //! Core types for speech-to-text functionality
 
 /// Transcription event types
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TranscriptionEvent {
     /// Partial transcription result (ongoing speech)
     Partial {
@@ -24,7 +24,7 @@ pub enum TranscriptionEvent {
 }
 
 /// Word-level timing and confidence information
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct WordInfo {
     /// Start time in seconds
     pub start: f32,
@@ -69,7 +69,7 @@ impl Default for TranscriptionConfig {
             partial_results: true,
             max_alternatives: 1,
             include_words: false,
-            buffer_size_ms: 512,
+            buffer_size_ms: crate::constants::FRAME_SIZE_SAMPLES,
             streaming: false, // Default to batch mode for backward compatibility
             auto_extract_model: true,
         }

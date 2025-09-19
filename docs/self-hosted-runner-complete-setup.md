@@ -249,7 +249,7 @@ jobs:
 
   # MSRV validation
   msrv-check:
-    name: MSRV Check (Rust 1.75)
+  name: MSRV Check (Rust 1.90)
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
