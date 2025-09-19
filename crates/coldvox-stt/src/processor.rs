@@ -203,7 +203,7 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
         // Store the start time as Instant for duration calculations
         let start_instant = Instant::now();
 
-        self.buffer_mgr = Some(AudioBufferManager::new());
+        self.buffer_mgr = Some(AudioBufferManager::new(start_instant));
 
         self.state = UtteranceState::SpeechActive {
             started_at: start_instant,
@@ -224,7 +224,9 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
 
             if mgr.buffer_size() > 0 {
                 let frames_buffered = mgr.frames_buffered();
-                let events = mgr.process_chunks(&mut self.stt_engine).await;
+
+                // Borrow stt_engine and process buffered chunks through it
+                let events = mgr.process_chunks_with_engine(&mut self.stt_engine).await;
 
                 debug!(
                     target: "stt",
@@ -233,7 +235,9 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
                 );
 
                 for event in events {
-                    self.emitter.emit(event).await.ok();
+                    if let Some(ev) = event {
+                        self.emitter.emit(ev).await.ok();
+                    }
                 }
 
                 if frames_buffered > 0 {
