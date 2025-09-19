@@ -85,22 +85,11 @@ pub enum PlaybackMode {
     Deterministic,
 }
 
-/// Initialize tracing for tests with debug level
-fn init_test_tracing() {
-    use std::sync::Once;
-    use tracing_subscriber::{fmt, EnvFilter};
-
-    static INIT: Once = Once::new();
-    INIT.call_once(|| {
-        let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("debug"));
-
-        fmt().with_env_filter(filter).with_test_writer().init();
-    });
-}
+use super::test_common::setup_test_env;
 
 /// Initialize test infrastructure (tracing, sleep observer)
 pub fn init_test_infrastructure() {
-    init_test_tracing();
+    setup_test_env();
     crate::sleep_instrumentation::init_sleep_observer();
 }
 

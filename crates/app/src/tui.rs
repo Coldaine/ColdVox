@@ -682,16 +682,28 @@ fn draw_metrics(f: &mut Frame, area: Rect, state: &DashboardState) {
 
 fn draw_status(f: &mut Frame, area: Rect, state: &DashboardState) {
     let block = Block::default().title("Status & VAD").borders(Borders::ALL);
-
     let inner = block.inner(area);
     f.render_widget(block, area);
 
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(4), // Pipeline status
+            Constraint::Length(4), // VAD status
+            Constraint::Min(4),    // STT status
+            Constraint::Length(2), // Controls
+        ])
+        .split(inner);
+
+    draw_pipeline_status(f, chunks[0], state);
+    draw_vad_status(f, chunks[1], state);
+    draw_stt_status(f, chunks[2], state);
+    draw_controls(f, chunks[3], state);
+}
+
+fn draw_pipeline_status(f: &mut Frame, area: Rect, state: &DashboardState) {
     let status_color = if state.is_running {
-        if state.is_speaking {
-            Color::Yellow
-        } else {
-            Color::Green
-        }
+        Color::Green
     } else {
         Color::Gray
     };
@@ -718,8 +730,13 @@ fn draw_status(f: &mut Frame, area: Rect, state: &DashboardState) {
             ActivationMode::Hotkey => "Push-to-talk",
         }
     )));
-    status_text.push(Line::from(""));
-    status_text.push(Line::from(vec![
+    let paragraph = Paragraph::new(status_text);
+    f.render_widget(paragraph, area);
+}
+
+fn draw_vad_status(f: &mut Frame, area: Rect, state: &DashboardState) {
+    let mut vad_text: Vec<Line> = Vec::new();
+    vad_text.push(Line::from(vec![
         Span::raw("Speaking: "),
         Span::styled(
             if state.is_speaking { "YES" } else { "NO" },
@@ -730,35 +747,42 @@ fn draw_status(f: &mut Frame, area: Rect, state: &DashboardState) {
             }),
         ),
     ]));
-    status_text.push(Line::from(format!(
+    vad_text.push(Line::from(format!(
         "Speech Segments: {}",
         state.speech_segments
     )));
-    status_text.push(Line::from(""));
-    status_text.push(Line::from("Last VAD Event:"));
-    status_text.push(Line::from(
+    vad_text.push(Line::from("Last VAD Event:"));
+    vad_text.push(Line::from(
         state.last_vad_event.as_deref().unwrap_or("None"),
     ));
+    let paragraph = Paragraph::new(vad_text);
+    f.render_widget(paragraph, area);
+}
+
+fn draw_stt_status(f: &mut Frame, area: Rect, state: &DashboardState) {
+    let mut stt_text: Vec<Line> = Vec::new();
     #[cfg(feature = "vosk")]
     {
-        status_text.push(Line::from(""));
-        status_text.push(Line::from("Last Transcript (final):"));
+        stt_text.push(Line::from("Last Transcript (final):"));
         let txt = state.last_transcript.as_deref().unwrap_or("None");
         let trunc = if txt.len() > 80 {
             format!("{}…", &txt[..80])
         } else {
             txt.to_string()
         };
-        status_text.push(Line::from(trunc));
+        stt_text.push(Line::from(trunc));
     }
-    status_text.push(Line::from(""));
-    status_text.push(Line::from("Controls:"));
-    status_text.push(Line::from(
-        "[S] Start  [A] Toggle VAD/PTT  [R] Reset  [Q] Quit",
-    ));
+    let paragraph = Paragraph::new(stt_text);
+    f.render_widget(paragraph, area);
+}
 
-    let paragraph = Paragraph::new(status_text);
-    f.render_widget(paragraph, inner);
+fn draw_controls(f: &mut Frame, area: Rect, _state: &DashboardState) {
+    let controls_text = vec![
+        Line::from("Controls:"),
+        Line::from("[S] Start  [A] Toggle VAD/PTT  [R] Reset  [Q] Quit"),
+    ];
+    let paragraph = Paragraph::new(controls_text);
+    f.render_widget(paragraph, area);
 }
 
 fn draw_logs(f: &mut Frame, area: Rect, state: &DashboardState) {

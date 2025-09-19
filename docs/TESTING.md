@@ -121,6 +121,85 @@ cargo test -p coldvox-vad
 cargo test -p coldvox-app test_end_to_end_wav --features vosk
 ```
 
+## Nextest (Advanced Test Runner)
+
+Cargo-Nextest provides faster, clearer test runs with better flake handling for the ColdVox workspace:
+
+- **Faster execution**: Parallel test running with intelligent scheduling
+- **Better output**: Clearer failure reporting and progress tracking
+- **Flake detection**: Identifies and handles flaky tests with retries
+- **Self-hosted CI compatibility**: Works with real hardware testing
+
+### Installation
+```bash
+cargo install cargo-nextest --locked
+```
+
+### Usage Examples
+```bash
+# Run all workspace tests with nextest
+cargo nextest run --workspace --locked
+
+# Run tests for a specific crate
+cargo nextest run -p coldvox-audio
+
+# Run with Vosk model (if available)
+VOSK_MODEL_PATH="$(pwd)/models/vosk-model-small-en-us-0.15" cargo nextest run --workspace --locked
+
+# Run with retries for flaky tests
+cargo nextest run --workspace --retries 2
+
+# Limit parallelism for sensitive tests
+cargo nextest run --test-threads 1
+```
+
+### Configuration
+Create `.config/nextest.toml` for persistent settings:
+```toml
+[profile.default]
+retries = 2
+fail-fast = false
+status-level = "failures"
+final-status-level = "flaky"
+slow-timeout = { period = "120s", terminate-after = 2 }
+```
+
+## Coverage Analysis (Tarpaulin)
+
+Cargo-Tarpaulin measures code coverage to identify gaps in testing:
+
+- **Line/branch coverage**: Detailed analysis of tested code paths
+- **HTML/LCOV reports**: Visual and machine-readable output formats
+- **Linux self-hosted only**: Requires ptrace capabilities
+- **Core crates focus**: Initially excludes GUI and text injection for stability
+
+### Installation
+```bash
+cargo install cargo-tarpaulin --locked
+```
+
+### Usage Examples
+```bash
+# Run coverage for a specific crate with Vosk features
+cargo tarpaulin -p coldvox-stt --features vosk --out Html --output-dir coverage
+
+# Run coverage for core crates (recommended)
+cargo tarpaulin \
+  --packages coldvox-foundation coldvox-telemetry coldvox-audio coldvox-vad coldvox-vad-silero coldvox-stt coldvox-stt-vosk \
+  --features vosk \
+  --exclude coldvox-gui --exclude coldvox-text-injection \
+  --out Html --out Lcov --output-dir coverage
+
+# Open HTML report
+open coverage/tarpaulin-report.html
+```
+
+### Coverage Goals
+- **Core crates**: >80% line coverage
+- **Foundation/Telemetry**: >90% line coverage
+- **Audio/VAD/STT**: >85% line coverage
+- **GUI/Text Injection**: Evaluate separately due to platform dependencies
+
 ## Key Testing Principles
 
 ### Real Hardware Testing
@@ -175,6 +254,14 @@ sudo chmod 666 /dev/uinput
 cargo test                                    # All tests including integration
 cargo check --all-targets                    # Quick compile check
 cargo test --workspace                       # All crates with real hardware
+
+# Advanced testing with nextest
+just test-nextest                            # Run all tests with nextest
+cargo nextest run --workspace --locked       # Direct nextest command
+
+# Coverage analysis
+just test-coverage                           # Run coverage for core crates
+cargo tarpaulin -p coldvox-audio             # Coverage for specific crate
 
 # Environment setup
 ./scripts/ci/setup-vosk-cache.sh            # Setup models for all tests

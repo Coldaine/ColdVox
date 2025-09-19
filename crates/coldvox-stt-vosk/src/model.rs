@@ -281,10 +281,7 @@ fn extract_model(zip_path: &std::path::Path) -> Result<ModelInfo, ModelError> {
 
         for i in 0..archive.len() {
             let mut file = archive.by_index(i)?;
-            let outpath = temp_dir.join(
-                file.enclosed_name()
-                    .ok_or("Invalid file path in zip")?,
-            );
+            let outpath = temp_dir.join(file.enclosed_name().ok_or("Invalid file path in zip")?);
 
             if file.name().ends_with('/') {
                 std::fs::create_dir_all(&outpath)?;
