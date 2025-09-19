@@ -3,7 +3,17 @@
 //! This is a stub implementation for the Whisper speech recognition engine.
 //! Future work will integrate with whisper.cpp or whisper-rs for actual transcription.
 
+// Typed constants for Whisper plugin configuration
+const WHISPER_TINY_MEMORY_MB: u32 = 100;
+const WHISPER_BASE_MEMORY_MB: u32 = 200;
+const WHISPER_SMALL_MEMORY_MB: u32 = 500;
+const WHISPER_MEDIUM_MEMORY_MB: u32 = 1500;
+const WHISPER_LARGE_MEMORY_MB: u32 = 3000;
+const DEFAULT_CONFIDENCE_SCORE: f32 = 0.95;
+const DEFAULT_WORD_DURATION_SECONDS: f32 = 0.5;
+
 use crate::plugin::*;
+use crate::plugins::common::simple_reset;
 use crate::types::{TranscriptionConfig, TranscriptionEvent, WordInfo};
 use async_trait::async_trait;
 use std::path::{Path, PathBuf};
@@ -35,11 +45,11 @@ pub enum WhisperModelSize {
 impl WhisperModelSize {
     fn memory_usage_mb(&self) -> u32 {
         match self {
-            Self::Tiny => 100,
-            Self::Base => 200,
-            Self::Small => 500,
-            Self::Medium => 1500,
-            Self::Large | Self::LargeV2 | Self::LargeV3 => 3000,
+            Self::Tiny => WHISPER_TINY_MEMORY_MB,
+            Self::Base => WHISPER_BASE_MEMORY_MB,
+            Self::Small => WHISPER_SMALL_MEMORY_MB,
+            Self::Medium => WHISPER_MEDIUM_MEMORY_MB,
+            Self::Large | Self::LargeV2 | Self::LargeV3 => WHISPER_LARGE_MEMORY_MB,
         }
     }
 
@@ -316,14 +326,14 @@ impl SttPlugin for WhisperPlugin {
                 WordInfo {
                     text: "[Whisper".to_string(),
                     start: 0.0,
-                    end: 0.5,
-                    conf: 0.95,
+                    end: DEFAULT_WORD_DURATION_SECONDS,
+                    conf: DEFAULT_CONFIDENCE_SCORE,
                 },
                 WordInfo {
                     text: "stub:]".to_string(),
-                    start: 0.5,
+                    start: DEFAULT_WORD_DURATION_SECONDS,
                     end: 1.0,
-                    conf: 0.95,
+                    conf: DEFAULT_CONFIDENCE_SCORE,
                 },
             ]),
         }))
@@ -332,7 +342,7 @@ impl SttPlugin for WhisperPlugin {
     async fn reset(&mut self) -> Result<(), SttPluginError> {
         // Reset internal state for new transcription session
         // In a real implementation, would clear audio buffers and reset model state
-        Ok(())
+        simple_reset().await
     }
 
     async fn load_model(&mut self, model_path: Option<&Path>) -> Result<(), SttPluginError> {

@@ -1,6 +1,7 @@
 //! No-operation STT plugin for testing and fallback
 
 use crate::plugin::*;
+use crate::plugins::common::{always_available, noop_finalize, simple_reset};
 use crate::types::{TranscriptionConfig, TranscriptionEvent};
 use async_trait::async_trait;
 
@@ -51,7 +52,7 @@ impl SttPlugin for NoOpPlugin {
     }
 
     async fn is_available(&self) -> Result<bool, SttPluginError> {
-        Ok(true) // Always available
+        always_available().await
     }
 
     async fn initialize(&mut self, _config: TranscriptionConfig) -> Result<(), SttPluginError> {
@@ -68,11 +69,11 @@ impl SttPlugin for NoOpPlugin {
     }
 
     async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, SttPluginError> {
-        Ok(None)
+        noop_finalize().await
     }
 
     async fn reset(&mut self) -> Result<(), SttPluginError> {
-        Ok(())
+        simple_reset().await
     }
 }
 

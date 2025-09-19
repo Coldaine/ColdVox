@@ -1238,6 +1238,7 @@ impl Drop for SttPluginManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::stt::tests::test_common::setup_test_env;
     use coldvox_stt::plugin::{FailoverConfig, GcPolicy};
 
     /// Create a test manager - uses Mock plugin for tests to avoid model dependencies
@@ -1251,14 +1252,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_unload_plugin() {
-        // Set VOSK_MODEL_PATH for the test
-        let model_path = std::path::Path::new("models/vosk-model-small-en-us-0.15")
-            .canonicalize()
-            .unwrap_or_else(|_| std::path::PathBuf::from("models/vosk-model-small-en-us-0.15"))
-            .to_string_lossy()
-            .to_string();
-        std::env::set_var("VOSK_MODEL_PATH", model_path);
-
+        setup_test_env();
         let mut manager = create_test_manager();
 
         // Initialize with a plugin
@@ -1362,6 +1356,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_unload_metrics() {
+        setup_test_env();
         let metrics = Arc::new(PipelineMetrics::default());
         let mut manager = SttPluginManager::new().with_metrics_sink(metrics.clone());
 
@@ -1403,6 +1398,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_unload_error_metrics() {
+        setup_test_env();
         let metrics = Arc::new(PipelineMetrics::default());
         let mut manager = SttPluginManager::new().with_metrics_sink(metrics.clone());
 
@@ -1444,6 +1440,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_switch_plugin_unload_metrics() {
+        setup_test_env();
         let metrics = Arc::new(PipelineMetrics::default());
         let mut manager = SttPluginManager::new().with_metrics_sink(metrics.clone());
 
@@ -1485,14 +1482,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_unload_idempotency() {
-        // Set VOSK_MODEL_PATH for the test
-        let model_path = std::path::Path::new("models/vosk-model-small-en-us-0.15")
-            .canonicalize()
-            .unwrap_or_else(|_| std::path::PathBuf::from("models/vosk-model-small-en-us-0.15"))
-            .to_string_lossy()
-            .to_string();
-        std::env::set_var("VOSK_MODEL_PATH", model_path);
-
+        setup_test_env();
         let mut manager = create_test_manager();
 
         // Initialize with a plugin

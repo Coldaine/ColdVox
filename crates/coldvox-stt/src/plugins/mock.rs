@@ -1,6 +1,11 @@
 //! Mock STT plugin for testing
 
+// Typed constants for mock plugin configuration
+const DEFAULT_CONFIDENCE_SCORE: f32 = 0.95;
+const DEFAULT_WORD_DURATION_SECONDS: f32 = 0.5;
+
 use crate::plugin::*;
+use crate::plugins::common::always_available;
 use crate::types::{TranscriptionConfig, TranscriptionEvent, WordInfo};
 use async_trait::async_trait;
 use std::sync::{Arc, Mutex};
@@ -75,6 +80,26 @@ impl MockPlugin {
             ..Default::default()
         })
     }
+
+    /// Create a mock transcription event with word-level timing information
+    fn create_mock_event(&self, text: String) -> TranscriptionEvent {
+        let words: Vec<WordInfo> = text
+            .split_whitespace()
+            .enumerate()
+            .map(|(i, word)| WordInfo {
+                text: word.to_string(),
+                start: i as f32 * DEFAULT_WORD_DURATION_SECONDS,
+                end: (i as f32 + 1.0) * DEFAULT_WORD_DURATION_SECONDS,
+                conf: DEFAULT_CONFIDENCE_SCORE,
+            })
+            .collect();
+
+        TranscriptionEvent::Final {
+            utterance_id: crate::next_utterance_id(),
+            text,
+            words: Some(words),
+        }
+    }
 }
 
 impl Default for MockPlugin {
@@ -111,7 +136,7 @@ impl SttPlugin for MockPlugin {
     }
 
     async fn is_available(&self) -> Result<bool, SttPluginError> {
-        Ok(true)
+        always_available().await
     }
 
     async fn initialize(&mut self, _config: TranscriptionConfig) -> Result<(), SttPluginError> {
@@ -152,7 +177,7 @@ impl SttPlugin for MockPlugin {
 
         // Check for immediate transcription
         if let Some(ref text) = self.config.immediate_transcription {
-            return Ok(Some(create_mock_event(text.clone())));
+            return Ok(Some(self.create_mock_event(text.clone())));
         }
 
         // Check for delayed transcription
@@ -179,7 +204,7 @@ impl SttPlugin for MockPlugin {
 
         if should_transcribe {
             if let Some((_, ref text)) = self.config.transcription_after_chunks {
-                return Ok(Some(create_mock_event(text.clone())));
+                return Ok(Some(self.create_mock_event(text.clone())));
             }
         }
 
@@ -201,7 +226,7 @@ impl SttPlugin for MockPlugin {
                 state.chunks_processed
             );
             let text = "mock test transcription".to_string();
-            return Ok(Some(create_mock_event(text)));
+            return Ok(Some(self.create_mock_event(text)));
         }
 
         info!("MockPlugin: no Final event on finalize (no chunks processed)");
@@ -214,25 +239,6 @@ impl SttPlugin for MockPlugin {
         state.calls_made = 0;
         state.has_session_audio = false;
         Ok(())
-    }
-}
-
-fn create_mock_event(text: String) -> TranscriptionEvent {
-    let words: Vec<WordInfo> = text
-        .split_whitespace()
-        .enumerate()
-        .map(|(i, word)| WordInfo {
-            text: word.to_string(),
-            start: i as f32 * 0.5,
-            end: (i as f32 + 1.0) * 0.5,
-            conf: 0.95,
-        })
-        .collect();
-
-    TranscriptionEvent::Final {
-        utterance_id: crate::next_utterance_id(),
-        text,
-        words: Some(words),
     }
 }
 

@@ -34,6 +34,28 @@ test-full:
         cargo test --workspace --locked -- --skip test_end_to_end_wav_pipeline
     fi
 
+# Run workspace tests with nextest; autodetect local Vosk model
+test-nextest:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ -d "models/vosk-model-small-en-us-0.15" ]]; then
+        export VOSK_MODEL_PATH="models/vosk-model-small-en-us-0.15"
+    fi
+    cargo nextest run --workspace --locked
+
+# Coverage for core crates only, with Vosk enabled; excludes GUI & Text Injection initially
+test-coverage:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export VOSK_MODEL_PATH="${VOSK_MODEL_PATH:-models/vosk-model-small-en-us-0.15}"
+    mkdir -p coverage
+    cargo tarpaulin 
+        --locked 
+        --packages coldvox-foundation coldvox-telemetry coldvox-audio coldvox-vad coldvox-vad-silero coldvox-stt coldvox-stt-vosk 
+        --features vosk 
+        --exclude coldvox-gui --exclude coldvox-text-injection 
+        --out Html --out Lcov --output-dir coverage
+
 # Build all crates
 build:
     cargo build --workspace --locked

@@ -4,6 +4,13 @@
 //! segments and processes transcription when speech ends. The processor is designed
 //! to work with any VAD system and any STT implementation.
 
+// Typed constants for audio processing parameters
+const SAMPLE_RATE_HZ: u32 = 16_000;
+const DEFAULT_BUFFER_DURATION_SECONDS: usize = 10;
+const DEFAULT_CHUNK_SIZE_SAMPLES: usize = 16_000;
+const LOGGING_INTERVAL_FRAMES: u64 = 100;
+const SEND_TIMEOUT_SECONDS: u64 = 5;
+
 use crate::types::{TranscriptionConfig, TranscriptionEvent};
 use crate::StreamingStt;
 /// Minimal audio frame type (i16 PCM) used by the generic STT processor
@@ -180,7 +187,9 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
 
         self.state = UtteranceState::SpeechActive {
             started_at: start_instant,
-            audio_buffer: Vec::with_capacity(16000 * 10), // Pre-allocate for up to 10 seconds
+            audio_buffer: Vec::with_capacity(
+                SAMPLE_RATE_HZ as usize * DEFAULT_BUFFER_DURATION_SECONDS,
+            ), // Pre-allocate for up to 10 seconds
             frames_buffered: 0,
         };
 
@@ -206,7 +215,7 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
                 target: "stt",
                 "Processing buffered audio: {} samples ({:.2}s), {} frames",
                 buffer_size,
-                buffer_size as f32 / 16000.0,
+                buffer_size as f32 / SAMPLE_RATE_HZ as f32,
                 frames_buffered
             );
 
@@ -214,7 +223,7 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
                 // Send the entire buffer to the STT engine
                 // Stream model expects per-frame feeding; here we feed the whole buffered audio
                 // in chunks to preserve event semantics.
-                for chunk in audio_buffer.chunks(16000) {
+                for chunk in audio_buffer.chunks(DEFAULT_CHUNK_SIZE_SAMPLES) {
                     // 1 second chunks arbitrary; adjust later if needed
                     if let Some(event) = self.stt_engine.on_speech_frame(chunk).await {
                         self.send_event(event).await;
@@ -228,21 +237,26 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
 
             // Finalize to get any remaining transcription
             let result = self.stt_engine.on_speech_end().await;
-            match result {
-                Some(event) => {
-                    debug!(target: "stt", "STT engine returned Final event: {:?}", event);
-                    self.send_event(event).await;
-                    let mut metrics = self.metrics.write();
-                    metrics.final_count += 1;
-                    metrics.last_event_time = Some(Instant::now());
-                }
-                None => {
-                    debug!(target: "stt", "STT engine returned None on speech end");
-                }
-            }
+            self.handle_finalization_result(result).await;
         }
 
         self.state = UtteranceState::Idle;
+    }
+
+    /// Handle the result from finalizing the STT engine
+    async fn handle_finalization_result(&self, result: Option<TranscriptionEvent>) {
+        match result {
+            Some(event) => {
+                debug!(target: "stt", "STT engine returned Final event: {:?}", event);
+                self.send_event(event).await;
+                let mut metrics = self.metrics.write();
+                metrics.final_count += 1;
+                metrics.last_event_time = Some(Instant::now());
+            }
+            None => {
+                debug!(target: "stt", "STT engine returned None on speech end");
+            }
+        }
     }
 
     /// Handle incoming audio frame
@@ -251,6 +265,11 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
         self.metrics.write().frames_in += 1;
 
         // Only buffer if speech is active
+        self.buffer_audio_frame_if_speech_active(frame);
+    }
+
+    /// Buffer an audio frame if speech is active and log progress periodically
+    fn buffer_audio_frame_if_speech_active(&mut self, frame: AudioFrame) {
         if let UtteranceState::SpeechActive {
             ref mut audio_buffer,
             ref mut frames_buffered,
@@ -262,13 +281,13 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
             *frames_buffered += 1;
 
             // Log periodically to show we're buffering
-            if *frames_buffered % 100 == 0 {
+            if *frames_buffered % LOGGING_INTERVAL_FRAMES == 0 {
                 debug!(
                     target: "stt",
                     "Buffering audio: {} frames, {} samples ({:.2}s)",
                     frames_buffered,
                     audio_buffer.len(),
-                    audio_buffer.len() as f32 / 16000.0
+                    audio_buffer.len() as f32 / SAMPLE_RATE_HZ as f32
                 );
             }
         }
@@ -295,8 +314,11 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
 
         // Send to channel with backpressure - wait if channel is full
         // Use timeout to prevent indefinite blocking
-        match tokio::time::timeout(std::time::Duration::from_secs(5), self.event_tx.send(event))
-            .await
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(SEND_TIMEOUT_SECONDS),
+            self.event_tx.send(event),
+        )
+        .await
         {
             Ok(Ok(())) => {
                 // Successfully sent

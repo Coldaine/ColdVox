@@ -1,5 +1,6 @@
 //! Built-in STT plugin implementations
 
+pub mod common;
 pub mod mock;
 pub mod noop;
 pub mod whisper_plugin;

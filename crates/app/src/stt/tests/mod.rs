@@ -1,3 +1,4 @@
+pub mod test_common;
 pub mod timeout_utils;
 /// STT test utilities and end-to-end tests
 ///
@@ -156,7 +157,9 @@ mod vosk_tests {
                     default_path
                 );
                 if let Err(e) = result {
-                    assert!(e.contains("Vosk model not found"));
+                    assert!(e.contains(
+                        "Vosk model not found and auto-extraction failed or was disabled."
+                    ));
                 }
             }
         }
