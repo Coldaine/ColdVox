@@ -13,11 +13,13 @@ thiserror = "2.0"
 dirs = "5.0"
 serde = { version = "1.0", features = ["derive"] }
 coldvox-telemetry = { path = "../coldvox-telemetry", optional = true }
+coldvox-audio = { path = "../coldvox-audio" }
+parakeet-onnx = { package = "coldvox-stt-parakeet-onnx", path = "../coldvox-stt-parakeet-onnx", optional = true }
 
 [features]
 default = ["telemetry", "parakeet"]
 telemetry = ["dep:coldvox-telemetry"]
-parakeet = []
+parakeet = ["dep:parakeet-onnx"]
 whisper = []
 coqui = []
 leopard = []

@@ -69,7 +69,7 @@ impl Default for TranscriptionConfig {
             partial_results: true,
             max_alternatives: 1,
             include_words: false,
-            buffer_size_ms: crate::constants::FRAME_SIZE_SAMPLES,
+            buffer_size_ms: crate::constants::DEFAULT_BUFFER_SIZE_MS,
             streaming: false, // Default to batch mode for backward compatibility
             auto_extract_model: true,
         }

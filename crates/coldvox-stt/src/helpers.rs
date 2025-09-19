@@ -186,6 +186,25 @@ impl AudioBufferManager {
         self.clear();
         events
     }
+
+    /// Process buffered audio by streaming into a `StreamingStt` engine
+    /// This avoids closure lifetime issues by borrowing the engine within the loop.
+    pub async fn process_chunks_with_engine<E: crate::StreamingStt + ?Sized>(
+        &mut self,
+        engine: &mut E,
+    ) -> Vec<Option<TranscriptionEvent>> {
+        let mut events = Vec::new();
+        for chunk in self
+            .buffer
+            .chunks(crate::constants::SAMPLE_RATE_HZ as usize)
+        {
+            if let Some(event) = engine.on_speech_frame(chunk).await {
+                events.push(Some(event));
+            }
+        }
+        self.clear();
+        events
+    }
 }
 
 /// Event emitter struct
