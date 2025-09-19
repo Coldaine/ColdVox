@@ -286,8 +286,9 @@ jobs:
           echo "Cleaning up background processes..."
           # Kill Xvfb
           pkill -f "Xvfb.*:99" || true
-          # Kill fluxbox
+          # Kill fluxbox/openbox
           pkill -f "fluxbox.*:99" || true
+          pkill -f "openbox.*:99" || true
           # Kill dbus-daemon if it was started by this session
           if [[ -n "${DBUS_SESSION_BUS_PID:-}" ]]
             then
