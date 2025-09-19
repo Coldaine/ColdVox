@@ -36,35 +36,20 @@
 /home/coldaine/actions-runner/
 ```
 
----
+### Model Management
 
-## (Appended) CI Cache-as-Contract Policy Summary
+The CI system now uses the application's built-in model autodetection and auto-extraction capabilities. Runners no longer require pre-provisioned, cached models.
 
-The CI system now relies on an immutable, pre-provisioned asset cache on the self-hosted runner.
+**Requirements:**
+- A `vosk-model-*.zip` file must be present in the project's `vendor/` directory.
+- The `setup_vosk.rs` script (run during CI) will copy this zip file to the project root, where the application will find and extract it on first use.
 
-| Asset | Location | Required | CI Action if Missing |
-|-------|----------|----------|----------------------|
-| Small Vosk Model (`vosk-model-small-en-us-0.15`) | `/home/coldaine/ActionRunnerCache/vosk-models/vosk-model-small-en-us-0.15` | Yes | Fail fast (runner-health) |
-| Large Vosk Model (`vosk-model-en-us-0.22`) | `/home/coldaine/ActionRunnerCache/vosk-models/vosk-model-en-us-0.22` | No | Continue with info log |
-| libvosk Shared Library | `/usr/local/lib/libvosk.so` | Yes | Fail fast |
-| libvosk Header | `/usr/local/include/vosk_api.h` | No | Warn only |
+**Workflow:**
+1. The `setup-vosk-model` job in `ci.yml` copies the model zip from `vendor/` to the workspace root.
+2. When tests are run, the `coldvox-stt-vosk` crate automatically finds the zip, extracts it to the `models/` directory, and uses the extracted model.
+3. Subsequent runs will find the extracted model and skip the extraction step.
 
-Workflow Guarantees:
-- No network downloads of models or libvosk occur in any workflow.
-- `runner-health` job runs first (uses `scripts/runner_health_check.sh`).
-- Model setup steps only create symlinks into cached model directories.
-- Structure & optional checksum verification: `scripts/verify_vosk_model.sh`, `scripts/verify-model-integrity.sh`.
-- Library verification: `scripts/verify_libvosk.sh`.
-
-Operational Process:
-1. Provision / update assets outside CI.
-2. Re-run workflows; failures indicate drift from contract.
-3. Never edit workflows to re-enable downloads; fix the runner instead.
-
-Change Control:
-- Any modification to provisioning paths or asset names must update both the health script and README policy.
-
-End of appended policy section.
+This approach removes the dependency on a fixed-path runner cache and makes the CI setup more portable.
 
 ### Runner Labels
 ```
@@ -199,51 +184,18 @@ jobs:
           echo "All workflows render via gh."
 
   setup-vosk-model:
-    name: Setup Vosk Model from Cache
+    name: Setup Vosk Model
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
     outputs:
-      model-path: ${{ steps.get-model-path.outputs.path }}
       download-outcome: success
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Setup Vosk Model from Cache
+      - name: Setup Vosk Model
         run: |
           set -euo pipefail
-
-          # Use pre-cached models from permanent cache location
-          CACHE_DIR="/home/coldaine/ActionRunnerCache/vosk-models"
-          MODEL_DIR="models"
-
-          mkdir -p $MODEL_DIR
-
-          # Link the small model for tests (remove existing if present)
-          if [ -d "$CACHE_DIR/vosk-model-small-en-us-0.15" ]; then
-            rm -rf "$MODEL_DIR/vosk-model-small-en-us-0.15"
-            ln -sf "$CACHE_DIR/vosk-model-small-en-us-0.15" "$MODEL_DIR/"
-            echo "✅ Linked cached vosk-model-small-en-us-0.15"
-          else
-            echo "❌ Error: Vosk model not found in cache at $CACHE_DIR"
-            exit 1
-          fi
-
-          # Link the production model if available
-          if [ -d "$CACHE_DIR/vosk-model-en-us-0.22" ]; then
-            rm -rf "$MODEL_DIR/vosk-model-en-us-0.22"
-            ln -sf "$CACHE_DIR/vosk-model-en-us-0.22" "$MODEL_DIR/"
-            echo "✅ Linked cached vosk-model-en-us-0.22"
-          fi
-
-          echo ""
-          echo "Model directory contents:"
-          ls -la $MODEL_DIR/
-          echo ""
-          echo "✅ Model setup complete - using cached models"
-
-      - name: Output model path
-        id: get-model-path
-        run: |
-          echo "path=${{ github.workspace }}/models/vosk-model-small-en-us-0.15" >> $GITHUB_OUTPUT
+          # This script will copy the model zip from vendor/ to the root
+          ./scripts/setup_vosk.rs
 
   # Static checks, formatting, linting, type-check, build, and docs
   build_and_check:
@@ -282,14 +234,7 @@ jobs:
 
       - name: Run unit and integration tests (skip E2E)
         if: needs.setup-vosk-model.outputs.download-outcome == 'success'
-        env:
-          VOSK_MODEL_PATH: ${{ needs.setup-vosk-model.outputs.model-path }}
         run: |
-          echo "=== Environment Validation ==="
-          echo "VOSK_MODEL_PATH: $VOSK_MODEL_PATH"
-          echo "Model directory contents:"
-          ls -la "$VOSK_MODEL_PATH" || echo "Model directory not accessible"
-          echo "=== Running Tests ==="
           cargo test --workspace --locked --
 
       - name: Upload test artifacts on failure
