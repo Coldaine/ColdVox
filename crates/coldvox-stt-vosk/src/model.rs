@@ -37,10 +37,18 @@ impl fmt::Display for ModelError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ModelError::ExplicitPathMissing(p) => {
-                write!(f, "Vosk model path '{}' does not exist or is not a directory", p)
+                write!(
+                    f,
+                    "Vosk model path '{}' does not exist or is not a directory",
+                    p
+                )
             }
             ModelError::NotFound { checked, guidance } => {
-                write!(f, "Vosk model not found. Checked: {}. Guidance: {}", checked, guidance)
+                write!(
+                    f,
+                    "Vosk model not found. Checked: {}. Guidance: {}",
+                    checked, guidance
+                )
             }
             ModelError::ExtractionFailed(msg) => {
                 write!(f, "Failed to auto-extract model: {}", msg)
@@ -56,7 +64,10 @@ pub fn locate_model(config_path: Option<&str>) -> Result<ModelInfo, ModelError> 
     if let Ok(p) = env::var("VOSK_MODEL_PATH") {
         let pb = PathBuf::from(&p);
         if pb.is_dir() {
-            return Ok(ModelInfo { path: pb, source: ModelSource::Env });
+            return Ok(ModelInfo {
+                path: pb,
+                source: ModelSource::Env,
+            });
         } else {
             return Err(ModelError::ExplicitPathMissing(p));
         }
@@ -65,7 +76,10 @@ pub fn locate_model(config_path: Option<&str>) -> Result<ModelInfo, ModelError> 
     if let Some(cp) = config_path.filter(|s| !s.is_empty()) {
         let pb = PathBuf::from(cp);
         if pb.is_dir() {
-            return Ok(ModelInfo { path: pb, source: ModelSource::Config });
+            return Ok(ModelInfo {
+                path: pb,
+                source: ModelSource::Config,
+            });
         } else {
             return Err(ModelError::ExplicitPathMissing(cp.to_string()));
         }
@@ -73,10 +87,16 @@ pub fn locate_model(config_path: Option<&str>) -> Result<ModelInfo, ModelError> 
 
     let candidates = find_model_candidates();
     if !candidates.is_empty() {
-        tracing::debug!(count = candidates.len(), "Vosk model discovery candidates found");
+        tracing::debug!(
+            count = candidates.len(),
+            "Vosk model discovery candidates found"
+        );
     }
     if let Some(best_candidate) = pick_best_candidate(candidates) {
-        return Ok(ModelInfo { path: best_candidate, source: ModelSource::ModelsDir });
+        return Ok(ModelInfo {
+            path: best_candidate,
+            source: ModelSource::ModelsDir,
+        });
     }
 
     Err(ModelError::NotFound {
@@ -97,10 +117,13 @@ fn find_model_candidates() -> Vec<PathBuf> {
             if models_path.is_dir() {
                 if let Ok(entries) = std::fs::read_dir(models_path) {
                     for entry in entries.filter_map(Result::ok) {
-                        if entry.file_type().map_or(false, |ft| ft.is_dir()) {
-                            if entry.file_name().to_string_lossy().starts_with("vosk-model-") {
-                                candidates.push(entry.path());
-                            }
+                        if entry.file_type().is_ok_and(|ft| ft.is_dir())
+                            && entry
+                                .file_name()
+                                .to_string_lossy()
+                                .starts_with("vosk-model-")
+                        {
+                            candidates.push(entry.path());
                         }
                     }
                 }
@@ -136,8 +159,16 @@ fn pick_best_candidate(mut candidates: Vec<PathBuf>) -> Option<PathBuf> {
     }
 
     candidates.sort_by(|a, b| {
-        let a_name = a.file_name().unwrap_or_default().to_string_lossy().to_ascii_lowercase();
-        let b_name = b.file_name().unwrap_or_default().to_string_lossy().to_ascii_lowercase();
+        let a_name = a
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_ascii_lowercase();
+        let b_name = b
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_ascii_lowercase();
         let a_small = a_name.contains("small");
         let b_small = b_name.contains("small");
         let a_en = a_name.contains("en-us");
@@ -168,10 +199,12 @@ fn find_zip_candidates() -> Vec<PathBuf> {
                 if search_dir.is_dir() {
                     if let Ok(entries) = std::fs::read_dir(search_dir) {
                         for entry in entries.filter_map(Result::ok) {
-                            if entry.file_type().map_or(false, |ft| ft.is_file()) {
+                            if entry.file_type().is_ok_and(|ft| ft.is_file()) {
                                 let file_name = entry.file_name();
                                 let file_name_str = file_name.to_string_lossy();
-                                if file_name_str.starts_with("vosk-model-") && file_name_str.ends_with(".zip") {
+                                if file_name_str.starts_with("vosk-model-")
+                                    && file_name_str.ends_with(".zip")
+                                {
                                     candidates.push(entry.path());
                                 }
                             }
@@ -196,7 +229,10 @@ pub fn ensure_model_available(auto_extract: bool) -> Result<Option<ModelInfo>, M
 
     let zip_candidates = find_zip_candidates();
     if !zip_candidates.is_empty() {
-        tracing::debug!(count = zip_candidates.len(), "Vosk zip candidates found for auto-extract");
+        tracing::debug!(
+            count = zip_candidates.len(),
+            "Vosk zip candidates found for auto-extract"
+        );
     }
     if let Some(best_zip) = pick_best_candidate(zip_candidates) {
         return extract_model(&best_zip).map(Some);
@@ -240,19 +276,22 @@ fn extract_model(zip_path: &std::path::Path) -> Result<ModelInfo, ModelError> {
     let temp_dir = models_dir.join(format!(".tmp-{}", Uuid::new_v4()));
     let extraction_result = (|| -> Result<ModelInfo, ModelError> {
         std::fs::create_dir_all(&temp_dir)?;
-        let file = std::fs::File::open(&zip_path)?;
+        let file = std::fs::File::open(zip_path)?;
         let mut archive = ZipArchive::new(file)?;
 
         for i in 0..archive.len() {
             let mut file = archive.by_index(i)?;
-            let outpath = temp_dir.join(file.enclosed_name().ok_or_else(|| "Invalid file path in zip")?);
+            let outpath = temp_dir.join(
+                file.enclosed_name()
+                    .ok_or("Invalid file path in zip")?,
+            );
 
             if file.name().ends_with('/') {
                 std::fs::create_dir_all(&outpath)?;
             } else {
                 if let Some(p) = outpath.parent() {
                     if !p.exists() {
-                        std::fs::create_dir_all(&p)?;
+                        std::fs::create_dir_all(p)?;
                     }
                 }
                 let mut outfile = std::fs::File::create(&outpath)?;
@@ -262,14 +301,17 @@ fn extract_model(zip_path: &std::path::Path) -> Result<ModelInfo, ModelError> {
 
         let extracted_dir = std::fs::read_dir(&temp_dir)?
             .filter_map(Result::ok)
-            .find(|e| e.file_type().map_or(false, |ft| ft.is_dir()))
+            .find(|e| e.file_type().is_ok_and(|ft| ft.is_dir()))
             .map(|e| e.path())
-            .ok_or_else(|| "No directory found in zip")?;
+            .ok_or("No directory found in zip")?;
 
         let final_path = models_dir.join(extracted_dir.file_name().unwrap());
         std::fs::rename(&extracted_dir, &final_path)?;
 
-        Ok(ModelInfo { path: final_path, source: ModelSource::Extracted })
+        Ok(ModelInfo {
+            path: final_path,
+            source: ModelSource::Extracted,
+        })
     })();
 
     // Cleanup
@@ -371,8 +413,8 @@ mod tests {
         for p in [&root, &a, &b, &c, &d] {
             let _ = std::fs::create_dir_all(p);
         }
-    // Place model at a/models (exactly 3 ancestors from d: d->c->b->a)
-    let model_dir = a.join("models").join("vosk-model-small-en-us-0.15");
+        // Place model at a/models (exactly 3 ancestors from d: d->c->b->a)
+        let model_dir = a.join("models").join("vosk-model-small-en-us-0.15");
         let _ = std::fs::create_dir_all(&model_dir);
 
         let cwd = std::env::current_dir().unwrap();

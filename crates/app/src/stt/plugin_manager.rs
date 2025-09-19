@@ -1058,7 +1058,10 @@ impl SttPluginManager {
                                 let mut current = self.current_plugin.write().await;
                                 if let Some(ref mut new_plugin) = *current {
                                     tracing::info!(target: "stt_debug", plugin_id = %new_plugin.info().id, "plugin_manager.process_audio() retry on new plugin");
-                                    new_plugin.process_audio(samples).await.map_err(|e| e.to_string())
+                                    new_plugin
+                                        .process_audio(samples)
+                                        .await
+                                        .map_err(|e| e.to_string())
                                 } else {
                                     Err("Failover succeeded but no plugin available".to_string())
                                 }
@@ -1129,10 +1132,7 @@ impl SttPluginManager {
     ) -> Result<(), String> {
         let mut current = self.current_plugin.write().await;
         if let Some(ref mut plugin) = *current {
-            plugin
-                .initialize(config)
-                .await
-                .map_err(|e| e.to_string())
+            plugin.initialize(config).await.map_err(|e| e.to_string())
         } else {
             Err("No STT plugin selected".to_string())
         }

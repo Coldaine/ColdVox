@@ -12,7 +12,6 @@ const TEST_FINAL_EVENT_TIMEOUT: Duration = Duration::from_secs(3);
 const TEST_POLLING_INTERVAL: Duration = Duration::from_millis(10);
 
 use crate::stt::plugin_manager::SttPluginManager;
-use coldvox_stt::plugin::PluginSelectionConfig;
 use crate::stt::processor::PluginSttProcessor;
 use crate::stt::session::{SessionEvent, SessionSource, Settings};
 use crate::stt::{TranscriptionConfig, TranscriptionEvent};
@@ -21,6 +20,7 @@ use coldvox_audio::chunker::AudioFrame;
 use coldvox_audio::chunker::{AudioChunker, ChunkerConfig};
 use coldvox_audio::ring_buffer::{AudioProducer, AudioRingBuffer};
 use coldvox_audio::DeviceConfig;
+use coldvox_stt::plugin::PluginSelectionConfig;
 use coldvox_vad::config::{UnifiedVadConfig, VadMode};
 use coldvox_vad::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 use coldvox_vad::types::VadEvent;
@@ -565,7 +565,11 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
             info!("No mock injection received, but pipeline completed successfully - this may be due to short audio session");
         } else {
             if let Some(first_inj) = injections.first() {
-                assert!(first_inj.contains("mock"), "Expected mock transcription in first injection: {}", first_inj);
+                assert!(
+                    first_inj.contains("mock"),
+                    "Expected mock transcription in first injection: {}",
+                    first_inj
+                );
             }
         }
     } else {
@@ -874,7 +878,11 @@ async fn test_end_to_end_wav_pipeline() {
                 println!("✅ Injections verified: {:?}", injections);
                 // For mock, ensure it contains expected mock text
                 if let Some(first) = injections.first() {
-                    assert!(first.contains("mock"), "Expected mock transcription: {}", first);
+                    assert!(
+                        first.contains("mock"),
+                        "Expected mock transcription: {}",
+                        first
+                    );
                 }
             }
         }

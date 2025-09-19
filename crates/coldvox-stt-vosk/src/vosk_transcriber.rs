@@ -221,8 +221,12 @@ impl EventBasedTranscriber for VoskTranscriber {
                     let mut max = i16::MIN;
                     let mut acc: f64 = 0.0;
                     for &s in pcm {
-                        if s < min { min = s; }
-                        if s > max { max = s; }
+                        if s < min {
+                            min = s;
+                        }
+                        if s > max {
+                            max = s;
+                        }
                         acc += (s as f64) * (s as f64);
                     }
                     let rms = (acc / (pcm.len() as f64)).sqrt();
