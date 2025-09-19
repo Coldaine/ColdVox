@@ -4,6 +4,8 @@
 
 ColdVox has a comprehensive test suite that tests real STT functionality using Vosk models and actual hardware. Tests are designed to work with actual speech recognition and real audio devices rather than mocks to ensure functional correctness. This guide explains how to run tests and set up the required dependencies.
 
+Note on toolchain: the workspace pins Rust `1.90.0` via `rust-toolchain.toml` to ensure compatibility with `Cargo.lock` v4. If you use custom overrides, make sure your Cargo is >= 1.87.
+
 ## Test Categories
 
 ### Core Tests

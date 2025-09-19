@@ -19,7 +19,7 @@ just setup
 direnv allow   # reruns setup automatically and loads .env
 ```
 
-The setup command installs pinned tool versions (Rust 1.75, just, pre-commit, cargo-nextest),
+The setup command installs pinned tool versions (Rust 1.90.0, just, pre-commit, cargo-nextest),
 configures git hooks, and pre-fetches dependencies. When direnv is enabled, the workspace runs
 `just setup-auto` the first time you enter the directory and reloads environment variables from
 `.env` on subsequent visits.
