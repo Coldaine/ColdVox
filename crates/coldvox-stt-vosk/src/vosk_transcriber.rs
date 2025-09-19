@@ -70,6 +70,7 @@ impl VoskTranscriber {
             include_words: false,
             buffer_size_ms: 512,
             streaming: false,
+            auto_extract_model: true,
         };
         Self::new(config, sample_rate)
     }

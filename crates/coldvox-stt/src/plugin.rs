@@ -277,6 +277,9 @@ pub struct PluginSelectionConfig {
 
     /// Metrics configuration
     pub metrics: Option<MetricsConfig>,
+
+    /// Automatically extract model from a zip archive if not found
+    pub auto_extract_model: bool,
 }
 
 impl Default for PluginSelectionConfig {
@@ -294,6 +297,7 @@ impl Default for PluginSelectionConfig {
             failover: Some(FailoverConfig::default()),
             gc_policy: Some(GcPolicy::default()),
             metrics: Some(MetricsConfig::default()),
+            auto_extract_model: true,
         }
     }
 }

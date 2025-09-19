@@ -11,6 +11,8 @@ tracing = "0.1"
 vosk = { version = "0.3", features = ["batch"] }
 coldvox-stt = { path = "../coldvox-stt" }
 async-trait = "0.1"
+zip = "0.6"
+uuid = { version = "1.0", features = ["v4"] }
 
 [features]
 default = []

@@ -164,6 +164,10 @@ struct SttArgs {
     /// Enable debug dumping of transcription events to logs
     #[arg(long = "stt-debug-dump-events", env = "COLDVOX_STT_DEBUG_DUMP_EVENTS")]
     debug_dump_events: bool,
+
+    /// Automatically extract model from a zip archive if not found
+    #[arg(long = "stt-auto-extract", env = "COLDVOX_STT_AUTO_EXTRACT", default_value = "true")]
+    auto_extract: bool,
 }
 
 #[cfg(feature = "text-injection")]
@@ -306,6 +310,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             failover: Some(failover),
             gc_policy: Some(gc_policy),
             metrics: Some(metrics),
+            auto_extract_model: cli.stt.auto_extract,
         })
     };
 

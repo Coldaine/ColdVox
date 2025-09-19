@@ -569,6 +569,7 @@ mod tests {
                     enabled: false, // Disable GC for test
                 }),
                 metrics: None,
+                auto_extract_model: false,
             }),
             #[cfg(feature = "text-injection")]
             injection: None,

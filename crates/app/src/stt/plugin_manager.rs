@@ -1536,6 +1536,7 @@ mod tests {
                     enabled: true,
                 }),
                 metrics: None,
+                auto_extract_model: false,
             })
             .await;
         }
