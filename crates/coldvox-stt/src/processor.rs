@@ -355,12 +355,16 @@ mod tests {
         let (_vad_tx, vad_rx) = mpsc::channel(10);
 
         // Create processor
+        let stt_metrics = Arc::new(SttPerformanceMetrics::default());
+        let pipeline_metrics = Arc::new(PipelineMetrics::default());
         let mut processor = SttProcessor::new(
             audio_rx,
             vad_rx,
             event_tx,
             mock_stt,
             config,
+            stt_metrics,
+            pipeline_metrics,
         );
 
         // Test SpeechStart - should initialize buffer and reset STT

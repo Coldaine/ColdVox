@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Instant, Ordering};
 
 use tokio::signal;
 use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
@@ -8,6 +8,7 @@ use tracing::{error, info};
 
 use coldvox_audio::{
     AudioCaptureThread, AudioChunker, AudioRingBuffer, ChunkerConfig, FrameReader, ResamplerQuality,
+    SharedAudioFrame,
 };
 use coldvox_foundation::AudioConfig;
 use coldvox_stt::TranscriptionEvent;
@@ -77,7 +78,7 @@ pub struct AppHandle {
     pub metrics: Arc<PipelineMetrics>,
     vad_tx: broadcast::Sender<VadEvent>,
     raw_vad_tx: mpsc::Sender<VadEvent>,
-    audio_tx: broadcast::Sender<coldvox_audio::AudioFrame>,
+    audio_tx: broadcast::Sender<SharedAudioFrame>,
     current_mode: std::sync::Arc<RwLock<ActivationMode>>,
     #[cfg(feature = "vosk")]
     pub stt_rx: Option<mpsc::Receiver<TranscriptionEvent>>,
@@ -101,7 +102,7 @@ impl AppHandle {
     }
 
     /// Subscribe to raw audio frames (16kHz mono f32 samples)
-    pub fn subscribe_audio(&self) -> broadcast::Receiver<coldvox_audio::AudioFrame> {
+    pub fn subscribe_audio(&self) -> broadcast::Receiver<SharedAudioFrame> {
         self.audio_tx.subscribe()
     }
 
@@ -288,7 +289,7 @@ pub async fn start(
         sample_rate_hz: SAMPLE_RATE_HZ,
         resampler_quality: opts.resampler_quality,
     };
-    let (audio_tx, _) = broadcast::channel::<coldvox_audio::AudioFrame>(200);
+    let (audio_tx, _) = broadcast::channel::<SharedAudioFrame>(200);
     let chunker = AudioChunker::new(frame_reader, audio_tx.clone(), chunker_cfg)
         .with_metrics(metrics.clone())
         .with_device_config(device_config_rx.resubscribe());
@@ -598,8 +599,8 @@ mod tests {
 
         // Send dummy audio frames
         for i in 0..5 {
-            let audio_frame = coldvox_audio::AudioFrame {
-                samples: vec![0.0f32; 512],
+            let audio_frame = coldvox_audio::SharedAudioFrame {
+                samples: Arc::from(vec![0i16; 512]),
                 sample_rate: 16000,
                 timestamp: std::time::Instant::now() + Duration::from_millis(i * 32),
             };
@@ -674,8 +675,8 @@ mod tests {
 
         // Send dummy audio frames
         for i in 0..5 {
-            let audio_frame = coldvox_audio::AudioFrame {
-                samples: vec![0.0f32; 512],
+            let audio_frame = coldvox_audio::SharedAudioFrame {
+                samples: Arc::from(vec![0i16; 512]),
                 sample_rate: 16000,
                 timestamp: std::time::Instant::now() + Duration::from_millis(i * 32),
             };

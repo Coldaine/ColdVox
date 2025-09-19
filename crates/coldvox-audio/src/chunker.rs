@@ -11,11 +11,12 @@ use super::resampler::StreamResampler;
 use coldvox_telemetry::{FpsTracker, PipelineMetrics, PipelineStage};
 
 use crate::constants::*;
+use crate::SharedAudioFrame;
 
 // AudioFrame will be defined in the VAD crate
 #[derive(Debug, Clone)]
 pub struct AudioFrame {
-    pub samples: Vec<f32>,
+    pub samples: Arc<[i16]>,
     pub sample_rate: u32,
     pub timestamp: std::time::Instant,
 }
@@ -45,7 +46,7 @@ impl Default for ChunkerConfig {
 
 pub struct AudioChunker {
     frame_reader: FrameReader,
-    output_tx: broadcast::Sender<AudioFrame>,
+    output_tx: broadcast::Sender<SharedAudioFrame>,
     cfg: ChunkerConfig,
     running: Arc<AtomicBool>,
     metrics: Option<Arc<PipelineMetrics>>,
@@ -55,7 +56,7 @@ pub struct AudioChunker {
 impl AudioChunker {
     pub fn new(
         frame_reader: FrameReader,
-        output_tx: broadcast::Sender<AudioFrame>,
+        output_tx: broadcast::Sender<SharedAudioFrame>,
         cfg: ChunkerConfig,
     ) -> Self {
         Self {
@@ -97,7 +98,7 @@ impl AudioChunker {
 
 struct ChunkerWorker {
     frame_reader: FrameReader,
-    output_tx: broadcast::Sender<AudioFrame>,
+    output_tx: broadcast::Sender<SharedAudioFrame>,
     cfg: ChunkerConfig,
     buffer: VecDeque<i16>,
     samples_emitted: u64,
@@ -115,7 +116,7 @@ struct ChunkerWorker {
 impl ChunkerWorker {
     fn new(
         frame_reader: FrameReader,
-        output_tx: broadcast::Sender<AudioFrame>,
+        output_tx: broadcast::Sender<SharedAudioFrame>,
         cfg: ChunkerConfig,
         metrics: Option<Arc<PipelineMetrics>>,
         device_cfg_rx: Option<broadcast::Receiver<DeviceConfig>>,
@@ -185,23 +186,17 @@ impl ChunkerWorker {
     async fn flush_ready_frames(&mut self) {
         let fs = self.cfg.frame_size_samples;
         while self.buffer.len() >= fs {
-            let mut out = Vec::with_capacity(fs);
-            for _ in 0..fs {
-                out.push(self.buffer.pop_front().unwrap());
-            }
+            let frame_samples: Vec<i16> = self.buffer.drain(..fs).collect();
+            let samples_arc = Arc::from(frame_samples);
 
-            // Calculate timestamp based on samples emitted
             let timestamp_ms =
                 (self.samples_emitted as u128 * 1000 / self.cfg.sample_rate_hz as u128) as u64;
             let timestamp = self.start_time + std::time::Duration::from_millis(timestamp_ms);
 
-            let vf = AudioFrame {
-                samples: out
-                    .into_iter()
-                    .map(|s| s as f32 / i16::MAX as f32)
-                    .collect(),
-                sample_rate: self.cfg.sample_rate_hz,
+            let vf = SharedAudioFrame {
+                samples: samples_arc,
                 timestamp,
+                sample_rate: self.cfg.sample_rate_hz,
             };
 
             // A send on a broadcast channel can fail if there are no receivers.

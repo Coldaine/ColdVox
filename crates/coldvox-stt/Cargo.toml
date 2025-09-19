@@ -12,17 +12,13 @@ async-trait = "0.1"
 thiserror = "2.0"
 dirs = "5.0"
 serde = { version = "1.0", features = ["derive"] }
+parakeet-onnx = "0.1.0" # or existing version
 coldvox-telemetry = { path = "../coldvox-telemetry", optional = true }
 
 [features]
-default = []
-vosk = []
-parakeet = []
-whisper = []
-coqui = []
-leopard = []
-silero-stt = []
+default = ["telemetry", "parakeet"]
 telemetry = ["dep:coldvox-telemetry"]
+parakeet = ["dep:parakeet-onnx"]
 
 [dev-dependencies]
 tokio = { version = "1.35", features = ["rt", "macros"] }

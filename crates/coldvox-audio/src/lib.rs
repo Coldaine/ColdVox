@@ -17,3 +17,13 @@ pub use frame_reader::FrameReader;
 pub use monitor::DeviceMonitor;
 pub use ring_buffer::AudioRingBuffer;
 pub use watchdog::WatchdogTimer;
+
+use std::sync::Arc;
+use std::time::Instant;
+
+#[derive(Debug, Clone)]
+pub struct SharedAudioFrame {
+    pub samples: Arc<[i16]>,
+    pub timestamp: Instant,
+    pub sample_rate: u32,
+}
