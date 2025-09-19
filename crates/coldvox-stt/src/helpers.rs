@@ -9,9 +9,11 @@ use std::time::Instant;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 use parking_lot::RwLock;
+use std::sync::atomic::Ordering;
 
 use crate::types::TranscriptionEvent;
 use crate::constants::SAMPLE_RATE_HZ;
+use coldvox_telemetry::{stt_metrics::SttPerformanceMetrics, pipeline_metrics::PipelineMetrics};
 
 /// Stub error helper function for unimplemented plugins
 ///
@@ -169,38 +171,65 @@ impl AudioBufferManager {
 pub struct EventEmitter {
     event_tx: mpsc::Sender<TranscriptionEvent>,
     metrics: Arc<RwLock<crate::processor::SttMetrics>>,
+    stt_metrics: Arc<SttPerformanceMetrics>,
+    pipeline_metrics: Arc<PipelineMetrics>,
 }
 
 impl EventEmitter {
     /// Create a new event emitter
-    pub fn new(event_tx: mpsc::Sender<TranscriptionEvent>, metrics: Arc<RwLock<crate::processor::SttMetrics>>) -> Self {
-        Self { event_tx, metrics }
+    pub fn new(
+        event_tx: mpsc::Sender<TranscriptionEvent>, 
+        metrics: Arc<RwLock<crate::processor::SttMetrics>>,
+        stt_metrics: Arc<SttPerformanceMetrics>,
+        pipeline_metrics: Arc<PipelineMetrics>,
+    ) -> Self {
+        Self { 
+            event_tx, 
+            metrics, 
+            stt_metrics,
+            pipeline_metrics 
+        }
     }
 
     /// Emit an event with logging, metrics update, and timeout handling
     pub async fn emit(&self, event: TranscriptionEvent) -> Result<(), ()> {
+        let start = Instant::now();
+
         // Logging and metrics
         match &event {
             TranscriptionEvent::Partial { text, .. } => {
                 info!(target: "stt", "Partial: {}", text);
                 let mut m = self.metrics.write();
                 m.partial_count += 1;
-                m.last_event_time = Some(std::time::Instant::now());
+                m.last_event_time = Some(Instant::now());
+                self.stt_metrics.record_partial_transcription();
             }
             TranscriptionEvent::Final { text, words, .. } => {
                 let word_count = words.as_ref().map(|w| w.len()).unwrap_or(0);
                 info!(target: "stt", "Final: {} (words: {})", text, word_count);
                 let mut m = self.metrics.write();
                 m.final_count += 1;
-                m.last_event_time = Some(std::time::Instant::now());
+                m.last_event_time = Some(Instant::now());
+                self.stt_metrics.record_final_transcription();
             }
             TranscriptionEvent::Error { code, message } => {
                 error!(target: "stt", "Error [{}]: {}", code, message);
                 let mut m = self.metrics.write();
                 m.error_count += 1;
-                m.last_event_time = Some(std::time::Instant::now());
+                m.last_event_time = Some(Instant::now());
+                self.stt_metrics.record_transcription_failure();
             }
         }
+
+        let elapsed = start.elapsed();
+
+        // Record latencies
+        self.stt_metrics.record_end_to_end_latency(elapsed);
+        self.pipeline_metrics.stt_last_transcription_latency_ms.store(elapsed.as_millis() as u64, Ordering::Relaxed);
+
+        // Update local total latency
+        let mut m = self.metrics.write();
+        m.total_latency_us += elapsed.as_micros() as u64;
 
         // Send with timeout
         match tokio::time::timeout(
@@ -393,7 +422,9 @@ mod tests {
     async fn test_event_emitter_new() {
         let (tx, _rx) = mpsc::channel(10);
         let metrics = Arc::new(RwLock::new(SttMetrics::default()));
-        let emitter = EventEmitter::new(tx, metrics);
+        let stt_metrics = Arc::new(SttPerformanceMetrics::new());
+        let pipeline_metrics = Arc::new(PipelineMetrics::default());
+        let emitter = EventEmitter::new(tx, metrics, stt_metrics, pipeline_metrics);
         assert!(!emitter.event_tx.is_closed());
     }
 
@@ -401,7 +432,9 @@ mod tests {
     async fn test_event_emitter_emit_partial() {
         let (tx, mut rx) = mpsc::channel(10);
         let metrics = Arc::new(RwLock::new(SttMetrics::default()));
-        let emitter = EventEmitter::new(tx, metrics.clone());
+        let stt_metrics = Arc::new(SttPerformanceMetrics::new());
+        let pipeline_metrics = Arc::new(PipelineMetrics::default());
+        let emitter = EventEmitter::new(tx, metrics.clone(), stt_metrics, pipeline_metrics);
         
         let event = TranscriptionEvent::Partial {
             utterance_id: 1,
@@ -458,7 +491,9 @@ mod tests {
     async fn test_event_emitter_emit_final() {
         let (tx, mut rx) = mpsc::channel(10);
         let metrics = Arc::new(RwLock::new(SttMetrics::default()));
-        let emitter = EventEmitter::new(tx, metrics.clone());
+        let stt_metrics = Arc::new(SttPerformanceMetrics::new());
+        let pipeline_metrics = Arc::new(PipelineMetrics::default());
+        let emitter = EventEmitter::new(tx, metrics.clone(), stt_metrics, pipeline_metrics);
         
         let event = TranscriptionEvent::Final {
             utterance_id: 1,
@@ -481,7 +516,9 @@ mod tests {
     async fn test_event_emitter_emit_error() {
         let (tx, mut rx) = mpsc::channel(10);
         let metrics = Arc::new(RwLock::new(SttMetrics::default()));
-        let emitter = EventEmitter::new(tx, metrics.clone());
+        let stt_metrics = Arc::new(SttPerformanceMetrics::new());
+        let pipeline_metrics = Arc::new(PipelineMetrics::default());
+        let emitter = EventEmitter::new(tx, metrics.clone(), stt_metrics, pipeline_metrics);
         
         let event = TranscriptionEvent::Error {
             code: "TEST".to_string(),
@@ -501,12 +538,20 @@ mod tests {
 
     #[tokio::test]
     async fn test_event_emitter_send_failure() {
-        let (tx, rx) = mpsc::channel(1); // Buffer of 1 to test closed channel case
-        // Drop the receiver to close the channel (simulating receiver disconnect)
-        drop(rx);
+        let (tx, _) = mpsc::channel(1); // Buffer of 1 to test full buffer case
+        // Fill the buffer first
+        let filler_event = TranscriptionEvent::Partial {
+            utterance_id: 0,
+            text: "filler".to_string(),
+            t0: Some(0.0),
+            t1: Some(0.0),
+        };
+        tx.send(filler_event.clone()).await.unwrap();
         
         let metrics = Arc::new(RwLock::new(SttMetrics::default()));
-        let emitter = EventEmitter::new(tx, metrics.clone());
+        let stt_metrics = Arc::new(SttPerformanceMetrics::new());
+        let pipeline_metrics = Arc::new(PipelineMetrics::default());
+        let emitter = EventEmitter::new(tx, metrics.clone(), stt_metrics, pipeline_metrics);
         
         let event = TranscriptionEvent::Partial {
             utterance_id: 1,
@@ -515,9 +560,9 @@ mod tests {
             t1: Some(0.0),
         };
         
-        // Test the send failure (closed channel)
+        // Test the send failure (full buffer)
         let result = emitter.emit(event).await;
-        assert!(result.is_err()); // Send failed due to closed channel
+        assert!(result.is_err()); // Send failed due to full buffer
         
         let m = metrics.read();
         assert_eq!(m.frames_dropped, 1);
