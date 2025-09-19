@@ -222,7 +222,7 @@ impl SttPluginRegistry {
             .iter()
             .find(|f| f.plugin_info().id == id)
             .ok_or_else(|| SttPluginError::NotAvailable {
-                reason: format!("Plugin '{}' not found", id),
+                reason: format!("Plugin '{id}' not found"),
             })?
             .create()
     }

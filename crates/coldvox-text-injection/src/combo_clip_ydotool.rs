@@ -150,13 +150,12 @@ impl TextInjector for ComboClipboardYdotool {
         )
         .await
         .map_err(|_| crate::types::InjectionError::Timeout(self._config.paste_action_timeout_ms))?
-        .map_err(|e| crate::types::InjectionError::Process(format!("ydotool failed: {}", e)))?;
+        .map_err(|e| crate::types::InjectionError::Process(format!("ydotool failed: {e}")))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(crate::types::InjectionError::MethodFailed(format!(
-                "ydotool paste failed: {}",
-                stderr
+                "ydotool paste failed: {stderr}"
             )));
         }
 

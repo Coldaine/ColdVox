@@ -39,19 +39,17 @@ impl fmt::Display for ModelError {
             ModelError::ExplicitPathMissing(p) => {
                 write!(
                     f,
-                    "Vosk model path '{}' does not exist or is not a directory",
-                    p
+                    "Vosk model path '{p}' does not exist or is not a directory"
                 )
             }
             ModelError::NotFound { checked, guidance } => {
                 write!(
                     f,
-                    "Vosk model not found. Checked: {}. Guidance: {}",
-                    checked, guidance
+                    "Vosk model not found. Checked: {checked}. Guidance: {guidance}"
                 )
             }
             ModelError::ExtractionFailed(msg) => {
-                write!(f, "Failed to auto-extract model: {}", msg)
+                write!(f, "Failed to auto-extract model: {msg}")
             }
         }
     }

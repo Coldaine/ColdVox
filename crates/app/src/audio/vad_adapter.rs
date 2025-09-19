@@ -126,7 +126,7 @@ impl AudioResampler {
                 chunk_size,
                 1, // mono
             )
-            .map_err(|e| format!("Failed to create Rubato resampler: {}", e))?;
+            .map_err(|e| format!("Failed to create Rubato resampler: {e}"))?;
 
             (Some(resampler), chunk_size)
         } else {
@@ -188,7 +188,7 @@ impl AudioResampler {
                         }
                     }
                     Err(e) => {
-                        return Err(format!("Resampler error: {}", e));
+                        return Err(format!("Resampler error: {e}"));
                     }
                 }
             }

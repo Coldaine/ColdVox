@@ -263,8 +263,7 @@ impl SttPlugin for WhisperPlugin {
         if let Some(ref path) = self.model_path {
             if !path.exists() {
                 return Err(SttPluginError::ModelLoadFailed(format!(
-                    "Model not found at {:?}",
-                    path
+                    "Model not found at {path:?}"
                 )));
             }
         }
@@ -339,8 +338,7 @@ impl SttPlugin for WhisperPlugin {
         if let Some(path) = model_path {
             if !path.exists() {
                 return Err(SttPluginError::ModelLoadFailed(format!(
-                    "Model not found at {:?}",
-                    path
+                    "Model not found at {path:?}"
                 )));
             }
 
@@ -516,7 +514,7 @@ impl SttPluginFactory for WhisperPluginFactory {
         if let Some(ref path) = self.model_path {
             if !path.exists() {
                 return Err(SttPluginError::NotAvailable {
-                    reason: format!("Model not found at {:?}", path),
+                    reason: format!("Model not found at {path:?}"),
                 });
             }
         } else {
