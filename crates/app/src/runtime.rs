@@ -19,11 +19,11 @@ use crate::hotkey::spawn_hotkey_listener;
 use crate::stt::plugin_manager::SttPluginManager;
 #[cfg(feature = "vosk")]
 use crate::stt::processor::PluginSttProcessor;
+#[cfg(feature = "vosk")]
+use crate::stt::session::Settings;
 use crate::stt::session::{SessionEvent, SessionSource};
 #[cfg(feature = "vosk")]
 use coldvox_stt::TranscriptionConfig;
-#[cfg(feature = "vosk")]
-use crate::stt::session::Settings;
 
 /// Activation strategy for push-to-talk vs voice activation
 #[derive(PartialEq, Copy, Clone, Debug)]

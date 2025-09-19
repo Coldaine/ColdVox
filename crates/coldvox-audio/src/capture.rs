@@ -335,7 +335,11 @@ impl AudioCapture {
                 setup_elapsed, budget
             );
         } else {
-            tracing::info!("Audio setup check baseline: {:.2?} (under {:?} budget)", setup_elapsed, budget);
+            tracing::info!(
+                "Audio setup check baseline: {:.2?} (under {:?} budget)",
+                setup_elapsed,
+                budget
+            );
         }
 
         Ok(self_)

@@ -1,12 +1,11 @@
 {
-  "preferred_plugin": "vosk",
+  "preferred_plugin": "mock",
   "fallback_plugins": [
-    "vosk",
-    "mock"
+    "noop"
   ],
   "require_local": false,
   "max_memory_mb": null,
-  "required_language": null,
+  "required_language": "en",
   "failover": {
     "failover_threshold": 3,
     "failover_cooldown_secs": 30

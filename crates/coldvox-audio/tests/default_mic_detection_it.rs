@@ -52,7 +52,10 @@ fn default_mic_is_detected_and_used_via_pulseaudio() {
     let capture = match AudioCaptureThread::spawn(config, producer, None) {
         Ok((cap, _device_cfg, _cfg_rx, _dev_rx)) => cap,
         Err(e) => {
-            eprintln!("Skipping: failed to start capture ({}). Likely no audio backend.", e);
+            eprintln!(
+                "Skipping: failed to start capture ({}). Likely no audio backend.",
+                e
+            );
             return; // skip
         }
     };
@@ -91,8 +94,15 @@ fn default_mic_is_detected_and_used_via_pulseaudio() {
     capture.stop();
 
     // 6) Assertions
-    assert!(found_in_pulseaudio, "stream not attached to default source: {}", default_source);
-    assert!(got_any_samples, "no samples were captured from the input stream");
+    assert!(
+        found_in_pulseaudio,
+        "stream not attached to default source: {}",
+        default_source
+    );
+    assert!(
+        got_any_samples,
+        "no samples were captured from the input stream"
+    );
 }
 
 #[cfg(target_os = "linux")]
@@ -126,21 +136,28 @@ fn get_default_source_name() -> Option<String> {
 fn find_our_source_output_source(app_name: &str) -> Option<String> {
     // Build a map of source index -> name
     let mut source_index_to_name: HashMap<String, String> = HashMap::new();
-    if let Ok(out) = Command::new("pactl").args(["list", "short", "sources"]).output() {
+    if let Ok(out) = Command::new("pactl")
+        .args(["list", "short", "sources"])
+        .output()
+    {
         if out.status.success() {
             let txt = String::from_utf8_lossy(&out.stdout);
             for line in txt.lines() {
                 // Format: index\tname\tdriver\t... (tab-separated)
                 let parts: Vec<&str> = line.split('\t').collect();
                 if parts.len() >= 2 {
-                    source_index_to_name.insert(parts[0].trim().to_string(), parts[1].trim().to_string());
+                    source_index_to_name
+                        .insert(parts[0].trim().to_string(), parts[1].trim().to_string());
                 }
             }
         }
     }
 
     // Scan source-outputs and locate our stream by application.name
-    if let Ok(out) = Command::new("pactl").args(["list", "source-outputs"]).output() {
+    if let Ok(out) = Command::new("pactl")
+        .args(["list", "source-outputs"])
+        .output()
+    {
         if out.status.success() {
             let txt = String::from_utf8_lossy(&out.stdout);
             let mut current_block_source_index: Option<String> = None;
@@ -194,4 +211,3 @@ fn find_our_source_output_source(app_name: &str) -> Option<String> {
 
     None
 }
-

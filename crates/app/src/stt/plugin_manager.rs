@@ -711,7 +711,8 @@ impl SttPluginManager {
             Err(_) => {
                 // No fallback to NoOp; require real STT
                 Err(SttPluginError::ConfigurationError(
-                    "No STT plugin available. Ensure required models and libraries are installed.".to_string()
+                    "No STT plugin available. Ensure required models and libraries are installed."
+                        .to_string(),
                 ))
             }
         }
@@ -1220,24 +1221,37 @@ mod tests {
     use super::*;
     use coldvox_stt::plugin::{FailoverConfig, GcPolicy};
 
-    /// Create a test manager - uses real STT plugins including Vosk
+    /// Create a test manager - uses Mock plugin for tests to avoid model dependencies
     fn create_test_manager() -> SttPluginManager {
-        SttPluginManager::new()
+        let mut manager = SttPluginManager::new();
+        // For tests, prefer Mock plugin to avoid model dependencies
+        manager.selection_config.preferred_plugin = Some("mock".to_string());
+        manager.selection_config.fallback_plugins = vec!["noop".to_string()];
+        manager
     }
 
     #[tokio::test]
     async fn test_unload_plugin() {
+        // Set VOSK_MODEL_PATH for the test
+        let model_path = std::path::Path::new("models/vosk-model-small-en-us-0.15")
+            .canonicalize()
+            .unwrap_or_else(|_| std::path::PathBuf::from("models/vosk-model-small-en-us-0.15"))
+            .to_string_lossy()
+            .to_string();
+        std::env::set_var("VOSK_MODEL_PATH", model_path);
+
         let mut manager = create_test_manager();
 
         // Initialize with a plugin
-        let _plugin_id = manager.initialize().await.unwrap();
+        let plugin_id = manager.initialize().await.unwrap();
 
         // Verify plugin is loaded
         let current = manager.current_plugin().await;
         assert!(current.is_some());
+        assert_eq!(current, Some(plugin_id.clone()));
 
         // Unload the plugin
-        let result = manager.unload_plugin("noop").await;
+        let result = manager.unload_plugin(&plugin_id).await;
         assert!(result.is_ok());
 
         // Verify plugin is unloaded
@@ -1373,7 +1387,6 @@ mod tests {
         let metrics = Arc::new(PipelineMetrics::default());
         let mut manager = SttPluginManager::new().with_metrics_sink(metrics.clone());
 
-
         // Initialize with a plugin
         let _plugin_id = manager.initialize().await.unwrap();
 
@@ -1453,17 +1466,26 @@ mod tests {
 
     #[tokio::test]
     async fn test_unload_idempotency() {
-        let mut manager = SttPluginManager::new();
+        // Set VOSK_MODEL_PATH for the test
+        let model_path = std::path::Path::new("models/vosk-model-small-en-us-0.15")
+            .canonicalize()
+            .unwrap_or_else(|_| std::path::PathBuf::from("models/vosk-model-small-en-us-0.15"))
+            .to_string_lossy()
+            .to_string();
+        std::env::set_var("VOSK_MODEL_PATH", model_path);
+
+        let mut manager = create_test_manager();
 
         // Initialize with a plugin
-        let _plugin_id = manager.initialize().await.unwrap();
+        let plugin_id = manager.initialize().await.unwrap();
 
         // Verify plugin is loaded
         let current = manager.current_plugin().await;
         assert!(current.is_some());
+        assert_eq!(current, Some(plugin_id.clone()));
 
         // Unload the plugin
-        let result = manager.unload_plugin("noop").await;
+        let result = manager.unload_plugin(&plugin_id).await;
         assert!(result.is_ok());
 
         // Verify plugin is unloaded
@@ -1471,7 +1493,7 @@ mod tests {
         assert!(current_after.is_none());
 
         // Try to unload again (should succeed with AlreadyUnloaded handled)
-        let result2 = manager.unload_plugin("noop").await;
+        let result2 = manager.unload_plugin(&plugin_id).await;
         assert!(result2.is_ok());
 
         // Verify plugin is still unloaded
