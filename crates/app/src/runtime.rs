@@ -7,8 +7,8 @@ use tokio::task::JoinHandle;
 use tracing::{error, info};
 
 use coldvox_audio::{
-    AudioCaptureThread, AudioChunker, AudioRingBuffer, ChunkerConfig, FrameReader, ResamplerQuality,
-    SharedAudioFrame,
+    AudioCaptureThread, AudioChunker, AudioRingBuffer, ChunkerConfig, FrameReader,
+    ResamplerQuality, SharedAudioFrame,
 };
 use coldvox_foundation::AudioConfig;
 use coldvox_stt::TranscriptionEvent;

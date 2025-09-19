@@ -7,10 +7,10 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+use crate::helpers::*;
 use crate::plugin::{SttPlugin, SttPluginError};
 use crate::types::TranscriptionEvent;
 use crate::{next_utterance_id, StreamingStt, TranscriptionConfig};
-use crate::helpers::*;
 
 /// Adapter that wraps an SttPlugin and implements StreamingStt
 pub struct PluginAdapter {

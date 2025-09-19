@@ -12,10 +12,10 @@ const DEFAULT_BUFFER_DURATION_SECONDS: usize = 10;
 const DEFAULT_CHUNK_SIZE_SAMPLES: usize = 16_000;
 const LOGGING_INTERVAL_FRAMES: u64 = 100;
 const SEND_TIMEOUT_SECONDS: u64 = 5;
+use crate::helpers::*;
 use crate::types::{TranscriptionConfig, TranscriptionEvent};
 use crate::StreamingStt;
-use crate::helpers::*;
-use coldvox_telemetry::{stt_metrics::SttPerformanceMetrics, pipeline_metrics::PipelineMetrics};
+use coldvox_telemetry::{pipeline_metrics::PipelineMetrics, stt_metrics::SttPerformanceMetrics};
 /// Minimal audio frame type (i16 PCM) used by the generic STT processor
 #[derive(Debug, Clone)]
 pub struct AudioFrame {
@@ -30,9 +30,9 @@ pub enum VadEvent {
     SpeechStart { timestamp_ms: u64 },
     SpeechEnd { timestamp_ms: u64, duration_ms: u64 },
 }
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Instant;
-use std::sync::atomic::Ordering;
 use tokio::sync::{broadcast, mpsc};
 use tracing::{debug, error, info, warn};
 
@@ -134,7 +134,12 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
             pipeline_metrics,
             config,
             buffer_mgr: None,
-            emitter: EventEmitter::new(event_tx, metrics, stt_metrics_clone, pipeline_metrics_clone),
+            emitter: EventEmitter::new(
+                event_tx,
+                metrics,
+                stt_metrics_clone,
+                pipeline_metrics_clone,
+            ),
         }
     }
 
@@ -208,7 +213,9 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
     async fn handle_speech_start(&mut self, timestamp_ms: u64) {
         debug!(target: "stt", "STT processor received SpeechStart at {}ms", timestamp_ms);
 
-        self.pipeline_metrics.speech_segments_count.fetch_add(1, Ordering::Relaxed);
+        self.pipeline_metrics
+            .speech_segments_count
+            .fetch_add(1, Ordering::Relaxed);
 
         // Store the start time as Instant for duration calculations
         let start_instant = Instant::now();
@@ -286,7 +293,9 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
     async fn handle_audio_frame(&mut self, frame: AudioFrame) {
         // Update metrics
         self.metrics.write().frames_in += 1;
-        self.pipeline_metrics.capture_frames.fetch_add(1, Ordering::Relaxed);
+        self.pipeline_metrics
+            .capture_frames
+            .fetch_add(1, Ordering::Relaxed);
 
         // Only buffer if speech is active
         self.buffer_audio_frame_if_speech_active(frame);
@@ -350,8 +359,8 @@ mod tests {
     use crate::{StreamingStt, TranscriptionConfig};
     use std::sync::Arc;
     use std::sync::Mutex;
-    use tokio::sync::{mpsc};
     use std::time::Instant;
+    use tokio::sync::mpsc;
 
     // Helper to get text from event for assertions
     fn get_text(event: &TranscriptionEvent) -> Option<&str> {
@@ -404,7 +413,6 @@ mod tests {
         }
     }
 
-
     #[tokio::test]
     async fn test_processor_basic_flow() {
         // Setup event channel for testing
@@ -442,9 +450,15 @@ mod tests {
         // Test SpeechStart - should initialize buffer and reset STT
         let speech_start_timestamp = 100u64;
         processor.handle_speech_start(speech_start_timestamp).await;
-        
-        assert!(processor.buffer_mgr.is_some(), "Buffer manager should be initialized");
-        assert!(matches!(processor.state, UtteranceState::SpeechActive { .. }), "State should be SpeechActive");
+
+        assert!(
+            processor.buffer_mgr.is_some(),
+            "Buffer manager should be initialized"
+        );
+        assert!(
+            matches!(processor.state, UtteranceState::SpeechActive { .. }),
+            "State should be SpeechActive"
+        );
 
         // Test audio frame - should buffer if active
         let frame = AudioFrame {
@@ -453,7 +467,7 @@ mod tests {
             sample_rate: 16000,
         };
         processor.handle_audio_frame(frame.clone()).await;
-        
+
         let mgr = processor.buffer_mgr.as_ref().unwrap();
         assert_eq!(mgr.buffer_size(), 160, "Frame should be buffered");
         assert_eq!(mgr.frames_buffered(), 1, "One frame should be counted");
@@ -475,12 +489,21 @@ mod tests {
         }
 
         assert_eq!(events.len(), 2, "Should receive partial and final events");
-        assert!(events.iter().any(|e| get_text(e) == Some("partial mock")), "Should have partial event");
-        assert!(events.iter().any(|e| get_text(e) == Some("final mock")), "Should have final event");
+        assert!(
+            events.iter().any(|e| get_text(e) == Some("partial mock")),
+            "Should have partial event"
+        );
+        assert!(
+            events.iter().any(|e| get_text(e) == Some("final mock")),
+            "Should have final event"
+        );
 
         // Verify buffer cleared and state reset
         assert!(processor.buffer_mgr.is_none(), "Buffer should be cleared");
-        assert!(matches!(processor.state, UtteranceState::Idle), "State should be Idle");
+        assert!(
+            matches!(processor.state, UtteranceState::Idle),
+            "State should be Idle"
+        );
 
         // Verify metrics updated
         let metrics = processor.metrics();

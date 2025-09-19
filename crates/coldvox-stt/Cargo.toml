@@ -19,6 +19,9 @@ default = ["telemetry", "parakeet"]
 telemetry = ["dep:coldvox-telemetry"]
 parakeet = []
 whisper = []
+coqui = []
+leopard = []
+silero-stt = []
 
 [dev-dependencies]
 tokio = { version = "1.35", features = ["rt", "macros"] }

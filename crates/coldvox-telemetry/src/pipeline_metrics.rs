@@ -175,11 +175,13 @@ impl PipelineMetrics {
     }
 
     pub fn update_capture_fps(&self, fps: f64) {
-        self.capture_fps.store((fps * 10.0) as u64, Ordering::Relaxed);
+        self.capture_fps
+            .store((fps * 10.0) as u64, Ordering::Relaxed);
     }
 
     pub fn update_chunker_fps(&self, fps: f64) {
-        self.chunker_fps.store((fps * 10.0) as u64, Ordering::Relaxed);
+        self.chunker_fps
+            .store((fps * 10.0) as u64, Ordering::Relaxed);
     }
 
     pub fn update_vad_fps(&self, fps: f64) {
@@ -197,14 +199,16 @@ impl PipelineMetrics {
     pub fn update_vad_detection_latency(&self, latency_ms: u64) {
         let current = self.vad_detection_latency_ms.load(Ordering::Relaxed);
         if latency_ms > current {
-            self.vad_detection_latency_ms.store(latency_ms, Ordering::Relaxed);
+            self.vad_detection_latency_ms
+                .store(latency_ms, Ordering::Relaxed);
         }
     }
 
     pub fn update_vad_to_stt_handoff_latency(&self, latency_ms: u64) {
         let current = self.vad_to_stt_handoff_latency_ms.load(Ordering::Relaxed);
         if latency_ms > current {
-            self.vad_to_stt_handoff_latency_ms.store(latency_ms, Ordering::Relaxed);
+            self.vad_to_stt_handoff_latency_ms
+                .store(latency_ms, Ordering::Relaxed);
         }
     }
 }
