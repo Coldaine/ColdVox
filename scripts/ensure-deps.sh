@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-RUST_VERSION="1.75"
+RUST_VERSION="1.90.0"
 
 note() { echo "[deps] $*"; }
 

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Pinned versions (keep in sync with .tool-versions and rust-toolchain.toml)
-RUST_VERSION="1.75"
+RUST_VERSION="1.90.0"
 JUST_VERSION="1.15.0"
 PRECOMMIT_VERSION="3.5.0"
 NEXTEST_VERSION="0.9.67"
