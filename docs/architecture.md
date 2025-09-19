@@ -386,23 +386,24 @@ KeyCode::Char('l') | KeyCode::Char('L') => {
 ### 6. Improved Testing Strategy
 
 **Key Changes:**
-- **Deterministic Testing**: Mock components instead of timing-based tests
-- **Concurrent Safety**: Controlled fake inputs for race condition testing
-- **Mock Audio Capture**: Configurable no-op capture for testing
-- **Retry Logic**: Tests with built-in retries for non-deterministic operations
+- **Real Hardware Testing**: All tests use actual hardware and models available in all environments
+- **No Mock-Only Paths**: Unit tests with mocks must include corresponding real hardware validation in the same test run
+- **Concurrent Safety**: Real audio inputs with controlled test scenarios for race condition testing
+- **Comprehensive Validation**: Tests verify actual production functionality end-to-end
 
 ```rust
-// Mock audio capture for testing
+// Real hardware testing with actual audio devices
 #[cfg(test)]
-pub struct MockAudioCapture {
-    frames: Vec<coldvox_audio::AudioFrame>,
-    index: usize,
+pub struct TestAudioSetup {
+    device_config: coldvox_audio::DeviceConfig,
+    test_model_path: std::path::PathBuf,
 }
 
 #[cfg(test)]
-impl MockAudioCapture {
-    pub fn new(frames: Vec<coldvox_audio::AudioFrame>) -> Self {
-        Self { frames, index: 0 }
+impl TestAudioSetup {
+    pub fn new_with_real_hardware() -> Result<Self, Box<dyn std::error::Error>> {
+        // Use actual audio devices available in all environments
+        let device_config = coldvox_audio::DeviceConfig::discover_default()?;
     }
 
     pub fn next_frame(&mut self) -> Option<coldvox_audio::AudioFrame> {

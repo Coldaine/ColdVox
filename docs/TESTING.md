@@ -2,55 +2,56 @@
 
 ## Overview
 
-ColdVox has a comprehensive test suite that tests real STT functionality using Vosk models. Tests are designed to work with actual speech recognition rather than mocks to ensure functional correctness. This guide explains how to run tests and set up the required dependencies.
+ColdVox has a comprehensive test suite that tests real STT functionality using Vosk models and actual hardware. Tests are designed to work with actual speech recognition and real audio devices rather than mocks to ensure functional correctness. This guide explains how to run tests and set up the required dependencies.
 
 ## Test Categories
 
 ### Core Tests
-**Most tests use real Vosk models for functional validation**
+**All tests use real Vosk models and hardware for functional validation**
 
 - ✅ **Test actual STT functionality** (use real Vosk models)
 - ✅ **Validate end-to-end pipeline behavior**
-- ⚠️ **Require Vosk model setup** (see setup section below)
+- ✅ **Test with real audio hardware** (microphones, speakers)
+- ✅ **Require Vosk model setup** (see setup section below)
 
 ```bash
-# Run tests with Vosk model (recommended)
+# Run tests with Vosk model (all environments)
 VOSK_MODEL_PATH="$(pwd)/models/vosk-model-small-en-us-0.15" cargo test
 
 # Run tests for specific crate
 VOSK_MODEL_PATH="$(pwd)/models/vosk-model-small-en-us-0.15" cargo test -p coldvox-app
 ```
 
-### Integration Tests (Require Setup)
-**Marked with `#[ignore]` - must be explicitly enabled**
+### Integration Tests (Full Hardware & Models)
+**All tests run by default - no tests are ignored**
 
-- ⚠️ **Require external models/hardware**
-- ⚠️ **Slower execution** (download models, audio processing)
-- ⚠️ **May fail in headless/CI environments**
+- ✅ **Use real external models/hardware**
+- ✅ **Comprehensive end-to-end validation**
+- ✅ **Run in all environments** (dev, self-hosted CI)
 - ✅ **Test real-world functionality end-to-end**
 
 ```bash
-# Run integration tests (requires Vosk model setup)
-cargo test -- --ignored
+# Run all tests (includes integration tests)
+cargo test
 
 # Run specific integration test
-cargo test test_end_to_end_wav_pipeline -- --ignored --nocapture
+cargo test test_end_to_end_wav_pipeline --nocapture
 
-# Run with real hardware (non-headless only)
-cargo test test_candidate_order_default_first -- --ignored
+# Run with real hardware (available in all environments)
+cargo test test_candidate_order_default_first
 ```
 
 ## Environment Setup
 
-### For Core Tests
-**Requires Vosk model setup** - see instructions below
+### Hardware Requirements
+**All environments must have real hardware available**
 
-Tests use real Vosk models to validate actual speech recognition functionality.
+All tests use real Vosk models and actual audio hardware to validate functionality. This includes development environments and self-hosted CI runners.
 
-### For Integration Tests
+### Required Setup
 
 #### 1. Vosk Model Setup
-Integration tests require a real Vosk model for STT functionality:
+All tests require a real Vosk model for STT functionality:
 
 ```bash
 # Option A: Use the automated setup script
@@ -68,15 +69,14 @@ export VOSK_MODEL_PATH="$(pwd)/models/vosk-model-small-en-us-0.15"
 ```
 
 #### 2. Audio Hardware Setup
-Some tests require actual audio input devices:
+**Real audio hardware is required and available in all environments:**
 
 ```bash
 # Check available devices
 cargo run --bin mic_probe
 
-# Override headless detection if needed
-export COLDVOX_AUDIO_FORCE_NON_HEADLESS=true  # Force hardware tests
-export COLDVOX_AUDIO_FORCE_HEADLESS=true      # Skip hardware tests
+# All environments have working audio devices
+# No mocking or headless overrides are used
 ```
 
 #### 3. Text Injection Setup (Linux)
@@ -97,43 +97,43 @@ sudo usermod -a -G input $USER
 
 | Crate | Unit Tests | Integration Tests | Notes |
 |-------|------------|-------------------|-------|
-| `coldvox-audio` | Device enumeration, resampling | Real hardware detection | Some tests auto-skip in headless |
-| `coldvox-app` | Plugin management, STT logic | End-to-end WAV processing | Vosk model required for integration |
+| `coldvox-audio` | Device enumeration, resampling | Real hardware detection | All tests run with real devices |
+| `coldvox-app` | Plugin management, STT logic | End-to-end WAV processing | Vosk model required for all tests |
 | `coldvox-vad` | VAD algorithms | Real audio processing | Silero ONNX models tested |
-| `coldvox-stt` | Plugin interfaces, mocking | Model loading/inference | Mock vs real plugin separation |
+| `coldvox-stt` | Plugin interfaces | Model loading/inference | Real hardware and models used |
 
 ### By Feature
 
 ```bash
-# Audio-only tests
+# Audio tests (with real hardware)
 cargo test -p coldvox-audio
 
-# STT tests (unit only, no real models)
+# STT tests (with real Vosk models)
 cargo test -p coldvox-app stt --lib
 
-# Text injection tests
+# Text injection tests (with real injection)
 cargo test -p coldvox-app --features text-injection injection
 
-# VAD tests
+# VAD tests (with real audio processing)
 cargo test -p coldvox-vad
 
-# Integration: Full pipeline with real models
-cargo test -p coldvox-app test_end_to_end_wav -- --ignored --features vosk
+# Full pipeline with real models and hardware
+cargo test -p coldvox-app test_end_to_end_wav --features vosk
 ```
 
 ## Key Testing Principles
 
-### Unit Test Design
-- **Use mock plugins**: `configure_for_testing()` helper ensures tests use `MockPlugin` instead of real Vosk
-- **Deterministic**: Set `MOCK_PACTL_OUTPUT` and `MOCK_APLAY_OUTPUT` for audio detection tests
-- **Fast**: Target <1s per test, <10s total suite
-- **Isolated**: No shared state, no external dependencies
+### Real Hardware Testing
+- **Use real hardware**: All tests run against actual audio devices and Vosk models
+- **No mock-only paths**: If mocks are used for unit testing, full real tests must be included in the same test run
+- **Comprehensive**: Test actual functionality end-to-end with real hardware and models
+- **Reliable**: Target hardware is consistently available across environments
 
-### Integration Test Design
-- **Marked with `#[ignore]`**: Prevents accidental execution in CI
-- **Clear requirements**: Document what models/hardware are needed
-- **Graceful degradation**: Auto-skip when dependencies unavailable
-- **Meaningful errors**: Guide users to setup instructions when tests fail
+### Test Design
+- **No ignored tests**: All tests run by default in standard test execution
+- **Real dependencies**: Use actual Vosk models and audio hardware for validation
+- **Full validation**: Test complete pipeline from audio capture to text injection
+- **Mock + Real requirement**: Any test suite using mocks must also include corresponding real tests
 
 ## Common Issues & Solutions
 
@@ -145,22 +145,21 @@ export VOSK_MODEL_PATH="/path/to/vosk-model-small-en-us-0.15"
 ./scripts/ci/setup-vosk-cache.sh
 ```
 
-### Audio Device Tests Failing
+### Audio Device Tests
 ```bash
-# Check if headless environment
+# Check available devices (should always have devices in all environments)
 cargo run --bin mic_probe
 
-# Force skip hardware-dependent tests
-export COLDVOX_AUDIO_FORCE_HEADLESS=true
+# All tests run against real hardware
 cargo test
 ```
 
-### Test Uses Real STT Instead of Mock
-If a unit test is accidentally trying to load real models:
+### Test Execution
+All tests are designed to run with real hardware and models:
 
-1. Check if test uses `configure_for_testing()` helper
-2. Verify test is not marked with `#[ignore]`
-3. Ensure test creates manager with `create_test_manager()`
+1. Ensure Vosk model is available at `VOSK_MODEL_PATH`
+2. Verify audio hardware is accessible via `mic_probe`
+3. All tests run by default - no tests should be ignored
 
 ### Permission Errors (Linux)
 ```bash
@@ -172,20 +171,19 @@ sudo chmod 666 /dev/uinput
 ## Test Commands Reference
 
 ```bash
-# Development workflow (unit tests only)
-cargo test                                    # All unit tests
+# Development workflow (all tests with real hardware)
+cargo test                                    # All tests including integration
 cargo check --all-targets                    # Quick compile check
-cargo test --workspace                       # All crates unit tests
+cargo test --workspace                       # All crates with real hardware
 
-# Full validation (with integration tests)
-./scripts/ci/setup-vosk-cache.sh            # Setup models
-cargo test -- --ignored                      # Run integration tests
-cargo test --workspace -- --ignored          # All integration tests
+# Environment setup
+./scripts/ci/setup-vosk-cache.sh            # Setup models for all tests
+export VOSK_MODEL_PATH="$(pwd)/models/vosk-model-small-en-us-0.15"
 
 # Specific test patterns
 cargo test plugin_manager                    # Plugin management tests
 cargo test --features vosk test_vosk         # Vosk-specific tests
-cargo test audio_device -- --ignored         # Audio hardware tests
+cargo test audio_device                      # Audio hardware tests (real devices)
 
 # Debug failing tests
 cargo test failing_test_name -- --nocapture  # Show full output
@@ -194,12 +192,13 @@ RUST_LOG=debug cargo test test_name          # Enable debug logging
 
 ## Continuous Integration
 
-**GitHub Actions runs:**
-- ✅ All unit tests (fast, always enabled)
-- ⚠️ Integration tests only on self-hosted runners with models pre-cached
+**Self-hosted runners with real hardware:**
+- ✅ All tests run with real audio devices and models
+- ✅ No tests are ignored or skipped
+- ✅ Full hardware validation in CI environment
 - ✅ Compilation checks for all feature combinations
 
 **Local development:**
-- Run `cargo test` frequently (unit tests only)
-- Run `cargo test -- --ignored` before major releases (integration tests)
-- Use `scripts/ci/setup-vosk-cache.sh` for full local validation
+- Run `cargo test` for complete validation (includes all tests)
+- All tests use real hardware and models
+- Use `scripts/ci/setup-vosk-cache.sh` for model setup

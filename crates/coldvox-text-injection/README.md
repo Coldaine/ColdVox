@@ -2,12 +2,12 @@
 
 Automated text injection system for ColdVox transcribed speech.
 
-## What’s New (workspace v2.0.1)
+## What's New (workspace v2.0.1)
 
 - FocusProvider DI: inject focus detection for deterministic and safe tests
 - Combo clipboard+paste injector (`combo_clip_ydotool`) with async `ydotool` check
-- Comprehensive mock injectors and utilities for fallback and latency tests
-- Headless CI support using Xvfb + fluxbox + D-Bus; readiness loops (no fixed sleeps)
+- Real injection testing with lightweight test applications for comprehensive validation
+- Full desktop CI support with real audio devices and desktop environments available
 - Allow/block list semantics: compiled regex path when `regex` is enabled; substring matching otherwise
 
 ## Purpose
@@ -120,17 +120,17 @@ cargo run --features text-injection -- --allow-ydotool --restore-clipboard
 
 ## Testing
 
-Headless tests can be run under a session bus; CI uses Xvfb + fluxbox + D-Bus:
+All tests use real desktop applications and injection backends with full desktop environments available in all environments:
 
 ```bash
-# Run crate tests (default)
-dbus-run-session -- cargo test -p coldvox-text-injection --locked
+# Run crate tests with real injection validation
+cargo test -p coldvox-text-injection --locked
 
-# No-default-features
-dbus-run-session -- cargo test -p coldvox-text-injection --no-default-features --locked
+# No-default-features with real hardware
+cargo test -p coldvox-text-injection --no-default-features --locked
 
-# Regex feature
-dbus-run-session -- cargo test -p coldvox-text-injection --no-default-features --features regex --locked
+# Regex feature with real injection testing
+cargo test -p coldvox-text-injection --no-default-features --features regex --locked
 ```
 
 See `docs/testing.md` for details on live/CI testing and feature matrices.

@@ -232,10 +232,10 @@ jobs:
       - name: Build documentation
         run: cargo doc --workspace --no-deps --locked
 
-      - name: Run unit and integration tests (skip E2E)
+      - name: Run all tests (unit, integration, and E2E)
         if: needs.setup-vosk-model.outputs.download-outcome == 'success'
         run: |
-          cargo test --workspace --locked --
+          cargo test --workspace --locked
 
       - name: Upload test artifacts on failure
         if: failure()
@@ -615,7 +615,7 @@ jobs:
         env:
           VOSK_MODEL_PATH: models/vosk-model-small-en-us-0.15
         run: |
-          cargo test --locked -p coldvox-app --features vosk test_end_to_end_wav_pipeline -- --ignored --nocapture
+          cargo test --locked -p coldvox-app --features vosk test_end_to_end_wav_pipeline --nocapture
 
       - name: Test Vosk examples
         env:
