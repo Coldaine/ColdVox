@@ -1,6 +1,5 @@
 use coldvox_audio::{
-    AudioChunker, AudioFrame as VadFrame, AudioRingBuffer, ChunkerConfig, FrameReader,
-    ResamplerQuality,
+    SharedAudioFrame, AudioChunker, AudioRingBuffer, ChunkerConfig, FrameReader, ResamplerQuality,
 };
 use coldvox_telemetry::pipeline_metrics::PipelineMetrics;
 use std::sync::Arc;
@@ -22,7 +21,7 @@ async fn chunker_timestamps_are_32ms_apart_at_16k() {
         sample_rate_hz: 16_000,
         resampler_quality: ResamplerQuality::Balanced,
     };
-    let (tx, _) = broadcast::channel::<VadFrame>(64);
+    let (tx, _) = broadcast::channel::<SharedAudioFrame>(64);
     let mut rx = tx.subscribe();
     let chunker = AudioChunker::new(reader, tx.clone(), cfg).with_metrics(metrics.clone());
     let handle = chunker.spawn();

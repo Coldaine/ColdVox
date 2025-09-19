@@ -27,7 +27,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use std::sync::atomic::Ordering;
 use tokio::sync::{broadcast, mpsc};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info};
 
 /// STT processor state
 #[derive(Debug, Clone)]
@@ -114,18 +114,24 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
         }
 
         let metrics = Arc::new(parking_lot::RwLock::new(SttMetrics::default()));
+        let emitter = EventEmitter::new(
+            event_tx.clone(),
+            metrics.clone(),
+            stt_metrics.clone(),
+            pipeline_metrics.clone(),
+        );
         Self {
             audio_rx,
             vad_event_rx,
-            event_tx: event_tx.clone(),
+            event_tx,
             stt_engine,
             state: UtteranceState::Idle,
-            metrics: metrics.clone(),
+            metrics,
             stt_metrics,
             pipeline_metrics,
             config,
             buffer_mgr: None,
-            emitter: EventEmitter::new(event_tx, metrics, stt_metrics.clone(), pipeline_metrics.clone()),
+            emitter,
         }
     }
 
@@ -279,7 +285,6 @@ mod tests {
     use std::sync::Arc;
     use std::sync::Mutex;
     use tokio::sync::{mpsc};
-    use std::time::Instant;
 
     // Helper to get text from event for assertions
     fn get_text(event: &TranscriptionEvent) -> Option<&str> {
@@ -339,7 +344,7 @@ mod tests {
         let (event_tx, mut event_rx) = mpsc::channel(10);
 
         // Create mock STT
-        let mut mock_stt = MockStt::new();
+    let mock_stt = MockStt::new();
 
         // Config
         let config = TranscriptionConfig {

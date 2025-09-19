@@ -76,6 +76,14 @@ struct State {
 
 #[cfg(feature = "vosk")]
 impl PluginSttProcessor {
+    fn record_frame_in(&self) {
+        let mut state = self.state.lock();
+        state.local_frame_count += 1;
+        if state.local_frame_count % 10 == 0 {
+            let mut metrics = self.metrics.write();
+            metrics.frames_in += 10;
+        }
+    }
     /// Creates a new instance of the unified STT processor.
     pub fn new(
         audio_rx: broadcast::Receiver<SharedAudioFrame>,
@@ -170,7 +178,7 @@ impl PluginSttProcessor {
             }
         }
 
-        let handoff_latency_ms = handoff_start.elapsed().as_millis() as u64;
+    let _handoff_latency_ms = handoff_start.elapsed().as_millis() as u64;
         // Assume pipeline_metrics is available, update max
         // Note: Add pipeline_metrics: Arc<PipelineMetrics> to PluginSttProcessor if not present, but since it's in runtime, pass via new or global
         // For now, assume it's added; update
@@ -218,7 +226,7 @@ impl PluginSttProcessor {
 
         tokio::spawn(async move {
             // For batch, concat Arcs to Vec<i16> once
-            let audio_buffer = if behavior != HotkeyBehavior::Incremental && !buffer_arcs.is_empty() {
+            let _audio_buffer = if behavior != HotkeyBehavior::Incremental && !buffer_arcs.is_empty() {
                 let mut full_buffer = Vec::with_capacity(512 * buffer_arcs.len());
                 for arc in buffer_arcs {
                     full_buffer.extend_from_slice(&*arc);
@@ -281,23 +289,10 @@ impl PluginSttProcessor {
             };
 
             if should_process {
-                // Batch metrics
-                let mut state = self.state.lock();
-                state.local_frame_count += 1;
-                if state.local_frame_count % 10 == 0 {
-                    let mut metrics = self.metrics.write();
-                    metrics.frames_in += 10;
-                }
-                drop(state); // Release lock
+                self.record_frame_in();
 
                 tracing::debug!(target: "stt", "Dispatching {} samples to plugin.process_audio()", i16_slice.len());
-                match self
-                    .plugin_manager
-                    .write()
-                    .await
-                    .process_audio(i16_slice)
-                    .await
-                {
+                match self.plugin_manager.write().await.process_audio(i16_slice).await {
                     Ok(Some(event)) => {
                         Self::send_event_static(&self.event_tx, &self.metrics, event).await;
                     }

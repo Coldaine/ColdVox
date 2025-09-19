@@ -290,7 +290,7 @@ mod tests {
         let rb = AudioRingBuffer::new(1024);
         let (_prod, cons) = rb.split();
         let reader = FrameReader::new(cons, 48_000, 2, 1024, None);
-        let (tx, _rx) = broadcast::channel::<AudioFrame>(8);
+    let (tx, _rx) = broadcast::channel::<SharedAudioFrame>(8);
         let cfg = ChunkerConfig {
             frame_size_samples: FRAME_SIZE_SAMPLES,
             sample_rate_hz: SAMPLE_RATE_HZ,
@@ -324,7 +324,7 @@ mod tests {
         let rb = AudioRingBuffer::new(1024);
         let (_prod, cons) = rb.split();
         let reader = FrameReader::new(cons, 16_000, 2, 1024, None);
-        let (tx, _rx) = broadcast::channel::<AudioFrame>(8);
+    let (tx, _rx) = broadcast::channel::<SharedAudioFrame>(8);
         let cfg = ChunkerConfig {
             frame_size_samples: FRAME_SIZE_SAMPLES,
             sample_rate_hz: SAMPLE_RATE_HZ,

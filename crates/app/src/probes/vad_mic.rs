@@ -4,7 +4,7 @@ use std::sync::Arc;
 use super::common::{LiveTestResult, TestContext, TestError, TestErrorKind};
 use crate::audio::vad_processor::VadProcessor;
 use coldvox_audio::capture::AudioCaptureThread;
-use coldvox_audio::chunker::AudioFrame as VadFrame;
+use coldvox_audio::{SharedAudioFrame};
 use coldvox_audio::chunker::{AudioChunker, ChunkerConfig, ResamplerQuality};
 use coldvox_audio::frame_reader::FrameReader;
 use coldvox_audio::ring_buffer::AudioRingBuffer;
@@ -72,7 +72,7 @@ impl VadMicCheck {
         });
 
         // Set up VAD processing pipeline
-        let (audio_tx, _) = broadcast::channel::<VadFrame>(200);
+    let (audio_tx, _) = broadcast::channel::<SharedAudioFrame>(200);
         let (event_tx, mut event_rx) = mpsc::channel::<VadEvent>(100);
 
         let chunker_cfg = ChunkerConfig {
