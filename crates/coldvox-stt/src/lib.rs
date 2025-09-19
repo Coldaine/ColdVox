@@ -6,6 +6,7 @@
 use async_trait::async_trait;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+pub mod constants;
 pub mod plugin;
 pub mod plugin_adapter; // new adapter implementing StreamingStt
 pub mod plugin_types;

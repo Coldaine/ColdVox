@@ -4,6 +4,7 @@
 //! segments and processes transcription when speech ends. The processor is designed
 //! to work with any VAD system and any STT implementation.
 
+use crate::constants::*;
 use crate::types::{TranscriptionConfig, TranscriptionEvent};
 use crate::StreamingStt;
 /// Minimal audio frame type (i16 PCM) used by the generic STT processor
@@ -180,7 +181,7 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
 
         self.state = UtteranceState::SpeechActive {
             started_at: start_instant,
-            audio_buffer: Vec::with_capacity(16000 * 10), // Pre-allocate for up to 10 seconds
+            audio_buffer: Vec::with_capacity((SAMPLE_RATE_HZ as usize) * 10), // Pre-allocate for up to 10 seconds
             frames_buffered: 0,
         };
 
@@ -206,7 +207,7 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
                 target: "stt",
                 "Processing buffered audio: {} samples ({:.2}s), {} frames",
                 buffer_size,
-                buffer_size as f32 / 16000.0,
+                buffer_size as f32 / SAMPLE_RATE_HZ as f32,
                 frames_buffered
             );
 
@@ -214,7 +215,7 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
                 // Send the entire buffer to the STT engine
                 // Stream model expects per-frame feeding; here we feed the whole buffered audio
                 // in chunks to preserve event semantics.
-                for chunk in audio_buffer.chunks(16000) {
+                for chunk in audio_buffer.chunks(SAMPLE_RATE_HZ as usize) {
                     // 1 second chunks arbitrary; adjust later if needed
                     if let Some(event) = self.stt_engine.on_speech_frame(chunk).await {
                         self.send_event(event).await;
@@ -268,7 +269,7 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
                     "Buffering audio: {} frames, {} samples ({:.2}s)",
                     frames_buffered,
                     audio_buffer.len(),
-                    audio_buffer.len() as f32 / 16000.0
+                    audio_buffer.len() as f32 / SAMPLE_RATE_HZ as f32
                 );
             }
         }
