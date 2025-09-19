@@ -12,6 +12,7 @@ async-trait = "0.1"
 thiserror = "2.0"
 dirs = "5.0"
 serde = { version = "1.0", features = ["derive"] }
+coldvox-telemetry = { path = "../coldvox-telemetry" }
 
 [features]
 default = []
@@ -21,3 +22,9 @@ whisper = []
 coqui = []
 leopard = []
 silero-stt = []
+
+[dev-dependencies]
+tokio = { version = "1.35", features = ["rt", "macros"] }
+tracing-test = "0.2"
+anyhow = "1.0"
+futures = "0.3"
