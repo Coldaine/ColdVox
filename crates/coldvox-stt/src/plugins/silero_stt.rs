@@ -3,6 +3,7 @@
 //! Silero provides lightweight ONNX models for speech recognition,
 //! similar to their VAD models but for full transcription.
 
+use crate::common::{noop_reset, not_yet_available, unavailable_check};
 use async_trait::async_trait;
 use parking_lot::RwLock;
 use std::path::PathBuf;
@@ -205,7 +206,7 @@ impl SttPlugin for SileroSttPlugin {
     async fn is_available(&self) -> Result<bool, SttPluginError> {
         // Check for ONNX runtime
         // Check for model file
-        Ok(false) // Not yet implemented
+        unavailable_check().await
     }
 
     async fn initialize(&mut self, _config: TranscriptionConfig) -> Result<(), SttPluginError> {
@@ -214,9 +215,7 @@ impl SttPlugin for SileroSttPlugin {
         // 2. Initialize tokenizer
         // 3. Setup ONNX session
 
-        Err(SttPluginError::NotAvailable {
-            reason: "Silero STT integration not yet implemented".to_string(),
-        })
+        Err(not_yet_available("silero-stt"))
     }
 
     async fn process_audio(
@@ -233,7 +232,7 @@ impl SttPlugin for SileroSttPlugin {
     }
 
     async fn reset(&mut self) -> Result<(), SttPluginError> {
-        Ok(())
+        noop_reset().await
     }
 }
 

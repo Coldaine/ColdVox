@@ -4,6 +4,8 @@
 //! edge devices and WebAssembly environments. It provides good accuracy with
 //! minimal resource usage.
 
+use crate::common::{noop_finalize, not_yet_available, unavailable_check};
+
 use async_trait::async_trait;
 use std::sync::{Arc, RwLock};
 use tracing::warn;
@@ -176,7 +178,7 @@ impl SttPlugin for ParakeetPlugin {
 
     async fn is_available(&self) -> Result<bool, SttPluginError> {
         // Parakeet is not yet released
-        Ok(false)
+        unavailable_check().await
     }
 
     async fn initialize(&mut self, _config: TranscriptionConfig) -> Result<(), SttPluginError> {
@@ -188,9 +190,7 @@ impl SttPlugin for ParakeetPlugin {
         // 3. Load Parakeet engine
         // 4. Configure VAD if enabled
 
-        Err(SttPluginError::NotAvailable {
-            reason: "Parakeet is not yet released by Mozilla".to_string(),
-        })
+        Err(not_yet_available("parakeet"))
     }
 
     async fn process_audio(
@@ -204,7 +204,7 @@ impl SttPlugin for ParakeetPlugin {
     }
 
     async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, SttPluginError> {
-        Ok(None)
+        noop_finalize().await
     }
 
     async fn reset(&mut self) -> Result<(), SttPluginError> {
