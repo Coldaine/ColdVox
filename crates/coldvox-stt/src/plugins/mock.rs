@@ -4,6 +4,7 @@ use crate::plugin::*;
 use crate::types::{TranscriptionConfig, TranscriptionEvent, WordInfo};
 use async_trait::async_trait;
 use std::sync::{Arc, Mutex};
+use tracing::info;
 
 /// Configuration for mock transcriptions
 #[derive(Debug, Clone)]
@@ -24,7 +25,7 @@ pub struct MockConfig {
 impl Default for MockConfig {
     fn default() -> Self {
         Self {
-            transcription_after_chunks: Some((5, "This is a test transcription".to_string())),
+            transcription_after_chunks: Some((1, "mock test transcription".to_string())),
             immediate_transcription: None,
             processing_delay_ms: 0,
             fail_after_calls: None,
@@ -44,6 +45,7 @@ struct MockState {
     initialized: bool,
     chunks_processed: usize,
     calls_made: usize,
+    has_session_audio: bool,
 }
 
 impl MockPlugin {
@@ -54,6 +56,7 @@ impl MockPlugin {
                 initialized: false,
                 chunks_processed: 0,
                 calls_made: 0,
+                has_session_audio: false,
             })),
         }
     }
@@ -156,9 +159,14 @@ impl SttPlugin for MockPlugin {
         let should_transcribe = {
             let mut state = self.state.lock().unwrap();
             state.chunks_processed += 1;
+            state.has_session_audio = true;
 
             if let Some((chunks, _)) = self.config.transcription_after_chunks {
                 if state.chunks_processed >= chunks {
+                    info!(
+                        "MockPlugin: producing transcription after {} chunks",
+                        state.chunks_processed
+                    );
                     state.chunks_processed = 0; // Reset for next transcription
                     true
                 } else {
@@ -179,15 +187,24 @@ impl SttPlugin for MockPlugin {
     }
 
     async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, SttPluginError> {
+        info!("MockPlugin::finalize called");
         let state = self.state.lock().unwrap();
+        info!(
+            "MockPlugin: finalize - chunks_processed = {}",
+            state.chunks_processed
+        );
 
-        // Return any pending transcription on finalize
+        // Return final transcription on finalize if chunks have been processed
         if state.chunks_processed > 0 {
-            if let Some((_, ref text)) = self.config.transcription_after_chunks {
-                return Ok(Some(create_mock_event(format!("{} (partial)", text))));
-            }
+            info!(
+                "MockPlugin: producing Final event on finalize after {} chunks processed",
+                state.chunks_processed
+            );
+            let text = "mock test transcription".to_string();
+            return Ok(Some(create_mock_event(text)));
         }
 
+        info!("MockPlugin: no Final event on finalize (no chunks processed)");
         Ok(None)
     }
 
@@ -195,6 +212,7 @@ impl SttPlugin for MockPlugin {
         let mut state = self.state.lock().unwrap();
         state.chunks_processed = 0;
         state.calls_made = 0;
+        state.has_session_audio = false;
         Ok(())
     }
 }

@@ -171,9 +171,8 @@ impl DeviceManager {
         self.host
             .default_input_device()
             .ok_or(AudioError::DeviceNotFound { name: None })
-            .map(|device| {
+            .inspect(|device| {
                 self.current_device = Some(device.clone());
-                device
             })
     }
 
@@ -286,7 +285,10 @@ mod tests {
     #[test]
     fn test_pipewire_full_shims() {
         // Scenario: Full PipeWire with shims - no warnings
-        env::set_var("MOCK_PACTL_OUTPUT", "Server Name: PulseAudio (on PipeWire 0.3.65)\nLibrary Protocol Version: 35\n...");
+        env::set_var(
+            "MOCK_PACTL_OUTPUT",
+            "Server Name: PulseAudio (on PipeWire 0.3.65)\nLibrary Protocol Version: 35\n...",
+        );
         env::set_var("MOCK_APLAY_OUTPUT", "null\npulse\npipewire\n...");
         let manager = setup_test_manager();
         // Expected: No warnings logged
@@ -298,7 +300,10 @@ mod tests {
     #[test]
     fn test_native_pulse() {
         // Scenario: Native PulseAudio - warn for pactl (no on PipeWire), but aplay has pulse
-        env::set_var("MOCK_PACTL_OUTPUT", "Server Name: PulseAudio\nLibrary Protocol Version: 35\n...");
+        env::set_var(
+            "MOCK_PACTL_OUTPUT",
+            "Server Name: PulseAudio\nLibrary Protocol Version: 35\n...",
+        );
         env::set_var("MOCK_APLAY_OUTPUT", "null\npulse\n...");
         let manager = setup_test_manager();
         // Expected: Warn for pactl, no aplay warn
@@ -339,7 +344,10 @@ mod tests {
         // Test prioritization: "default" first if present, "pipewire" after, OS default next, no duplicates
         let manager = setup_test_manager();
         let candidates = manager.candidate_device_names();
-        assert!(!candidates.is_empty(), "Candidates should not be empty on typical system");
+        assert!(
+            !candidates.is_empty(),
+            "Candidates should not be empty on typical system"
+        );
 
         // Check for "default" first
         if let Some(first) = candidates.first() {
@@ -348,7 +356,10 @@ mod tests {
             } else {
                 // If no default, OS default should be first
                 if let Some(os_def) = manager.default_input_device_name() {
-                    assert_eq!(candidates[0], os_def, "OS default should be first if no 'default'");
+                    assert_eq!(
+                        candidates[0], os_def,
+                        "OS default should be first if no 'default'"
+                    );
                 }
             }
         }
@@ -362,14 +373,23 @@ mod tests {
 
         // Check no duplicates
         let unique_count = candidates.len();
-        let distinct = candidates.iter().collect::<std::collections::HashSet<_>>().len();
+        let distinct = candidates
+            .iter()
+            .collect::<std::collections::HashSet<_>>()
+            .len();
         assert_eq!(unique_count, distinct, "No duplicate device names");
 
         // Check OS default position
         if let Some(os_def) = manager.default_input_device_name() {
             if !candidates.iter().any(|n| n == "default") {
-                let os_pos = candidates.iter().position(|n| n == &os_def).unwrap_or(usize::MAX);
-                assert!(os_pos == 0 || os_pos == 1, "OS default should be early if no 'default'");
+                let os_pos = candidates
+                    .iter()
+                    .position(|n| n == &os_def)
+                    .unwrap_or(usize::MAX);
+                assert!(
+                    os_pos == 0 || os_pos == 1,
+                    "OS default should be early if no 'default'"
+                );
             }
         }
 
@@ -410,14 +430,25 @@ mod tests {
 
         // Skip this test if pipewire device is actually available on this system
         if pipewire_pos.is_some() {
-            eprintln!("Skipping test_candidate_no_pipewire: pipewire device is available on this system");
+            eprintln!(
+                "Skipping test_candidate_no_pipewire: pipewire device is available on this system"
+            );
             return;
         }
 
-        assert!(pipewire_pos.is_none(), "No 'pipewire' should be in list if not present");
+        assert!(
+            pipewire_pos.is_none(),
+            "No 'pipewire' should be in list if not present"
+        );
         // Rest of order as above
         if let Some(first) = candidates.first() {
-            assert!(*first == "default" || manager.default_input_device_name().map_or(false, |d| first == &d), "First should be 'default' or OS default");
+            assert!(
+                *first == "default"
+                    || manager
+                        .default_input_device_name()
+                        .map_or(false, |d| first == &d),
+                "First should be 'default' or OS default"
+            );
         }
     }
 
@@ -431,7 +462,11 @@ mod tests {
         let candidates = manager.candidate_device_names();
         let mut seen = std::collections::HashSet::new();
         for name in &candidates {
-            assert!(seen.insert(name), "No duplicates allowed: {} found twice", name);
+            assert!(
+                seen.insert(name),
+                "No duplicates allowed: {} found twice",
+                name
+            );
         }
     }
 
@@ -500,7 +535,10 @@ mod tests {
         } else {
             // Verify it's the OS default
             if let Some(def) = manager.default_input_device_name() {
-                assert_eq!(device_name, def, "Should fall back to OS default if no 'default'");
+                assert_eq!(
+                    device_name, def,
+                    "Should fall back to OS default if no 'default'"
+                );
             }
         }
         // Verify current_device set

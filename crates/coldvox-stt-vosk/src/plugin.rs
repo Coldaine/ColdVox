@@ -29,6 +29,12 @@ impl fmt::Debug for VoskPlugin {
     }
 }
 
+impl Default for VoskPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VoskPlugin {
     pub fn new() -> Self {
         Self {
@@ -83,12 +89,13 @@ impl SttPlugin for VoskPlugin {
             let mut config_with_model = config.clone();
             config_with_model.model_path = info.path.to_string_lossy().to_string();
             let transcriber = VoskTranscriber::new(config_with_model, self.sample_rate)
-                .map_err(|e| SttPluginError::InitializationFailed(e))?;
+                .map_err(SttPluginError::InitializationFailed)?;
             self.transcriber = Some(transcriber);
             Ok(())
         } else {
             Err(SttPluginError::NotAvailable {
-                reason: "Vosk model not found and auto-extraction failed or was disabled.".to_string(),
+                reason: "Vosk model not found and auto-extraction failed or was disabled."
+                    .to_string(),
             })
         }
     }
@@ -100,7 +107,7 @@ impl SttPlugin for VoskPlugin {
         if let Some(ref mut transcriber) = self.transcriber {
             transcriber
                 .accept_frame(samples)
-                .map_err(|e| SttPluginError::ProcessingError(e))
+                .map_err(SttPluginError::ProcessingError)
         } else {
             Err(SttPluginError::NotAvailable {
                 reason: "Plugin not initialized".to_string(),
@@ -112,7 +119,7 @@ impl SttPlugin for VoskPlugin {
         if let Some(ref mut transcriber) = self.transcriber {
             transcriber
                 .finalize_utterance()
-                .map_err(|e| SttPluginError::ProcessingError(e))
+                .map_err(SttPluginError::ProcessingError)
         } else {
             Err(SttPluginError::NotAvailable {
                 reason: "Plugin not initialized".to_string(),
@@ -122,9 +129,7 @@ impl SttPlugin for VoskPlugin {
 
     async fn reset(&mut self) -> Result<(), SttPluginError> {
         if let Some(ref mut transcriber) = self.transcriber {
-            transcriber
-                .reset()
-                .map_err(|e| SttPluginError::ProcessingError(e))
+            transcriber.reset().map_err(SttPluginError::ProcessingError)
         } else {
             Err(SttPluginError::NotAvailable {
                 reason: "Plugin not initialized".to_string(),
@@ -135,14 +140,16 @@ impl SttPlugin for VoskPlugin {
     async fn load_model(&mut self, model_path: Option<&Path>) -> Result<(), SttPluginError> {
         let path_to_load = match model_path {
             Some(p) => p.to_path_buf(),
-            None => self.resolved_model_path.clone().ok_or_else(|| SttPluginError::ModelLoadFailed("No resolved model path available".to_string()))?,
+            None => self.resolved_model_path.clone().ok_or_else(|| {
+                SttPluginError::ModelLoadFailed("No resolved model path available".to_string())
+            })?,
         };
 
         let mut config = self.config.clone();
         config.model_path = path_to_load.to_string_lossy().into_owned();
 
         let transcriber = VoskTranscriber::new(config, self.sample_rate)
-            .map_err(|e| SttPluginError::ModelLoadFailed(e))?;
+            .map_err(SttPluginError::ModelLoadFailed)?;
 
         self.transcriber = Some(transcriber);
         self.resolved_model_path = Some(path_to_load);

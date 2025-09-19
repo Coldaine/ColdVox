@@ -166,7 +166,11 @@ struct SttArgs {
     debug_dump_events: bool,
 
     /// Automatically extract model from a zip archive if not found
-    #[arg(long = "stt-auto-extract", env = "COLDVOX_STT_AUTO_EXTRACT", default_value = "true")]
+    #[arg(
+        long = "stt-auto-extract",
+        env = "COLDVOX_STT_AUTO_EXTRACT",
+        default_value = "true"
+    )]
     auto_extract: bool,
 }
 

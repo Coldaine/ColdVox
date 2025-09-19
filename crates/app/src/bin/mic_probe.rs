@@ -188,11 +188,12 @@ async fn run_all_tests(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn list_devices() -> Result<(), Box<dyn std::error::Error>> {
-    use cpal::traits::{DeviceTrait, HostTrait};
     use coldvox_audio::device::DeviceManager;
+    use cpal::traits::{DeviceTrait, HostTrait};
 
     println!("Checking audio setup for PipeWire compatibility...");
-    let device_manager = DeviceManager::new().map_err(|e| format!("Failed to create DeviceManager: {}", e))?;
+    let device_manager =
+        DeviceManager::new().map_err(|e| format!("Failed to create DeviceManager: {}", e))?;
     if let Err(e) = device_manager.check_audio_setup() {
         eprintln!("Audio setup check failed: {}", e);
     }

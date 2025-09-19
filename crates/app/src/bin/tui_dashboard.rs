@@ -735,9 +735,9 @@ async fn run_app(
                             state.plugin_active_count += 1;
                             // Update metrics from shared sink
                             if let Some(app) = &state.app {
-                                state.plugin_transcription_requests = app.metrics.stt_transcription_requests.load(Ordering::Relaxed) as u64;
-                                state.plugin_success = app.metrics.stt_transcription_success.load(Ordering::Relaxed) as u64;
-                                state.plugin_failures = app.metrics.stt_transcription_failures.load(Ordering::Relaxed) as u64;
+                                state.plugin_transcription_requests = app.metrics.stt_transcription_requests.load(Ordering::Relaxed);
+                                state.plugin_success = app.metrics.stt_transcription_success.load(Ordering::Relaxed);
+                                state.plugin_failures = app.metrics.stt_transcription_failures.load(Ordering::Relaxed);
                             }
                             state.log(LogLevel::Success, format!("Plugin loaded: {}", plugin_id));
                         }
@@ -751,9 +751,9 @@ async fn run_app(
                             }
                             // Update metrics from shared sink
                             if let Some(app) = &state.app {
-                                state.plugin_transcription_requests = app.metrics.stt_transcription_requests.load(Ordering::Relaxed) as u64;
-                                state.plugin_success = app.metrics.stt_transcription_success.load(Ordering::Relaxed) as u64;
-                                state.plugin_failures = app.metrics.stt_transcription_failures.load(Ordering::Relaxed) as u64;
+                                state.plugin_transcription_requests = app.metrics.stt_transcription_requests.load(Ordering::Relaxed);
+                                state.plugin_success = app.metrics.stt_transcription_success.load(Ordering::Relaxed);
+                                state.plugin_failures = app.metrics.stt_transcription_failures.load(Ordering::Relaxed);
                             }
                             state.log(LogLevel::Info, format!("Plugin unloaded: {}", plugin_id));
                         }
@@ -762,9 +762,9 @@ async fn run_app(
                             state.plugin_current = Some(plugin_id.clone());
                             // Update metrics from shared sink
                             if let Some(app) = &state.app {
-                                state.plugin_transcription_requests = app.metrics.stt_transcription_requests.load(Ordering::Relaxed) as u64;
-                                state.plugin_success = app.metrics.stt_transcription_success.load(Ordering::Relaxed) as u64;
-                                state.plugin_failures = app.metrics.stt_transcription_failures.load(Ordering::Relaxed) as u64;
+                                state.plugin_transcription_requests = app.metrics.stt_transcription_requests.load(Ordering::Relaxed);
+                                state.plugin_success = app.metrics.stt_transcription_success.load(Ordering::Relaxed);
+                                state.plugin_failures = app.metrics.stt_transcription_failures.load(Ordering::Relaxed);
                             }
                             state.log(LogLevel::Info, format!("Switched to plugin: {}", plugin_id));
                         }
