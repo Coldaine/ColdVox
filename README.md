@@ -9,6 +9,21 @@ ColdVox is a modular Rust workspace providing real‑time audio capture, VAD, ST
 
 ## Quick Start
 
+### Developer Setup
+
+```bash
+# One-time environment bootstrap
+just setup
+
+# (Optional) enable auto-setup on `cd` using direnv
+direnv allow   # reruns setup automatically and loads .env
+```
+
+The setup command installs pinned tool versions (Rust 1.75, just, pre-commit, cargo-nextest),
+configures git hooks, and pre-fetches dependencies. When direnv is enabled, the workspace runs
+`just setup-auto` the first time you enter the directory and reloads environment variables from
+`.env` on subsequent visits.
+
 **For Voice Dictation (Recommended):**
 ```bash
 # Run with default Vosk STT and text injection (model auto-discovered)
