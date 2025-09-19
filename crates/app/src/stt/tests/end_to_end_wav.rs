@@ -33,7 +33,7 @@ use coldvox_vad::types::VadEvent;
 fn resolve_vosk_model_path() -> String {
     // 1. Environment override wins immediately
     if let Ok(p) = std::env::var("VOSK_MODEL_PATH") {
-        return p;
+            return p;
     }
 
     // 2. Candidate relative names (could be expanded later)
@@ -44,8 +44,11 @@ fn resolve_vosk_model_path() -> String {
     ];
 
     for cand in CANDIDATES {
-        if std::path::Path::new(cand).join("graph").exists() {
-            return cand.to_string();
+        let graph_path = std::path::Path::new(cand).join("graph");
+        if graph_path.exists() {
+            let absolute_path = std::path::Path::new(cand).canonicalize().unwrap_or_else(|_| std::path::PathBuf::from(cand));
+            let final_path = absolute_path.to_string_lossy().to_string();
+            return final_path;
         }
     }
 
@@ -643,11 +646,15 @@ async fn get_clipboard_content() -> Option<String> {
     None
 }
 
-use super::*;
+// End-to-end integration tests for WAV file processing
 
 #[tokio::test]
 async fn test_end_to_end_wav_pipeline() {
     init_test_infrastructure();
+
+    // Set up the Vosk model path for this test
+    let model_path = resolve_vosk_model_path();
+    std::env::set_var("VOSK_MODEL_PATH", &model_path);
     use rand::seq::SliceRandom;
     use std::fs;
 

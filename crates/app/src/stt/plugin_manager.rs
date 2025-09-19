@@ -1220,10 +1220,15 @@ mod tests {
     use super::*;
     use coldvox_stt::plugin::{FailoverConfig, GcPolicy};
 
+    /// Create a test manager - uses real STT plugins including Vosk
+    fn create_test_manager() -> SttPluginManager {
+        SttPluginManager::new()
+    }
+
     #[tokio::test]
     #[ignore]
     async fn test_unload_plugin() {
-        let mut manager = SttPluginManager::new();
+        let mut manager = create_test_manager();
 
         // Initialize with a plugin
         let _plugin_id = manager.initialize().await.unwrap();
@@ -1243,7 +1248,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_unload_all_plugins() {
-        let mut manager = SttPluginManager::new();
+        let mut manager = create_test_manager();
 
         // Initialize with a plugin
         let _plugin_id = manager.initialize().await.unwrap();
@@ -1280,7 +1285,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_plugin_manager_initialization() {
-        let mut manager = SttPluginManager::new();
+        let mut manager = create_test_manager();
 
         // Should initialize with some plugin (at least NoOp)
         let plugin_id = manager.initialize().await.unwrap();
@@ -1298,7 +1303,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_plugin_switching() {
-        let mut manager = SttPluginManager::new();
+        let mut manager = create_test_manager();
         manager.initialize().await.unwrap();
 
         // Should be able to switch to mock plugin
@@ -1369,6 +1374,7 @@ mod tests {
     async fn test_unload_error_metrics() {
         let metrics = Arc::new(PipelineMetrics::default());
         let mut manager = SttPluginManager::new().with_metrics_sink(metrics.clone());
+
 
         // Initialize with a plugin
         let _plugin_id = manager.initialize().await.unwrap();
@@ -1479,7 +1485,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_unload_all_idempotency() {
-        let mut manager = SttPluginManager::new();
+        let mut manager = create_test_manager();
 
         // Initialize with a plugin
         let _plugin_id = manager.initialize().await.unwrap();
@@ -1507,8 +1513,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_concurrent_process_audio_and_gc_no_double_borrow() {
-        let manager = SttPluginManager::new();
-        let manager = Arc::new(tokio::sync::RwLock::new(manager));
+        let test_manager = create_test_manager();
+        let manager = Arc::new(tokio::sync::RwLock::new(test_manager));
 
         // Initialize with a plugin
         {

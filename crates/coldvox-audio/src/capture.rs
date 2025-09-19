@@ -320,9 +320,22 @@ impl AudioCapture {
             current_device_name: None,
         };
 
-        // Check audio setup for PipeWire compatibility
+        // Check audio setup for PipeWire compatibility (baseline timing)
+        let setup_start = std::time::Instant::now();
         if let Err(e) = self_.device_manager.check_audio_setup() {
             tracing::error!("Audio setup check failed: {}", e);
+        }
+        let setup_elapsed = setup_start.elapsed();
+        const SETUP_BUDGET_MS: u64 = 100;
+        let budget = std::time::Duration::from_millis(SETUP_BUDGET_MS);
+
+        if setup_elapsed > budget {
+            tracing::warn!(
+                "Audio setup check exceeded budget: {:.2?} > {:.2?}. Consider optimizing setup path.",
+                setup_elapsed, budget
+            );
+        } else {
+            tracing::info!("Audio setup check baseline: {:.2?} (under {:?} budget)", setup_elapsed, budget);
         }
 
         Ok(self_)
