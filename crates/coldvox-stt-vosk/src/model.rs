@@ -61,8 +61,15 @@ impl std::error::Error for ModelError {}
 
 /// Locate the model directory.
 pub fn locate_model(config_path: Option<&str>) -> Result<ModelInfo, ModelError> {
+    tracing::debug!(
+        env_var = %std::env::var("VOSK_MODEL_PATH").unwrap_or_else(|_| "unset".to_string()),
+        config_path = ?config_path,
+        "locate_model called"
+    );
+
     if let Ok(p) = env::var("VOSK_MODEL_PATH") {
         let pb = PathBuf::from(&p);
+        tracing::debug!(path = %pb.display(), exists = pb.exists(), is_dir = pb.is_dir(), "Checking VOSK_MODEL_PATH");
         if pb.is_dir() {
             return Ok(ModelInfo {
                 path: pb,
@@ -75,6 +82,7 @@ pub fn locate_model(config_path: Option<&str>) -> Result<ModelInfo, ModelError> 
 
     if let Some(cp) = config_path.filter(|s| !s.is_empty()) {
         let pb = PathBuf::from(cp);
+        tracing::debug!(path = %pb.display(), exists = pb.exists(), is_dir = pb.is_dir(), "Checking config_path");
         if pb.is_dir() {
             return Ok(ModelInfo {
                 path: pb,
@@ -281,10 +289,7 @@ fn extract_model(zip_path: &std::path::Path) -> Result<ModelInfo, ModelError> {
 
         for i in 0..archive.len() {
             let mut file = archive.by_index(i)?;
-            let outpath = temp_dir.join(
-                file.enclosed_name()
-                    .ok_or("Invalid file path in zip")?,
-            );
+            let outpath = temp_dir.join(file.enclosed_name().ok_or("Invalid file path in zip")?);
 
             if file.name().ends_with('/') {
                 std::fs::create_dir_all(&outpath)?;
@@ -373,7 +378,7 @@ mod tests {
     #[test]
     fn pick_best_prefers_small_en_and_version() {
         let base = std::env::temp_dir().join(format!("cvx-test-{}", Uuid::new_v4()));
-        let _ = std::fs::create_dir_all(base.join("models"));
+        std::fs::create_dir_all(base.join("models")).expect("Failed to create models dir");
 
         let dirs = vec![
             "vosk-model-en-us-0.15",
@@ -382,14 +387,15 @@ mod tests {
             "vosk-model-small-de-0.30",
         ];
         for d in &dirs {
-            let _ = std::fs::create_dir_all(base.join("models").join(d));
+            std::fs::create_dir_all(base.join("models").join(d))
+                .expect("Failed to create test dir");
         }
 
-        let cwd = std::env::current_dir().unwrap();
-        std::env::set_current_dir(&base).unwrap();
+        let cwd = std::env::current_dir().expect("Failed to get current dir");
+        std::env::set_current_dir(&base).expect("Failed to set test cwd");
         let found = super::find_model_candidates();
         let best = super::pick_best_candidate(found).expect("a best candidate");
-        std::env::set_current_dir(cwd).unwrap();
+        std::env::set_current_dir(cwd).expect("Failed to restore cwd");
 
         assert!(best
             .file_name()
