@@ -136,7 +136,7 @@ cargo test -p coldvox-app
 cargo test integration
 
 # End-to-end WAV test (requires Vosk model - auto-discovered from project root)
-cargo test -p coldvox-app --features vosk test_end_to_end_wav -- --ignored --nocapture
+cargo test -p coldvox-app --features vosk test_end_to_end_wav --nocapture
 ```
 
 ### Linting & Formatting
