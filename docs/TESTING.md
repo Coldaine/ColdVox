@@ -4,6 +4,11 @@
 
 ColdVox has a comprehensive test suite that tests real STT functionality using Vosk models. Tests are designed to work with actual speech recognition rather than mocks to ensure functional correctness. This guide explains how to run tests and set up the required dependencies.
 
+### Environment Expectations
+- Developer machines and the self-hosted CI runner provide live audio hardware and a desktop session. Tests that exercise audio capture, VAD, STT, and text injection run by default under these environments (no ignored tests).
+- For truly headless contexts, set `COLDVOX_HEADLESS=true` to skip desktop-dependent injection tests gracefully. Do not set this flag on dev machines or the standard self-hosted runner.
+- fish shell example: `set -x COLDVOX_HEADLESS true; cargo test`
+
 ## Test Categories
 
 ### Core Tests

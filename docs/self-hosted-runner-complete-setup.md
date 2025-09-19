@@ -4,7 +4,6 @@
 **Purpose**: Exhaustive documentation of all configurations, settings, and workflow files
 **Status**: Current as of commit 959a04a
 
----
 
 ## System Information
 
@@ -27,7 +26,10 @@
 - **Hostname**: laptop-extra
 - **Username**: coldaine
 
----
+### Environment Expectations
+- The self-hosted runner provides live audio hardware and a working desktop session for tests. End-to-end audio→VAD→STT→injection tests run by default.
+- Only explicitly headless workflows should set `COLDVOX_HEADLESS=true` to skip desktop-dependent tests. This should NOT be set on the standard runner.
+
 
 ## GitHub Actions Runner Configuration
 

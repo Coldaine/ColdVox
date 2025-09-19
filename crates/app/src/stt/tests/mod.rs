@@ -156,14 +156,18 @@ mod vosk_tests {
                     default_path
                 );
                 if let Err(e) = result {
-                    assert!(e.contains("Vosk model not found"));
+                    // When empty path is provided, it should indicate path does not exist
+                    assert!(
+                        e.contains("does not exist") || e.contains("Vosk model not found"),
+                        "Expected error about missing model, got: {}",
+                        e
+                    );
                 }
             }
         }
 
         // Integration test with real model (if available)
         #[test]
-        #[ignore] // Run with: cargo test -- --ignored
         fn test_vosk_transcriber_with_model() {
             let model_path = "models/vosk-model-small-en-us-0.15";
             if !std::path::Path::new(model_path).exists() {

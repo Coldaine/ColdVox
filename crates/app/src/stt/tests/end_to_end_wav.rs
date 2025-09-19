@@ -862,9 +862,20 @@ fn test_wav_file_loader() {
     });
 }
 
+fn is_headless_env() -> bool {
+    std::env::var("COLDVOX_HEADLESS")
+        .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false)
+}
+
 #[tokio::test]
-#[ignore] // This test is complex and passes, but I want to focus on the other one.
 async fn test_end_to_end_with_real_injection() {
+    if is_headless_env() {
+        eprintln!(
+            "Skipping: headless environment detected (set COLDVOX_HEADLESS=false to run)."
+        );
+        return;
+    }
     init_test_infrastructure();
     // This test uses the real AsyncInjectionProcessor for comprehensive testing
     // It requires:
@@ -1176,11 +1187,16 @@ async fn test_end_to_end_with_real_injection() {
 }
 
 /// Test AT-SPI injection specifically
-#[ignore]
 #[tokio::test]
 #[cfg(feature = "text-injection")]
 
 async fn test_atspi_injection() {
+    if is_headless_env() {
+        eprintln!(
+            "Skipping AT-SPI test: headless environment (COLDVOX_HEADLESS=true)."
+        );
+        return;
+    }
     init_test_infrastructure();
     #[cfg(feature = "text-injection")]
     {
@@ -1259,11 +1275,16 @@ async fn test_atspi_injection() {
 }
 
 /// Test clipboard injection specifically
-#[ignore]
 #[tokio::test]
 #[cfg(feature = "text-injection")]
 
 async fn test_clipboard_injection() {
+    if is_headless_env() {
+        eprintln!(
+            "Skipping clipboard test: headless environment (COLDVOX_HEADLESS=true)."
+        );
+        return;
+    }
     init_test_infrastructure();
     #[cfg(feature = "text-injection")]
     {
