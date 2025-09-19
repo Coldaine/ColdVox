@@ -100,6 +100,12 @@ Key defaults right now:
 - **Examples as tests**: Manual verification via example programs
 - **Component tests**: Pipeline, VAD, text injection, timing validation
 
+### Test Commands
+- **Standard testing**: `cargo test --workspace`
+- **Nextest (preferred)**: `cargo nextest run --workspace --locked` (faster, better output)
+- **Coverage analysis**: `cargo tarpaulin --workspace --out Html --output-dir coverage`
+- For detailed testing instructions, see `docs/TESTING.md`
+
 ## Audio data flow and contracts
 - CPAL callback → i16 samples → `AudioRingBuffer` (SPSC) → `FrameReader` → `AudioChunker` → broadcast channel
 - Chunker output: 512-sample frames (32 ms) at 16 kHz to VAD/STT subscribers

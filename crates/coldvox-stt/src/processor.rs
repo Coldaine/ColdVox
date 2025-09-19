@@ -220,8 +220,6 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
     async fn handle_speech_end(&mut self, _timestamp_ms: u64, _duration_ms: Option<u64>) {
         debug!(target: "stt", "Starting handle_speech_end()");
 
-        self.pipeline_metrics.stt_transcription_requests.fetch_add(1, Ordering::Relaxed);
-
         // Process the buffered audio all at once
         if let Some(mgr) = &mut self.buffer_mgr {
             mgr.log_processing_info();
@@ -259,6 +257,22 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
         self.state = UtteranceState::Idle;
     }
 
+    /// Handle the result from finalizing the STT engine
+    async fn handle_finalization_result(&self, result: Option<TranscriptionEvent>) {
+        match result {
+            Some(event) => {
+                debug!(target: "stt", "STT engine returned Final event: {:?}", event);
+                self.send_event(event).await;
+                let mut metrics = self.metrics.write();
+                metrics.final_count += 1;
+                metrics.last_event_time = Some(Instant::now());
+            }
+            None => {
+                debug!(target: "stt", "STT engine returned None on speech end");
+            }
+        }
+    }
+
     /// Handle incoming audio frame
     async fn handle_audio_frame(&mut self, frame: AudioFrame) {
         // Update metrics
@@ -266,8 +280,73 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
         self.pipeline_metrics.capture_frames.fetch_add(1, Ordering::Relaxed);
 
         // Only buffer if speech is active
-        if let Some(mgr) = &mut self.buffer_mgr {
-            mgr.add_frame(&frame.data);
+        self.buffer_audio_frame_if_speech_active(frame);
+    }
+
+    /// Buffer an audio frame if speech is active and log progress periodically
+    fn buffer_audio_frame_if_speech_active(&mut self, frame: AudioFrame) {
+        if let UtteranceState::SpeechActive {
+            ref mut audio_buffer,
+            ref mut frames_buffered,
+            ..
+        } = &mut self.state
+        {
+            // Buffer the audio frame (already i16 PCM)
+            audio_buffer.extend_from_slice(&frame.data);
+            *frames_buffered += 1;
+
+            // Log periodically to show we're buffering
+            if *frames_buffered % LOGGING_INTERVAL_FRAMES == 0 {
+                debug!(
+                    target: "stt",
+                    "Buffering audio: {} frames, {} samples ({:.2}s)",
+                    frames_buffered,
+                    audio_buffer.len(),
+                    audio_buffer.len() as f32 / SAMPLE_RATE_HZ as f32
+                );
+            }
+        }
+    }
+
+    /// Send transcription event
+    async fn send_event(&self, event: TranscriptionEvent) {
+        // Log the event
+        match &event {
+            TranscriptionEvent::Partial { text, .. } => {
+                info!(target: "stt", "Partial: {}", text);
+                self.metrics.write().partial_count += 1;
+            }
+            TranscriptionEvent::Final { text, words, .. } => {
+                let word_count = words.as_ref().map(|w| w.len()).unwrap_or(0);
+                info!(target: "stt", "Final: {} (words: {})", text, word_count);
+                self.metrics.write().final_count += 1;
+            }
+            TranscriptionEvent::Error { code, message } => {
+                error!(target: "stt", "Error [{}]: {}", code, message);
+                self.metrics.write().error_count += 1;
+            }
+        }
+
+        // Send to channel with backpressure - wait if channel is full
+        // Use timeout to prevent indefinite blocking
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(SEND_TIMEOUT_SECONDS),
+            self.event_tx.send(event),
+        )
+        .await
+        {
+            Ok(Ok(())) => {
+                // Successfully sent
+            }
+            Ok(Err(_)) => {
+                // Channel closed
+                debug!(target: "stt", "Event channel closed");
+            }
+            Err(_) => {
+                // Timeout - consumer is too slow
+                warn!(target: "stt", "Event channel send timed out after 5s - consumer too slow");
+                self.metrics.write().frames_dropped += 1;
+            }
         }
     }
 }

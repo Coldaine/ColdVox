@@ -5,8 +5,6 @@ use std::process::Command;
 
 pub struct DeviceManager {
     host: Host,
-    #[allow(dead_code)]
-    preferred_device: Option<String>,
     current_device: Option<Device>,
 }
 
@@ -15,7 +13,6 @@ impl DeviceManager {
         let host = cpal::default_host();
         Ok(Self {
             host,
-            preferred_device: None,
             current_device: None,
         })
     }

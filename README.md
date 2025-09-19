@@ -45,6 +45,20 @@ cargo run --bin mic_probe -- list-devices
 
 More detail: See [`CLAUDE.md`](CLAUDE.md) for full developer guide.
 
+## Testing
+
+For development, we recommend using `cargo nextest` as the preferred test runner for faster execution and better output:
+
+```bash
+# Install nextest
+cargo install cargo-nextest --locked
+
+# Run all tests with nextest (faster and more reliable)
+cargo nextest run --workspace --locked
+
+# For comprehensive testing guide, see docs/TESTING.md
+```
+
 ## Slow / Environment-Sensitive Tests
 Some end‑to‑end tests exercise real injection & STT. Gate them locally by setting an env variable (planned):
 ```bash

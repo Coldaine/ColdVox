@@ -1,7 +1,7 @@
 # Plan for Integrating Cargo-Nextest and Cargo-Tarpaulin into ColdVox
 
 ## Overview
-This plan integrates `cargo-nextest` (advanced test runner) and `cargo-tarpaulin` (coverage) tailored to ColdVox’s current setup:
+This plan integrates `cargo-nextest` (advanced test runner) and `cargo-tarpaulin` (coverage) tailored to ColdVox's current setup:
 - **Cargo-Nextest**: Faster, clearer test runs in a multi-crate workspace; supports retries and better flake handling.
 - **Cargo-Tarpaulin**: Line/branch coverage for core crates under Linux with self-hosted runners.
 
@@ -26,7 +26,7 @@ No breaking changes; these augment standard `cargo test`.
   final-status-level = "flaky"
   slow-timeout = { period = "120s", terminate-after = 2 }
   ```
-- Add to `justfile` (don’t chain coverage after nextest—coverage re-runs tests):
+- Add to `justfile` (don't chain coverage after nextest—coverage re-runs tests):
   ```make
   # Run workspace tests with nextest; autodetect local Vosk model
   test-nextest:
@@ -60,7 +60,7 @@ No breaking changes; these augment standard `cargo test`.
   - `cargo nextest run -p coldvox-audio`
   - `cargo tarpaulin -p coldvox-stt --features vosk --out Html --output-dir coverage`
 - **README.md**: Briefly mention nextest as the preferred local runner, with a link to the testing guide.
-- Keep `.github/copilot-instructions.md` in sync for references to nextest/coverage where appropriate.
+- **.github/copilot-instructions.md**: Keep in sync for references to nextest/coverage where appropriate.
 
 ## Step 3: CI/CD Integration
 Align with current self-hosted runners and Vosk setup.
@@ -145,7 +145,7 @@ Align with current self-hosted runners and Vosk setup.
   - Coverage fragility: Start with core crates; add GUI/injection only after stabilizing.
 - **Timeline**: Implement nextest switch + docs in current sprint; add coverage job the following sprint after initial validation.
 
-This plan aligns with the repository’s self-hosted CI, real-hardware assumptions, and provides a pragmatic path to faster tests and actionable coverage.
+This plan aligns with the repository's self-hosted CI, real-hardware assumptions, and provides a pragmatic path to faster tests and actionable coverage.
 
 Signed: Sonoma, built by Oak AI  
 Updated: 2025-09-19 (America/Chicago)

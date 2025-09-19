@@ -32,6 +32,27 @@ cd "$(git rev-parse --show-toplevel)"
 
 print_step "Starting local CI checks..."
 
+# Check if nextest is installed, and install if not
+if ! command -v cargo-nextest &> /dev/null; then
+    print_step "Installing cargo-nextest..."
+    if cargo install cargo-nextest --locked; then
+        print_success "cargo-nextest installed successfully"
+    else
+        print_error "Failed to install cargo-nextest"
+        exit 1
+    fi
+fi
+
+# Check if tarpaulin is installed, and install if not (for coverage)
+if ! command -v cargo-tarpaulin &> /dev/null; then
+    print_step "Installing cargo-tarpaulin..."
+    if cargo install cargo-tarpaulin --locked; then
+        print_success "cargo-tarpaulin installed successfully"
+    else
+        print_warning "Failed to install cargo-tarpaulin (optional for coverage)"
+    fi
+fi
+
 # 1. Check formatting
 print_step "Checking code formatting..."
 if cargo fmt --all -- --check; then
@@ -81,8 +102,8 @@ fi
 # 6. Run tests (skip E2E if no Vosk model)
 print_step "Running tests..."
 if [[ -n "${VOSK_MODEL_PATH:-}" ]] && [[ -d "$VOSK_MODEL_PATH" ]]; then
-    print_step "Running all tests (Vosk model found at $VOSK_MODEL_PATH)"
-    if cargo test --workspace --locked; then
+    print_step "Running all tests with nextest (Vosk model found at $VOSK_MODEL_PATH)"
+    if cargo nextest run --workspace --locked; then
         print_success "All tests passed"
     else
         print_error "Tests failed"
@@ -90,7 +111,7 @@ if [[ -n "${VOSK_MODEL_PATH:-}" ]] && [[ -d "$VOSK_MODEL_PATH" ]]; then
     fi
 else
     print_warning "Skipping E2E tests (VOSK_MODEL_PATH not set or directory not found)"
-    if cargo test --workspace --locked -- --skip test_end_to_end_wav_pipeline; then
+    if cargo nextest run --workspace --locked -- --skip test_end_to_end_wav_pipeline; then
         print_success "Tests passed (E2E skipped)"
     else
         print_error "Tests failed"
