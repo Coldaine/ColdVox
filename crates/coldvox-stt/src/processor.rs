@@ -78,6 +78,7 @@ pub struct SttProcessor<T: StreamingStt> {
     /// VAD event receiver
     vad_event_rx: mpsc::Receiver<VadEvent>,
     /// Transcription event sender
+    #[allow(dead_code)]
     event_tx: mpsc::Sender<TranscriptionEvent>,
     /// Streaming STT implementation
     stt_engine: T,
@@ -86,6 +87,7 @@ pub struct SttProcessor<T: StreamingStt> {
     /// Metrics
     metrics: Arc<parking_lot::RwLock<SttMetrics>>,
     /// STT performance metrics
+    #[allow(dead_code)]
     stt_metrics: Arc<SttPerformanceMetrics>,
     /// Pipeline metrics
     pipeline_metrics: Arc<PipelineMetrics>,
