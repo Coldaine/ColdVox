@@ -16,7 +16,14 @@ runs:
 
         # List of essential commands the runner MUST have
         # This replaces the sudo dnf/apt install commands
-        required_commands="xdotool wget unzip gcc g++ make Xvfb openbox dbus-launch wl-paste xclip ydotool xprop wmctrl pkg-config pulseaudio"
+        # Core tools (present on both X11/Wayland setups)
+        required_commands="xdotool wget unzip gcc g++ make Xvfb dbus-launch wl-paste xclip ydotool xprop wmctrl pkg-config"
+
+        # Window manager: require at least one of these
+        wm_candidates=(openbox fluxbox)
+
+        # Audio stack: require at least one control/daemon present (PipeWire or PulseAudio envs)
+        audio_candidates=(pactl pulseaudio pipewire pw-cli)
 
         failed=0
         echo "Checking for required commands..."
@@ -27,8 +34,35 @@ runs:
           fi
         done
 
-        # Check for pkg-config dependencies (for -devel packages)
-        required_pkgs="alsa gtk+-3.0 at-spi-2.0 xtst"
+        echo "Checking for a window manager (openbox|fluxbox)..."
+        wm_found=0
+        for wm in "${wm_candidates[@]}"; do
+          if command -v "$wm" &>/dev/null; then
+            wm_found=1
+            break
+          fi
+        done
+        if [[ $wm_found -eq 0 ]]; then
+          echo "::error::No supported window manager found (expected one of: ${wm_candidates[*]}). Please provision one."
+          failed=1
+        fi
+
+        echo "Checking for audio control/daemon (pactl|pulseaudio|pipewire|pw-cli)..."
+        audio_found=0
+        for ac in "${audio_candidates[@]}"; do
+          if command -v "$ac" &>/dev/null; then
+            audio_found=1
+            break
+          fi
+        done
+        if [[ $audio_found -eq 0 ]]; then
+          echo "::error::No audio control/daemon found (expected one of: ${audio_candidates[*]}). Please install PipeWire or PulseAudio tooling."
+          failed=1
+        fi
+
+    # Check for pkg-config dependencies (for -devel packages)
+    # atspi module name is 'atspi-2' (provided by at-spi2-core-devel / libatspi)
+    required_pkgs="alsa gtk+-3.0 atspi-2 xtst"
         echo "Checking for required libraries via pkg-config..."
         for pkg in $required_pkgs; do
             if ! pkg-config --exists "$pkg"; then
