@@ -447,6 +447,9 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
         max_alternatives: 1,
         include_words: false,
         buffer_size_ms: 512,
+        auto_extract_model: std::env::var("COLDVOX_STT_AUTO_EXTRACT")
+            .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+            .unwrap_or(true),
     };
 
     // Check if STT model exists
@@ -1006,6 +1009,9 @@ async fn test_end_to_end_with_real_injection() {
         include_words: false,
         buffer_size_ms: 512,
         streaming: false,
+        auto_extract_model: std::env::var("COLDVOX_STT_AUTO_EXTRACT")
+            .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+            .unwrap_or(true),
     };
 
     // Check if STT model exists; if missing, fail fast with actionable guidance

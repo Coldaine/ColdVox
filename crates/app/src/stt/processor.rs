@@ -115,6 +115,14 @@ impl PluginSttProcessor {
         // Clear any stale audio frames from the channel before starting.
         while self.audio_rx.try_recv().is_ok() {}
 
+        // Ensure the active plugin is initialized with the desired transcription config
+        {
+            let mut pm = self.plugin_manager.write().await;
+            if let Err(e) = pm.apply_transcription_config(self.config.clone()).await {
+                tracing::warn!(target: "stt", "Failed to apply transcription config to plugin: {}", e);
+            }
+        }
+
         loop {
             tokio::select! {
                 Some(event) = self.session_event_rx.recv() => {
@@ -259,6 +267,7 @@ impl PluginSttProcessor {
             };
 
             if should_process {
+                tracing::info!(target: "stt_debug", "Dispatching {} samples to plugin.process_audio()", i16_samples.len());
                 match self
                     .plugin_manager
                     .write()
@@ -267,10 +276,12 @@ impl PluginSttProcessor {
                     .await
                 {
                     Ok(Some(event)) => {
+                        tracing::info!(target: "stt_debug", "plugin.process_audio() produced event: {:?}", event);
                         Self::send_event_static(&self.event_tx, &self.metrics, event).await;
                     }
                     Ok(None) => {}
                     Err(e) => {
+                        tracing::info!(target: "stt_debug", "plugin.process_audio() returned error: {}", e);
                         let err_event = TranscriptionEvent::Error {
                             code: "PLUGIN_PROCESS_ERROR".to_string(),
                             message: e,

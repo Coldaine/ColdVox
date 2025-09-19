@@ -960,6 +960,7 @@ impl SttPluginManager {
         let mut current = self.current_plugin.write().await;
 
         if let Some(ref mut plugin) = *current {
+            tracing::info!(target: "stt_debug", plugin_id = %plugin.info().id, sample_count = samples.len(), "plugin_manager.process_audio() called");
             let plugin_id = plugin.info().id.clone();
 
             // Update last activity for GC
@@ -970,6 +971,7 @@ impl SttPluginManager {
 
             match plugin.process_audio(samples).await {
                 Ok(result) => {
+                    tracing::info!(target: "stt_debug", plugin_id = %plugin_id, has_event = %result.is_some(), "plugin_manager.process_audio() ok");
                     // Reset error count on success
                     {
                         let mut errors = self.consecutive_errors.write().await;
@@ -984,6 +986,7 @@ impl SttPluginManager {
                     Ok(result)
                 }
                 Err(e) => {
+                    tracing::info!(target: "stt_debug", plugin_id = %plugin_id, error = %e, "plugin_manager.process_audio() error");
                     // Track error and potentially trigger failover
                     self.total_errors
                         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -1054,10 +1057,8 @@ impl SttPluginManager {
                                 // Try processing with new plugin
                                 let mut current = self.current_plugin.write().await;
                                 if let Some(ref mut new_plugin) = *current {
-                                    new_plugin
-                                        .process_audio(samples)
-                                        .await
-                                        .map_err(|e| e.to_string())
+                                    tracing::info!(target: "stt_debug", plugin_id = %new_plugin.info().id, "plugin_manager.process_audio() retry on new plugin");
+                                    new_plugin.process_audio(samples).await.map_err(|e| e.to_string())
                                 } else {
                                     Err("Failover succeeded but no plugin available".to_string())
                                 }
@@ -1086,6 +1087,7 @@ impl SttPluginManager {
     ) -> Result<Option<coldvox_stt::types::TranscriptionEvent>, String> {
         let mut current = self.current_plugin.write().await;
         if let Some(ref mut plugin) = *current {
+            tracing::info!(target: "stt_debug", plugin_id = %plugin.info().id, "plugin_manager.finalize() called");
             match plugin.finalize().await {
                 Ok(result) => Ok(result),
                 Err(e) => {
@@ -1116,6 +1118,23 @@ impl SttPluginManager {
             plugin.reset().await.map_err(|e| e.to_string())
         } else {
             Ok(())
+        }
+    }
+
+    /// Apply a TranscriptionConfig to the currently loaded plugin.
+    /// This allows the app/processor to override defaults (e.g., enable=true).
+    pub async fn apply_transcription_config(
+        &mut self,
+        config: coldvox_stt::TranscriptionConfig,
+    ) -> Result<(), String> {
+        let mut current = self.current_plugin.write().await;
+        if let Some(ref mut plugin) = *current {
+            plugin
+                .initialize(config)
+                .await
+                .map_err(|e| e.to_string())
+        } else {
+            Err("No STT plugin selected".to_string())
         }
     }
 
@@ -1558,6 +1577,7 @@ mod tests {
                     enabled: true,
                 }),
                 metrics: None,
+                auto_extract_model: false,
             })
             .await;
         }
