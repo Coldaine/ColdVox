@@ -1226,7 +1226,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore]
     async fn test_unload_plugin() {
         let mut manager = create_test_manager();
 
@@ -1329,7 +1328,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore]
     async fn test_unload_metrics() {
         let metrics = Arc::new(PipelineMetrics::default());
         let mut manager = SttPluginManager::new().with_metrics_sink(metrics.clone());
@@ -1413,7 +1411,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore]
     async fn test_switch_plugin_unload_metrics() {
         let metrics = Arc::new(PipelineMetrics::default());
         let mut manager = SttPluginManager::new().with_metrics_sink(metrics.clone());
@@ -1455,7 +1452,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore]
     async fn test_unload_idempotency() {
         let mut manager = SttPluginManager::new();
 

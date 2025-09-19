@@ -422,7 +422,7 @@ mod tests {
     #[test]
     fn test_malformed_pactl_output() {
         // Test graceful handling of malformed pactl output
-        env::set_var("MOCK_PACTL_OUTPUT", "invalid \x41 utf8");
+        env::set_var("MOCK_PACTL_OUTPUT", "invalid \\x41 utf8");
         env::set_var("MOCK_APLAY_OUTPUT", "normal");
         let manager = setup_test_manager();
         let result = manager.check_audio_setup();
