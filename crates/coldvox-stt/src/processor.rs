@@ -5,6 +5,13 @@
 //! to work with any VAD system and any STT implementation.
 
 use crate::constants::*;
+
+// Typed constants for audio processing parameters
+const SAMPLE_RATE_HZ: u32 = 16_000;
+const DEFAULT_BUFFER_DURATION_SECONDS: usize = 10;
+const DEFAULT_CHUNK_SIZE_SAMPLES: usize = 16_000;
+const LOGGING_INTERVAL_FRAMES: u64 = 100;
+const SEND_TIMEOUT_SECONDS: u64 = 5;
 use crate::types::{TranscriptionConfig, TranscriptionEvent};
 use crate::StreamingStt;
 use crate::helpers::*;
@@ -114,6 +121,8 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
         }
 
         let metrics = Arc::new(parking_lot::RwLock::new(SttMetrics::default()));
+        let stt_metrics_clone = stt_metrics.clone();
+        let pipeline_metrics_clone = pipeline_metrics.clone();
         Self {
             audio_rx,
             vad_event_rx,
@@ -125,7 +134,7 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
             pipeline_metrics,
             config,
             buffer_mgr: None,
-            emitter: EventEmitter::new(event_tx, metrics, stt_metrics.clone(), pipeline_metrics.clone()),
+            emitter: EventEmitter::new(event_tx, metrics, stt_metrics_clone, pipeline_metrics_clone),
         }
     }
 
@@ -283,27 +292,11 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
         self.buffer_audio_frame_if_speech_active(frame);
     }
 
-    /// Buffer an audio frame if speech is active and log progress periodically
+    /// Buffer an audio frame if speech is active
     fn buffer_audio_frame_if_speech_active(&mut self, frame: AudioFrame) {
-        if let UtteranceState::SpeechActive {
-            ref mut audio_buffer,
-            ref mut frames_buffered,
-            ..
-        } = &mut self.state
-        {
-            // Buffer the audio frame (already i16 PCM)
-            audio_buffer.extend_from_slice(&frame.data);
-            *frames_buffered += 1;
-
-            // Log periodically to show we're buffering
-            if *frames_buffered % LOGGING_INTERVAL_FRAMES == 0 {
-                debug!(
-                    target: "stt",
-                    "Buffering audio: {} frames, {} samples ({:.2}s)",
-                    frames_buffered,
-                    audio_buffer.len(),
-                    audio_buffer.len() as f32 / SAMPLE_RATE_HZ as f32
-                );
+        if let UtteranceState::SpeechActive { .. } = &mut self.state {
+            if let Some(mgr) = &mut self.buffer_mgr {
+                mgr.add_frame(&frame.data);
             }
         }
     }

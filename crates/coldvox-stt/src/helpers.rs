@@ -538,7 +538,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_event_emitter_send_failure() {
-        let (tx, _) = mpsc::channel(1); // Buffer of 1 to test full buffer case
+        let (tx, rx) = mpsc::channel(1); // Buffer of 1
         // Fill the buffer first
         let filler_event = TranscriptionEvent::Partial {
             utterance_id: 0,
@@ -547,6 +547,8 @@ mod tests {
             t1: Some(0.0),
         };
         tx.send(filler_event.clone()).await.unwrap();
+        
+        drop(rx); // Close the channel to cause send failure
         
         let metrics = Arc::new(RwLock::new(SttMetrics::default()));
         let stt_metrics = Arc::new(SttPerformanceMetrics::new());
@@ -560,9 +562,9 @@ mod tests {
             t1: Some(0.0),
         };
         
-        // Test the send failure (full buffer)
+        // Test the send failure (channel closed)
         let result = emitter.emit(event).await;
-        assert!(result.is_err()); // Send failed due to full buffer
+        assert!(result.is_err()); // Send failed due to closed channel
         
         let m = metrics.read();
         assert_eq!(m.frames_dropped, 1);
