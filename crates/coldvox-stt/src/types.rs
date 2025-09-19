@@ -1,7 +1,7 @@
 //! Core types for speech-to-text functionality
 
 /// Transcription event types
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TranscriptionEvent {
     /// Partial transcription result (ongoing speech)
     Partial {
@@ -24,7 +24,7 @@ pub enum TranscriptionEvent {
 }
 
 /// Word-level timing and confidence information
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct WordInfo {
     /// Start time in seconds
     pub start: f32,

@@ -12,7 +12,7 @@ async-trait = "0.1"
 thiserror = "2.0"
 dirs = "5.0"
 serde = { version = "1.0", features = ["derive"] }
-coldvox-telemetry = { path = "../coldvox-telemetry" }
+coldvox-telemetry = { path = "../coldvox-telemetry", optional = true }
 
 [features]
 default = []
@@ -22,6 +22,7 @@ whisper = []
 coqui = []
 leopard = []
 silero-stt = []
+telemetry = ["dep:coldvox-telemetry"]
 
 [dev-dependencies]
 tokio = { version = "1.35", features = ["rt", "macros"] }
