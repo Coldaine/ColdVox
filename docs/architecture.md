@@ -34,6 +34,9 @@ This document outlines the current architecture of ColdVox's TUI system and the 
    - Failover and garbage collection
    - Metrics collection and persistence
 
+#### STT Feature Defaults
+Vosk is now the default STT backend (enabled in `default` features of `crates/app/Cargo.toml`). This ensures real speech recognition is used by default in the app and tests, preventing fallback to the mock plugin that skips actual transcription work. Rationale: In the alpha stage, Vosk is the primary working STT implementation; defaulting promotes robust testing and production use. Other backends (e.g., Whisper, Parakeet) remain optional and can be preferred via CLI (`--stt-preferred whisper`) or env (`COLDVOX_STT_PREFERRED=whisper`).
+
 ### Issues Addressed
 
 #### 1. Logging Configuration Problems

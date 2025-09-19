@@ -11,27 +11,29 @@ mod tests {
     #[test]
     #[cfg(feature = "live-hardware-tests")]
     fn test_end_to_end_capture_pipewire() {
+        std::env::set_var("COLDVOX_STT_PREFERRED", "vosk"); // Force Vosk for integration
+    
         let config = AudioConfig {
             sample_rate: 16000,
             channels: 1,
             buffer_size: FRAME_SIZE_SAMPLES,
             silence_threshold: 100,
         };
-
+    
         let mut capture = AudioCapture::new(config).expect("Failed to create capture");
-
+    
         // Start capture with pipewire preference
         let result = tokio_test::block_on(capture.start(None));
         assert!(result.is_ok(), "Should start capture with default device");
-
+    
         // Capture for 2 seconds
         thread::sleep(Duration::from_secs(2));
-
+    
         // Check stats
         let stats = capture.get_stats();
         assert!(stats.frames_captured > 0, "Should have captured frames");
         assert_eq!(stats.disconnections, 0, "Should have no disconnections");
-
+    
         capture.stop();
     }
 

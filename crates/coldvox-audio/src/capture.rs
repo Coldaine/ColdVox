@@ -306,7 +306,7 @@ impl AudioCapture {
         audio_producer: AudioProducer,
         running: Arc<AtomicBool>,
     ) -> Result<Self, AudioError> {
-        Ok(Self {
+        let self_ = Self {
             device_manager: DeviceManager::new()?,
             stream: None,
             audio_producer: Arc::new(Mutex::new(audio_producer)),
@@ -318,7 +318,27 @@ impl AudioCapture {
             config_tx: None,
             device_event_tx: None,
             current_device_name: None,
-        })
+        };
+
+        // Check audio setup for PipeWire compatibility (baseline timing)
+        let setup_start = std::time::Instant::now();
+        if let Err(e) = self_.device_manager.check_audio_setup() {
+            tracing::error!("Audio setup check failed: {}", e);
+        }
+        let setup_elapsed = setup_start.elapsed();
+        const SETUP_BUDGET_MS: u64 = 100;
+        let budget = std::time::Duration::from_millis(SETUP_BUDGET_MS);
+
+        if setup_elapsed > budget {
+            tracing::warn!(
+                "Audio setup check exceeded budget: {:.2?} > {:.2?}. Consider optimizing setup path.",
+                setup_elapsed, budget
+            );
+        } else {
+            tracing::info!("Audio setup check baseline: {:.2?} (under {:?} budget)", setup_elapsed, budget);
+        }
+
+        Ok(self_)
     }
 
     pub fn with_config_channel(

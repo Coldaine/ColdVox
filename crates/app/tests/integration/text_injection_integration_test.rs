@@ -8,34 +8,36 @@ mod tests {
 
     #[tokio::test]
     async fn test_text_injection_end_to_end() {
+        std::env::set_var("COLDVOX_STT_PREFERRED", "vosk"); // Force Vosk for integration
+    
         // Create configuration
         let config = InjectionConfig::default();
-
+    
         // Create shared metrics
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
-
+    
         // Create strategy manager
-        let mut manager = StrategyManager::new(config, metrics.clone());
-
+        let mut manager = StrategyManager::new(config, metrics.clone()).await;
+    
         // Test with normal text
         let result = manager.inject("Hello world").await;
         assert!(result.is_ok(), "Should successfully inject text");
-
+    
         // Verify metrics
         let metrics_guard = metrics.lock().await;
         assert_eq!(metrics_guard.successes, 1, "Should record one success");
         assert_eq!(metrics_guard.attempts, 1, "Should record one attempt");
         assert_eq!(metrics_guard.failures, 0, "Should have no failures");
-
+    
         // Test with empty text
         let result = manager.inject("").await;
         assert!(result.is_ok(), "Should handle empty text gracefully");
-
+    
         // Test with long text
         let long_text = "This is a longer text that should be injected successfully. ".repeat(10);
         let result = manager.inject(&long_text).await;
         assert!(result.is_ok(), "Should handle long text");
-
+    
         // Verify metrics updated
         assert_eq!(metrics_guard.successes, 2, "Should have two successes");
         assert_eq!(metrics_guard.attempts, 2, "Should have two attempts");

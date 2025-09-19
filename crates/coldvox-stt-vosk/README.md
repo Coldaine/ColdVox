@@ -84,11 +84,11 @@ mv vosk-model-small-en-us-0.15 models/
 
 ## Feature Gating
 
-This crate uses feature gating to make Vosk optional:
+This crate is now enabled by default in the `coldvox-app` crate (added to `default` features), as Vosk is the primary working STT implementation in the alpha stage. This ensures real speech recognition is used by default, preventing fallback to the mock plugin that skips transcription in tests and production.
 
-- Enable with: `--features vosk`
-- Without the feature, only stub functions are available
-- This allows building ColdVox without speech recognition dependencies
+- To disable: Build without "vosk" (e.g., `cargo build --no-default-features`).
+- For other backends: Enable their features (e.g., "whisper") and set `--stt-preferred whisper`.
+- Rationale: Defaulting Vosk promotes robust feature testing and avoids mock as an "easy out" for skipping real work.
 
 ## Related Crates
 
