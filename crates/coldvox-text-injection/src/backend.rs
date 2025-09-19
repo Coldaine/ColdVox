@@ -1,4 +1,4 @@
-use crate::types::InjectionConfig;
+use crate::types::{InjectionConfig, InjectionError};
 use std::env;
 
 /// Available text injection backends
@@ -22,12 +22,24 @@ pub enum Backend {
     WindowsClipboard,
 }
 
-/// Backend capability detector
-pub struct BackendDetector {
+/// Interface for detecting platform injection backends
+pub trait BackendDetector: Send + Sync {
+    /// Detect available backends on the current system
+    fn detect_available_backends(&self) -> Vec<Backend>;
+
+    /// Get the preferred backend based on availability and configuration
+    fn get_preferred_backend(&self) -> Option<Backend>;
+
+    /// Perform environment validation for audio/text injection readiness
+    fn check_audio_setup(&self) -> Result<(), InjectionError>;
+}
+
+/// Default backend capability detector used by the application
+pub struct SystemBackendDetector {
     _config: InjectionConfig,
 }
 
-impl BackendDetector {
+impl SystemBackendDetector {
     /// Create a new backend detector
     pub fn new(config: InjectionConfig) -> Self {
         Self { _config: config }
@@ -159,6 +171,21 @@ impl BackendDetector {
     }
 }
 
+impl BackendDetector for SystemBackendDetector {
+    fn detect_available_backends(&self) -> Vec<Backend> {
+        Self::detect_available_backends(self)
+    }
+
+    fn get_preferred_backend(&self) -> Option<Backend> {
+        Self::get_preferred_backend(self)
+    }
+
+    fn check_audio_setup(&self) -> Result<(), InjectionError> {
+        // Placeholder: real implementation will validate compositor/service availability
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,7 +193,7 @@ mod tests {
     #[test]
     fn test_backend_detection() {
         let config = InjectionConfig::default();
-        let detector = BackendDetector::new(config);
+        let detector = SystemBackendDetector::new(config);
 
         let backends = detector.detect_available_backends();
 
@@ -183,7 +210,7 @@ mod tests {
 
     #[test]
     fn test_preferred_order() {
-        let order = BackendDetector::preferred_order();
+        let order = SystemBackendDetector::preferred_order();
 
         // Check that Wayland backends are preferred first
         assert_eq!(order[0], Backend::WaylandXdgDesktopPortal);

@@ -1,4 +1,4 @@
-use crate::backend::{Backend, BackendDetector};
+use crate::backend::{BackendDetector, SystemBackendDetector};
 use crate::backend_plan::plan_backends;
 use crate::config_timeout::TimeoutConfig;
 use crate::focus::{FocusProvider, FocusStatus, FocusTracker};
@@ -21,6 +21,7 @@ use crate::kdotool_injector::KdotoolInjector;
 use crate::noop_injector::NoOpInjector;
 #[cfg(feature = "ydotool")]
 use crate::ydotool_injector::YdotoolInjector;
+use std::cmp::Ordering;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -173,7 +174,7 @@ pub struct StrategyManager {
     /// Metrics for the strategy manager
     metrics: Arc<Mutex<InjectionMetrics>>,
     /// Backend detector for platform-specific capabilities
-    backend_detector: BackendDetector,
+    backend_detector: Arc<dyn BackendDetector>,
     /// Registry of available injectors
     injectors: InjectorRegistry,
     /// Cached method ordering for the current app_id
@@ -189,6 +190,50 @@ pub struct StrategyManager {
 }
 
 impl StrategyManager {
+    fn order_plan_by_success(&self, method_plan: &mut Vec<InjectionMethod>, app_id: &str) {
+        let plan_copy = method_plan.clone();
+        let app_id_owned = app_id.to_string();
+        method_plan.sort_by(|a, b| {
+            Self::compare_methods(&self.success_cache, &plan_copy, &app_id_owned, *a, *b)
+        });
+    }
+
+    fn compare_methods(
+        success_cache: &HashMap<AppMethodKey, SuccessRecord>,
+        plan_copy: &[InjectionMethod],
+        app_id: &String,
+        a: InjectionMethod,
+        b: InjectionMethod,
+    ) -> Ordering {
+        if a == InjectionMethod::NoOp {
+            return Ordering::Greater;
+        }
+        if b == InjectionMethod::NoOp {
+            return Ordering::Less;
+        }
+
+        let key_a = (app_id.clone(), a);
+        let key_b = (app_id.clone(), b);
+
+        let rate_a = success_cache
+            .get(&key_a)
+            .map(|r| r.success_rate)
+            .unwrap_or(0.5);
+        let rate_b = success_cache
+            .get(&key_b)
+            .map(|r| r.success_rate)
+            .unwrap_or(0.5);
+
+        rate_b
+            .partial_cmp(&rate_a)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| {
+                let pos_a = plan_copy.iter().position(|m| m == &a).unwrap_or(usize::MAX);
+                let pos_b = plan_copy.iter().position(|m| m == &b).unwrap_or(usize::MAX);
+                pos_a.cmp(&pos_b)
+            })
+    }
+
     /// Create a new strategy manager with default focus tracker
     pub async fn new(config: InjectionConfig, metrics: Arc<Mutex<InjectionMetrics>>) -> Self {
         let focus = Box::new(FocusTracker::new(config.clone()));
@@ -201,7 +246,8 @@ impl StrategyManager {
         metrics: Arc<Mutex<InjectionMetrics>>,
         focus_provider: Box<dyn FocusProvider>,
     ) -> Self {
-        let backend_detector = BackendDetector::new(config.clone());
+        let backend_detector: Arc<dyn BackendDetector> =
+            Arc::new(SystemBackendDetector::new(config.clone()));
         let log_throttle = Mutex::new(LogThrottle::new());
 
         if let Some(backend) = backend_detector.get_preferred_backend() {
@@ -224,7 +270,7 @@ impl StrategyManager {
         }
 
         // Create a static plan of which backends to use, in order.
-        let method_plan = plan_backends(&config, &backend_detector);
+        let method_plan = plan_backends(&config, backend_detector.as_ref());
 
         // Build the injector registry based on the static plan.
         let injectors = InjectorRegistry::build(&config, &method_plan).await;
@@ -297,43 +343,8 @@ impl StrategyManager {
         // similar-behaving test helper, we replicate the logic here without
         // modifying the manager's cache state.
 
-        // Get the base plan.
-        let mut method_plan = plan_backends(&self.config, &self.backend_detector);
-
-        // Sort the plan based on historical success rate for the given app_id.
-        let plan_copy = method_plan.clone();
-        method_plan.sort_by(|a, b| {
-            if *a == InjectionMethod::NoOp {
-                return std::cmp::Ordering::Greater;
-            }
-            if *b == InjectionMethod::NoOp {
-                return std::cmp::Ordering::Less;
-            }
-
-            let key_a = (app_id.to_string(), *a);
-            let key_b = (app_id.to_string(), *b);
-
-            let rate_a = self
-                .success_cache
-                .get(&key_a)
-                .map(|r| r.success_rate)
-                .unwrap_or(0.5);
-            let rate_b = self
-                .success_cache
-                .get(&key_b)
-                .map(|r| r.success_rate)
-                .unwrap_or(0.5);
-
-            rate_b
-                .partial_cmp(&rate_a)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| {
-                    let pos_a = plan_copy.iter().position(|m| m == a).unwrap_or(usize::MAX);
-                    let pos_b = plan_copy.iter().position(|m| m == b).unwrap_or(usize::MAX);
-                    pos_a.cmp(&pos_b)
-                })
-        });
-
+        let mut method_plan = plan_backends(&self.config, self.backend_detector.as_ref());
+        self.order_plan_by_success(&mut method_plan, app_id);
         method_plan
     }
 
@@ -597,45 +608,9 @@ impl StrategyManager {
             }
         }
 
-        // Get the base plan from the centralized planner.
-        let mut method_plan = plan_backends(&self.config, &self.backend_detector);
-
-        // Dynamically sort the plan based on historical success rate for the current app.
-        let plan_copy = method_plan.clone();
-        method_plan.sort_by(|a, b| {
-            // NoOp should always be last.
-            if *a == InjectionMethod::NoOp {
-                return std::cmp::Ordering::Greater;
-            }
-            if *b == InjectionMethod::NoOp {
-                return std::cmp::Ordering::Less;
-            }
-
-            let key_a = (app_id.to_string(), *a);
-            let key_b = (app_id.to_string(), *b);
-
-            let rate_a = self
-                .success_cache
-                .get(&key_a)
-                .map(|r| r.success_rate)
-                .unwrap_or(0.5); // Default to 50% for sorting
-            let rate_b = self
-                .success_cache
-                .get(&key_b)
-                .map(|r| r.success_rate)
-                .unwrap_or(0.5);
-
-            // Primary sort: success rate (descending).
-            // Secondary sort: original plan order (stable sort).
-            rate_b
-                .partial_cmp(&rate_a)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| {
-                    let pos_a = plan_copy.iter().position(|m| m == a).unwrap_or(usize::MAX);
-                    let pos_b = plan_copy.iter().position(|m| m == b).unwrap_or(usize::MAX);
-                    pos_a.cmp(&pos_b)
-                })
-        });
+        // Get the base plan from the centralized planner and sort by success history.
+        let mut method_plan = plan_backends(&self.config, self.backend_detector.as_ref());
+        self.order_plan_by_success(&mut method_plan, app_id);
 
         // Cache and return the dynamically sorted plan.
         self.cached_method_order = Some((app_id.to_string(), method_plan.clone()));
@@ -645,69 +620,9 @@ impl StrategyManager {
     /// Back-compat: previous tests may call no-arg version; compute without caching
     #[allow(dead_code)]
     pub fn get_method_order_uncached(&self) -> Vec<InjectionMethod> {
-        // Compute using a placeholder app id without affecting cache
-        // Duplicate core logic minimally by delegating to a copy of code
-        let available_backends = self.backend_detector.detect_available_backends();
-        let mut base_order = Vec::new();
-        for backend in available_backends {
-            match backend {
-                Backend::WaylandXdgDesktopPortal | Backend::WaylandVirtualKeyboard => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::X11Xdotool | Backend::X11Native => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::MacCgEvent | Backend::WindowsSendInput => {
-                    // 2025-09-04: Currently not targeting Windows builds
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                _ => {}
-            }
-        }
-        if self.config.allow_kdotool {
-            base_order.push(InjectionMethod::KdoToolAssist);
-        }
-        if self.config.allow_enigo {
-            base_order.push(InjectionMethod::EnigoText);
-        }
-
-        if self.config.allow_ydotool {
-            base_order.push(InjectionMethod::YdoToolPaste);
-        }
-        use std::collections::HashSet;
-        let mut seen = HashSet::new();
-        base_order.retain(|m| seen.insert(*m));
-        // Sort by success rate for placeholder app id
-        let app_id = "unknown_app";
-        let base_order_copy = base_order.clone();
-        let mut base_order2 = base_order;
-        base_order2.sort_by(|a, b| {
-            let key_a = (app_id.to_string(), *a);
-            let key_b = (app_id.to_string(), *b);
-            let success_a = self
-                .success_cache
-                .get(&key_a)
-                .map(|r| r.success_rate)
-                .unwrap_or(0.5);
-            let success_b = self
-                .success_cache
-                .get(&key_b)
-                .map(|r| r.success_rate)
-                .unwrap_or(0.5);
-            success_b.partial_cmp(&success_a).unwrap().then_with(|| {
-                let pos_a = base_order_copy.iter().position(|m| m == a).unwrap_or(0);
-                let pos_b = base_order_copy.iter().position(|m| m == b).unwrap_or(0);
-                pos_a.cmp(&pos_b)
-            })
-        });
-        base_order2.push(InjectionMethod::NoOp);
-        base_order2
+        let mut method_plan = plan_backends(&self.config, self.backend_detector.as_ref());
+        self.order_plan_by_success(&mut method_plan, "unknown_app");
+        method_plan
     }
 
     /// Check if we've exceeded the global time budget
@@ -802,7 +717,7 @@ impl StrategyManager {
             injector.inject_text(burst).await?;
 
             // Calculate delay based on burst size and rate
-            let delay = keystroke_delay * burst.len() as u32;
+            let delay = keystroke_delay.mul_f64(burst.len() as f64);
             if !delay.is_zero() {
                 tokio::time::sleep(delay).await;
             }

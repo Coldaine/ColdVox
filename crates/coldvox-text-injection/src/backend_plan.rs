@@ -29,7 +29,7 @@ use std::collections::HashSet;
 /// is deduplicated, and `NoOp` is always included as a final fallback.
 pub fn plan_backends(
     config: &InjectionConfig,
-    backend_detector: &BackendDetector,
+    backend_detector: &dyn BackendDetector,
 ) -> Vec<InjectionMethod> {
     let available_backends = backend_detector.detect_available_backends();
     let mut base_order: Vec<InjectionMethod> = Vec::new();
@@ -72,7 +72,9 @@ pub fn plan_backends(
 
     // Always include NoOp at the end as a guaranteed fallback. This ensures that the
     // injection process can always "succeed" gracefully even if no real backends work.
-    base_order.push(InjectionMethod::NoOp);
+    if !base_order.contains(&InjectionMethod::NoOp) {
+        base_order.push(InjectionMethod::NoOp);
+    }
 
     base_order
 }
