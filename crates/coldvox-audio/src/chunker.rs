@@ -10,6 +10,8 @@ use super::frame_reader::FrameReader;
 use super::resampler::StreamResampler;
 use coldvox_telemetry::{FpsTracker, PipelineMetrics, PipelineStage};
 
+use crate::constants::*;
+
 // AudioFrame will be defined in the VAD crate
 #[derive(Debug, Clone)]
 pub struct AudioFrame {
@@ -34,8 +36,8 @@ pub struct ChunkerConfig {
 impl Default for ChunkerConfig {
     fn default() -> Self {
         Self {
-            frame_size_samples: 512,
-            sample_rate_hz: 16_000,
+            frame_size_samples: FRAME_SIZE_SAMPLES,
+            sample_rate_hz: SAMPLE_RATE_HZ,
             resampler_quality: ResamplerQuality::Balanced,
         }
     }
@@ -295,8 +297,8 @@ mod tests {
         let reader = FrameReader::new(cons, 48_000, 2, 1024, None);
         let (tx, _rx) = broadcast::channel::<AudioFrame>(8);
         let cfg = ChunkerConfig {
-            frame_size_samples: 512,
-            sample_rate_hz: 16_000,
+            frame_size_samples: FRAME_SIZE_SAMPLES,
+            sample_rate_hz: SAMPLE_RATE_HZ,
             resampler_quality: ResamplerQuality::Balanced,
         };
         let mut worker = ChunkerWorker::new(reader, tx, cfg, None, None);
@@ -315,8 +317,8 @@ mod tests {
         let frame2 = CapFrame {
             samples: vec![0i16; 160],
             timestamp: Instant::now(),
-            sample_rate: 16_000,
-            channels: 1,
+            sample_rate: SAMPLE_RATE_HZ,
+            channels: CHANNELS_MONO,
         };
         worker.reconfigure_for_device(&frame2);
         assert!(worker.resampler.is_none());
@@ -329,8 +331,8 @@ mod tests {
         let reader = FrameReader::new(cons, 16_000, 2, 1024, None);
         let (tx, _rx) = broadcast::channel::<AudioFrame>(8);
         let cfg = ChunkerConfig {
-            frame_size_samples: 512,
-            sample_rate_hz: 16_000,
+            frame_size_samples: FRAME_SIZE_SAMPLES,
+            sample_rate_hz: SAMPLE_RATE_HZ,
             resampler_quality: ResamplerQuality::Balanced,
         };
         let mut worker = ChunkerWorker::new(reader, tx, cfg, None, None);

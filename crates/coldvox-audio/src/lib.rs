@@ -1,5 +1,6 @@
 pub mod capture;
 pub mod chunker;
+pub mod constants;
 pub mod detector;
 pub mod device;
 pub mod frame_reader;
