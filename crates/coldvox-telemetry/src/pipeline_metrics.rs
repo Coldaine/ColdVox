@@ -3,11 +3,6 @@ use std::sync::atomic::{AtomicBool, AtomicI16, AtomicU64, AtomicUsize, Ordering}
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-#[cfg(feature = "text-injection")]
-use coldvox_text_injection::types::InjectionMetrics;
-#[cfg(feature = "text-injection")]
-use parking_lot::Mutex;
-
 /// Shared metrics for cross-thread pipeline monitoring
 #[derive(Clone)]
 pub struct PipelineMetrics {
@@ -88,9 +83,6 @@ pub struct PipelineMetrics {
     pub stt_audio_fps: Arc<AtomicU64>,
     /// Number of GC runs
     pub stt_gc_runs: Arc<AtomicU64>,
-    // Text Injection Metrics
-    #[cfg(feature = "text-injection")]
-    pub injection: Arc<Mutex<InjectionMetrics>>,
 }
 
 impl Default for PipelineMetrics {
@@ -155,10 +147,6 @@ impl Default for PipelineMetrics {
             stt_last_unload_duration_ms: Arc::new(AtomicU64::new(0)),
             stt_audio_fps: Arc::new(AtomicU64::new(0)),
             stt_gc_runs: Arc::new(AtomicU64::new(0)),
-
-            // Text Injection Metrics
-            #[cfg(feature = "text-injection")]
-            injection: Arc::new(Mutex::new(InjectionMetrics::default())),
         }
     }
 }
