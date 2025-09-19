@@ -20,7 +20,7 @@ use crate::stt::{
     session::{HotkeyBehavior, SessionEvent, Settings},
     TranscriptionConfig, TranscriptionEvent,
 };
-use coldvox_audio::{chunker::AudioFrame, SharedAudioFrame};
+use coldvox_audio::SharedAudioFrame;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::{broadcast, mpsc};
@@ -217,9 +217,8 @@ impl PluginSttProcessor {
         let state_arc = self.state.clone();
 
         tokio::spawn(async move {
-            // For batch, concat Arcs to Vec<i16> once
-            let audio_buffer = if behavior != HotkeyBehavior::Incremental && !buffer_arcs.is_empty()
-            {
+            // For batch, concat Arcs to Vec<i16> once and process
+            if behavior != HotkeyBehavior::Incremental && !buffer_arcs.is_empty() {
                 let mut full_buffer = Vec::with_capacity(512 * buffer_arcs.len());
                 for arc in buffer_arcs {
                     full_buffer.extend_from_slice(&*arc);
@@ -227,10 +226,7 @@ impl PluginSttProcessor {
                 if let Err(e) = pm.write().await.process_audio(&full_buffer).await {
                     tracing::error!(target: "stt", "Plugin batch processing error: {}", e);
                 }
-                Some(full_buffer)
-            } else {
-                None
-            };
+            }
 
             let finalize_result = pm.write().await.finalize().await;
 
@@ -282,14 +278,15 @@ impl PluginSttProcessor {
             };
 
             if should_process {
-                // Batch metrics
-                let mut state = self.state.lock();
-                state.local_frame_count += 1;
-                if state.local_frame_count % 10 == 0 {
-                    let mut metrics = self.metrics.write();
-                    metrics.frames_in += 10;
-                }
-                drop(state); // Release lock
+                {
+                    // Update metrics in a tight scope to drop the guard before awaiting below
+                    let mut state = self.state.lock();
+                    state.local_frame_count += 1;
+                    if state.local_frame_count % 10 == 0 {
+                        let mut metrics = self.metrics.write();
+                        metrics.frames_in += 10;
+                    }
+                } // MutexGuard dropped here
 
                 tracing::debug!(target: "stt", "Dispatching {} samples to plugin.process_audio()", i16_slice.len());
                 match self

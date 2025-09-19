@@ -16,7 +16,7 @@ use crate::stt::processor::PluginSttProcessor;
 use crate::stt::session::{SessionEvent, SessionSource, Settings};
 use crate::stt::{TranscriptionConfig, TranscriptionEvent};
 use crate::text_injection::{AsyncInjectionProcessor, InjectionConfig};
-use coldvox_audio::chunker::AudioFrame;
+use coldvox_audio::SharedAudioFrame;
 use coldvox_audio::chunker::{AudioChunker, ChunkerConfig};
 use coldvox_audio::ring_buffer::{AudioProducer, AudioRingBuffer};
 use coldvox_audio::DeviceConfig;
@@ -360,7 +360,7 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
     let test_duration = Duration::from_millis(wav_loader.duration_ms() + 2000); // Add buffer time
 
     // Set up audio chunker
-    let (audio_tx, _) = broadcast::channel::<AudioFrame>(200);
+    let (audio_tx, _) = broadcast::channel::<SharedAudioFrame>(200);
     // Emulate device config broadcast like live capture
     let (cfg_tx, cfg_rx) = broadcast::channel::<DeviceConfig>(8);
     let _ = cfg_tx.send(DeviceConfig {
@@ -948,7 +948,7 @@ async fn test_end_to_end_with_real_injection() {
     let test_duration = Duration::from_millis(wav_loader.duration_ms() + 2000);
 
     // Set up audio chunker
-    let (audio_tx, _) = broadcast::channel::<AudioFrame>(200);
+    let (audio_tx, _) = broadcast::channel::<SharedAudioFrame>(200);
     // Emulate device config broadcast like live capture
     let (cfg_tx, cfg_rx) = broadcast::channel::<DeviceConfig>(8);
     let _ = cfg_tx.send(DeviceConfig {

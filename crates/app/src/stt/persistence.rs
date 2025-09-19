@@ -8,7 +8,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::stt::TranscriptionEvent;
-use coldvox_audio::chunker::AudioFrame;
 use coldvox_audio::SharedAudioFrame;
 use coldvox_vad::types::VadEvent;
 
