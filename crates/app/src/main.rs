@@ -164,6 +164,10 @@ struct SttArgs {
     /// Enable debug dumping of transcription events to logs
     #[arg(long = "stt-debug-dump-events", env = "COLDVOX_STT_DEBUG_DUMP_EVENTS")]
     debug_dump_events: bool,
+
+    /// Automatically extract model from a zip archive if not found
+    #[arg(long = "stt-auto-extract", env = "COLDVOX_STT_AUTO_EXTRACT", default_value = "true")]
+    auto_extract: bool,
 }
 
 #[cfg(feature = "text-injection")]
@@ -306,6 +310,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             failover: Some(failover),
             gc_policy: Some(gc_policy),
             metrics: Some(metrics),
+            auto_extract_model: cli.stt.auto_extract,
         })
     };
 
@@ -510,6 +515,9 @@ mod tests {
             disable_gc: false,
             metrics_log_interval_secs: 90,
             debug_dump_events: true,
+            auto_extract: std::env::var("COLDVOX_STT_AUTO_EXTRACT")
+                .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+                .unwrap_or(true),
         };
 
         let config = PluginSelectionConfig {
@@ -534,6 +542,9 @@ mod tests {
                 },
                 debug_dump_events: stt_args.debug_dump_events,
             }),
+            auto_extract_model: std::env::var("COLDVOX_STT_AUTO_EXTRACT")
+                .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+                .unwrap_or(true),
         };
 
         assert_eq!(config.preferred_plugin, Some("vosk".to_string()));

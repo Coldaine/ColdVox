@@ -31,6 +31,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         include_words: true,
         buffer_size_ms: 512,
         streaming: false,
+        auto_extract_model: true,
     };
 
     // Create transcriber with configuration

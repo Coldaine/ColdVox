@@ -103,6 +103,9 @@ mod vosk_tests {
                 include_words: false,
                 buffer_size_ms: 512,
                 streaming: false,
+                auto_extract_model: std::env::var("COLDVOX_STT_AUTO_EXTRACT")
+                    .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+                    .unwrap_or(true),
             };
 
             let result = VoskTranscriber::new(config, 16000.0);
@@ -130,6 +133,9 @@ mod vosk_tests {
                 include_words: false,
                 buffer_size_ms: 512,
                 streaming: false,
+                auto_extract_model: std::env::var("COLDVOX_STT_AUTO_EXTRACT")
+                    .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+                    .unwrap_or(true),
             };
 
             let default_path = crate::stt::vosk::default_model_path();
@@ -173,6 +179,9 @@ mod vosk_tests {
                 include_words: false,
                 buffer_size_ms: 512,
                 streaming: false,
+                auto_extract_model: std::env::var("COLDVOX_STT_AUTO_EXTRACT")
+                    .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+                    .unwrap_or(true),
             };
 
             let result = VoskTranscriber::new(config.clone(), 16000.0);
