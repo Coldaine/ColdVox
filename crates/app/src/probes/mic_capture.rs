@@ -30,7 +30,7 @@ impl MicCaptureCheck {
                         AudioError::DeviceNotFound { .. } => TestErrorKind::Device,
                         _ => TestErrorKind::Setup,
                     },
-                    message: format!("Failed to create audio capture thread: {}", e),
+                    message: format!("Failed to create audio capture thread: {e}"),
                 }
             })?;
 
@@ -150,8 +150,7 @@ pub fn evaluate_mic_capture(
         if frames_per_sec < min_fps {
             pass = false;
             failures.push(format!(
-                "FPS {:.1} below minimum {:.1}",
-                frames_per_sec, min_fps
+                "FPS {frames_per_sec:.1} below minimum {min_fps:.1}"
             ));
         }
     }
@@ -160,16 +159,14 @@ pub fn evaluate_mic_capture(
         if frames_per_sec > max_fps {
             pass = false;
             failures.push(format!(
-                "fps {:.1} exceeds maximum {:.1}",
-                frames_per_sec, max_fps
+                "fps {frames_per_sec:.1} exceeds maximum {max_fps:.1}"
             ));
         }
     }
 
     let notes = if failures.is_empty() {
         format!(
-            "All checks passed. Captured {} frames in {:.1}s at {:.1} FPS",
-            frames_captured, duration_secs, frames_per_sec
+            "All checks passed. Captured {frames_captured} frames in {duration_secs:.1}s at {frames_per_sec:.1} FPS"
         )
     } else {
         failures.join("; ")

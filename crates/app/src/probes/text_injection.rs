@@ -66,20 +66,20 @@ fn evaluate_injection_result(
             if let Some(successes) = metrics.get("successes").and_then(|v| v.as_u64()) {
                 if successes != 1 {
                     pass = false;
-                    issues.push(format!("Expected 1 success, got {}", successes));
+                    issues.push(format!("Expected 1 success, got {successes}"));
                 }
             }
 
             if let Some(attempts) = metrics.get("attempts").and_then(|v| v.as_u64()) {
                 if attempts != 1 {
                     pass = false;
-                    issues.push(format!("Expected 1 attempt, got {}", attempts));
+                    issues.push(format!("Expected 1 attempt, got {attempts}"));
                 }
             }
         }
         Err(e) => {
             pass = false;
-            issues.push(format!("Injection failed: {}", e));
+            issues.push(format!("Injection failed: {e}"));
         }
     }
 

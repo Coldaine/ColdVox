@@ -29,19 +29,16 @@ impl VoskTranscriber {
         } else {
             Some(&config.model_path)
         })
-        .map_err(|e| format!("Failed to locate Vosk model: {}", e))?;
+        .map_err(|e| format!("Failed to locate Vosk model: {e}"))?;
         let model_path = model_info.path.to_string_lossy().to_string();
 
         // Load the model
         let model = Model::new(&model_path)
-            .ok_or_else(|| format!("Failed to load Vosk model from: {}", model_path))?;
+            .ok_or_else(|| format!("Failed to load Vosk model from: {model_path}"))?;
 
         // Create recognizer with configuration
         let mut recognizer = Recognizer::new(&model, sample_rate).ok_or_else(|| {
-            format!(
-                "Failed to create Vosk recognizer with sample rate: {}",
-                sample_rate
-            )
+            format!("Failed to create Vosk recognizer with sample rate: {sample_rate}")
         })?;
 
         // Configure recognizer based on config
@@ -90,13 +87,10 @@ impl VoskTranscriber {
 
         // Recreate recognizer with new config
         let model = Model::new(&model_path)
-            .ok_or_else(|| format!("Failed to load Vosk model from: {}", model_path))?;
+            .ok_or_else(|| format!("Failed to load Vosk model from: {model_path}"))?;
 
         let mut recognizer = Recognizer::new(&model, sample_rate).ok_or_else(|| {
-            format!(
-                "Failed to create Vosk recognizer with sample rate: {}",
-                sample_rate
-            )
+            format!("Failed to create Vosk recognizer with sample rate: {sample_rate}")
         })?;
 
         recognizer.set_max_alternatives(config.max_alternatives as u16);
@@ -246,7 +240,7 @@ impl EventBasedTranscriber for VoskTranscriber {
         let state = self
             .recognizer
             .accept_waveform(pcm)
-            .map_err(|e| format!("Vosk waveform acceptance failed: {:?}", e))?;
+            .map_err(|e| format!("Vosk waveform acceptance failed: {e:?}"))?;
 
         tracing::debug!(?state, "accept_frame: decoding state");
 
@@ -324,7 +318,7 @@ impl Transcriber for VoskTranscriber {
         match self.accept_frame(pcm)? {
             Some(TranscriptionEvent::Final { text, .. }) => Ok(Some(text)),
             Some(TranscriptionEvent::Partial { text, .. }) => {
-                Ok(Some(format!("[partial] {}", text)))
+                Ok(Some(format!("[partial] {text}")))
             }
             Some(TranscriptionEvent::Error { message, .. }) => Err(message),
             None => Ok(None),

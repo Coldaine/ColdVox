@@ -214,7 +214,7 @@ impl SttMetricsManager {
                 LatencyTrend::Decreasing => "📉 Decreasing",
                 LatencyTrend::Stable => "➡️ Stable",
             };
-            report.push_str(&format!("\n• Latency Trend: {}", trend_str));
+            report.push_str(&format!("\n• Latency Trend: {trend_str}"));
         }
 
         report

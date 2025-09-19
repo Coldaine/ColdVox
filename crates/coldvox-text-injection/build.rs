@@ -88,8 +88,7 @@ fn build_terminal_test_app() {
         let dest_path = Path::new(&out_dir).join("terminal-test-app");
         if let Err(e) = std::fs::copy(&src_path, &dest_path) {
             println!(
-                "cargo:warning=Failed to copy terminal test app executable from {:?} to {:?}: {}",
-                src_path, dest_path, e
+                "cargo:warning=Failed to copy terminal test app executable from {src_path:?} to {dest_path:?}: {e}"
             );
         }
     }

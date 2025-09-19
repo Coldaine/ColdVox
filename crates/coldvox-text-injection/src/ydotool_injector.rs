@@ -31,7 +31,7 @@ impl YdotoolInjector {
             Ok(()) => {
                 // Check if the ydotool socket exists (most reliable check)
                 let user_id = std::env::var("UID").unwrap_or_else(|_| "1000".to_string());
-                let socket_path = format!("/run/user/{}/.ydotool_socket", user_id);
+                let socket_path = format!("/run/user/{user_id}/.ydotool_socket");
                 if !std::path::Path::new(&socket_path).exists() {
                     warn!(
                         "ydotool socket not found at {}, daemon may not be running",
@@ -57,13 +57,12 @@ impl YdotoolInjector {
             .arg(binary_name)
             .output()
             .map_err(|e| {
-                InjectionError::Process(format!("Failed to locate {}: {}", binary_name, e))
+                InjectionError::Process(format!("Failed to locate {binary_name}: {e}"))
             })?;
 
         if !output.status.success() {
             return Err(InjectionError::MethodUnavailable(format!(
-                "{} not found in PATH",
-                binary_name
+                "{binary_name} not found in PATH"
             )));
         }
 
@@ -75,8 +74,7 @@ impl YdotoolInjector {
         let permissions = metadata.permissions();
         if permissions.mode() & 0o111 == 0 {
             return Err(InjectionError::PermissionDenied(format!(
-                "{} is not executable",
-                binary_name
+                "{binary_name} is not executable"
             )));
         }
 
@@ -98,7 +96,7 @@ impl YdotoolInjector {
             Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
                 // Check if user is in input group
                 let groups = Command::new("groups").output().map_err(|e| {
-                    InjectionError::Process(format!("Failed to check groups: {}", e))
+                    InjectionError::Process(format!("Failed to check groups: {e}"))
                 })?;
 
                 let groups_str = String::from_utf8_lossy(&groups.stdout);
@@ -135,8 +133,7 @@ impl YdotoolInjector {
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(InjectionError::MethodFailed(format!(
-                "ydotool key failed: {}",
-                stderr
+                "ydotool key failed: {stderr}"
             )));
         }
 
@@ -163,8 +160,7 @@ impl YdotoolInjector {
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(InjectionError::MethodFailed(format!(
-                "ydotool type failed: {}",
-                stderr
+                "ydotool type failed: {stderr}"
             )));
         }
 
