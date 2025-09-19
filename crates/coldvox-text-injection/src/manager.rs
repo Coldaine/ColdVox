@@ -1,4 +1,6 @@
 use crate::backend::{Backend, BackendDetector};
+use crate::backend_plan::plan_backends;
+use crate::config_timeout::TimeoutConfig;
 use crate::focus::{FocusProvider, FocusStatus, FocusTracker};
 use crate::log_throttle::LogThrottle;
 use crate::types::{InjectionConfig, InjectionError, InjectionMethod, InjectionMetrics};
@@ -67,82 +69,82 @@ struct InjectorRegistry {
 }
 
 impl InjectorRegistry {
-    async fn build(config: &InjectionConfig, backend_detector: &BackendDetector) -> Self {
+    /// Builds a registry of injectors that are available and requested by the method plan.
+    async fn build(
+        config: &InjectionConfig,
+        method_plan: &[InjectionMethod],
+    ) -> Self {
         let mut injectors: HashMap<InjectionMethod, Box<dyn TextInjector>> = HashMap::new();
 
-        // Check backend availability
-        let backends = backend_detector.detect_available_backends();
-        let _has_wayland = backends.iter().any(|b| {
-            matches!(
-                b,
-                Backend::WaylandXdgDesktopPortal | Backend::WaylandVirtualKeyboard
-            )
-        });
-        let _has_x11 = backends
-            .iter()
-            .any(|b| matches!(b, Backend::X11Xdotool | Backend::X11Native));
-
-        // Add AT-SPI injector if available
-        #[cfg(feature = "atspi")]
-        {
-            let injector = AtspiInjector::new(config.clone());
-            if injector.is_available().await {
-                injectors.insert(InjectionMethod::AtspiInsert, Box::new(injector));
+        for &method in method_plan {
+            if injectors.contains_key(&method) {
+                continue;
             }
-        }
 
-        // Add clipboard injectors if available
-        #[cfg(feature = "wl_clipboard")]
-        {
-            if _has_wayland || _has_x11 {
-                let clipboard_injector = ClipboardInjector::new(config.clone());
-                if clipboard_injector.is_available().await {
-                    injectors.insert(InjectionMethod::Clipboard, Box::new(clipboard_injector));
-                }
-
-                // Add combo clipboard+paste if wl_clipboard + ydotool features are enabled
-                #[cfg(all(feature = "wl_clipboard", feature = "ydotool"))]
-                {
-                    let combo_injector = ComboClipboardYdotool::new(config.clone());
-                    if combo_injector.is_available().await {
-                        injectors
-                            .insert(InjectionMethod::ClipboardAndPaste, Box::new(combo_injector));
+            let injector: Option<Box<dyn TextInjector>> = match method {
+                #[cfg(feature = "atspi")]
+                InjectionMethod::AtspiInsert => {
+                    let inj = AtspiInjector::new(config.clone());
+                    if inj.is_available().await {
+                        Some(Box::new(inj))
+                    } else {
+                        None
                     }
                 }
-            }
-        }
+                #[cfg(feature = "wl_clipboard")]
+                InjectionMethod::Clipboard => {
+                    let inj = ClipboardInjector::new(config.clone());
+                    if inj.is_available().await {
+                        Some(Box::new(inj))
+                    } else {
+                        None
+                    }
+                }
+                #[cfg(all(feature = "wl_clipboard", feature = "ydotool"))]
+                InjectionMethod::ClipboardAndPaste => {
+                    let inj = ComboClipboardYdotool::new(config.clone());
+                    if inj.is_available().await {
+                        Some(Box::new(inj))
+                    } else {
+                        None
+                    }
+                }
+                #[cfg(feature = "ydotool")]
+                InjectionMethod::YdoToolPaste => {
+                    let inj = YdotoolInjector::new(config.clone());
+                    if inj.is_available().await {
+                        Some(Box::new(inj))
+                    } else {
+                        None
+                    }
+                }
+                #[cfg(feature = "enigo")]
+                InjectionMethod::EnigoText => {
+                    let inj = EnigoInjector::new(config.clone());
+                    if inj.is_available().await {
+                        Some(Box::new(inj))
+                    } else {
+                        None
+                    }
+                }
+                #[cfg(feature = "kdotool")]
+                InjectionMethod::KdoToolAssist => {
+                    let inj = KdotoolInjector::new(config.clone());
+                    if inj.is_available().await {
+                        Some(Box::new(inj))
+                    } else {
+                        None
+                    }
+                }
+                InjectionMethod::NoOp => Some(Box::new(NoOpInjector::new(config.clone()))),
+                // Exhaustive match for future-proofing, but some features may not be enabled
+                #[allow(unreachable_patterns)]
+                _ => None,
+            };
 
-        // Add optional injectors based on config
-        #[cfg(feature = "ydotool")]
-        if config.allow_ydotool {
-            let ydotool = YdotoolInjector::new(config.clone());
-            if ydotool.is_available().await {
-                injectors.insert(InjectionMethod::YdoToolPaste, Box::new(ydotool));
+            if let Some(inj) = injector {
+                injectors.insert(method, inj);
             }
-        }
-
-        #[cfg(feature = "enigo")]
-        if config.allow_enigo {
-            let enigo = EnigoInjector::new(config.clone());
-            if enigo.is_available().await {
-                injectors.insert(InjectionMethod::EnigoText, Box::new(enigo));
-            }
-        }
-
-        #[cfg(feature = "kdotool")]
-        if config.allow_kdotool {
-            let kdotool = KdotoolInjector::new(config.clone());
-            if kdotool.is_available().await {
-                injectors.insert(InjectionMethod::KdoToolAssist, Box::new(kdotool));
-            }
-        }
-
-        // Add NoOpInjector as final fallback if no other injectors are available
-        if injectors.is_empty() {
-            injectors.insert(
-                InjectionMethod::NoOp,
-                Box::new(NoOpInjector::new(config.clone())),
-            );
         }
 
         Self { injectors }
@@ -161,6 +163,8 @@ impl InjectorRegistry {
 pub struct StrategyManager {
     /// Configuration for injection
     config: InjectionConfig,
+    /// Validated and clamped timeout configuration
+    timeout_config: TimeoutConfig,
     /// Focus provider abstraction for determining target context
     focus_provider: Box<dyn FocusProvider>,
     /// Cache of success records per app-method combination
@@ -222,8 +226,11 @@ impl StrategyManager {
             }
         }
 
-        // Build injector registry
-        let injectors = InjectorRegistry::build(&config, &backend_detector).await;
+        // Create a static plan of which backends to use, in order.
+        let method_plan = plan_backends(&config, &backend_detector);
+
+        // Build the injector registry based on the static plan.
+        let injectors = InjectorRegistry::build(&config, &method_plan).await;
 
         // Compile regex patterns once for performance
         #[cfg(feature = "regex")]
@@ -265,8 +272,11 @@ impl StrategyManager {
             m.set_blocklist_regex_count(blocklist_regexes.len());
         }
 
+        let timeout_config = TimeoutConfig::new(&config);
+
         Self {
             config: config.clone(),
+            timeout_config,
             focus_provider,
             success_cache: HashMap::new(),
             cooldowns: HashMap::new(),
@@ -285,7 +295,49 @@ impl StrategyManager {
 
     /// Public wrapper for tests and external callers to obtain method priority
     pub fn get_method_priority(&self, app_id: &str) -> Vec<InjectionMethod> {
-        self._get_method_priority(app_id)
+        // This is a test helper. In the new design, the dynamic sorting is coupled
+        // with the caching logic inside `get_method_order_cached`. To provide a
+        // similar-behaving test helper, we replicate the logic here without
+        // modifying the manager's cache state.
+
+        // Get the base plan.
+        let mut method_plan = plan_backends(&self.config, &self.backend_detector);
+
+        // Sort the plan based on historical success rate for the given app_id.
+        let plan_copy = method_plan.clone();
+        method_plan.sort_by(|a, b| {
+            if *a == InjectionMethod::NoOp {
+                return std::cmp::Ordering::Greater;
+            }
+            if *b == InjectionMethod::NoOp {
+                return std::cmp::Ordering::Less;
+            }
+
+            let key_a = (app_id.to_string(), *a);
+            let key_b = (app_id.to_string(), *b);
+
+            let rate_a = self
+                .success_cache
+                .get(&key_a)
+                .map(|r| r.success_rate)
+                .unwrap_or(0.5);
+            let rate_b = self
+                .success_cache
+                .get(&key_b)
+                .map(|r| r.success_rate)
+                .unwrap_or(0.5);
+
+            rate_b
+                .partial_cmp(&rate_a)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| {
+                    let pos_a = plan_copy.iter().position(|m| m == a).unwrap_or(usize::MAX);
+                    let pos_b = plan_copy.iter().position(|m| m == b).unwrap_or(usize::MAX);
+                    pos_a.cmp(&pos_b)
+                })
+        });
+
+        method_plan
     }
 
     /// Get the current application identifier (e.g., window class)
@@ -507,20 +559,24 @@ impl StrategyManager {
         });
 
         // Calculate cooldown duration with exponential backoff
-        let base_ms = self.config.cooldown_initial_ms;
-        let factor = self.config.cooldown_backoff_factor;
-        let max_ms = self.config.cooldown_max_ms;
+        let base_duration = self.timeout_config.cooldown_initial();
+        let factor = self.timeout_config.cooldown_backoff_factor();
+        let max_duration = self.timeout_config.cooldown_max();
 
-        let cooldown_ms = (base_ms as f64 * (factor as f64).powi(cooldown.backoff_level as i32))
-            .min(max_ms as f64) as u64;
+        let cooldown_duration = base_duration
+            .mul_f32(factor.powi(cooldown.backoff_level as i32))
+            .min(max_duration);
 
-        cooldown.until = Instant::now() + Duration::from_millis(cooldown_ms);
+        cooldown.until = Instant::now() + cooldown_duration;
         cooldown.backoff_level += 1;
         cooldown.last_error = error.to_string();
 
         warn!(
-            "Applied cooldown for {}/{:?}: {}ms (level {})",
-            app_id, method, cooldown_ms, cooldown.backoff_level
+            "Applied cooldown for {}/{:?}: {:?} (level {})",
+            app_id,
+            method,
+            cooldown_duration,
+            cooldown.backoff_level
         );
     }
 
@@ -538,84 +594,6 @@ impl StrategyManager {
         self.cooldowns.remove(&key);
     }
 
-    /// Get ordered list of methods to try based on backend availability and success rates.
-    /// Includes NoOp as a final fallback so the list is never empty.
-    pub(crate) fn _get_method_priority(&self, app_id: &str) -> Vec<InjectionMethod> {
-        // Base order derived from detected backends (mirrors get_method_order_cached)
-        let available_backends = self.backend_detector.detect_available_backends();
-        let mut base_order: Vec<InjectionMethod> = Vec::new();
-
-        for backend in available_backends {
-            match backend {
-                Backend::WaylandXdgDesktopPortal | Backend::WaylandVirtualKeyboard => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::X11Xdotool | Backend::X11Native => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::MacCgEvent | Backend::WindowsSendInput => {
-                    // 2025-09-04: Currently not targeting Windows builds
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                _ => {}
-            }
-        }
-
-        // Optional, opt-in fallbacks
-        if self.config.allow_kdotool {
-            base_order.push(InjectionMethod::KdoToolAssist);
-        }
-        if self.config.allow_enigo {
-            base_order.push(InjectionMethod::EnigoText);
-        }
-
-        if self.config.allow_ydotool {
-            base_order.push(InjectionMethod::YdoToolPaste);
-        }
-
-        // Deduplicate while preserving order
-        use std::collections::HashSet;
-        let mut seen = HashSet::new();
-        base_order.retain(|m| seen.insert(*m));
-
-        // Sort by historical success rate, preserving base order when equal
-        let base_order_copy = base_order.clone();
-        base_order.sort_by(|a, b| {
-            let key_a = (app_id.to_string(), *a);
-            let key_b = (app_id.to_string(), *b);
-
-            let rate_a = self
-                .success_cache
-                .get(&key_a)
-                .map(|r| r.success_rate)
-                .unwrap_or(0.5);
-            let rate_b = self
-                .success_cache
-                .get(&key_b)
-                .map(|r| r.success_rate)
-                .unwrap_or(0.5);
-
-            rate_b
-                .partial_cmp(&rate_a)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| {
-                    let pos_a = base_order_copy.iter().position(|m| m == a).unwrap_or(0);
-                    let pos_b = base_order_copy.iter().position(|m| m == b).unwrap_or(0);
-                    pos_a.cmp(&pos_b)
-                })
-        });
-
-        // Always include NoOp at the end as a last resort
-        base_order.push(InjectionMethod::NoOp);
-
-        base_order
-    }
 
     /// Get the preferred method order based on current context and history (cached per app)
     pub(crate) fn get_method_order_cached(&mut self, app_id: &str) -> Vec<InjectionMethod> {
@@ -626,91 +604,49 @@ impl StrategyManager {
             }
         }
 
-        // Get available backends
-        let available_backends = self.backend_detector.detect_available_backends();
+        // Get the base plan from the centralized planner.
+        let mut method_plan = plan_backends(&self.config, &self.backend_detector);
 
-        // Base order as specified in the requirements
-        let mut base_order = Vec::new();
-
-        // Add methods based on available backends
-        for backend in available_backends {
-            match backend {
-                Backend::WaylandXdgDesktopPortal | Backend::WaylandVirtualKeyboard => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::X11Xdotool | Backend::X11Native => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::MacCgEvent => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::WindowsSendInput => {
-                    // 2025-09-04: Currently not targeting Windows builds
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                _ => {}
+        // Dynamically sort the plan based on historical success rate for the current app.
+        let plan_copy = method_plan.clone();
+        method_plan.sort_by(|a, b| {
+            // NoOp should always be last.
+            if *a == InjectionMethod::NoOp {
+                return std::cmp::Ordering::Greater;
             }
-        }
+            if *b == InjectionMethod::NoOp {
+                return std::cmp::Ordering::Less;
+            }
 
-        // Add optional methods if enabled
-        if self.config.allow_kdotool {
-            base_order.push(InjectionMethod::KdoToolAssist);
-        }
-        if self.config.allow_enigo {
-            base_order.push(InjectionMethod::EnigoText);
-        }
-
-        if self.config.allow_ydotool {
-            base_order.push(InjectionMethod::YdoToolPaste);
-        }
-        // Deduplicate while preserving order
-        use std::collections::HashSet;
-        let mut seen = HashSet::new();
-        base_order.retain(|m| seen.insert(*m));
-
-        // Sort by preference: methods with higher success rate first, then by base order
-
-        // Create a copy of base order for position lookup
-        let base_order_copy = base_order.clone();
-
-        base_order.sort_by(|a, b| {
             let key_a = (app_id.to_string(), *a);
             let key_b = (app_id.to_string(), *b);
 
-            let success_a = self
+            let rate_a = self
                 .success_cache
                 .get(&key_a)
                 .map(|r| r.success_rate)
-                .unwrap_or(0.5);
-            let success_b = self
+                .unwrap_or(0.5); // Default to 50% for sorting
+            let rate_b = self
                 .success_cache
                 .get(&key_b)
                 .map(|r| r.success_rate)
                 .unwrap_or(0.5);
 
-            // Sort by success rate (descending), then by base order
-            success_b.partial_cmp(&success_a).unwrap().then_with(|| {
-                // Preserve base order for equal success rates
-                let pos_a = base_order_copy.iter().position(|m| m == a).unwrap_or(0);
-                let pos_b = base_order_copy.iter().position(|m| m == b).unwrap_or(0);
-                pos_a.cmp(&pos_b)
-            })
+            // Primary sort: success rate (descending).
+            // Secondary sort: original plan order (stable sort).
+            rate_b
+                .partial_cmp(&rate_a)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| {
+                    let pos_a = plan_copy.iter().position(|m| m == a).unwrap_or(usize::MAX);
+                    let pos_b = plan_copy.iter().position(|m| m == b).unwrap_or(usize::MAX);
+                    pos_a.cmp(&pos_b)
+                })
         });
 
-        // Ensure NoOp is always available as a last resort
-        base_order.push(InjectionMethod::NoOp);
-
-        // Cache and return
-        self.cached_method_order = Some((app_id.to_string(), base_order.clone()));
-        base_order
+        // Cache and return the dynamically sorted plan.
+        self.cached_method_order = Some((app_id.to_string(), method_plan.clone()));
+        method_plan
     }
 
     /// Back-compat: previous tests may call no-arg version; compute without caching
@@ -784,9 +720,7 @@ impl StrategyManager {
     /// Check if we've exceeded the global time budget
     fn has_budget_remaining(&self) -> bool {
         if let Some(start) = self.global_start {
-            let elapsed = start.elapsed();
-            let budget = self.config.max_total_latency();
-            elapsed < budget
+            start.elapsed() < self.timeout_config.max_total_latency()
         } else {
             true
         }
@@ -828,7 +762,7 @@ impl StrategyManager {
 
             // Delay between chunks (except after last)
             if start < text.len() {
-                tokio::time::sleep(Duration::from_millis(self.config.chunk_delay_ms)).await;
+                tokio::time::sleep(self.timeout_config.chunk_delay()).await;
             }
         }
 
@@ -848,8 +782,8 @@ impl StrategyManager {
         injector: &mut Box<dyn TextInjector>,
         text: &str,
     ) -> Result<(), InjectionError> {
-        let rate_cps = self.config.keystroke_rate_cps;
         let max_burst = self.config.max_burst_chars as usize;
+        let keystroke_delay = self.timeout_config.keystroke_delay();
 
         // Record keystroke operation
         if let Ok(mut m) = self.metrics.lock() {
@@ -875,9 +809,9 @@ impl StrategyManager {
             injector.inject_text(burst).await?;
 
             // Calculate delay based on burst size and rate
-            let delay_ms = (burst.len() as f64 / rate_cps as f64 * 1000.0) as u64;
-            if delay_ms > 0 {
-                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+            let delay = keystroke_delay * burst.len() as u32;
+            if !delay.is_zero() {
+                tokio::time::sleep(delay).await;
             }
 
             start = end;
@@ -913,7 +847,7 @@ impl StrategyManager {
 
         // Start global timer
         self.global_start = Some(Instant::now());
-        if self.config.max_total_latency_ms <= 1 {
+        if self.timeout_config.max_total_latency() <= Duration::from_millis(1) {
             if let Ok(mut metrics) = self.metrics.lock() {
                 metrics.record_rate_limited();
             }
@@ -954,8 +888,7 @@ impl StrategyManager {
         // Check allowlist/blocklist
         if !self.is_app_allowed(&app_id) {
             return Err(InjectionError::Other(format!(
-                "Application {} is not allowed for injection",
-                app_id
+                "Application {app_id} is not allowed for injection"
             )));
         }
 

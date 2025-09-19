@@ -32,7 +32,7 @@ async fn get_kde_window_class() -> Result<String, InjectionError> {
     let output = Command::new("qdbus")
         .args(["org.kde.KWin", "/KWin", "org.kde.KWin.activeClient"])
         .output()
-        .map_err(|e| InjectionError::Process(format!("qdbus failed: {}", e)))?;
+        .map_err(|e| InjectionError::Process(format!("qdbus failed: {e}")))?;
 
     if output.status.success() {
         let window_id = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -41,11 +41,11 @@ async fn get_kde_window_class() -> Result<String, InjectionError> {
         let class_output = Command::new("qdbus")
             .args([
                 "org.kde.KWin",
-                &format!("/Windows/{}", window_id),
+                &format!("/Windows/{window_id}"),
                 "org.kde.KWin.Window.resourceClass",
             ])
             .output()
-            .map_err(|e| InjectionError::Process(format!("qdbus failed: {}", e)))?;
+            .map_err(|e| InjectionError::Process(format!("qdbus failed: {e}")))?;
 
         if class_output.status.success() {
             return Ok(String::from_utf8_lossy(&class_output.stdout)
@@ -64,7 +64,7 @@ async fn get_x11_window_class() -> Result<String, InjectionError> {
     let output = Command::new("xprop")
         .args(["-root", "_NET_ACTIVE_WINDOW"])
         .output()
-        .map_err(|e| InjectionError::Process(format!("xprop failed: {}", e)))?;
+        .map_err(|e| InjectionError::Process(format!("xprop failed: {e}")))?;
 
     if output.status.success() {
         let window_str = String::from_utf8_lossy(&output.stdout);
@@ -75,7 +75,7 @@ async fn get_x11_window_class() -> Result<String, InjectionError> {
             let class_output = Command::new("xprop")
                 .args(["-id", window_id, "WM_CLASS"])
                 .output()
-                .map_err(|e| InjectionError::Process(format!("xprop failed: {}", e)))?;
+                .map_err(|e| InjectionError::Process(format!("xprop failed: {e}")))?;
 
             if class_output.status.success() {
                 let class_str = String::from_utf8_lossy(&class_output.stdout);
@@ -100,7 +100,7 @@ async fn get_wayland_window_class() -> Result<String, InjectionError> {
     let output = Command::new("swaymsg")
         .args(["-t", "get_tree"])
         .output()
-        .map_err(|e| InjectionError::Process(format!("swaymsg failed: {}", e)))?;
+        .map_err(|e| InjectionError::Process(format!("swaymsg failed: {e}")))?;
 
     if output.status.success() {
         // Parse JSON to find focused window using serde_json
@@ -177,7 +177,7 @@ async fn get_window_title() -> Result<String, InjectionError> {
     let output = Command::new("xprop")
         .args(["-root", "_NET_ACTIVE_WINDOW"])
         .output()
-        .map_err(|e| InjectionError::Process(format!("xprop failed: {}", e)))?;
+        .map_err(|e| InjectionError::Process(format!("xprop failed: {e}")))?;
 
     if output.status.success() {
         let window_str = String::from_utf8_lossy(&output.stdout);
@@ -188,7 +188,7 @@ async fn get_window_title() -> Result<String, InjectionError> {
             let title_output = Command::new("xprop")
                 .args(["-id", window_id, "_NET_WM_NAME"])
                 .output()
-                .map_err(|e| InjectionError::Process(format!("xprop failed: {}", e)))?;
+                .map_err(|e| InjectionError::Process(format!("xprop failed: {e}")))?;
 
             if title_output.status.success() {
                 let title_str = String::from_utf8_lossy(&title_output.stdout);
@@ -214,7 +214,7 @@ async fn get_window_pid() -> Result<u32, InjectionError> {
     let output = Command::new("xprop")
         .args(["-root", "_NET_ACTIVE_WINDOW"])
         .output()
-        .map_err(|e| InjectionError::Process(format!("xprop failed: {}", e)))?;
+        .map_err(|e| InjectionError::Process(format!("xprop failed: {e}")))?;
 
     if output.status.success() {
         let window_str = String::from_utf8_lossy(&output.stdout);
@@ -225,7 +225,7 @@ async fn get_window_pid() -> Result<u32, InjectionError> {
             let pid_output = Command::new("xprop")
                 .args(["-id", window_id, "_NET_WM_PID"])
                 .output()
-                .map_err(|e| InjectionError::Process(format!("xprop failed: {}", e)))?;
+                .map_err(|e| InjectionError::Process(format!("xprop failed: {e}")))?;
 
             if pid_output.status.success() {
                 let pid_str = String::from_utf8_lossy(&pid_output.stdout);

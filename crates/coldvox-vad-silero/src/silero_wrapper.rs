@@ -29,7 +29,7 @@ impl SileroEngine {
             .sample_rate(16000)
             .chunk_size(512_usize)
             .build()
-            .map_err(|e| format!("Failed to create Silero VAD: {}", e))?;
+            .map_err(|e| format!("Failed to create Silero VAD: {e}"))?;
 
         Ok(Self {
             detector,

@@ -243,7 +243,7 @@ impl AudioCaptureThread {
                 tracing::info!("Audio capture thread shutting down.");
                 capture.stop();
             })
-            .map_err(|e| AudioError::Fatal(format!("Failed to spawn audio thread: {}", e)))?;
+            .map_err(|e| AudioError::Fatal(format!("Failed to spawn audio thread: {e}")))?;
 
         // Wait for device config to be set with timeout
         let start = Instant::now();
@@ -544,7 +544,7 @@ impl AudioCapture {
             )?,
             other => {
                 return Err(AudioError::FormatNotSupported {
-                    format: format!("{:?}", other),
+                    format: format!("{other:?}"),
                 });
             }
         };

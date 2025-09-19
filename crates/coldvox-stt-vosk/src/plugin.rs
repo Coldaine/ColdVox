@@ -194,7 +194,7 @@ impl SttPluginFactory for VoskPluginFactory {
         match model::locate_model(None) {
             Ok(_) => Ok(()),
             Err(e) => Err(SttPluginError::NotAvailable {
-                reason: format!("Vosk model not found: {}", e),
+                reason: format!("Vosk model not found: {e}"),
             }),
         }
     }

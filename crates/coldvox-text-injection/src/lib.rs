@@ -27,6 +27,8 @@
 //! - `linux-desktop`: Enable recommended Linux desktop backends
 
 pub mod backend;
+pub mod backend_plan;
+pub mod config_timeout;
 pub mod focus;
 pub mod log_throttle;
 pub mod manager;

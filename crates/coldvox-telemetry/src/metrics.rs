@@ -63,11 +63,11 @@ impl BasicMetrics {
         let mut metrics = HashMap::new();
 
         for (name, counter) in self.counters.read().iter() {
-            metrics.insert(format!("counter.{}", name), counter.load(Ordering::Relaxed));
+            metrics.insert(format!("counter.{name}"), counter.load(Ordering::Relaxed));
         }
 
         for (name, gauge) in self.gauges.read().iter() {
-            metrics.insert(format!("gauge.{}", name), gauge.load(Ordering::Relaxed));
+            metrics.insert(format!("gauge.{name}"), gauge.load(Ordering::Relaxed));
         }
 
         metrics
