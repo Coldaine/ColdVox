@@ -1,5 +1,7 @@
 use coldvox_audio::{AudioCaptureThread, AudioRingBuffer, DeviceMonitor};
 use coldvox_foundation::{AudioConfig, DeviceEvent};
+use parking_lot::Mutex;
+use std::sync::Arc;
 use std::time::Duration;
 
 #[cfg(test)]
@@ -46,6 +48,7 @@ mod device_hotplug_tests {
     fn test_audio_capture_thread_with_device_events() {
         let buffer = AudioRingBuffer::new(8192);
         let (producer, _consumer) = buffer.split();
+        let producer = Arc::new(Mutex::new(producer));
         let config = AudioConfig::default();
 
         // Try to create capture thread with device monitoring

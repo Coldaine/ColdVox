@@ -2,7 +2,7 @@ use coldvox_telemetry::pipeline_metrics::PipelineMetrics;
 use std::sync::Arc;
 
 use super::common::{LiveTestResult, TestContext, TestError, TestErrorKind};
-use crate::audio::vad_processor::VadProcessor;
+use crate::vad::VadProcessor;
 use coldvox_audio::capture::AudioCaptureThread;
 use coldvox_audio::chunker::AudioFrame as VadFrame;
 use coldvox_audio::chunker::{AudioChunker, ChunkerConfig, ResamplerQuality};
@@ -14,7 +14,7 @@ use coldvox_vad::types::VadEvent;
 use serde_json::json;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc, Mutex};
 
 #[derive(Debug)]
 pub struct VadMicCheck;
@@ -29,6 +29,7 @@ impl VadMicCheck {
         // Prepare ring buffer and spawn capture thread
         let rb = AudioRingBuffer::new(16_384);
         let (audio_producer, audio_consumer) = rb.split();
+        let audio_producer = Arc::new(parking_lot::Mutex::new(audio_producer));
         let (capture_thread, dev_cfg, _config_rx, _device_event_rx) =
             AudioCaptureThread::spawn(config, audio_producer, device_name).map_err(|e| {
                 TestError {

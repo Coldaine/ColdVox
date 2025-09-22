@@ -446,7 +446,7 @@ mod tests {
                 *first == "default"
                     || manager
                         .default_input_device_name()
-                        .map_or(false, |d| first == &d),
+                        .is_some_and(|d| first == &d),
                 "First should be 'default' or OS default"
             );
         }

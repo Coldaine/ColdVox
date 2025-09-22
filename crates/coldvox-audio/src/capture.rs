@@ -48,7 +48,7 @@ pub struct AudioCaptureThread {
 impl AudioCaptureThread {
     pub fn spawn(
         config: AudioConfig,
-        audio_producer: AudioProducer,
+        audio_producer: Arc<Mutex<AudioProducer>>,
         device_name: Option<String>,
     ) -> Result<
         (
@@ -303,13 +303,13 @@ pub struct CaptureStats {
 impl AudioCapture {
     pub fn new(
         config: AudioConfig,
-        audio_producer: AudioProducer,
+        audio_producer: Arc<Mutex<AudioProducer>>,
         running: Arc<AtomicBool>,
     ) -> Result<Self, AudioError> {
         let self_ = Self {
             device_manager: DeviceManager::new()?,
             stream: None,
-            audio_producer: Arc::new(Mutex::new(audio_producer)),
+            audio_producer,
             watchdog: WatchdogTimer::new(Duration::from_secs(5)),
             silence_detector: SilenceDetector::new(config.silence_threshold),
             stats: Arc::new(CaptureStats::default()),

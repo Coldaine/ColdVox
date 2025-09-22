@@ -1,8 +1,10 @@
+use coldvox_audio::ring_buffer::AudioProducer;
 use std::sync::Arc;
 use std::time::Instant;
 
 use tokio::signal;
-use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
+use tokio::sync::{broadcast, mpsc, RwLock};
+use parking_lot::Mutex;
 use tokio::task::JoinHandle;
 use tracing::{error, info};
 
@@ -85,6 +87,7 @@ pub struct AppHandle {
     pub plugin_manager: Option<Arc<tokio::sync::RwLock<SttPluginManager>>>,
 
     audio_capture: AudioCaptureThread,
+    pub audio_producer: Arc<Mutex<AudioProducer>>,
     chunker_handle: JoinHandle<()>,
     trigger_handle: Arc<Mutex<JoinHandle<()>>>,
     vad_fanout_handle: JoinHandle<()>,
@@ -239,7 +242,7 @@ impl AppHandle {
                     },
                 };
                 let vad_audio_rx = self.audio_tx.subscribe();
-                crate::audio::vad_processor::VadProcessor::spawn(
+                crate::vad::VadProcessor::spawn(
                     vad_cfg,
                     vad_audio_rx,
                     self.raw_vad_tx.clone(),
@@ -272,8 +275,9 @@ pub async fn start(
     let audio_config = AudioConfig::default();
     let ring_buffer = AudioRingBuffer::new(16384 * 4);
     let (audio_producer, audio_consumer) = ring_buffer.split();
+    let audio_producer = Arc::new(Mutex::new(audio_producer));
     let (audio_capture, device_cfg, device_config_rx, _device_event_rx) =
-        AudioCaptureThread::spawn(audio_config, audio_producer, opts.device.clone())?;
+        AudioCaptureThread::spawn(audio_config, audio_producer.clone(), opts.device.clone())?;
 
     // 2) Chunker (with resampler)
     let frame_reader = FrameReader::new(
@@ -333,7 +337,7 @@ pub async fn start(
                 },
             };
             let vad_audio_rx = audio_tx.subscribe();
-            let vad_handle = crate::audio::vad_processor::VadProcessor::spawn(
+            let vad_handle = crate::vad::VadProcessor::spawn(
                 vad_cfg,
                 vad_audio_rx,
                 raw_vad_tx.clone(),
@@ -531,6 +535,7 @@ pub async fn start(
         #[cfg(feature = "vosk")]
         plugin_manager,
         audio_capture,
+        audio_producer,
         chunker_handle,
         trigger_handle: Arc::new(Mutex::new(trigger_handle)),
         vad_fanout_handle,
@@ -544,6 +549,7 @@ pub async fn start(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::audio::wav_file_loader::WavFileLoader;
     use coldvox_stt::plugin::{FailoverConfig, GcPolicy, PluginSelectionConfig};
     use coldvox_stt::TranscriptionEvent;
     use std::time::Duration;
@@ -555,7 +561,7 @@ mod tests {
             resampler_quality: ResamplerQuality::Balanced,
             activation_mode,
             stt_selection: Some(PluginSelectionConfig {
-                preferred_plugin: Some("mock".to_string()),
+                preferred_plugin: Some("vosk".to_string()),
                 fallback_plugins: vec!["noop".to_string()],
                 require_local: true,
                 max_memory_mb: None,
@@ -569,7 +575,7 @@ mod tests {
                     enabled: false, // Disable GC for test
                 }),
                 metrics: None,
-                auto_extract_model: false,
+                auto_extract_model: true,
             }),
             #[cfg(feature = "text-injection")]
             injection: None,
@@ -578,7 +584,6 @@ mod tests {
 
     #[cfg(feature = "vosk")]
     #[tokio::test]
-    #[ignore] // This test requires a real audio device and fails in CI.
     async fn test_unified_stt_pipeline_vad_mode() {
         let opts = test_opts(ActivationMode::Vad);
         let mut app = start(opts).await.expect("Failed to start app");
@@ -587,39 +592,16 @@ mod tests {
         // Give tasks time to start
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        // Send mock VAD speech start event
-        app.raw_vad_tx
-            .send(VadEvent::SpeechStart {
-                timestamp_ms: 1000,
-                energy_db: -20.0,
-            })
-            .await
-            .expect("Failed to send VAD start event");
-
-        // Send dummy audio frames
-        for i in 0..5 {
-            let audio_frame = coldvox_audio::AudioFrame {
-                samples: vec![0.0f32; 512],
-                sample_rate: 16000,
-                timestamp: std::time::Instant::now() + Duration::from_millis(i * 32),
-            };
-            app.audio_tx.send(audio_frame).unwrap();
-            tokio::time::sleep(Duration::from_millis(10)).await; // Allow incremental processing
-        }
-
-        // Send mock VAD speech end event
-        app.raw_vad_tx
-            .send(VadEvent::SpeechEnd {
-                timestamp_ms: 2000,
-                duration_ms: 1000,
-                energy_db: -20.0,
-            })
-            .await
-            .expect("Failed to send VAD end event");
+        // Use WavFileLoader to simulate audio
+        let mut wav_loader = WavFileLoader::new("test_data/test_11.wav").unwrap();
+        let audio_producer = app.audio_producer.lock().await.clone();
+        tokio::spawn(async move {
+            wav_loader.stream_to_ring_buffer(audio_producer).await.unwrap();
+        });
 
         // Wait for transcription events (expecting partial and final)
         let mut received_events = Vec::new();
-        let timeout = Duration::from_secs(5);
+        let timeout = Duration::from_secs(10);
         let mut final_received = false;
 
         while !final_received {
@@ -654,7 +636,6 @@ mod tests {
 
     #[cfg(feature = "vosk")]
     #[tokio::test]
-    #[ignore] // This test requires a real audio device and fails in CI.
     async fn test_unified_stt_pipeline_hotkey_mode() {
         let opts = test_opts(ActivationMode::Hotkey);
         let mut app = start(opts).await.expect("Failed to start app");
@@ -662,6 +643,13 @@ mod tests {
 
         // Give tasks time to start
         tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Use WavFileLoader to simulate audio
+        let mut wav_loader = WavFileLoader::new("test_data/test_11.wav").unwrap();
+        let audio_producer = app.audio_producer.lock().await.clone();
+        tokio::spawn(async move {
+            wav_loader.stream_to_ring_buffer(audio_producer).await.unwrap();
+        });
 
         // Simulate Hotkey Press (emits SpeechStart)
         app.raw_vad_tx
@@ -671,17 +659,6 @@ mod tests {
             })
             .await
             .expect("Failed to send Hotkey press event");
-
-        // Send dummy audio frames
-        for i in 0..5 {
-            let audio_frame = coldvox_audio::AudioFrame {
-                samples: vec![0.0f32; 512],
-                sample_rate: 16000,
-                timestamp: std::time::Instant::now() + Duration::from_millis(i * 32),
-            };
-            app.audio_tx.send(audio_frame).unwrap();
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
 
         // Simulate Hotkey Release (emits SpeechEnd)
         app.raw_vad_tx
@@ -695,7 +672,7 @@ mod tests {
 
         // Wait for a final transcription event
         let mut received_final = false;
-        let timeout = Duration::from_secs(5);
+        let timeout = Duration::from_secs(10);
         while let Ok(Some(event)) = tokio::time::timeout(timeout, stt_rx.recv()).await {
             if matches!(&event, TranscriptionEvent::Final { .. }) {
                 received_final = true;

@@ -11,13 +11,14 @@
 //! - Runs only on Linux and requires `pactl` (PulseAudio/PipeWire compatibility layer)
 //! - If audio stack is unavailable, the test will skip gracefully
 
-use std::collections::HashMap;
-use std::process::Command;
-use std::thread;
-use std::time::{Duration, Instant};
-
 use coldvox_audio::{AudioCaptureThread, AudioRingBuffer};
 use coldvox_foundation::AudioConfig;
+use parking_lot::Mutex;
+use std::collections::HashMap;
+use std::process::Command;
+use std::sync::Arc;
+use std::thread;
+use std::time::{Duration, Instant};
 
 const APP_TAG: &str = "ColdVoxMicTest";
 
@@ -56,6 +57,7 @@ fn default_mic_is_detected_and_used_via_pulseaudio() {
 
     let rb = AudioRingBuffer::new(16384);
     let (producer, mut consumer) = rb.split();
+    let producer = Arc::new(Mutex::new(producer));
     let config = AudioConfig::default();
 
     let capture = match AudioCaptureThread::spawn(config, producer, None) {
@@ -188,20 +190,16 @@ fn find_our_source_output_source(app_name: &str) -> Option<String> {
                     continue;
                 }
 
-                if line.starts_with("application.name = \"") {
-                    if line.contains(app_name) {
-                        current_block_is_ours = true;
-                        continue;
-                    }
+                if line.starts_with("application.name = \"") && line.contains(app_name) {
+                    current_block_is_ours = true;
+                    continue;
                 }
 
                 // Block end: if we have both flags, resolve name
-                if line.is_empty() {
-                    if current_block_is_ours {
-                        if let Some(idx) = current_block_source_index.take() {
-                            if let Some(name) = source_index_to_name.get(&idx) {
-                                return Some(name.clone());
-                            }
+                if line.is_empty() && current_block_is_ours {
+                    if let Some(idx) = current_block_source_index.take() {
+                        if let Some(name) = source_index_to_name.get(&idx) {
+                            return Some(name.clone());
                         }
                     }
                 }

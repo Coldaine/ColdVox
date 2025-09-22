@@ -1,22 +1,19 @@
 {
-  "preferred_plugin": "mock",
+  "preferred_plugin": "vosk",
   "fallback_plugins": [
     "noop"
   ],
-  "require_local": false,
+  "require_local": true,
   "max_memory_mb": null,
-  "required_language": "en",
+  "required_language": null,
   "failover": {
     "failover_threshold": 3,
-    "failover_cooldown_secs": 30
+    "failover_cooldown_secs": 1
   },
   "gc_policy": {
-    "model_ttl_secs": 300,
-    "enabled": true
+    "model_ttl_secs": 30,
+    "enabled": false
   },
-  "metrics": {
-    "log_interval_secs": 60,
-    "debug_dump_events": false
-  },
+  "metrics": null,
   "auto_extract_model": true
 }
