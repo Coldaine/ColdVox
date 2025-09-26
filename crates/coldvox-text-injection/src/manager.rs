@@ -103,10 +103,15 @@ impl InjectorRegistry {
                 // Add combo clipboard+paste if wl_clipboard + ydotool features are enabled
                 #[cfg(all(feature = "wl_clipboard", feature = "ydotool"))]
                 {
-                    let combo_injector = ComboClipboardYdotool::new(config.clone());
-                    if combo_injector.is_available().await {
-                        injectors
-                            .insert(InjectionMethod::ClipboardAndPaste, Box::new(combo_injector));
+                    // Respect runtime preference to disable ydotool entirely
+                    if config.allow_ydotool {
+                        let combo_injector = ComboClipboardYdotool::new(config.clone());
+                        if combo_injector.is_available().await {
+                            injectors.insert(
+                                InjectionMethod::ClipboardAndPaste,
+                                Box::new(combo_injector),
+                            );
+                        }
                     }
                 }
             }
@@ -172,6 +177,7 @@ pub struct StrategyManager {
     /// Metrics for the strategy manager
     metrics: Arc<Mutex<InjectionMetrics>>,
     /// Backend detector for platform-specific capabilities
+    #[cfg_attr(not(test), allow(dead_code))]
     backend_detector: BackendDetector,
     /// Registry of available injectors
     injectors: InjectorRegistry,
@@ -541,30 +547,31 @@ impl StrategyManager {
     /// Get ordered list of methods to try based on backend availability and success rates.
     /// Includes NoOp as a final fallback so the list is never empty.
     pub(crate) fn _get_method_priority(&self, app_id: &str) -> Vec<InjectionMethod> {
-        // Base order derived from detected backends (mirrors get_method_order_cached)
-        let available_backends = self.backend_detector.detect_available_backends();
+        // Base order derived from environment first (robust when portals/VK are unavailable)
+        use std::env;
+        let on_wayland = env::var("XDG_SESSION_TYPE").map(|s| s == "wayland").unwrap_or(false)
+            || env::var("WAYLAND_DISPLAY").is_ok();
+        let on_x11 = env::var("XDG_SESSION_TYPE").map(|s| s == "x11").unwrap_or(false)
+            || env::var("DISPLAY").is_ok();
+
         let mut base_order: Vec<InjectionMethod> = Vec::new();
 
-        for backend in available_backends {
-            match backend {
-                Backend::WaylandXdgDesktopPortal | Backend::WaylandVirtualKeyboard => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::X11Xdotool | Backend::X11Native => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::MacCgEvent | Backend::WindowsSendInput => {
-                    // 2025-09-04: Currently not targeting Windows builds
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                _ => {}
+        if on_wayland {
+            // Prefer AT-SPI direct insert first on Wayland when available
+            base_order.push(InjectionMethod::AtspiInsert);
+            base_order.push(InjectionMethod::Clipboard);
+            if self.config.allow_ydotool {
+                base_order.push(InjectionMethod::ClipboardAndPaste);
             }
+        }
+
+        if on_x11 {
+            // Keep X11 ordering; skip combo if ydotool disabled
+            base_order.push(InjectionMethod::AtspiInsert);
+            if self.config.allow_ydotool {
+                base_order.push(InjectionMethod::ClipboardAndPaste);
+            }
+            base_order.push(InjectionMethod::Clipboard);
         }
 
         // Optional, opt-in fallbacks
@@ -584,31 +591,28 @@ impl StrategyManager {
         let mut seen = HashSet::new();
         base_order.retain(|m| seen.insert(*m));
 
-        // Sort by historical success rate, preserving base order when equal
+        // Sort primarily by base order; use historical success rate only as a tiebreaker
         let base_order_copy = base_order.clone();
         base_order.sort_by(|a, b| {
-            let key_a = (app_id.to_string(), *a);
-            let key_b = (app_id.to_string(), *b);
-
-            let rate_a = self
-                .success_cache
-                .get(&key_a)
-                .map(|r| r.success_rate)
-                .unwrap_or(0.5);
-            let rate_b = self
-                .success_cache
-                .get(&key_b)
-                .map(|r| r.success_rate)
-                .unwrap_or(0.5);
-
-            rate_b
-                .partial_cmp(&rate_a)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| {
-                    let pos_a = base_order_copy.iter().position(|m| m == a).unwrap_or(0);
-                    let pos_b = base_order_copy.iter().position(|m| m == b).unwrap_or(0);
-                    pos_a.cmp(&pos_b)
-                })
+            let pos_a = base_order_copy.iter().position(|m| m == a).unwrap_or(usize::MAX);
+            let pos_b = base_order_copy.iter().position(|m| m == b).unwrap_or(usize::MAX);
+            pos_a.cmp(&pos_b).then_with(|| {
+                let key_a = (app_id.to_string(), *a);
+                let key_b = (app_id.to_string(), *b);
+                let rate_a = self
+                    .success_cache
+                    .get(&key_a)
+                    .map(|r| r.success_rate)
+                    .unwrap_or(0.5);
+                let rate_b = self
+                    .success_cache
+                    .get(&key_b)
+                    .map(|r| r.success_rate)
+                    .unwrap_or(0.5);
+                rate_b
+                    .partial_cmp(&rate_a)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
         });
 
         // Always include NoOp at the end as a last resort
@@ -626,38 +630,29 @@ impl StrategyManager {
             }
         }
 
-        // Get available backends
-        let available_backends = self.backend_detector.detect_available_backends();
+        // Environment-first ordering (more reliable than portal/VK detection)
+        use std::env;
+        let on_wayland = env::var("XDG_SESSION_TYPE").map(|s| s == "wayland").unwrap_or(false)
+            || env::var("WAYLAND_DISPLAY").is_ok();
+        let on_x11 = env::var("XDG_SESSION_TYPE").map(|s| s == "x11").unwrap_or(false)
+            || env::var("DISPLAY").is_ok();
 
-        // Base order as specified in the requirements
         let mut base_order = Vec::new();
 
-        // Add methods based on available backends
-        for backend in available_backends {
-            match backend {
-                Backend::WaylandXdgDesktopPortal | Backend::WaylandVirtualKeyboard => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::X11Xdotool | Backend::X11Native => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::MacCgEvent => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::WindowsSendInput => {
-                    // 2025-09-04: Currently not targeting Windows builds
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                _ => {}
+        if on_wayland {
+            base_order.push(InjectionMethod::AtspiInsert);
+            base_order.push(InjectionMethod::Clipboard);
+            if self.config.allow_ydotool {
+                base_order.push(InjectionMethod::ClipboardAndPaste);
             }
+        }
+
+        if on_x11 {
+            base_order.push(InjectionMethod::AtspiInsert);
+            if self.config.allow_ydotool {
+                base_order.push(InjectionMethod::ClipboardAndPaste);
+            }
+            base_order.push(InjectionMethod::Clipboard);
         }
 
         // Add optional methods if enabled
@@ -676,32 +671,25 @@ impl StrategyManager {
         let mut seen = HashSet::new();
         base_order.retain(|m| seen.insert(*m));
 
-        // Sort by preference: methods with higher success rate first, then by base order
-
-        // Create a copy of base order for position lookup
+        // Sort primarily by base order; use success rate as tiebreaker
         let base_order_copy = base_order.clone();
-
         base_order.sort_by(|a, b| {
-            let key_a = (app_id.to_string(), *a);
-            let key_b = (app_id.to_string(), *b);
-
-            let success_a = self
-                .success_cache
-                .get(&key_a)
-                .map(|r| r.success_rate)
-                .unwrap_or(0.5);
-            let success_b = self
-                .success_cache
-                .get(&key_b)
-                .map(|r| r.success_rate)
-                .unwrap_or(0.5);
-
-            // Sort by success rate (descending), then by base order
-            success_b.partial_cmp(&success_a).unwrap().then_with(|| {
-                // Preserve base order for equal success rates
-                let pos_a = base_order_copy.iter().position(|m| m == a).unwrap_or(0);
-                let pos_b = base_order_copy.iter().position(|m| m == b).unwrap_or(0);
-                pos_a.cmp(&pos_b)
+            let pos_a = base_order_copy.iter().position(|m| m == a).unwrap_or(usize::MAX);
+            let pos_b = base_order_copy.iter().position(|m| m == b).unwrap_or(usize::MAX);
+            pos_a.cmp(&pos_b).then_with(|| {
+                let key_a = (app_id.to_string(), *a);
+                let key_b = (app_id.to_string(), *b);
+                let success_a = self
+                    .success_cache
+                    .get(&key_a)
+                    .map(|r| r.success_rate)
+                    .unwrap_or(0.5);
+                let success_b = self
+                    .success_cache
+                    .get(&key_b)
+                    .map(|r| r.success_rate)
+                    .unwrap_or(0.5);
+                success_b.partial_cmp(&success_a).unwrap_or(std::cmp::Ordering::Equal)
             })
         });
 
@@ -716,30 +704,27 @@ impl StrategyManager {
     /// Back-compat: previous tests may call no-arg version; compute without caching
     #[allow(dead_code)]
     pub fn get_method_order_uncached(&self) -> Vec<InjectionMethod> {
-        // Compute using a placeholder app id without affecting cache
-        // Duplicate core logic minimally by delegating to a copy of code
-        let available_backends = self.backend_detector.detect_available_backends();
+        // Compute using environment-first ordering with a placeholder app id
+        use std::env;
+        let on_wayland = env::var("XDG_SESSION_TYPE").map(|s| s == "wayland").unwrap_or(false)
+            || env::var("WAYLAND_DISPLAY").is_ok();
+        let on_x11 = env::var("XDG_SESSION_TYPE").map(|s| s == "x11").unwrap_or(false)
+            || env::var("DISPLAY").is_ok();
+
         let mut base_order = Vec::new();
-        for backend in available_backends {
-            match backend {
-                Backend::WaylandXdgDesktopPortal | Backend::WaylandVirtualKeyboard => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::X11Xdotool | Backend::X11Native => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::MacCgEvent | Backend::WindowsSendInput => {
-                    // 2025-09-04: Currently not targeting Windows builds
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                _ => {}
+        if on_wayland {
+            base_order.push(InjectionMethod::AtspiInsert);
+            base_order.push(InjectionMethod::Clipboard);
+            if self.config.allow_ydotool {
+                base_order.push(InjectionMethod::ClipboardAndPaste);
             }
+        }
+        if on_x11 {
+            base_order.push(InjectionMethod::AtspiInsert);
+            if self.config.allow_ydotool {
+                base_order.push(InjectionMethod::ClipboardAndPaste);
+            }
+            base_order.push(InjectionMethod::Clipboard);
         }
         if self.config.allow_kdotool {
             base_order.push(InjectionMethod::KdoToolAssist);
@@ -754,27 +739,27 @@ impl StrategyManager {
         use std::collections::HashSet;
         let mut seen = HashSet::new();
         base_order.retain(|m| seen.insert(*m));
-        // Sort by success rate for placeholder app id
+        // Sort primarily by base order; use success rate as tiebreaker for placeholder app id
         let app_id = "unknown_app";
         let base_order_copy = base_order.clone();
         let mut base_order2 = base_order;
         base_order2.sort_by(|a, b| {
-            let key_a = (app_id.to_string(), *a);
-            let key_b = (app_id.to_string(), *b);
-            let success_a = self
-                .success_cache
-                .get(&key_a)
-                .map(|r| r.success_rate)
-                .unwrap_or(0.5);
-            let success_b = self
-                .success_cache
-                .get(&key_b)
-                .map(|r| r.success_rate)
-                .unwrap_or(0.5);
-            success_b.partial_cmp(&success_a).unwrap().then_with(|| {
-                let pos_a = base_order_copy.iter().position(|m| m == a).unwrap_or(0);
-                let pos_b = base_order_copy.iter().position(|m| m == b).unwrap_or(0);
-                pos_a.cmp(&pos_b)
+            let pos_a = base_order_copy.iter().position(|m| m == a).unwrap_or(usize::MAX);
+            let pos_b = base_order_copy.iter().position(|m| m == b).unwrap_or(usize::MAX);
+            pos_a.cmp(&pos_b).then_with(|| {
+                let key_a = (app_id.to_string(), *a);
+                let key_b = (app_id.to_string(), *b);
+                let success_a = self
+                    .success_cache
+                    .get(&key_a)
+                    .map(|r| r.success_rate)
+                    .unwrap_or(0.5);
+                let success_b = self
+                    .success_cache
+                    .get(&key_b)
+                    .map(|r| r.success_rate)
+                    .unwrap_or(0.5);
+                success_b.partial_cmp(&success_a).unwrap_or(std::cmp::Ordering::Equal)
             })
         });
         base_order2.push(InjectionMethod::NoOp);
