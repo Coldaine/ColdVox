@@ -620,6 +620,54 @@ let dump_handle = if opts.enable_audio_dumping() {
 - **Contention**: Reduced RwLock contention by >50%
 - **Reliability**: 100% error visibility, 0 silent failures
 
+## Feature Gating and Cross-Crate Dependencies
+
+### App-Level Feature Gates (`crates/app/Cargo.toml`)
+
+**Default Features**: `["silero", "text-injection", "vosk"]`
+- Enables Silero VAD, text injection backends, and Vosk STT by default.
+
+**Optional Features**:
+- `vosk`: Enables Vosk STT plugin (`coldvox-stt-vosk` dependency)
+- `silero`: Enables Silero VAD (`coldvox-vad-silero/silero`)
+- `text-injection`: Enables text injection backends (`coldvox-text-injection`)
+- `examples`: Enables example binaries
+- `tui`: Enables TUI dashboard
+- `sleep-observer`: Enables sleep instrumentation
+- `live-hardware-tests`: Enables hardware-dependent tests
+- `no-stt`: Disables STT (legacy)
+- `parakeet`, `whisper`: Alternative STT backends (not implemented)
+
+**Text Injection Sub-Features**:
+- `text-injection-atspi`: AT-SPI backend
+- `text-injection-clipboard`: wl-clipboard backend
+- `text-injection-ydotool`: ydotool backend
+- `text-injection-enigo`: Enigo backend
+- `text-injection-kdotool`: kdotool backend
+- `text-injection-regex`: Regex support
+
+**Platform-Specific**:
+- Linux: `coldvox-text-injection` with `["atspi", "wl_clipboard", "ydotool"]`
+- Windows/macOS: `coldvox-text-injection` with `["enigo"]`
+
+### Sub-Crate Features
+
+- **coldvox-audio**: No features (always enabled)
+- **coldvox-vad**: No features
+- **coldvox-vad-silero**: `silero` (enables ONNX inference)
+- **coldvox-stt**: `vosk`, `parakeet`, `whisper`, `coqui`, `leopard`, `silero-stt`
+- **coldvox-stt-vosk**: `vosk` (enables Vosk library)
+- **coldvox-text-injection**: `atspi`, `wl_clipboard`, `enigo`, `kdotool`, `ydotool`, `regex`, `all-backends`, `linux-desktop`, `live-hardware-tests`, `real-injection-tests`
+- **coldvox-telemetry**: `text-injection` (optional integration)
+
+### Cross-Crate Dependencies
+
+- App conditionally depends on subcrates based on features:
+  - `coldvox-stt-vosk` when `vosk`
+  - `coldvox-text-injection` when `text-injection`
+  - `coldvox-vad-silero` always (with `silero` feature)
+- Subcrates have internal feature gates for optional backends (e.g., STT plugins, injection methods)
+
 ## Conclusion
 
 The revised plan incorporates all feedback, addressing logging idempotency, mutex safety, audio subscription design, UI responsiveness, simplified error handling, deterministic testing, enhanced validation, and audio dump observability. The implementation is now ready for execution with clear, testable deliverables and comprehensive documentation.

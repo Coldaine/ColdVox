@@ -2,6 +2,43 @@
 
 All notable changes to this project are documented here.
 
+## Unreleased
+
+Highlights
+- Refactor: Stabilized audio→VAD→STT→injection pipeline with real WAV-driven tests
+- Text Injection: Prefer AT‑SPI first on Wayland with fast fallback to Clipboard; ydotool path gated
+- Audio Capture: Fixed device monitor lifecycle (restores FPS under PipeWire)
+- VAD/STT: Unified VAD spawn, deterministic end-to-end with Vosk + Silero; trailing silence flush in WAV loader
+- Tests/Docs: Reworked E2E WAV test, added `wav_file_loader`, updated integration plan docs
+
+Details
+- crates/app
+	- Add `audio/wav_file_loader.rs` to stream real WAV frames and pad trailing silence to flush VAD
+	- Refactor `runtime.rs` to wire unified VAD/STT pipeline and test hooks
+	- Rewrite E2E WAV test to use real WAV, deterministic timing, and validated injection
+- crates/coldvox-audio
+	- `capture.rs`: Start device monitor with running=true; improves stability and FPS
+	- Watchdog/format logs tuned; minor cleanups
+- crates/coldvox-vad(-silero)
+	- Debounce/timing cleanup; consistent 512-sample windows; improved logging
+- crates/coldvox-stt(-vosk)
+	- Helpers/constants for partial/final events; finalize handling emits last result reliably
+- crates/coldvox-text-injection
+	- StrategyManager prefers AT‑SPI first on Wayland, then Clipboard; Combo Clipboard+ydotool gated via config
+	- Cooldown and per-method success cache to avoid retries on flaky backends; environment-first ordering
+- crates/coldvox-telemetry
+	- Minor additions for STT metrics integration
+- docs
+	- `docs/refactoring_and_integration_plan.md` expanded with architecture and test guidance
+
+Upgrade Notes
+- Wayland: AT‑SPI is attempted first and fails fast if unavailable; Clipboard remains reliable fallback
+- ydotool integration is off by default unless explicitly allowed
+- Ensure VOSK model present (VOSK_MODEL_PATH or default models folder) for STT path
+
+PRs
+- Refactor: Unified pipeline, injection ordering on Wayland, WAV-based E2E tests
+
 ## v2.0.2 — 2025-09-12
 
 Highlights
