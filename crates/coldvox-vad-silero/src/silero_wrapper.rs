@@ -1,6 +1,5 @@
 use crate::config::SileroConfig;
 use coldvox_vad::{VadEngine, VadEvent, VadState};
-use std::time::Instant;
 use voice_activity_detector::VoiceActivityDetector;
 
 #[derive(Copy, Clone, Default)]
@@ -16,8 +15,9 @@ pub struct SileroEngine {
     detector: VoiceActivityDetector,
     config: SileroConfig,
     current_state: VadState,
-    speech_start_time: Option<Instant>,
-    silence_start_time: Option<Instant>,
+    // Frame-based debouncing timestamps (in ms) rather than wall-clock Instants.
+    speech_start_candidate_ms: Option<u64>,
+    silence_start_candidate_ms: Option<u64>,
     speech_start_timestamp_ms: u64,
     frames_processed: u64,
     last_probability: f32,
@@ -35,8 +35,8 @@ impl SileroEngine {
             detector,
             config,
             current_state: VadState::Silence,
-            speech_start_time: None,
-            silence_start_time: None,
+            speech_start_candidate_ms: None,
+            silence_start_candidate_ms: None,
             speech_start_timestamp_ms: 0,
             frames_processed: 0,
             last_probability: 0.0,
@@ -49,15 +49,16 @@ impl SileroEngine {
         match self.current_state {
             VadState::Silence => {
                 if probability >= self.config.threshold {
-                    if self.speech_start_time.is_none() {
-                        self.speech_start_time = Some(Instant::now());
+                    if self.speech_start_candidate_ms.is_none() {
+                        self.speech_start_candidate_ms = Some(timestamp_ms);
                         self.speech_start_timestamp_ms = timestamp_ms;
-                    } else if let Some(start) = self.speech_start_time {
-                        if start.elapsed().as_millis() >= self.config.min_speech_duration_ms as u128
+                    } else if let Some(start_ms) = self.speech_start_candidate_ms {
+                        if timestamp_ms.saturating_sub(start_ms)
+                            >= self.config.min_speech_duration_ms as u64
                         {
                             self.current_state = VadState::Speech;
-                            self.speech_start_time = None;
-                            self.silence_start_time = None;
+                            self.speech_start_candidate_ms = None;
+                            self.silence_start_candidate_ms = None;
 
                             return Some(VadEvent::SpeechStart {
                                 timestamp_ms: self.speech_start_timestamp_ms,
@@ -66,22 +67,22 @@ impl SileroEngine {
                         }
                     }
                 } else {
-                    self.speech_start_time = None;
+                    self.speech_start_candidate_ms = None;
                 }
             }
             VadState::Speech => {
                 if probability < self.config.threshold {
-                    if self.silence_start_time.is_none() {
-                        self.silence_start_time = Some(Instant::now());
-                    } else if let Some(start) = self.silence_start_time {
-                        if start.elapsed().as_millis()
-                            >= self.config.min_silence_duration_ms as u128
+                    if self.silence_start_candidate_ms.is_none() {
+                        self.silence_start_candidate_ms = Some(timestamp_ms);
+                    } else if let Some(start_ms) = self.silence_start_candidate_ms {
+                        if timestamp_ms.saturating_sub(start_ms)
+                            >= self.config.min_silence_duration_ms as u64
                         {
                             self.current_state = VadState::Silence;
-                            self.speech_start_time = None;
-                            self.silence_start_time = None;
+                            self.speech_start_candidate_ms = None;
+                            self.silence_start_candidate_ms = None;
 
-                            let duration_ms = timestamp_ms - self.speech_start_timestamp_ms;
+                            let duration_ms = timestamp_ms.saturating_sub(self.speech_start_timestamp_ms);
 
                             return Some(VadEvent::SpeechEnd {
                                 timestamp_ms,
@@ -91,7 +92,7 @@ impl SileroEngine {
                         }
                     }
                 } else {
-                    self.silence_start_time = None;
+                    self.silence_start_candidate_ms = None;
                 }
             }
         }
@@ -120,8 +121,8 @@ impl VadEngine for SileroEngine {
     fn reset(&mut self) {
         self.detector.reset();
         self.current_state = VadState::Silence;
-        self.speech_start_time = None;
-        self.silence_start_time = None;
+        self.speech_start_candidate_ms = None;
+        self.silence_start_candidate_ms = None;
         self.speech_start_timestamp_ms = 0;
         self.frames_processed = 0;
         self.last_probability = 0.0;

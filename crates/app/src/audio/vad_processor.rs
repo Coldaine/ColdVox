@@ -126,14 +126,14 @@ impl VadProcessor {
 
         self.frames_processed += 1;
 
-        if self.frames_processed % 100 == 0 {
+        if self.frames_processed.is_multiple_of(100) {
             tracing::debug!(
                 "VAD: Received {} frames, processing active",
                 self.frames_processed
             );
         }
 
-        if self.frames_processed % 1000 == 0 {
+        if self.frames_processed.is_multiple_of(1000) {
             debug!(
                 "VAD processor: {} frames processed, {} events generated, current state: {:?}",
                 self.frames_processed,
