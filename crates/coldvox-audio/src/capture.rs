@@ -59,7 +59,11 @@ impl AudioCaptureThread {
         ),
         AudioError,
     > {
-        let running = Arc::new(AtomicBool::new(false));
+    // Start in running state so the device monitor thread stays alive
+    // until we explicitly stop via `stop()`. Previously this was false,
+    // causing the monitor to exit immediately and the capture loop to
+    // detect a closed channel and terminate early.
+    let running = Arc::new(AtomicBool::new(true));
         let shutdown = running.clone();
         let device_config = Arc::new(RwLock::new(None::<DeviceConfig>));
         let device_config_clone = device_config.clone();
