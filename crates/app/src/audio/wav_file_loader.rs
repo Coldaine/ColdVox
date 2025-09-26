@@ -1,5 +1,6 @@
 use anyhow::Result;
 use hound::WavReader;
+use std::sync::Arc;
 use std::path::Path;
 use std::time::Duration;
 use tracing::info;
@@ -133,6 +134,75 @@ impl WavFileLoader {
             let mut written = 0;
             while written < silence_chunk.len() {
                 if let Ok(count) = producer.write(&silence_chunk[written..]) {
+                    written += count;
+                } else {
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(32)).await;
+        }
+
+        Ok(())
+    }
+
+    /// Stream audio using a shared producer protected by a parking_lot Mutex
+    pub async fn stream_to_ring_buffer_locked(
+        &mut self,
+        producer: Arc<parking_lot::Mutex<AudioProducer>>,
+    ) -> Result<()> {
+        let nanos_per_sample_total =
+            1_000_000_000u64 / (self.sample_rate as u64 * self.channels as u64);
+
+        while self.current_pos < self.samples.len() {
+            let end_pos = (self.current_pos + self.frame_size_total).min(self.samples.len());
+            let chunk = &self.samples[self.current_pos..end_pos];
+
+            let mut written = 0;
+            while written < chunk.len() {
+                let res = {
+                    let mut guard = producer.lock();
+                    guard.write(&chunk[written..])
+                };
+                match res {
+                    Ok(count) => written += count,
+                    Err(_) => {
+                        tokio::time::sleep(Duration::from_millis(1)).await;
+                    }
+                }
+            }
+
+            self.current_pos = end_pos;
+
+            let written_total = chunk.len() as u64;
+            let sleep_nanos = written_total * nanos_per_sample_total;
+
+            match self.playback_mode {
+                PlaybackMode::Realtime => {
+                    tokio::time::sleep(Duration::from_nanos(sleep_nanos)).await;
+                }
+                PlaybackMode::Accelerated(speed) => {
+                    let accelerated_nanos = (sleep_nanos as f32 / speed) as u64;
+                    let clamped = accelerated_nanos.max(50_000);
+                    tokio::time::sleep(Duration::from_nanos(clamped)).await;
+                }
+                PlaybackMode::Deterministic => {}
+            }
+        }
+
+        info!(
+            "WAV streaming completed ({} total samples processed), feeding silence to flush VAD.",
+            self.current_pos
+        );
+
+        let silence_chunk = vec![0i16; self.frame_size_total];
+        for _ in 0..15 {
+            let mut written = 0;
+            while written < silence_chunk.len() {
+                let res = {
+                    let mut guard = producer.lock();
+                    guard.write(&silence_chunk[written..])
+                };
+                if let Ok(count) = res {
                     written += count;
                 } else {
                     tokio::time::sleep(Duration::from_millis(1)).await;

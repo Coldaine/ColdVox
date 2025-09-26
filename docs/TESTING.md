@@ -4,6 +4,60 @@
 
 ColdVox has a comprehensive test suite that tests real STT functionality using Vosk models and actual hardware. Tests are designed to work with actual speech recognition and real audio devices rather than mocks to ensure functional correctness. This guide explains how to run tests and set up the required dependencies.
 
+## Feature Flags and Build Options
+
+### App-Level Features (`crates/app/Cargo.toml`)
+
+**Default**: `["silero", "text-injection", "vosk"]` - Enables Silero VAD, text injection, Vosk STT.
+
+**Common Build Commands**:
+```bash
+# Default build (Silero VAD + Vosk STT + text injection)
+cargo build
+
+# Minimal build (Silero VAD only)
+cargo build --no-default-features --features silero
+
+# With Vosk STT
+cargo build --features vosk
+
+# With text injection examples
+cargo build --features text-injection,examples
+
+# Full features for testing
+cargo build --all-features
+```
+
+**Feature Descriptions**:
+- `vosk`: Enables Vosk STT plugin
+- `silero`: Enables Silero ONNX VAD
+- `text-injection`: Enables text injection backends (AT-SPI, clipboard, etc.)
+- `examples`: Enables example binaries
+- `tui`: Enables TUI dashboard
+- `live-hardware-tests`: Enables hardware-dependent tests
+
+### Sub-Crate Features
+
+- `coldvox-stt`: `vosk`, `parakeet`, `whisper` (STT backends)
+- `coldvox-text-injection`: `atspi`, `wl_clipboard`, `enigo`, `ydotool`, `kdotool` (injection backends)
+- `coldvox-vad-silero`: `silero` (ONNX inference)
+
+### Testing with Features
+
+```bash
+# Test with Vosk STT
+cargo test --features vosk
+
+# Test text injection
+cargo test --features text-injection
+
+# Test examples
+cargo test --features examples
+
+# Full test matrix
+cargo test --all-features
+```
+
 ## Test Categories
 
 ### Core Tests

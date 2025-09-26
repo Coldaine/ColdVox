@@ -1,32 +1,37 @@
-use coldvox_app::audio::VadAdapter;
+use coldvox_app::audio::vad_adapter::VadAdapter;
 use coldvox_vad::config::SileroConfig;
 use coldvox_vad::{UnifiedVadConfig, VadMode, FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
-use std::path::PathBuf;
+use std::env;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let wav_env = std::env::var("TEST_WAV").unwrap_or_else(|_| "test_audio_16k.wav".to_string());
-    // Try opening provided path, else fallback to crates/app
-    let mut reader = match hound::WavReader::open(&wav_env) {
-        Ok(r) => {
-            println!("Loading WAV: {}", wav_env);
-            r
-        }
-        Err(e) => {
-            // Fallback to crates/app directory
-            let mut fallback = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-            fallback.pop(); // move from examples/ to repo root
-            fallback.push("crates");
-            fallback.push("app");
-            fallback.push(&wav_env);
-            println!(
-                "Failed to open {}: {}. Falling back to {}",
-                wav_env,
-                e,
-                fallback.display()
-            );
-            hound::WavReader::open(&fallback)?
-        }
+    // Determine WAV paths: prefer CLI args, else TEST_WAV env. No hardcoded fallbacks.
+    let mut args = env::args().skip(1).collect::<Vec<_>>();
+    let wavs: Vec<String> = if !args.is_empty() {
+        args.drain(..).collect()
+    } else if let Ok(v) = env::var("TEST_WAV") {
+        // Allow colon- or comma-separated list in env
+        if v.contains(',') { v.split(',').map(|s| s.trim().to_string()).collect() }
+        else if v.contains(':') { v.split(':').map(|s| s.trim().to_string()).collect() }
+        else { vec![v] }
+    } else {
+        eprintln!("Usage: test_silero_wav <path1.wav> [path2.wav ...]  (or set TEST_WAV)");
+        eprintln!("No WAV path provided. This example does not use synthetic audio.");
+        std::process::exit(2);
     };
+
+    let threshold: f32 = env::var("VAD_THRESHOLD").ok().and_then(|s| s.parse().ok()).unwrap_or(0.2);
+
+    for wav_path in wavs {
+        let mut reader = match hound::WavReader::open(&wav_path) {
+            Ok(r) => {
+                println!("\nLoading WAV: {}", wav_path);
+                r
+            }
+            Err(e) => {
+                eprintln!("Failed to open {}: {}", wav_path, e);
+                continue;
+            }
+        };
     let spec = reader.spec();
 
     println!(
@@ -74,11 +79,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Final samples: {} at 16kHz", samples_16k.len());
 
-    // Configure VAD without field reassign after Default
+    // Configure VAD using provided threshold and defaults
     let config = UnifiedVadConfig {
         mode: VadMode::Silero,
         silero: SileroConfig {
-            threshold: 0.2, // Lower threshold for testing
+            threshold,
             ..Default::default()
         },
         frame_size_samples: FRAME_SIZE_SAMPLES,
@@ -118,7 +123,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    println!("\n=== Summary ===");
+    println!("\n=== Summary ({} ) ===", wav_path);
     println!("Frames processed: {}", frames_processed);
     println!("Events detected: {}", events.len());
 
@@ -127,6 +132,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("  - Threshold too high (current: {})", 0.2);
         println!("  - Audio file contains no speech");
         println!("  - Frame buffering issue in adapter");
+    }
     }
 
     Ok(())

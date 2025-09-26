@@ -1,8 +1,7 @@
-use crate::audio::wav_file_loader::{PlaybackMode, WavFileLoader};
+use crate::audio::wav_file_loader::WavFileLoader;
 use anyhow::Result;
-use hound::WavReader;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, mpsc};
 use tracing::{debug, info};
@@ -18,7 +17,7 @@ use crate::stt::{TranscriptionConfig, TranscriptionEvent};
 use crate::text_injection::{AsyncInjectionProcessor, InjectionConfig};
 use coldvox_audio::chunker::AudioFrame;
 use coldvox_audio::chunker::{AudioChunker, ChunkerConfig};
-use coldvox_audio::ring_buffer::{AudioProducer, AudioRingBuffer};
+use coldvox_audio::ring_buffer::AudioRingBuffer;
 use coldvox_audio::DeviceConfig;
 use coldvox_stt::plugin::PluginSelectionConfig;
 use coldvox_vad::config::{UnifiedVadConfig, VadMode};
@@ -140,7 +139,7 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
     let (vad_event_tx, vad_event_rx) = mpsc::channel::<VadEvent>(100);
     let _vad_event_tx_clone = vad_event_tx.clone();
     let vad_audio_rx = audio_tx.subscribe();
-    let vad_handle = match crate::vad::VadProcessor::spawn(
+    let vad_handle = match crate::audio::vad_processor::VadProcessor::spawn(
         vad_cfg,
         vad_audio_rx,
         vad_event_tx,
@@ -666,7 +665,7 @@ async fn test_end_to_end_with_real_injection() {
 
     let (vad_event_tx, vad_event_rx) = mpsc::channel::<VadEvent>(100);
     let vad_audio_rx = audio_tx.subscribe();
-    let vad_handle = match crate::vad::VadProcessor::spawn(
+    let vad_handle = match crate::audio::vad_processor::VadProcessor::spawn(
         vad_cfg,
         vad_audio_rx,
         vad_event_tx,
