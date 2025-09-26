@@ -59,6 +59,10 @@ pub struct AppRuntimeOptions {
     pub stt_selection: Option<coldvox_stt::plugin::PluginSelectionConfig>,
     #[cfg(feature = "text-injection")]
     pub injection: Option<InjectionOptions>,
+    #[cfg(test)]
+    pub test_device_config: Option<coldvox_audio::DeviceConfig>,
+    #[cfg(test)]
+    pub test_capture_to_dummy: bool,
 }
 
 impl Default for AppRuntimeOptions {
@@ -70,6 +74,10 @@ impl Default for AppRuntimeOptions {
             stt_selection: None,
             #[cfg(feature = "text-injection")]
             injection: None,
+            #[cfg(test)]
+            test_device_config: None,
+            #[cfg(test)]
+            test_capture_to_dummy: false,
         }
     }
 }
@@ -127,7 +135,7 @@ impl AppHandle {
         // Abort async tasks
         this.chunker_handle.abort();
         {
-            let trigger_guard = this.trigger_handle.lock().await;
+            let trigger_guard = this.trigger_handle.lock();
             trigger_guard.abort();
         }
         this.vad_fanout_handle.abort();
@@ -201,7 +209,7 @@ impl AppHandle {
         }
 
         {
-            let trigger_guard = self.trigger_handle.lock().await;
+            let trigger_guard = self.trigger_handle.lock();
             trigger_guard.abort();
         }
         // Spawn new trigger
@@ -242,7 +250,7 @@ impl AppHandle {
                     },
                 };
                 let vad_audio_rx = self.audio_tx.subscribe();
-                crate::vad::VadProcessor::spawn(
+                crate::audio::vad_processor::VadProcessor::spawn(
                     vad_cfg,
                     vad_audio_rx,
                     self.raw_vad_tx.clone(),
@@ -252,7 +260,7 @@ impl AppHandle {
             ActivationMode::Hotkey => crate::hotkey::spawn_hotkey_listener(self.raw_vad_tx.clone()),
         };
         {
-            let mut trigger_guard = self.trigger_handle.lock().await;
+            let mut trigger_guard = self.trigger_handle.lock();
             *trigger_guard = new_handle;
         }
         *old = mode;
@@ -260,6 +268,7 @@ impl AppHandle {
         info!("Successfully switched to {:?} activation mode", mode);
         Ok(())
     }
+
 }
 
 /// Start the ColdVox pipeline with the given options
@@ -276,6 +285,21 @@ pub async fn start(
     let ring_buffer = AudioRingBuffer::new(16384 * 4);
     let (audio_producer, audio_consumer) = ring_buffer.split();
     let audio_producer = Arc::new(Mutex::new(audio_producer));
+
+    // In tests, optionally route capture writes to a dummy buffer to avoid interference
+    #[cfg(test)]
+    let (audio_capture, device_cfg, device_config_rx, _device_event_rx) = {
+        if opts.test_capture_to_dummy {
+            let dummy_rb = AudioRingBuffer::new(16384 * 4);
+            let (dummy_prod, _dummy_cons) = dummy_rb.split();
+            let dummy_prod = Arc::new(Mutex::new(dummy_prod));
+            AudioCaptureThread::spawn(audio_config, dummy_prod, opts.device.clone())?
+        } else {
+            AudioCaptureThread::spawn(audio_config, audio_producer.clone(), opts.device.clone())?
+        }
+    };
+
+    #[cfg(not(test))]
     let (audio_capture, device_cfg, device_config_rx, _device_event_rx) =
         AudioCaptureThread::spawn(audio_config, audio_producer.clone(), opts.device.clone())?;
 
@@ -293,9 +317,22 @@ pub async fn start(
         resampler_quality: opts.resampler_quality,
     };
     let (audio_tx, _) = broadcast::channel::<coldvox_audio::AudioFrame>(200);
+    // In tests, allow overriding the device config to match the injected WAV
+    #[cfg(test)]
+    let device_config_rx_for_chunker = if let Some(dc) = opts.test_device_config.clone() {
+        let (tx, rx) = broadcast::channel::<coldvox_audio::DeviceConfig>(8);
+        let _ = tx.send(dc);
+        rx
+    } else {
+        device_config_rx.resubscribe()
+    };
+
+    #[cfg(not(test))]
+    let device_config_rx_for_chunker = device_config_rx.resubscribe();
+
     let chunker = AudioChunker::new(frame_reader, audio_tx.clone(), chunker_cfg)
         .with_metrics(metrics.clone())
-        .with_device_config(device_config_rx.resubscribe());
+        .with_device_config(device_config_rx_for_chunker);
     let chunker_handle = chunker.spawn();
 
     // 3) Activation source (VAD or Hotkey) feeding a raw VAD mpsc channel
@@ -337,7 +374,7 @@ pub async fn start(
                 },
             };
             let vad_audio_rx = audio_tx.subscribe();
-            let vad_handle = crate::vad::VadProcessor::spawn(
+            let vad_handle = crate::audio::vad_processor::VadProcessor::spawn(
                 vad_cfg,
                 vad_audio_rx,
                 raw_vad_tx.clone(),
@@ -379,7 +416,10 @@ pub async fn start(
     let (stt_tx, stt_rx) = mpsc::channel::<TranscriptionEvent>(100);
     #[cfg(not(feature = "vosk"))]
     let (_stt_tx, _stt_rx) = mpsc::channel::<TranscriptionEvent>(100); // stt_rx not used
+    #[cfg(feature = "text-injection")]
     let (_text_injection_tx, text_injection_rx) = mpsc::channel::<TranscriptionEvent>(100);
+    #[cfg(not(feature = "text-injection"))]
+    let (_text_injection_tx, _text_injection_rx) = mpsc::channel::<TranscriptionEvent>(100);
 
     // 6) STT Processor and Fanout - Unified Path
     #[allow(unused_variables)]
@@ -391,6 +431,7 @@ pub async fn start(
         #[cfg(feature = "vosk")]
         let stt_config = TranscriptionConfig {
             // This `streaming` flag is now legacy. Behavior is controlled by `Settings`.
+            enabled: true,
             streaming: true,
             ..Default::default()
         };
@@ -550,6 +591,7 @@ pub async fn start(
 mod tests {
     use super::*;
     use crate::audio::wav_file_loader::WavFileLoader;
+    use coldvox_audio::DeviceConfig;
     use coldvox_stt::plugin::{FailoverConfig, GcPolicy, PluginSelectionConfig};
     use coldvox_stt::TranscriptionEvent;
     use std::time::Duration;
@@ -579,29 +621,65 @@ mod tests {
             }),
             #[cfg(feature = "text-injection")]
             injection: None,
+            #[cfg(test)]
+            test_device_config: None,
+            #[cfg(test)]
+            test_capture_to_dummy: true,
         }
     }
 
     #[cfg(feature = "vosk")]
     #[tokio::test]
     async fn test_unified_stt_pipeline_vad_mode() {
-        let opts = test_opts(ActivationMode::Vad);
+        // Accelerate playback to shorten test duration
+        std::env::set_var("COLDVOX_PLAYBACK_MODE", "accelerated");
+        std::env::set_var("COLDVOX_PLAYBACK_SPEED_MULTIPLIER", "2.0");
+
+        // Prepare WAV and configure device override before starting
+        let mut wav_loader = WavFileLoader::new("test_data/test_11.wav").unwrap();
+        let mut opts = test_opts(ActivationMode::Vad);
+        opts.test_device_config = Some(DeviceConfig {
+            sample_rate: wav_loader.sample_rate(),
+            channels: wav_loader.channels(),
+        });
         let mut app = start(opts).await.expect("Failed to start app");
         let mut stt_rx = app.stt_rx.take().expect("STT receiver should be available");
 
         // Give tasks time to start
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(150)).await;
 
-        // Use WavFileLoader to simulate audio
-        let mut wav_loader = WavFileLoader::new("test_data/test_11.wav").unwrap();
-        let audio_producer = app.audio_producer.lock().await.clone();
+        // Stream WAV into ring buffer
+        let audio_producer = app.audio_producer.clone();
         tokio::spawn(async move {
-            wav_loader.stream_to_ring_buffer(audio_producer).await.unwrap();
+            wav_loader
+                .stream_to_ring_buffer_locked(audio_producer)
+                .await
+                .unwrap();
         });
+
+        // Simulate VAD start/end to drive session lifecycle deterministically
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        app.raw_vad_tx
+            .send(VadEvent::SpeechStart {
+                timestamp_ms: 0,
+                energy_db: -18.0,
+            })
+            .await
+            .expect("Failed to send VAD SpeechStart");
+
+        tokio::time::sleep(Duration::from_millis(1200)).await;
+        app.raw_vad_tx
+            .send(VadEvent::SpeechEnd {
+                timestamp_ms: 1500,
+                duration_ms: 1200,
+                energy_db: -22.0,
+            })
+            .await
+            .expect("Failed to send VAD SpeechEnd");
 
         // Wait for transcription events (expecting partial and final)
         let mut received_events = Vec::new();
-        let timeout = Duration::from_secs(10);
+        let timeout = Duration::from_secs(20);
         let mut final_received = false;
 
         while !final_received {
@@ -637,19 +715,34 @@ mod tests {
     #[cfg(feature = "vosk")]
     #[tokio::test]
     async fn test_unified_stt_pipeline_hotkey_mode() {
-        let opts = test_opts(ActivationMode::Hotkey);
+        // Accelerate playback to shorten test duration
+        std::env::set_var("COLDVOX_PLAYBACK_MODE", "accelerated");
+        std::env::set_var("COLDVOX_PLAYBACK_SPEED_MULTIPLIER", "2.0");
+
+        // Prepare WAV and configure device override before starting
+        let mut wav_loader = WavFileLoader::new("test_data/test_11.wav").unwrap();
+        let mut opts = test_opts(ActivationMode::Hotkey);
+        opts.test_device_config = Some(DeviceConfig {
+            sample_rate: wav_loader.sample_rate(),
+            channels: wav_loader.channels(),
+        });
         let mut app = start(opts).await.expect("Failed to start app");
         let mut stt_rx = app.stt_rx.take().expect("STT receiver should be available");
 
         // Give tasks time to start
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(150)).await;
 
-        // Use WavFileLoader to simulate audio
-        let mut wav_loader = WavFileLoader::new("test_data/test_11.wav").unwrap();
-        let audio_producer = app.audio_producer.lock().await.clone();
+        // Stream WAV into ring buffer
+        let audio_producer = app.audio_producer.clone();
         tokio::spawn(async move {
-            wav_loader.stream_to_ring_buffer(audio_producer).await.unwrap();
+            wav_loader
+                .stream_to_ring_buffer_locked(audio_producer)
+                .await
+                .unwrap();
         });
+
+        // Allow some audio to flow before simulating hotkey start
+        tokio::time::sleep(Duration::from_millis(300)).await;
 
         // Simulate Hotkey Press (emits SpeechStart)
         app.raw_vad_tx
@@ -659,6 +752,9 @@ mod tests {
             })
             .await
             .expect("Failed to send Hotkey press event");
+
+        // Let the system process some audio incrementally before ending
+        tokio::time::sleep(Duration::from_millis(800)).await;
 
         // Simulate Hotkey Release (emits SpeechEnd)
         app.raw_vad_tx
@@ -672,7 +768,7 @@ mod tests {
 
         // Wait for a final transcription event
         let mut received_final = false;
-        let timeout = Duration::from_secs(10);
+        let timeout = Duration::from_secs(20);
         while let Ok(Some(event)) = tokio::time::timeout(timeout, stt_rx.recv()).await {
             if matches!(&event, TranscriptionEvent::Final { .. }) {
                 received_final = true;

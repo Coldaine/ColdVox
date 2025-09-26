@@ -11,6 +11,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create audio ring buffer
     let buffer = AudioRingBuffer::new(8192);
     let (producer, _consumer) = buffer.split();
+    let producer = std::sync::Arc::new(parking_lot::Mutex::new(producer));
 
     // Create audio configuration
     let config = AudioConfig::default();
