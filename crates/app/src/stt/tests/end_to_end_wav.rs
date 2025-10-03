@@ -73,10 +73,6 @@ fn resolve_vosk_model_path() -> String {
     "models/vosk-model-small-en-us-0.15".to_string()
 }
 
-
-
-
-
 /// End-to-end test that processes a WAV file through the entire pipeline
 pub async fn test_wav_pipeline<P: AsRef<Path>>(
     wav_path: P,
@@ -370,8 +366,6 @@ async fn get_clipboard_content() -> Option<String> {
 async fn test_end_to_end_wav_pipeline() {
     crate::test_utils::init_test_infrastructure();
 
-    
-
     // Set up the Vosk model path for this test (fallback if not mock)
     let model_path = resolve_vosk_model_path();
     std::env::set_var("VOSK_MODEL_PATH", &model_path);
@@ -578,8 +572,6 @@ async fn test_end_to_end_wav_pipeline() {
         }
     }
 }
-
-
 
 #[tokio::test]
 async fn test_end_to_end_with_real_injection() {

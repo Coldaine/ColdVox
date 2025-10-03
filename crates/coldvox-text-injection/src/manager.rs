@@ -549,9 +549,13 @@ impl StrategyManager {
     pub(crate) fn _get_method_priority(&self, app_id: &str) -> Vec<InjectionMethod> {
         // Base order derived from environment first (robust when portals/VK are unavailable)
         use std::env;
-        let on_wayland = env::var("XDG_SESSION_TYPE").map(|s| s == "wayland").unwrap_or(false)
+        let on_wayland = env::var("XDG_SESSION_TYPE")
+            .map(|s| s == "wayland")
+            .unwrap_or(false)
             || env::var("WAYLAND_DISPLAY").is_ok();
-        let on_x11 = env::var("XDG_SESSION_TYPE").map(|s| s == "x11").unwrap_or(false)
+        let on_x11 = env::var("XDG_SESSION_TYPE")
+            .map(|s| s == "x11")
+            .unwrap_or(false)
             || env::var("DISPLAY").is_ok();
 
         let mut base_order: Vec<InjectionMethod> = Vec::new();
@@ -594,8 +598,14 @@ impl StrategyManager {
         // Sort primarily by base order; use historical success rate only as a tiebreaker
         let base_order_copy = base_order.clone();
         base_order.sort_by(|a, b| {
-            let pos_a = base_order_copy.iter().position(|m| m == a).unwrap_or(usize::MAX);
-            let pos_b = base_order_copy.iter().position(|m| m == b).unwrap_or(usize::MAX);
+            let pos_a = base_order_copy
+                .iter()
+                .position(|m| m == a)
+                .unwrap_or(usize::MAX);
+            let pos_b = base_order_copy
+                .iter()
+                .position(|m| m == b)
+                .unwrap_or(usize::MAX);
             pos_a.cmp(&pos_b).then_with(|| {
                 let key_a = (app_id.to_string(), *a);
                 let key_b = (app_id.to_string(), *b);
@@ -632,9 +642,13 @@ impl StrategyManager {
 
         // Environment-first ordering (more reliable than portal/VK detection)
         use std::env;
-        let on_wayland = env::var("XDG_SESSION_TYPE").map(|s| s == "wayland").unwrap_or(false)
+        let on_wayland = env::var("XDG_SESSION_TYPE")
+            .map(|s| s == "wayland")
+            .unwrap_or(false)
             || env::var("WAYLAND_DISPLAY").is_ok();
-        let on_x11 = env::var("XDG_SESSION_TYPE").map(|s| s == "x11").unwrap_or(false)
+        let on_x11 = env::var("XDG_SESSION_TYPE")
+            .map(|s| s == "x11")
+            .unwrap_or(false)
             || env::var("DISPLAY").is_ok();
 
         let mut base_order = Vec::new();
@@ -674,8 +688,14 @@ impl StrategyManager {
         // Sort primarily by base order; use success rate as tiebreaker
         let base_order_copy = base_order.clone();
         base_order.sort_by(|a, b| {
-            let pos_a = base_order_copy.iter().position(|m| m == a).unwrap_or(usize::MAX);
-            let pos_b = base_order_copy.iter().position(|m| m == b).unwrap_or(usize::MAX);
+            let pos_a = base_order_copy
+                .iter()
+                .position(|m| m == a)
+                .unwrap_or(usize::MAX);
+            let pos_b = base_order_copy
+                .iter()
+                .position(|m| m == b)
+                .unwrap_or(usize::MAX);
             pos_a.cmp(&pos_b).then_with(|| {
                 let key_a = (app_id.to_string(), *a);
                 let key_b = (app_id.to_string(), *b);
@@ -689,7 +709,9 @@ impl StrategyManager {
                     .get(&key_b)
                     .map(|r| r.success_rate)
                     .unwrap_or(0.5);
-                success_b.partial_cmp(&success_a).unwrap_or(std::cmp::Ordering::Equal)
+                success_b
+                    .partial_cmp(&success_a)
+                    .unwrap_or(std::cmp::Ordering::Equal)
             })
         });
 
@@ -706,9 +728,13 @@ impl StrategyManager {
     pub fn get_method_order_uncached(&self) -> Vec<InjectionMethod> {
         // Compute using environment-first ordering with a placeholder app id
         use std::env;
-        let on_wayland = env::var("XDG_SESSION_TYPE").map(|s| s == "wayland").unwrap_or(false)
+        let on_wayland = env::var("XDG_SESSION_TYPE")
+            .map(|s| s == "wayland")
+            .unwrap_or(false)
             || env::var("WAYLAND_DISPLAY").is_ok();
-        let on_x11 = env::var("XDG_SESSION_TYPE").map(|s| s == "x11").unwrap_or(false)
+        let on_x11 = env::var("XDG_SESSION_TYPE")
+            .map(|s| s == "x11")
+            .unwrap_or(false)
             || env::var("DISPLAY").is_ok();
 
         let mut base_order = Vec::new();
@@ -744,8 +770,14 @@ impl StrategyManager {
         let base_order_copy = base_order.clone();
         let mut base_order2 = base_order;
         base_order2.sort_by(|a, b| {
-            let pos_a = base_order_copy.iter().position(|m| m == a).unwrap_or(usize::MAX);
-            let pos_b = base_order_copy.iter().position(|m| m == b).unwrap_or(usize::MAX);
+            let pos_a = base_order_copy
+                .iter()
+                .position(|m| m == a)
+                .unwrap_or(usize::MAX);
+            let pos_b = base_order_copy
+                .iter()
+                .position(|m| m == b)
+                .unwrap_or(usize::MAX);
             pos_a.cmp(&pos_b).then_with(|| {
                 let key_a = (app_id.to_string(), *a);
                 let key_b = (app_id.to_string(), *b);
@@ -759,7 +791,9 @@ impl StrategyManager {
                     .get(&key_b)
                     .map(|r| r.success_rate)
                     .unwrap_or(0.5);
-                success_b.partial_cmp(&success_a).unwrap_or(std::cmp::Ordering::Equal)
+                success_b
+                    .partial_cmp(&success_a)
+                    .unwrap_or(std::cmp::Ordering::Equal)
             })
         });
         base_order2.push(InjectionMethod::NoOp);

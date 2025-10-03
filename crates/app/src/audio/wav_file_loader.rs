@@ -1,7 +1,7 @@
 use anyhow::Result;
 use hound::WavReader;
-use std::sync::Arc;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 use tracing::info;
 
