@@ -86,7 +86,7 @@ impl VadProcessor {
                         timestamp_ms,
                         energy_db,
                     } => {
-                        info!(
+                        debug!(
                             "VAD: Speech started at {}ms (energy: {:.2} dB)",
                             timestamp_ms, energy_db
                         );
@@ -96,7 +96,7 @@ impl VadProcessor {
                         duration_ms,
                         energy_db,
                     } => {
-                        info!(
+                        debug!(
                             "VAD: Speech ended at {}ms (duration: {}ms, energy: {:.2} dB)",
                             timestamp_ms, duration_ms, energy_db
                         );

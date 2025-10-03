@@ -97,7 +97,7 @@ impl InjectionProcessor {
         if self.session.should_inject() {
             let text = self.session.take_buffer();
             if !text.is_empty() {
-                info!("Injecting {} characters from session", text.len());
+                debug!("Injecting {} characters from session", text.len());
                 return Some(text);
             }
         }

@@ -60,7 +60,7 @@ fn default_mic_is_detected_and_used_via_pulseaudio() {
     let producer = Arc::new(Mutex::new(producer));
     let config = AudioConfig::default();
 
-    let capture = match AudioCaptureThread::spawn(config, producer, None) {
+    let capture = match AudioCaptureThread::spawn(config, producer, None, false) {
         Ok((cap, _device_cfg, _cfg_rx, _dev_rx)) => cap,
         Err(e) => {
             eprintln!(

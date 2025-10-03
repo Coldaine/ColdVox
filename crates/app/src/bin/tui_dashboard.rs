@@ -433,6 +433,7 @@ async fn run_app(
                                     activation_mode: state.activation_mode,
                                     resampler_quality: state.resampler_quality,
                                     stt_selection: Some(coldvox_stt::plugin::PluginSelectionConfig::default()),
+                                    enable_device_monitor: false,
                                     #[cfg(feature = "text-injection")]
                                     injection: None,
                                 };

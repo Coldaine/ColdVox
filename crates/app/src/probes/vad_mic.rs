@@ -34,7 +34,7 @@ impl VadMicCheck {
         let (audio_producer, audio_consumer) = rb.split();
         let audio_producer = Arc::new(parking_lot::Mutex::new(audio_producer));
         let (capture_thread, dev_cfg, device_cfg_rx, _device_event_rx) =
-            AudioCaptureThread::spawn(config, audio_producer, device_name).map_err(|e| {
+            AudioCaptureThread::spawn(config, audio_producer, device_name, false).map_err(|e| {
                 TestError {
                     kind: TestErrorKind::Setup,
                     message: format!("Failed to create audio capture thread: {}", e),

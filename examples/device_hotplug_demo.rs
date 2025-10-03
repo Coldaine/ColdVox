@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = AudioConfig::default();
 
     // Start audio capture with device monitoring
-    let result = AudioCaptureThread::spawn(config, producer, None);
+    let result = AudioCaptureThread::spawn(config, producer, None, true);
 
     match result {
         Ok((capture_thread, device_config, _config_rx, mut device_event_rx)) => {

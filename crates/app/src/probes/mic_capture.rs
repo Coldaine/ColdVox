@@ -25,7 +25,7 @@ impl MicCaptureCheck {
         let (audio_producer, audio_consumer) = rb.split();
         let audio_producer = Arc::new(parking_lot::Mutex::new(audio_producer));
         let (capture_thread, dev_cfg, _config_rx, _device_event_rx) =
-            AudioCaptureThread::spawn(config, audio_producer, device_name).map_err(|e| {
+            AudioCaptureThread::spawn(config, audio_producer, device_name, false).map_err(|e| {
                 TestError {
                     kind: match e {
                         AudioError::DeviceNotFound { .. } => TestErrorKind::Device,

@@ -59,6 +59,8 @@ pub struct AppRuntimeOptions {
     pub stt_selection: Option<coldvox_stt::plugin::PluginSelectionConfig>,
     #[cfg(feature = "text-injection")]
     pub injection: Option<InjectionOptions>,
+    /// Whether to poll for device hotplug events (ALSA/CPAL enumeration)
+    pub enable_device_monitor: bool,
     #[cfg(test)]
     pub test_device_config: Option<coldvox_audio::DeviceConfig>,
     #[cfg(test)]
@@ -74,6 +76,7 @@ impl Default for AppRuntimeOptions {
             stt_selection: None,
             #[cfg(feature = "text-injection")]
             injection: None,
+            enable_device_monitor: false,
             #[cfg(test)]
             test_device_config: None,
             #[cfg(test)]
@@ -292,15 +295,15 @@ pub async fn start(
             let dummy_rb = AudioRingBuffer::new(16384 * 4);
             let (dummy_prod, _dummy_cons) = dummy_rb.split();
             let dummy_prod = Arc::new(Mutex::new(dummy_prod));
-            AudioCaptureThread::spawn(audio_config, dummy_prod, opts.device.clone())?
+            AudioCaptureThread::spawn(audio_config, dummy_prod, opts.device.clone(), opts.enable_device_monitor)?
         } else {
-            AudioCaptureThread::spawn(audio_config, audio_producer.clone(), opts.device.clone())?
+            AudioCaptureThread::spawn(audio_config, audio_producer.clone(), opts.device.clone(), opts.enable_device_monitor)?
         }
     };
 
     #[cfg(not(test))]
     let (audio_capture, device_cfg, device_config_rx, _device_event_rx) =
-        AudioCaptureThread::spawn(audio_config, audio_producer.clone(), opts.device.clone())?;
+        AudioCaptureThread::spawn(audio_config, audio_producer.clone(), opts.device.clone(), opts.enable_device_monitor)?;
 
     // 2) Chunker (with resampler)
     let frame_reader = FrameReader::new(
@@ -624,6 +627,7 @@ mod tests {
             test_device_config: None,
             #[cfg(test)]
             test_capture_to_dummy: true,
+            enable_device_monitor: false,
         }
     }
 

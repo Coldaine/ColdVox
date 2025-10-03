@@ -80,6 +80,10 @@ struct Cli {
     #[arg(long = "tui")]
     tui: bool,
 
+    /// Enable background device monitoring / hotplug polling (may emit ALSA warnings)
+    #[arg(long = "enable-device-monitor", env = "COLDVOX_ENABLE_DEVICE_MONITOR")]
+    enable_device_monitor: bool,
+
     /// Activation mode: "vad" or "hotkey"
     #[arg(long = "activation-mode", default_value = "hotkey", value_enum)]
     activation_mode: ActivationMode,
@@ -346,6 +350,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else {
             None
         },
+    enable_device_monitor: cli.enable_device_monitor,
     };
 
     let app = app_runtime::start(opts)

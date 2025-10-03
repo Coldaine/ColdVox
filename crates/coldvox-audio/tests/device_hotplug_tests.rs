@@ -52,7 +52,7 @@ mod device_hotplug_tests {
         let config = AudioConfig::default();
 
         // Try to create capture thread with device monitoring
-        let result = AudioCaptureThread::spawn(config, producer, None);
+        let result = AudioCaptureThread::spawn(config, producer, None, true);
 
         match result {
             Ok((capture_thread, device_config, _config_rx, device_event_rx)) => {
