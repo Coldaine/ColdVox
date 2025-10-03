@@ -6,6 +6,7 @@ pub mod frame_reader;
 pub mod monitor;
 pub mod resampler;
 pub mod ring_buffer;
+pub mod stderr_suppressor;
 pub mod watchdog;
 
 // Public API
