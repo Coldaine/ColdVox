@@ -59,11 +59,11 @@ impl AudioCaptureThread {
         ),
         AudioError,
     > {
-    // Start in running state so the device monitor thread stays alive
-    // until we explicitly stop via `stop()`. Previously this was false,
-    // causing the monitor to exit immediately and the capture loop to
-    // detect a closed channel and terminate early.
-    let running = Arc::new(AtomicBool::new(true));
+        // Start in running state so the device monitor thread stays alive
+        // until we explicitly stop via `stop()`. Previously this was false,
+        // causing the monitor to exit immediately and the capture loop to
+        // detect a closed channel and terminate early.
+        let running = Arc::new(AtomicBool::new(true));
         let shutdown = running.clone();
         let device_config = Arc::new(RwLock::new(None::<DeviceConfig>));
         let device_config_clone = device_config.clone();
@@ -76,8 +76,8 @@ impl AudioCaptureThread {
         let (device_event_tx, device_event_rx) = tokio::sync::broadcast::channel(32);
         let device_event_tx_clone = device_event_tx.clone();
 
-        // Start device monitor
-        let (device_monitor, mut monitor_rx) = DeviceMonitor::new(Duration::from_millis(500))?;
+        // Start device monitor with 2-second interval to reduce false positives from CPAL enumeration glitches
+        let (device_monitor, mut monitor_rx) = DeviceMonitor::new(Duration::from_secs(2))?;
         let monitor_running = running.clone();
         let monitor_handle = device_monitor.start_monitoring(monitor_running);
 
