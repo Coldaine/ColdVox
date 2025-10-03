@@ -21,8 +21,11 @@ pub struct VadMicCheck;
 
 impl VadMicCheck {
     pub async fn run(ctx: &TestContext) -> Result<LiveTestResult, TestError> {
-        let device_name = ctx.device.clone();
+        // HARDCODED: Always use HyperX QuadCast for now to bypass broken device detection
+        let device_name = Some("HyperX QuadCast".to_string());
         let duration = ctx.duration;
+
+        tracing::info!("VAD Mic Test: Hardcoded to use HyperX QuadCast device");
 
         let config = AudioConfig::default();
 
@@ -182,9 +185,7 @@ impl VadMicCheck {
         );
         result_metrics.insert(
             "vad_fps".to_string(),
-            json!(metrics
-                .vad_fps
-                .load(std::sync::atomic::Ordering::Relaxed)),
+            json!(metrics.vad_fps.load(std::sync::atomic::Ordering::Relaxed)),
         );
         result_metrics.insert(
             "capture_buffer_fill".to_string(),
@@ -205,10 +206,10 @@ impl VadMicCheck {
         } else {
             0.0
         };
-    result_metrics.insert("speech_ratio".to_string(), json!(speech_ratio));
+        result_metrics.insert("speech_ratio".to_string(), json!(speech_ratio));
 
         // Evaluate results
-    let (pass, notes) = evaluate_vad_performance(&result_metrics, &vad_events);
+        let (pass, notes) = evaluate_vad_performance(&result_metrics, &vad_events);
 
         Ok(LiveTestResult {
             test: "vad_mic".to_string(),

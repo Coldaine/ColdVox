@@ -45,6 +45,27 @@ cargo run --bin mic_probe -- list-devices
 
 More detail: See [`CLAUDE.md`](CLAUDE.md) for full developer guide.
 
+## Known Issues
+
+### ⚠️ TEMPORARY: Hardcoded Microphone Device
+**Status**: Emergency temporary fix in place (will be reverted)
+
+**What**: The VAD microphone probe (`crates/app/src/probes/vad_mic.rs`) currently has the microphone device hardcoded to `"HyperX QuadCast"` to bypass broken device detection logic.
+
+**Why**: Device detection/enumeration is currently unstable and causing test failures. This hardcoded workaround allows testing to continue while the underlying device management issues are being diagnosed and fixed.
+
+**Location**: `crates/app/src/probes/vad_mic.rs:24-26`
+
+**Impact**: The `mic_probe` test binary will only work with a HyperX QuadCast microphone. Other device selection is temporarily bypassed.
+
+**Next Steps**: 
+- Diagnose root cause of device detection instability (likely CPAL/ALSA enumeration issues)
+- Implement proper device caching and debouncing (partially done in device monitor)
+- Remove hardcoded device name once detection is stable
+- Add comprehensive device detection tests
+
+**Workaround for other devices**: Manually edit the device name in the probe source code if you need to test with a different microphone during this transition period.
+
 ## Slow / Environment-Sensitive Tests
 Some end‑to‑end tests exercise real injection & STT. Gate them locally by setting an env variable (planned):
 ```bash
