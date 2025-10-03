@@ -82,7 +82,8 @@ impl SileroEngine {
                             self.speech_start_candidate_ms = None;
                             self.silence_start_candidate_ms = None;
 
-                            let duration_ms = timestamp_ms.saturating_sub(self.speech_start_timestamp_ms);
+                            let duration_ms =
+                                timestamp_ms.saturating_sub(self.speech_start_timestamp_ms);
 
                             return Some(VadEvent::SpeechEnd {
                                 timestamp_ms,

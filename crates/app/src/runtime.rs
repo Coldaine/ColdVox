@@ -2,9 +2,9 @@ use coldvox_audio::ring_buffer::AudioProducer;
 use std::sync::Arc;
 use std::time::Instant;
 
+use parking_lot::Mutex;
 use tokio::signal;
 use tokio::sync::{broadcast, mpsc, RwLock};
-use parking_lot::Mutex;
 use tokio::task::JoinHandle;
 use tracing::{error, info};
 
@@ -268,7 +268,6 @@ impl AppHandle {
         info!("Successfully switched to {:?} activation mode", mode);
         Ok(())
     }
-
 }
 
 /// Start the ColdVox pipeline with the given options
