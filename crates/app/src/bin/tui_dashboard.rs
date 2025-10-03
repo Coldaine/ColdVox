@@ -1168,7 +1168,11 @@ fn draw_plugins(f: &mut Frame, area: Rect, #[allow(unused_variables)] state: &Da
     f.render_widget(paragraph, inner);
 }
 
-fn draw_plugin_status(f: &mut Frame, area: Rect, #[allow(unused_variables)] state: &DashboardState) {
+fn draw_plugin_status(
+    f: &mut Frame,
+    area: Rect,
+    #[allow(unused_variables)] state: &DashboardState,
+) {
     let block = Block::default()
         .title("Plugin Status")
         .borders(Borders::ALL);
