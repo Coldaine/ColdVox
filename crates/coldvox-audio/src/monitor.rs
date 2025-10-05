@@ -70,7 +70,7 @@ impl DeviceMonitor {
                     thread::sleep(self.monitor_interval);
                 }
 
-                info!("Device monitor stopping");
+                debug!("Device monitor stopping");
             })
             .expect("Failed to spawn device monitor thread")
     }
@@ -125,18 +125,24 @@ impl DeviceMonitor {
 
         // Check for removed devices (with debouncing to prevent false positives)
         const REMOVAL_THRESHOLD: u32 = 3; // Device must be missing for 3 consecutive scans
-        
+
         for (old_name, old_status) in &self.last_devices {
             if !new_device_map.contains_key(old_name) {
                 // Increment missing count
                 let count = self.missing_count.entry(old_name.clone()).or_insert(0);
                 *count += 1;
-                
-                debug!("Device '{}' not seen in scan (missing {} times)", old_name, count);
-                
+
+                debug!(
+                    "Device '{}' not seen in scan (missing {} times)",
+                    old_name, count
+                );
+
                 // Only emit removal events after threshold
                 if *count >= REMOVAL_THRESHOLD {
-                    warn!("Device removed after {} consecutive absences: {}", REMOVAL_THRESHOLD, old_name);
+                    warn!(
+                        "Device removed after {} consecutive absences: {}",
+                        REMOVAL_THRESHOLD, old_name
+                    );
                     let _ = self.event_tx.send(DeviceEvent::DeviceRemoved {
                         name: old_name.clone(),
                     });
@@ -148,7 +154,7 @@ impl DeviceMonitor {
                             name: old_name.clone(),
                         });
                     }
-                    
+
                     // Clear from missing count after emitting removal
                     self.missing_count.remove(old_name);
                 }

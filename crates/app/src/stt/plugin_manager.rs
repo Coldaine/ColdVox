@@ -17,7 +17,7 @@ use serde_json;
 use tokio::fs;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 
 /// Manages STT plugin lifecycle and selection
 pub struct SttPluginManager {
@@ -348,7 +348,7 @@ impl SttPluginManager {
         let mut gc_task = self.gc_task.write().await;
         if let Some(handle) = gc_task.take() {
             handle.abort();
-            info!(
+            debug!(
                 target: "coldvox::stt",
                 event = "gc_task_stopped",
                 "Stopped STT plugin GC task"
@@ -407,7 +407,7 @@ impl SttPluginManager {
         if let Some(handle) = task_guard.take() {
             handle.abort();
         }
-        info!(
+        debug!(
             target: "coldvox::stt",
             event = "metrics_task_stopped",
             "Stopped STT metrics logging task"
@@ -461,7 +461,7 @@ impl SttPluginManager {
                 if plugin.info().id == plugin_id {
                     match plugin.unload().await {
                         Ok(()) => {
-                            info!(
+                            debug!(
                                 target: "coldvox::stt",
                                 plugin_id = %plugin_id,
                                 event = "gc_unload_success",
@@ -479,7 +479,7 @@ impl SttPluginManager {
                         }
                         Err(SttPluginError::AlreadyUnloaded(_)) => {
                             // Plugin is already unloaded, just clear it
-                            info!(
+                            debug!(
                                 target: "coldvox::stt",
                                 plugin_id = %plugin_id,
                                 event = "gc_already_unloaded",
@@ -513,7 +513,7 @@ impl SttPluginManager {
             activity.remove(&plugin_id);
         }
 
-        debug!("GC completed, {} plugins remain active", {
+        trace!("GC completed, {} plugins remain active", {
             let activity = self.last_activity.read().await;
             activity.len()
         });
@@ -744,7 +744,7 @@ impl SttPluginManager {
             let unload_start = Instant::now();
             match old_plugin.unload().await {
                 Ok(()) => {
-                    info!(
+                    debug!(
                         target: "coldvox::stt",
                         plugin_id = %old_id,
                         event = "plugin_unload",
@@ -762,7 +762,7 @@ impl SttPluginManager {
                     }
                 }
                 Err(SttPluginError::AlreadyUnloaded(_)) => {
-                    info!(
+                    debug!(
                         target: "coldvox::stt",
                         plugin_id = %old_id,
                         event = "plugin_already_unloaded",
@@ -810,7 +810,7 @@ impl SttPluginManager {
             if plugin.info().id == plugin_id {
                 match plugin.unload().await {
                     Ok(()) => {
-                        info!(
+                        debug!(
                             target: "coldvox::stt",
                             plugin_id = %plugin_id,
                             event = "plugin_unload",
@@ -829,7 +829,7 @@ impl SttPluginManager {
                         Ok(())
                     }
                     Err(SttPluginError::AlreadyUnloaded(_)) => {
-                        info!(
+                        debug!(
                             target: "coldvox::stt",
                             plugin_id = %plugin_id,
                             event = "plugin_already_unloaded",
@@ -861,7 +861,7 @@ impl SttPluginManager {
             // Check if this is an idempotent unload of the last unloaded plugin
             if let Some(ref last_id) = *last_unloaded {
                 if last_id == plugin_id {
-                    info!(
+                    debug!(
                         target: "coldvox::stt",
                         plugin_id = %plugin_id,
                         event = "plugin_unload_idempotent",
@@ -889,7 +889,7 @@ impl SttPluginManager {
             let plugin_id = plugin.info().id.clone();
             match plugin.unload().await {
                 Ok(()) => {
-                    info!(
+                    debug!(
                         target: "coldvox::stt",
                         plugin_id = %plugin_id,
                         event = "unload_all_success",

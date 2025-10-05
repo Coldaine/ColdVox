@@ -6,7 +6,7 @@ use parking_lot::Mutex;
 use tokio::signal;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tokio::task::JoinHandle;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 use coldvox_audio::{
     AudioCaptureThread, AudioChunker, AudioRingBuffer, ChunkerConfig, FrameReader, ResamplerQuality,
@@ -104,6 +104,8 @@ pub struct AppHandle {
     vad_fanout_handle: JoinHandle<()>,
     #[cfg(feature = "vosk")]
     stt_handle: Option<JoinHandle<()>>,
+    #[cfg(feature = "vosk")]
+    stt_forward_handle: Option<JoinHandle<()>>,
     #[cfg(feature = "text-injection")]
     injection_handle: Option<JoinHandle<()>>,
 }
@@ -121,7 +123,8 @@ impl AppHandle {
 
     /// Gracefully stop the pipeline and wait for shutdown
     pub async fn shutdown(self: Arc<Self>) {
-        info!("Shutting down ColdVox runtime...");
+        debug!("Shutting down ColdVox runtime...");
+        // Caller and runtime logs both emit at debug to reduce noisy shutdown info-level logs.
 
         // Try to unwrap the Arc to get ownership
         let this = match Arc::try_unwrap(self) {
@@ -144,6 +147,10 @@ impl AppHandle {
         this.vad_fanout_handle.abort();
         #[cfg(feature = "vosk")]
         if let Some(h) = &this.stt_handle {
+            h.abort();
+        }
+        #[cfg(feature = "vosk")]
+        if let Some(h) = &this.stt_forward_handle {
             h.abort();
         }
         #[cfg(feature = "text-injection")]
@@ -176,7 +183,7 @@ impl AppHandle {
             let _ = h.await;
         }
 
-        info!("ColdVox runtime shutdown complete");
+        debug!("ColdVox runtime shutdown complete");
     }
 
     /// Wait for shutdown signal (SIGINT, SIGTERM)
@@ -295,15 +302,30 @@ pub async fn start(
             let dummy_rb = AudioRingBuffer::new(16384 * 4);
             let (dummy_prod, _dummy_cons) = dummy_rb.split();
             let dummy_prod = Arc::new(Mutex::new(dummy_prod));
-            AudioCaptureThread::spawn(audio_config, dummy_prod, opts.device.clone(), opts.enable_device_monitor)?
+            AudioCaptureThread::spawn(
+                audio_config,
+                dummy_prod,
+                opts.device.clone(),
+                opts.enable_device_monitor,
+            )?
         } else {
-            AudioCaptureThread::spawn(audio_config, audio_producer.clone(), opts.device.clone(), opts.enable_device_monitor)?
+            AudioCaptureThread::spawn(
+                audio_config,
+                audio_producer.clone(),
+                opts.device.clone(),
+                opts.enable_device_monitor,
+            )?
         }
     };
 
     #[cfg(not(test))]
     let (audio_capture, device_cfg, device_config_rx, _device_event_rx) =
-        AudioCaptureThread::spawn(audio_config, audio_producer.clone(), opts.device.clone(), opts.enable_device_monitor)?;
+        AudioCaptureThread::spawn(
+            audio_config,
+            audio_producer.clone(),
+            opts.device.clone(),
+            opts.enable_device_monitor,
+        )?;
 
     // 2) Chunker (with resampler)
     let frame_reader = FrameReader::new(
@@ -417,18 +439,25 @@ pub async fn start(
     #[cfg(feature = "vosk")]
     let (stt_tx, stt_rx) = mpsc::channel::<TranscriptionEvent>(100);
     #[cfg(not(feature = "vosk"))]
-    let (_stt_tx, _stt_rx) = mpsc::channel::<TranscriptionEvent>(100); // stt_rx not used
+    let (_stt_tx, _stt_rx) = mpsc::channel::<TranscriptionEvent>(100);
+
+    // Text injection channel
     #[cfg(feature = "text-injection")]
-    let (_text_injection_tx, text_injection_rx) = mpsc::channel::<TranscriptionEvent>(100);
+    let (text_injection_tx, text_injection_rx) = mpsc::channel::<TranscriptionEvent>(100);
     #[cfg(not(feature = "text-injection"))]
     let (_text_injection_tx, _text_injection_rx) = mpsc::channel::<TranscriptionEvent>(100);
 
     // 6) STT Processor and Fanout - Unified Path
+    #[cfg(feature = "vosk")]
+    let mut stt_forward_handle: Option<JoinHandle<()>> = None;
     #[allow(unused_variables)]
     let (stt_handle, vad_fanout_handle) = if let Some(pm) = plugin_manager.clone() {
         // This is the single, unified path for STT processing.
         let (session_tx, session_rx) = mpsc::channel::<SessionEvent>(100);
         let stt_audio_rx = audio_tx.subscribe();
+
+        #[cfg(feature = "vosk")]
+        let (stt_pipeline_tx, stt_pipeline_rx) = mpsc::channel::<TranscriptionEvent>(100);
 
         #[cfg(feature = "vosk")]
         let stt_config = TranscriptionConfig {
@@ -442,7 +471,7 @@ pub async fn start(
         let processor = PluginSttProcessor::new(
             stt_audio_rx,
             session_rx,
-            stt_tx.clone(),
+            stt_pipeline_tx.clone(),
             pm,
             stt_config,
             Settings::default(), // Use default settings for now
@@ -491,6 +520,55 @@ pub async fn start(
         }));
         #[cfg(not(feature = "vosk"))]
         let stt_handle: Option<JoinHandle<()>> = None;
+
+        #[cfg(feature = "vosk")]
+        {
+            let mut pipeline_rx = stt_pipeline_rx;
+            let stt_tx_forward = stt_tx.clone();
+            #[cfg(feature = "text-injection")]
+            let text_injection_tx_forwarder = text_injection_tx.clone();
+            #[cfg(feature = "text-injection")]
+            let mut injection_active = true;
+            stt_forward_handle = Some(tokio::spawn(async move {
+                while let Some(event) = pipeline_rx.recv().await {
+                    #[cfg(feature = "text-injection")]
+                    let mut injection_closed_this_event = false;
+
+                    #[cfg(feature = "text-injection")]
+                    {
+                        if injection_active {
+                            if text_injection_tx_forwarder
+                                .send(event.clone())
+                                .await
+                                .is_err()
+                            {
+                                tracing::debug!(
+                                    "Text injection channel closed; continuing without injection"
+                                );
+                                injection_closed_this_event = true;
+                                injection_active = false;
+                            }
+                        }
+                    }
+
+                    if stt_tx_forward.send(event).await.is_err() {
+                        tracing::debug!("STT receiver dropped; continuing without UI consumer");
+                        #[cfg(feature = "text-injection")]
+                        {
+                            if !injection_active {
+                                break;
+                            }
+                        }
+                        continue;
+                    }
+
+                    #[cfg(feature = "text-injection")]
+                    if injection_closed_this_event {
+                        tracing::debug!("Text injection receiver unavailable; UI forward only");
+                    }
+                }
+            }));
+        }
 
         (stt_handle, vad_fanout_handle)
     } else {
@@ -584,6 +662,8 @@ pub async fn start(
         vad_fanout_handle,
         #[cfg(feature = "vosk")]
         stt_handle,
+        #[cfg(feature = "vosk")]
+        stt_forward_handle,
         #[cfg(feature = "text-injection")]
         injection_handle,
     })
@@ -623,11 +703,11 @@ mod tests {
             }),
             #[cfg(feature = "text-injection")]
             injection: None,
+            enable_device_monitor: false,
             #[cfg(test)]
             test_device_config: None,
             #[cfg(test)]
             test_capture_to_dummy: true,
-            enable_device_monitor: false,
         }
     }
 

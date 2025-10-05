@@ -3,10 +3,13 @@
 // - Log level is controlled via the RUST_LOG environment variable (e.g., "info", "debug").
 // - The logs/ directory is created on startup if missing; file output uses a non-blocking writer.
 // - File layer disables ANSI to keep logs clean for analysis.
+use std::fs;
+use std::path::Path;
 use std::time::Duration;
+use std::time::SystemTime;
 
 use clap::Args;
-use clap::{Parser, ValueEnum};
+use clap::{ArgAction, Parser, ValueEnum};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
@@ -34,6 +37,56 @@ fn init_logging() -> Result<tracing_appender::non_blocking::WorkerGuard, Box<dyn
         .with(file_layer)
         .init();
     Ok(guard)
+}
+
+/// Prune rotated log files in `logs/` older than `retention_days` days.
+/// If `retention_days` is `Some(0)` pruning is disabled. Default is 7 days when `None`.
+fn prune_old_logs(retention_days: Option<u64>) {
+    let retention = retention_days.unwrap_or(7);
+    if retention == 0 {
+        tracing::debug!("Log retention disabled (retention_days=0)");
+        return;
+    }
+
+    let cutoff = match SystemTime::now().checked_sub(Duration::from_secs(retention * 24 * 60 * 60))
+    {
+        Some(t) => t,
+        None => return,
+    };
+
+    let logs_dir = Path::new("logs");
+    if !logs_dir.exists() {
+        return;
+    }
+
+    match fs::read_dir(logs_dir) {
+        Ok(entries) => {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
+                    // Only consider rotated files with date suffix like `coldvox.log.YYYY-MM-DD`
+                    if name.starts_with("coldvox.log.") {
+                        if let Ok(meta) = entry.metadata() {
+                            if let Ok(modified) = meta.modified() {
+                                if modified < cutoff {
+                                    if let Err(e) = fs::remove_file(&path) {
+                                        tracing::warn!(
+                                            "Failed to remove old log {}: {}",
+                                            path.display(),
+                                            e
+                                        );
+                                    } else {
+                                        tracing::info!("Removed old log file: {}", path.display());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Err(e) => tracing::warn!("Failed to read logs directory for pruning: {}", e),
+    }
 }
 
 #[derive(Parser, Debug)]
@@ -85,7 +138,7 @@ struct Cli {
     enable_device_monitor: bool,
 
     /// Activation mode: "vad" or "hotkey"
-    #[arg(long = "activation-mode", default_value = "hotkey", value_enum)]
+    #[arg(long = "activation-mode", default_value = "vad", value_enum)]
     activation_mode: ActivationMode,
 
     #[command(flatten)]
@@ -183,7 +236,12 @@ struct SttArgs {
 #[command(next_help_heading = "Text Injection")]
 struct InjectionArgs {
     /// Enable text injection after transcription
-    #[arg(long = "enable-text-injection", env = "COLDVOX_ENABLE_TEXT_INJECTION")]
+    #[arg(
+        long = "enable-text-injection",
+        env = "COLDVOX_ENABLE_TEXT_INJECTION",
+        action = ArgAction::Set,
+        default_value_t = true
+    )]
     enable: bool,
 
     /// Allow ydotool as an injection fallback
@@ -201,7 +259,9 @@ struct InjectionArgs {
     /// Attempt injection even if the focused application is unknown
     #[arg(
         long = "inject-on-unknown-focus",
-        env = "COLDVOX_INJECT_ON_UNKNOWN_FOCUS"
+        env = "COLDVOX_INJECT_ON_UNKNOWN_FOCUS",
+        action = ArgAction::Set,
+        default_value_t = true
     )]
     inject_on_unknown_focus: bool,
 
@@ -231,6 +291,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "{ application.name=ColdVox media.role=capture }",
     );
     let _log_guard = init_logging()?;
+    // Prune old rotated logs. Set COLDVOX_LOG_RETENTION_DAYS=0 to disable pruning.
+    let retention_days = std::env::var("COLDVOX_LOG_RETENTION_DAYS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok());
+    prune_old_logs(retention_days);
     tracing::info!("Starting ColdVox application");
 
     let cli = Cli::parse();
@@ -350,7 +415,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else {
             None
         },
-    enable_device_monitor: cli.enable_device_monitor,
+        enable_device_monitor: cli.enable_device_monitor,
     };
 
     let app = app_runtime::start(opts)
@@ -381,7 +446,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let metrics = app.metrics.clone();
         tokio::select! {
             _ = shutdown.wait() => {
-                tracing::info!("Shutdown signal received");
+                tracing::debug!("Shutdown signal received");
             }
             _ = async {
                 loop {
@@ -411,7 +476,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let metrics = app.metrics.clone();
         tokio::select! {
             _ = shutdown.wait() => {
-                tracing::info!("Shutdown signal received");
+                tracing::debug!("Shutdown signal received");
             }
             _ = async {
                 loop {
@@ -435,12 +500,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Shutdown
-    tracing::info!("Beginning graceful shutdown");
+    tracing::debug!("Beginning graceful shutdown");
     state_manager.transition(AppState::Stopping)?;
     // Shutdown directly on the Arc<AppHandle>
     app.shutdown().await;
     state_manager.transition(AppState::Stopped)?;
-    tracing::info!("Shutdown complete");
+    tracing::debug!("Shutdown complete");
 
     Ok(())
 }

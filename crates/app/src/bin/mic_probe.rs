@@ -5,7 +5,7 @@ use coldvox_app::probes::{
 };
 use std::path::PathBuf;
 use std::time::Duration;
-use tracing_subscriber::{fmt, EnvFilter, prelude::*};
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 fn init_logging() -> Result<(), Box<dyn std::error::Error>> {
     let log_level = std::env::var("RUST_LOG").unwrap_or_else(|_| "debug".to_string());
