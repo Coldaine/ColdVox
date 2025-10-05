@@ -751,7 +751,6 @@ async fn test_end_to_end_with_real_injection() {
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     let mut injection_config = InjectionConfig {
-        allow_ydotool: false, // Test primary methods only
         allow_kdotool: false,
         allow_enigo: false,
         restore_clipboard: true,        // Enable clipboard restoration

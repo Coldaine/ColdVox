@@ -3,16 +3,14 @@ use crate::types::{InjectionConfig, InjectionResult};
 use crate::TextInjector;
 use async_trait::async_trait;
 use std::time::{Duration, Instant};
+use tokio::process::Command;
 use tokio::time::timeout;
 use tracing::{debug, trace};
-use tokio::process::Command;
 
 #[cfg(feature = "atspi")]
 use atspi::{
-    connection::AccessibilityConnection,
-    proxy::collection::CollectionProxy,
-    proxy::action::ActionProxy,
-    Interface, MatchType, ObjectMatchRule, SortOrder, State,
+    connection::AccessibilityConnection, proxy::action::ActionProxy,
+    proxy::collection::CollectionProxy, Interface, MatchType, ObjectMatchRule, SortOrder, State,
 };
 
 #[cfg(feature = "wl_clipboard")]
@@ -21,59 +19,56 @@ use wl_clipboard_rs::{
     paste::{get_contents, ClipboardType, MimeType as PasteMime, Seat},
 };
 
-/// Combo injector that sets clipboard and then triggers paste via ydotool
-pub struct ComboClipboardYdotool {
-    _config: InjectionConfig,
+/// Clipboard injector that always issues a paste (AT-SPI first, then ydotool when available)
+pub struct ClipboardPasteInjector {
+    config: InjectionConfig,
     clipboard_injector: ClipboardInjector,
 }
 
-impl ComboClipboardYdotool {
-    /// Create a new combo clipboard+ydotool injector
+impl ClipboardPasteInjector {
+    /// Create a new clipboard paste injector
     pub fn new(config: InjectionConfig) -> Self {
         Self {
-            _config: config.clone(),
+            config: config.clone(),
             clipboard_injector: ClipboardInjector::new(config),
         }
     }
 
-    /// Check if this combo injector is available
+    /// Clipboard availability is enough to expose this injector; ydotool is optional.
     pub async fn is_available(&self) -> bool {
-        // Check if clipboard is available and ydotool works
-        self.clipboard_injector.is_available().await && Self::check_ydotool()
+        self.clipboard_injector.is_available().await
     }
 
-    /// Check if ydotool is available
-    fn check_ydotool() -> bool {
-        std::process::Command::new("which")
-            .arg("ydotool")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
+    /// Non-blocking detection of ydotool for optional fallback behaviour.
+    async fn ydotool_available() -> bool {
+        match Command::new("which").arg("ydotool").output().await {
+            Ok(o) => o.status.success(),
+            Err(_) => false,
+        }
     }
 }
 
 #[async_trait]
-impl TextInjector for ComboClipboardYdotool {
-    /// Get the name of this injector
+impl TextInjector for ClipboardPasteInjector {
     fn backend_name(&self) -> &'static str {
-        "Clipboard+ydotool"
+        "ClipboardPaste"
     }
 
-    /// Check if this injector is available for use
     async fn is_available(&self) -> bool {
         self.is_available().await
     }
 
-    /// Inject text using clipboard+paste (AT-SPI first, fallback to ydotool)
     async fn inject_text(&self, text: &str) -> InjectionResult<()> {
         let start = Instant::now();
-        trace!("ComboClipboardYdotool starting injection of {} chars", text.len());
+        trace!(
+            "ClipboardPasteInjector starting injection of {} chars",
+            text.len()
+        );
 
-        // Optional: save current clipboard for restoration
         #[allow(unused_mut)]
         let mut saved_clipboard: Option<String> = None;
         #[cfg(feature = "wl_clipboard")]
-        if self._config.restore_clipboard {
+        if self.config.restore_clipboard {
             use std::io::Read;
             match get_contents(ClipboardType::Regular, Seat::Unspecified, PasteMime::Text) {
                 Ok((mut pipe, _mime)) => {
@@ -87,7 +82,6 @@ impl TextInjector for ComboClipboardYdotool {
             }
         }
 
-        // Step 1: Set clipboard content
         let clipboard_start = Instant::now();
         self.clipboard_injector.inject_text(text).await?;
         debug!(
@@ -96,25 +90,22 @@ impl TextInjector for ComboClipboardYdotool {
             clipboard_start.elapsed().as_millis()
         );
 
-    // Step 2: Brief clipboard stabilize delay (keep small)
-    trace!("Waiting 20ms for clipboard to stabilize");
-    tokio::time::sleep(Duration::from_millis(20)).await;
+        trace!("Waiting 20ms for clipboard to stabilize");
+        tokio::time::sleep(Duration::from_millis(20)).await;
 
-        // Step 3: Try AT-SPI paste first (if feature available)
         #[cfg(feature = "atspi")]
         {
             match timeout(
-                Duration::from_millis(self._config.paste_action_timeout_ms),
+                Duration::from_millis(self.config.paste_action_timeout_ms),
                 self.try_atspi_paste(),
             )
             .await
             {
                 Ok(Ok(())) => {
-                    // Schedule clipboard restore if configured
                     #[cfg(feature = "wl_clipboard")]
-                    if self._config.restore_clipboard {
+                    if self.config.restore_clipboard {
                         if let Some(content) = saved_clipboard.clone() {
-                            let delay_ms = self._config.clipboard_restore_delay_ms.unwrap_or(500);
+                            let delay_ms = self.config.clipboard_restore_delay_ms.unwrap_or(500);
                             tokio::spawn(async move {
                                 tokio::time::sleep(Duration::from_millis(delay_ms)).await;
                                 let _ = tokio::task::spawn_blocking(move || {
@@ -128,49 +119,54 @@ impl TextInjector for ComboClipboardYdotool {
                     }
                     let elapsed = start.elapsed();
                     debug!(
-                        "AT-SPI paste succeeded; combo completed in {}ms",
+                        "AT-SPI paste succeeded; clipboard injection completed in {}ms",
                         elapsed.as_millis()
                     );
                     return Ok(());
                 }
                 Ok(Err(e)) => {
-                    debug!("AT-SPI paste failed, falling back to ydotool: {}", e);
+                    debug!("AT-SPI paste failed; evaluating ydotool fallback: {}", e);
                 }
                 Err(_) => {
-                    debug!("AT-SPI paste timed out, falling back to ydotool");
+                    debug!("AT-SPI paste timed out; evaluating ydotool fallback");
                 }
             }
         }
 
-        // Step 4: Trigger paste action via ydotool (fallback)
-        let paste_start = Instant::now();
-        let output = timeout(
-            Duration::from_millis(self._config.paste_action_timeout_ms),
-            Command::new("ydotool")
-                .args(["key", "ctrl+v"])
-                .output(),
-        )
-        .await
-        .map_err(|_| crate::types::InjectionError::Timeout(self._config.paste_action_timeout_ms))?
-        .map_err(|e| crate::types::InjectionError::Process(format!("ydotool failed: {}", e)))?;
+        // ydotool fallback (optional)
+        if Self::ydotool_available().await {
+            let paste_start = Instant::now();
+            let output = timeout(
+                Duration::from_millis(self.config.paste_action_timeout_ms),
+                Command::new("ydotool").args(["key", "ctrl+v"]).output(),
+            )
+            .await
+            .map_err(|_| {
+                crate::types::InjectionError::Timeout(self.config.paste_action_timeout_ms)
+            })?
+            .map_err(|e| crate::types::InjectionError::Process(format!("ydotool failed: {e}")))?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(crate::types::InjectionError::MethodFailed(format!(
-                "ydotool paste failed: {}", stderr
-            )));
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return Err(crate::types::InjectionError::MethodFailed(format!(
+                    "ydotool paste failed: {stderr}"
+                )));
+            }
+
+            debug!(
+                "Paste triggered via ydotool in {}ms",
+                paste_start.elapsed().as_millis()
+            );
+        } else {
+            return Err(crate::types::InjectionError::MethodFailed(
+                "AT-SPI paste failed and ydotool is unavailable".to_string(),
+            ));
         }
 
-        debug!(
-            "Paste triggered via ydotool in {}ms",
-            paste_start.elapsed().as_millis()
-        );
-
-        // Schedule clipboard restore if configured
         #[cfg(feature = "wl_clipboard")]
-        if self._config.restore_clipboard {
+        if self.config.restore_clipboard {
             if let Some(content) = saved_clipboard {
-                let delay_ms = self._config.clipboard_restore_delay_ms.unwrap_or(500);
+                let delay_ms = self.config.clipboard_restore_delay_ms.unwrap_or(500);
                 tokio::spawn(async move {
                     tokio::time::sleep(Duration::from_millis(delay_ms)).await;
                     let _ = tokio::task::spawn_blocking(move || {
@@ -185,30 +181,31 @@ impl TextInjector for ComboClipboardYdotool {
 
         let elapsed = start.elapsed();
         debug!(
-            "ComboClipboardYdotool completed in {}ms",
+            "ClipboardPasteInjector completed in {}ms",
             elapsed.as_millis()
         );
 
         Ok(())
     }
-    /// Get backend-specific configuration information
+
     fn backend_info(&self) -> Vec<(&'static str, String)> {
         vec![
-            ("type", "combo clipboard+ydotool".to_string()),
+            ("type", "clipboard+paste".to_string()),
             (
                 "description",
-                "Sets clipboard content and triggers paste via ydotool".to_string(),
+                "Sets clipboard text, issues AT-SPI paste, falls back to ydotool when available"
+                    .to_string(),
             ),
             ("platform", "Linux (Wayland/X11)".to_string()),
             (
                 "status",
-                "Active - uses ydotool for paste triggering".to_string(),
+                "Active - requires clipboard access; ydotool optional".to_string(),
             ),
         ]
     }
 }
 
-impl ComboClipboardYdotool {
+impl ClipboardPasteInjector {
     #[cfg(feature = "atspi")]
     async fn try_atspi_paste(&self) -> InjectionResult<()> {
         use crate::types::InjectionError;
@@ -227,7 +224,6 @@ impl ComboClipboardYdotool {
             .await
             .map_err(|e| InjectionError::Other(format!("CollectionProxy build failed: {e}")))?;
 
-        // Prefer focused element exposing Action interface
         let mut rule = ObjectMatchRule::default();
         rule.states = State::Focused.into();
         rule.states_mt = MatchType::All;
@@ -240,14 +236,15 @@ impl ComboClipboardYdotool {
             .map_err(|e| InjectionError::Other(format!("Collection.get_matches failed: {e}")))?;
 
         if matches.is_empty() {
-            // Retry once with EditableText iface (common for text widgets)
             rule.ifaces = Interface::EditableText.into();
             matches = collection
                 .get_matches(rule, SortOrder::Canonical, 1, false)
                 .await
-                .map_err(|e| InjectionError::Other(format!(
-                    "Collection.get_matches (EditableText) failed: {e}"
-                )))?;
+                .map_err(|e| {
+                    InjectionError::Other(format!(
+                        "Collection.get_matches (EditableText) failed: {e}"
+                    ))
+                })?;
         }
 
         let Some(obj_ref) = matches.into_iter().next() else {
@@ -265,7 +262,6 @@ impl ComboClipboardYdotool {
             .await
             .map_err(|e| InjectionError::Other(format!("ActionProxy build failed: {e}")))?;
 
-        // Find a "paste" action by name or description (case-insensitive)
         let actions = action
             .get_actions()
             .await

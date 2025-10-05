@@ -41,7 +41,7 @@ mod tests {
         // First method fails, second succeeds
         let mut map: std::collections::HashMap<InjectionMethod, Box<dyn TextInjector>> = std::collections::HashMap::new();
         map.insert(InjectionMethod::AtspiInsert, Box::new(MockInjector::new("m1", false, 5)));
-        map.insert(InjectionMethod::Clipboard, Box::new(MockInjector::new("m2", true, 0)));
+        map.insert(InjectionMethod::ClipboardPaste, Box::new(MockInjector::new("m2", true, 0)));
         manager.override_injectors_for_tests(map);
 
         let result = manager.inject("hello world").await;
@@ -62,7 +62,7 @@ mod tests {
 
         let mut map: std::collections::HashMap<InjectionMethod, Box<dyn TextInjector>> = std::collections::HashMap::new();
         map.insert(InjectionMethod::AtspiInsert, Box::new(MockInjector::new("m1", false, 0)));
-        map.insert(InjectionMethod::Clipboard, Box::new(MockInjector::new("m2", false, 0)));
+        map.insert(InjectionMethod::ClipboardPaste, Box::new(MockInjector::new("m2", false, 0)));
         manager.override_injectors_for_tests(map);
 
         let result = manager.inject("hello").await;

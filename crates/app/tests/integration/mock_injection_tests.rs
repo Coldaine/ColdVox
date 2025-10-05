@@ -111,7 +111,6 @@ mod mock_injection_tests {
 
         // Create injection configuration that allows injection on unknown focus for testing
         let config = InjectionConfig {
-            allow_ydotool: true,
             allow_kdotool: false,
             allow_enigo: false,
             restore_clipboard: true,
@@ -172,7 +171,6 @@ mod mock_injection_tests {
 
         // Create injection configuration
         let config = InjectionConfig {
-            allow_ydotool: true,
             allow_kdotool: false,
             allow_enigo: false,
             restore_clipboard: true,
@@ -237,7 +235,6 @@ mod mock_injection_tests {
         // We don't need a real app since we're testing the strategy selection
 
         let config = InjectionConfig {
-            allow_ydotool: true,
             allow_kdotool: false,
             allow_enigo: false,
             restore_clipboard: true,
@@ -280,7 +277,6 @@ mod mock_injection_tests {
     #[tokio::test]
     async fn test_injection_timeout_handling() {
         let config = InjectionConfig {
-            allow_ydotool: true,
             allow_kdotool: false,
             allow_enigo: false,
             restore_clipboard: true,

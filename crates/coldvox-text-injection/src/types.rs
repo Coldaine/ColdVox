@@ -6,10 +6,8 @@ use std::time::Duration;
 pub enum InjectionMethod {
     /// Insert text directly using AT-SPI2 EditableText interface
     AtspiInsert,
-    /// Set the Wayland clipboard with text
-    Clipboard,
-    /// Set clipboard then trigger paste (AT-SPI Action when available, else ydotool)
-    ClipboardAndPaste,
+    /// Set clipboard then trigger paste (AT-SPI Action when available, else system fallback)
+    ClipboardPaste,
     /// Use ydotool to simulate Ctrl+V paste (opt-in)
     YdoToolPaste,
     /// Use kdotool for window activation/focus assistance (opt-in)
@@ -25,9 +23,6 @@ pub enum InjectionMethod {
 /// Configuration for text injection system
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InjectionConfig {
-    /// Whether to allow ydotool usage (requires external binary and uinput permissions)
-    #[serde(default = "default_false")]
-    pub allow_ydotool: bool,
     /// Whether to allow kdotool usage (external CLI for KDE window activation)
     #[serde(default = "default_false")]
     pub allow_kdotool: bool,
@@ -223,7 +218,6 @@ fn default_discovery_timeout_ms() -> u64 {
 impl Default for InjectionConfig {
     fn default() -> Self {
         Self {
-            allow_ydotool: default_false(),
             allow_kdotool: default_false(),
             allow_enigo: default_false(),
 

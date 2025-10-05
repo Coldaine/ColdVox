@@ -40,7 +40,6 @@ classDiagram
 
     class InjectionConfig {
         <<interface>>
-        +allow_ydotool: bool
         +allow_kdotool: bool
         +allow_enigo: bool
         +restore_clipboard: bool
@@ -79,7 +78,7 @@ classDiagram
         -atspi: AtspiInjector
     }
 
-    class ClipboardStrategy {
+    class ClipboardPasteStrategy {
         <<component>>
         +inject(context: InjectionContext) async -> Result<(), InjectionError>
         +is_available() async -> bool

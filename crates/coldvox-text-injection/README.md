@@ -109,7 +109,7 @@ Enable through the main ColdVox application:
 cargo run --features text-injection
 
 # With specific backends
-cargo run --features text-injection -- --allow-ydotool --restore-clipboard
+cargo run --features text-injection -- --restore-clipboard
 ```
 
 ## Dependencies

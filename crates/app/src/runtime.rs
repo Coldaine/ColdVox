@@ -39,7 +39,6 @@ pub enum ActivationMode {
 #[derive(Clone, Debug, Default)]
 pub struct InjectionOptions {
     pub enable: bool,
-    pub allow_ydotool: bool,
     pub allow_kdotool: bool,
     pub allow_enigo: bool,
     pub inject_on_unknown_focus: bool,
@@ -596,7 +595,6 @@ pub async fn start(
         if let Some(inj) = inj_opts {
             if inj.enable {
                 let mut config = crate::text_injection::InjectionConfig {
-                    allow_ydotool: inj.allow_ydotool,
                     allow_kdotool: inj.allow_kdotool,
                     allow_enigo: inj.allow_enigo,
                     inject_on_unknown_focus: inj.inject_on_unknown_focus,

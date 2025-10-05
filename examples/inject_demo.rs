@@ -42,7 +42,6 @@ async fn run_processor_demo() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create injection configuration
     let config = InjectionConfig {
-        allow_ydotool: true,
         allow_kdotool: false,
         allow_enigo: false,
         restore_clipboard: true,
@@ -134,7 +133,6 @@ async fn run_direct_injection_demo() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create injection configuration
     let config = InjectionConfig {
-        allow_ydotool: true,
         allow_kdotool: false,
         allow_enigo: false,
         restore_clipboard: true,

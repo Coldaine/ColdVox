@@ -110,7 +110,6 @@ COLDVOX_STT_METRICS_LOG_INTERVAL_SECS=60
 ```bash
 # CLI
 --enable-text-injection
---allow-ydotool
 --allow-kdotool
 --allow-enigo
 

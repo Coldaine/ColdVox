@@ -244,10 +244,6 @@ struct InjectionArgs {
     )]
     enable: bool,
 
-    /// Allow ydotool as an injection fallback
-    #[arg(long = "allow-ydotool", env = "COLDVOX_ALLOW_YDOTOOL")]
-    allow_ydotool: bool,
-
     /// Allow kdotool as an injection fallback
     #[arg(long = "allow-kdotool", env = "COLDVOX_ALLOW_KDOTOOL")]
     allow_kdotool: bool,
@@ -350,10 +346,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        let fallback_plugins = cli
-            .stt
-            .fallbacks
-            .unwrap_or_else(|| vec!["vosk".to_string(), "mock".to_string()]);
+        let fallback_plugins = cli.stt.fallbacks.unwrap_or_else(|| {
+            coldvox_stt::plugin::PluginSelectionConfig::default().fallback_plugins
+        });
 
         let failover = FailoverConfig {
             failover_threshold: cli.stt.failover_threshold,
@@ -403,7 +398,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         injection: if cfg!(feature = "text-injection") {
             Some(coldvox_app::runtime::InjectionOptions {
                 enable: cli.injection.enable,
-                allow_ydotool: cli.injection.allow_ydotool,
                 allow_kdotool: cli.injection.allow_kdotool,
                 allow_enigo: cli.injection.allow_enigo,
                 inject_on_unknown_focus: cli.injection.inject_on_unknown_focus,

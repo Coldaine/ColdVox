@@ -27,7 +27,6 @@ mod integration_tests {
         init_test_tracing();
         info!("Starting test_full_injection_flow");
         let config = InjectionConfig {
-            allow_ydotool: false, // Disable external dependencies for testing
             restore_clipboard: true,
             ..Default::default()
         };
@@ -97,7 +96,6 @@ mod integration_tests {
         let config = InjectionConfig::default();
 
         // Check default values
-        assert!(!config.allow_ydotool);
         assert!(!config.allow_kdotool);
         assert!(!config.allow_enigo);
         assert!(!config.restore_clipboard);

@@ -8,9 +8,7 @@ use crate::TextInjector;
 #[cfg(feature = "atspi")]
 use crate::atspi_injector::AtspiInjector;
 #[cfg(feature = "wl_clipboard")]
-use crate::clipboard_injector::ClipboardInjector;
-#[cfg(all(feature = "wl_clipboard", feature = "ydotool"))]
-use crate::combo_clip_ydotool::ComboClipboardYdotool;
+use crate::clipboard_paste_injector::ClipboardPasteInjector;
 #[cfg(feature = "enigo")]
 use crate::enigo_injector::EnigoInjector;
 #[cfg(feature = "kdotool")]
@@ -91,35 +89,20 @@ impl InjectorRegistry {
             }
         }
 
-        // Add clipboard injectors if available
+        // Add clipboard paste injector if available
         #[cfg(feature = "wl_clipboard")]
         {
             if _has_wayland || _has_x11 {
-                let clipboard_injector = ClipboardInjector::new(config.clone());
-                if clipboard_injector.is_available().await {
-                    injectors.insert(InjectionMethod::Clipboard, Box::new(clipboard_injector));
-                }
-
-                // Add combo clipboard+paste if wl_clipboard + ydotool features are enabled
-                #[cfg(all(feature = "wl_clipboard", feature = "ydotool"))]
-                {
-                    // Respect runtime preference to disable ydotool entirely
-                    if config.allow_ydotool {
-                        let combo_injector = ComboClipboardYdotool::new(config.clone());
-                        if combo_injector.is_available().await {
-                            injectors.insert(
-                                InjectionMethod::ClipboardAndPaste,
-                                Box::new(combo_injector),
-                            );
-                        }
-                    }
+                let paste_injector = ClipboardPasteInjector::new(config.clone());
+                if paste_injector.is_available().await {
+                    injectors.insert(InjectionMethod::ClipboardPaste, Box::new(paste_injector));
                 }
             }
         }
 
         // Add optional injectors based on config
         #[cfg(feature = "ydotool")]
-        if config.allow_ydotool {
+        {
             let ydotool = YdotoolInjector::new(config.clone());
             if ydotool.is_available().await {
                 injectors.insert(InjectionMethod::YdoToolPaste, Box::new(ydotool));
@@ -563,19 +546,12 @@ impl StrategyManager {
         if on_wayland {
             // Prefer AT-SPI direct insert first on Wayland when available
             base_order.push(InjectionMethod::AtspiInsert);
-            base_order.push(InjectionMethod::Clipboard);
-            if self.config.allow_ydotool {
-                base_order.push(InjectionMethod::ClipboardAndPaste);
-            }
+            base_order.push(InjectionMethod::ClipboardPaste);
         }
 
         if on_x11 {
-            // Keep X11 ordering; skip combo if ydotool disabled
             base_order.push(InjectionMethod::AtspiInsert);
-            if self.config.allow_ydotool {
-                base_order.push(InjectionMethod::ClipboardAndPaste);
-            }
-            base_order.push(InjectionMethod::Clipboard);
+            base_order.push(InjectionMethod::ClipboardPaste);
         }
 
         // Optional, opt-in fallbacks
@@ -586,9 +562,8 @@ impl StrategyManager {
             base_order.push(InjectionMethod::EnigoText);
         }
 
-        if self.config.allow_ydotool {
-            base_order.push(InjectionMethod::YdoToolPaste);
-        }
+        #[cfg(feature = "ydotool")]
+        base_order.push(InjectionMethod::YdoToolPaste);
 
         // Deduplicate while preserving order
         use std::collections::HashSet;
@@ -655,18 +630,12 @@ impl StrategyManager {
 
         if on_wayland {
             base_order.push(InjectionMethod::AtspiInsert);
-            base_order.push(InjectionMethod::Clipboard);
-            if self.config.allow_ydotool {
-                base_order.push(InjectionMethod::ClipboardAndPaste);
-            }
+            base_order.push(InjectionMethod::ClipboardPaste);
         }
 
         if on_x11 {
             base_order.push(InjectionMethod::AtspiInsert);
-            if self.config.allow_ydotool {
-                base_order.push(InjectionMethod::ClipboardAndPaste);
-            }
-            base_order.push(InjectionMethod::Clipboard);
+            base_order.push(InjectionMethod::ClipboardPaste);
         }
 
         // Add optional methods if enabled
@@ -677,9 +646,8 @@ impl StrategyManager {
             base_order.push(InjectionMethod::EnigoText);
         }
 
-        if self.config.allow_ydotool {
-            base_order.push(InjectionMethod::YdoToolPaste);
-        }
+        #[cfg(feature = "ydotool")]
+        base_order.push(InjectionMethod::YdoToolPaste);
         // Deduplicate while preserving order
         use std::collections::HashSet;
         let mut seen = HashSet::new();
@@ -740,17 +708,11 @@ impl StrategyManager {
         let mut base_order = Vec::new();
         if on_wayland {
             base_order.push(InjectionMethod::AtspiInsert);
-            base_order.push(InjectionMethod::Clipboard);
-            if self.config.allow_ydotool {
-                base_order.push(InjectionMethod::ClipboardAndPaste);
-            }
+            base_order.push(InjectionMethod::ClipboardPaste);
         }
         if on_x11 {
             base_order.push(InjectionMethod::AtspiInsert);
-            if self.config.allow_ydotool {
-                base_order.push(InjectionMethod::ClipboardAndPaste);
-            }
-            base_order.push(InjectionMethod::Clipboard);
+            base_order.push(InjectionMethod::ClipboardPaste);
         }
         if self.config.allow_kdotool {
             base_order.push(InjectionMethod::KdoToolAssist);
@@ -759,9 +721,8 @@ impl StrategyManager {
             base_order.push(InjectionMethod::EnigoText);
         }
 
-        if self.config.allow_ydotool {
-            base_order.push(InjectionMethod::YdoToolPaste);
-        }
+        #[cfg(feature = "ydotool")]
+        base_order.push(InjectionMethod::YdoToolPaste);
         use std::collections::HashSet;
         let mut seen = HashSet::new();
         base_order.retain(|m| seen.insert(*m));
@@ -1268,13 +1229,11 @@ mod tests {
         let has_desktop = !available.is_empty();
         if has_desktop {
             assert!(order.contains(&InjectionMethod::AtspiInsert));
-            assert!(order.contains(&InjectionMethod::ClipboardAndPaste));
-            assert!(order.contains(&InjectionMethod::Clipboard));
+            assert!(order.contains(&InjectionMethod::ClipboardPaste));
         }
 
         // Verify optional methods are included if enabled
         let config = InjectionConfig {
-            allow_ydotool: true,
             allow_kdotool: true,
             allow_enigo: true,
 
@@ -1292,9 +1251,9 @@ mod tests {
         let available = manager.backend_detector.detect_available_backends();
         if !available.is_empty() {
             assert!(order.contains(&InjectionMethod::AtspiInsert));
-            assert!(order.contains(&InjectionMethod::ClipboardAndPaste));
-            assert!(order.contains(&InjectionMethod::Clipboard));
+            assert!(order.contains(&InjectionMethod::ClipboardPaste));
         }
+        #[cfg(feature = "ydotool")]
         assert!(order.contains(&InjectionMethod::YdoToolPaste));
         assert!(order.contains(&InjectionMethod::KdoToolAssist));
         assert!(order.contains(&InjectionMethod::EnigoText));
