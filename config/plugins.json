@@ -2,7 +2,8 @@
   "preferred_plugin": "vosk",
   "fallback_plugins": [
     "vosk",
-    "mock"
+    "whisper-local",
+    "gcloud"
   ],
   "require_local": false,
   "max_memory_mb": null,

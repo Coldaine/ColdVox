@@ -49,9 +49,9 @@ These flags control the text injection behavior. (Requires `text-injection` feat
 | `--allow-kdotool` | `COLDVOX_ALLOW_KDOTOOL` | Allow kdotool as an injection fallback. | `false` |
 | `--allow-enigo` | `COLDVOX_ALLOW_ENIGO` | Allow enigo as an injection fallback. | `false` |
 | `--inject-on-unknown-focus` | `COLDVOX_INJECT_ON_UNKNOWN_FOCUS` | Attempt injection even if the focused application is unknown. | `true` |
-| `--restore-clipboard` | `COLDVOX_RESTORE_CLIPBOARD` | Restore clipboard contents after injection. | `false` |
+| `--restore-clipboard` | `COLDVOX_RESTORE_CLIPBOARD` | (removed) Clipboard restoration is automatic now; no flag required. | `N/A` |
 | `--max-total-latency-ms <MS>` | `COLDVOX_INJECTION_MAX_LATENCY_MS` | Max total latency for an injection call (ms). | `None` |
 | `--per-method-timeout-ms <MS>` | `COLDVOX_INJECTION_METHOD_TIMEOUT_MS` | Timeout for each injection method (ms). | `None` |
 | `--cooldown-initial-ms <MS>` | `COLDVOX_INJECTION_COOLDOWN_MS` | Initial cooldown on failure (ms). | `None` |
 
-Clipboard-based paste fallback is now always enabled when the `text-injection` feature is built; it automatically tries AT-SPI and transparently falls back to `ydotool` when the daemon is available.
+Clipboard-based paste fallback is now always enabled when the `text-injection` feature is built; it automatically tries AT-SPI and transparently falls back to `ydotool` when the daemon is available. Clipboard contents are restored automatically after paste.

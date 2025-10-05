@@ -42,10 +42,11 @@ pub struct InjectionOptions {
     pub allow_kdotool: bool,
     pub allow_enigo: bool,
     pub inject_on_unknown_focus: bool,
-    pub restore_clipboard: bool,
     pub max_total_latency_ms: Option<u64>,
     pub per_method_timeout_ms: Option<u64>,
     pub cooldown_initial_ms: Option<u64>,
+    /// If true, exit immediately if all injection methods fail.
+    pub fail_fast: bool,
 }
 
 /// Options for starting the ColdVox runtime
@@ -598,7 +599,7 @@ pub async fn start(
                     allow_kdotool: inj.allow_kdotool,
                     allow_enigo: inj.allow_enigo,
                     inject_on_unknown_focus: inj.inject_on_unknown_focus,
-                    restore_clipboard: inj.restore_clipboard,
+                    // clipboard restore is always enabled by the text-injection crate
                     ..Default::default()
                 };
                 if let Some(v) = inj.max_total_latency_ms {
@@ -610,6 +611,9 @@ pub async fn start(
                 if let Some(v) = inj.cooldown_initial_ms {
                     config.cooldown_initial_ms = v;
                 }
+                // Map optional fail_fast setting (if provided) to the enum
+                // CLI flag and env var wiring
+                config.fail_fast = inj.fail_fast || std::env::var("COLDVOX_FAIL_FAST").map(|v| v == "1" || v.to_lowercase() == "true").unwrap_or(false);
 
                 let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>(1);
                 let processor = crate::text_injection::AsyncInjectionProcessor::new(

@@ -68,7 +68,7 @@ impl TextInjector for ClipboardPasteInjector {
         #[allow(unused_mut)]
         let mut saved_clipboard: Option<String> = None;
         #[cfg(feature = "wl_clipboard")]
-        if self.config.restore_clipboard {
+        {
             use std::io::Read;
             match get_contents(ClipboardType::Regular, Seat::Unspecified, PasteMime::Text) {
                 Ok((mut pipe, _mime)) => {
@@ -103,19 +103,17 @@ impl TextInjector for ClipboardPasteInjector {
             {
                 Ok(Ok(())) => {
                     #[cfg(feature = "wl_clipboard")]
-                    if self.config.restore_clipboard {
-                        if let Some(content) = saved_clipboard.clone() {
-                            let delay_ms = self.config.clipboard_restore_delay_ms.unwrap_or(500);
-                            tokio::spawn(async move {
-                                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
-                                let _ = tokio::task::spawn_blocking(move || {
-                                    let src = CopySource::Bytes(content.into_bytes().into());
-                                    let opts = CopyOptions::new();
-                                    let _ = opts.copy(src, CopyMime::Text);
-                                })
-                                .await;
-                            });
-                        }
+                    if let Some(content) = saved_clipboard.clone() {
+                        let delay_ms = self.config.clipboard_restore_delay_ms.unwrap_or(500);
+                        tokio::spawn(async move {
+                            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                            let _ = tokio::task::spawn_blocking(move || {
+                                let src = CopySource::Bytes(content.into_bytes().into());
+                                let opts = CopyOptions::new();
+                                let _ = opts.copy(src, CopyMime::Text);
+                            })
+                            .await;
+                        });
                     }
                     let elapsed = start.elapsed();
                     debug!(
@@ -164,19 +162,17 @@ impl TextInjector for ClipboardPasteInjector {
         }
 
         #[cfg(feature = "wl_clipboard")]
-        if self.config.restore_clipboard {
-            if let Some(content) = saved_clipboard {
-                let delay_ms = self.config.clipboard_restore_delay_ms.unwrap_or(500);
-                tokio::spawn(async move {
-                    tokio::time::sleep(Duration::from_millis(delay_ms)).await;
-                    let _ = tokio::task::spawn_blocking(move || {
-                        let src = CopySource::Bytes(content.into_bytes().into());
-                        let opts = CopyOptions::new();
-                        let _ = opts.copy(src, CopyMime::Text);
-                    })
-                    .await;
-                });
-            }
+        if let Some(content) = saved_clipboard {
+            let delay_ms = self.config.clipboard_restore_delay_ms.unwrap_or(500);
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                let _ = tokio::task::spawn_blocking(move || {
+                    let src = CopySource::Bytes(content.into_bytes().into());
+                    let opts = CopyOptions::new();
+                    let _ = opts.copy(src, CopyMime::Text);
+                })
+                .await;
+            });
         }
 
         let elapsed = start.elapsed();

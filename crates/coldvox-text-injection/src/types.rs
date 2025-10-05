@@ -1,6 +1,11 @@
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
+/// Behavior when all injection methods fail. Used for debugging/CI to cause
+/// immediate termination or panic when injection cannot succeed.
+
+fn default_fail_fast() -> bool { false }
+
 /// Enumeration of all available text injection methods
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum InjectionMethod {
@@ -31,8 +36,7 @@ pub struct InjectionConfig {
     pub allow_enigo: bool,
 
     /// Whether to restore the clipboard content after injection
-    #[serde(default = "default_false")]
-    pub restore_clipboard: bool,
+    // Clipboard restoration is unconditional now; removal of runtime toggle.
     /// Whether to allow injection when focus state is unknown
     #[serde(default = "default_inject_on_unknown_focus")]
     pub inject_on_unknown_focus: bool,
@@ -117,6 +121,10 @@ pub struct InjectionConfig {
     /// Blocklist of application patterns (regex) to block injection
     #[serde(default)]
     pub blocklist: Vec<String>,
+
+    /// If true, exit the process immediately if all injection methods fail.
+    #[serde(default = "default_fail_fast")]
+    pub fail_fast: bool,
 }
 
 fn default_false() -> bool {
@@ -221,7 +229,7 @@ impl Default for InjectionConfig {
             allow_kdotool: default_false(),
             allow_enigo: default_false(),
 
-            restore_clipboard: default_false(),
+            // restore_clipboard removed - restoration is always performed by clipboard injectors
             inject_on_unknown_focus: default_inject_on_unknown_focus(),
             require_focus: default_require_focus(),
             pause_hotkey: default_pause_hotkey(),
@@ -245,6 +253,7 @@ impl Default for InjectionConfig {
             discovery_timeout_ms: default_discovery_timeout_ms(),
             allowlist: default_allowlist(),
             blocklist: default_blocklist(),
+            fail_fast: default_fail_fast(),
         }
     }
 }

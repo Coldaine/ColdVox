@@ -27,7 +27,7 @@ mod integration_tests {
         init_test_tracing();
         info!("Starting test_full_injection_flow");
         let config = InjectionConfig {
-            restore_clipboard: true,
+            // clipboard restoration is automatic
             ..Default::default()
         };
 
@@ -98,7 +98,8 @@ mod integration_tests {
         // Check default values
         assert!(!config.allow_kdotool);
         assert!(!config.allow_enigo);
-        assert!(!config.restore_clipboard);
+        // Clipboard restoration is automatic; verify restore delay default exists
+        assert!(config.clipboard_restore_delay_ms.is_some());
         assert!(config.inject_on_unknown_focus);
         assert!(config.enable_window_detection);
 

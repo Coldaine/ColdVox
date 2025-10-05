@@ -753,7 +753,7 @@ async fn test_end_to_end_with_real_injection() {
     let mut injection_config = InjectionConfig {
         allow_kdotool: false,
         allow_enigo: false,
-        restore_clipboard: true,        // Enable clipboard restoration
+    // clipboard restoration is automatic
         inject_on_unknown_focus: false, // Require proper focus
         require_focus: true,
         ..Default::default()

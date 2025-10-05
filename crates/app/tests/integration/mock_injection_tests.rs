@@ -113,7 +113,7 @@ mod mock_injection_tests {
         let config = InjectionConfig {
             allow_kdotool: false,
             allow_enigo: false,
-            restore_clipboard: true,
+            // clipboard restoration is automatic
             inject_on_unknown_focus: true, // Allow injection for testing
             max_total_latency_ms: 5000,
             per_method_timeout_ms: 2000,
@@ -173,7 +173,6 @@ mod mock_injection_tests {
         let config = InjectionConfig {
             allow_kdotool: false,
             allow_enigo: false,
-            restore_clipboard: true,
             inject_on_unknown_focus: true,
             max_total_latency_ms: 5000,
             per_method_timeout_ms: 2000,
@@ -237,7 +236,6 @@ mod mock_injection_tests {
         let config = InjectionConfig {
             allow_kdotool: false,
             allow_enigo: false,
-            restore_clipboard: true,
             inject_on_unknown_focus: true,
             max_total_latency_ms: 5000,
             per_method_timeout_ms: 2000,
@@ -279,7 +277,6 @@ mod mock_injection_tests {
         let config = InjectionConfig {
             allow_kdotool: false,
             allow_enigo: false,
-            restore_clipboard: true,
             inject_on_unknown_focus: true,
             max_total_latency_ms: 100, // Very short timeout
             per_method_timeout_ms: 50,  // Very short per-method timeout

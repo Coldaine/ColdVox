@@ -8,8 +8,9 @@ use std::path::Path;
 use std::time::Duration;
 use std::time::SystemTime;
 
-use clap::Args;
-use clap::{ArgAction, Parser, ValueEnum};
+use clap::{Parser, ValueEnum};
+use config::{Config, Environment, File};
+use serde::Deserialize;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
@@ -19,6 +20,72 @@ use coldvox_foundation::{AppState, HealthMonitor, ShutdownHandler, StateManager}
 
 #[cfg(feature = "tui")]
 use coldvox_app::tui;
+
+#[derive(Debug, Deserialize)]
+struct InjectionSettings {
+    fail_fast: bool,
+    allow_kdotool: bool,
+    allow_enigo: bool,
+    inject_on_unknown_focus: bool,
+    require_focus: bool,
+    pause_hotkey: String,
+    redact_logs: bool,
+    max_total_latency_ms: u64,
+    per_method_timeout_ms: u64,
+    paste_action_timeout_ms: u64,
+    cooldown_initial_ms: u64,
+    cooldown_backoff_factor: f64,
+    cooldown_max_ms: u64,
+    injection_mode: String,
+    keystroke_rate_cps: u32,
+    max_burst_chars: u32,
+    paste_chunk_chars: u32,
+    chunk_delay_ms: u64,
+    focus_cache_duration_ms: u64,
+    enable_window_detection: bool,
+    clipboard_restore_delay_ms: u64,
+    discovery_timeout_ms: u64,
+    allowlist: Vec<String>,
+    blocklist: Vec<String>,
+    min_success_rate: f32,
+    min_sample_size: u32,
+}
+
+#[derive(Debug, Deserialize)]
+struct SttSettings {
+    preferred: Option<String>,
+    fallbacks: Vec<String>,
+    require_local: bool,
+    max_mem_mb: Option<u32>,
+    language: Option<String>,
+    failover_threshold: u32,
+    failover_cooldown_secs: u32,
+    model_ttl_secs: u32,
+    disable_gc: bool,
+    metrics_log_interval_secs: u32,
+    debug_dump_events: bool,
+    auto_extract: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct Settings {
+    device: Option<String>,
+    resampler_quality: String,
+    enable_device_monitor: bool,
+    activation_mode: String,
+    injection: InjectionSettings,
+    stt: SttSettings,
+}
+
+impl Settings {
+    fn new() -> Result<Self, config::ConfigError> {
+        let s = Config::builder()
+            .add_source(File::with_name("config/default.toml"))
+            .add_source(Environment::with_prefix("coldvox").separator("__"))
+            .build()?;
+        s.try_deserialize()
+    }
+}
 
 fn init_logging() -> Result<tracing_appender::non_blocking::WorkerGuard, Box<dyn std::error::Error>>
 {
@@ -92,190 +159,13 @@ fn prune_old_logs(retention_days: Option<u64>) {
 #[derive(Parser, Debug)]
 #[command(name = "coldvox", author, version, about = "ColdVox voice pipeline")]
 struct Cli {
-    /// Preferred input device name (exact or substring)
-    #[arg(short = 'D', long = "device")]
-    device: Option<String>,
-
     /// List available input devices and exit
     #[arg(long = "list-devices")]
     list_devices: bool,
 
-    /// Resampler quality: fast, balanced, quality
-    #[arg(long = "resampler-quality", default_value = "balanced")]
-    resampler_quality: String,
-
-    #[cfg(feature = "vosk")]
-    /// Enable transcription persistence to disk
-    #[arg(long = "save-transcriptions")]
-    save_transcriptions: bool,
-
-    #[cfg(feature = "vosk")]
-    /// Save audio alongside transcriptions
-    #[arg(long = "save-audio", requires = "save_transcriptions")]
-    save_audio: bool,
-
-    #[cfg(feature = "vosk")]
-    /// Output directory for transcriptions
-    #[arg(long = "output-dir", default_value = "transcriptions")]
-    output_dir: String,
-
-    #[cfg(feature = "vosk")]
-    /// Transcription format: json, csv, text
-    #[arg(long = "transcript-format", default_value = "json")]
-    transcript_format: String,
-
-    #[cfg(feature = "vosk")]
-    /// Keep transcription files for N days (0 = forever)
-    #[arg(long = "retention-days", default_value = "30")]
-    retention_days: u32,
-
     /// Enable TUI dashboard
     #[arg(long = "tui")]
     tui: bool,
-
-    /// Enable background device monitoring / hotplug polling (may emit ALSA warnings)
-    #[arg(long = "enable-device-monitor", env = "COLDVOX_ENABLE_DEVICE_MONITOR")]
-    enable_device_monitor: bool,
-
-    /// Activation mode: "vad" or "hotkey"
-    #[arg(long = "activation-mode", default_value = "vad", value_enum)]
-    activation_mode: ActivationMode,
-
-    #[command(flatten)]
-    stt: SttArgs,
-
-    #[cfg(feature = "text-injection")]
-    #[command(flatten)]
-    injection: InjectionArgs,
-}
-
-#[derive(Debug, Clone, Copy, ValueEnum, PartialEq)]
-enum ActivationMode {
-    Vad,
-    Hotkey,
-}
-
-#[derive(Args, Debug)]
-#[command(next_help_heading = "Speech-to-Text")]
-struct SttArgs {
-    /// Preferred STT plugin ID (e.g., "vosk", "whisper", "mock")
-    #[arg(long = "stt-preferred", env = "COLDVOX_STT_PREFERRED")]
-    preferred: Option<String>,
-
-    /// Comma-separated list of fallback plugin IDs
-    #[arg(
-        long = "stt-fallbacks",
-        env = "COLDVOX_STT_FALLBACKS",
-        value_delimiter = ','
-    )]
-    fallbacks: Option<Vec<String>>,
-
-    /// Require local processing (no cloud STT services)
-    #[arg(long = "stt-require-local", env = "COLDVOX_STT_REQUIRE_LOCAL")]
-    require_local: bool,
-
-    /// Maximum memory usage in MB
-    #[arg(long = "stt-max-mem-mb", env = "COLDVOX_STT_MAX_MEM_MB")]
-    max_mem_mb: Option<u32>,
-
-    /// Required language (ISO 639-1 code, e.g., "en", "fr")
-    #[arg(long = "stt-language", env = "COLDVOX_STT_LANGUAGE")]
-    language: Option<String>,
-
-    /// Number of consecutive errors before switching to fallback plugin
-    #[arg(
-        long = "stt-failover-threshold",
-        env = "COLDVOX_STT_FAILOVER_THRESHOLD",
-        default_value = "3"
-    )]
-    failover_threshold: u32,
-
-    /// Cooldown period in seconds before retrying a failed plugin
-    #[arg(
-        long = "stt-failover-cooldown-secs",
-        env = "COLDVOX_STT_FAILOVER_COOLDOWN_SECS",
-        default_value = "30"
-    )]
-    failover_cooldown_secs: u32,
-
-    /// Time to live in seconds for inactive models (GC threshold)
-    #[arg(
-        long = "stt-model-ttl-secs",
-        env = "COLDVOX_STT_MODEL_TTL_SECS",
-        default_value = "300"
-    )]
-    model_ttl_secs: u32,
-
-    /// Disable garbage collection of inactive models
-    #[arg(long = "stt-disable-gc", env = "COLDVOX_STT_DISABLE_GC")]
-    disable_gc: bool,
-
-    /// Interval in seconds for periodic metrics logging (0 to disable)
-    #[arg(
-        long = "stt-metrics-log-interval-secs",
-        env = "COLDVOX_STT_METRICS_LOG_INTERVAL_SECS",
-        default_value = "60"
-    )]
-    metrics_log_interval_secs: u32,
-
-    /// Enable debug dumping of transcription events to logs
-    #[arg(long = "stt-debug-dump-events", env = "COLDVOX_STT_DEBUG_DUMP_EVENTS")]
-    debug_dump_events: bool,
-
-    /// Automatically extract model from a zip archive if not found
-    #[arg(
-        long = "stt-auto-extract",
-        env = "COLDVOX_STT_AUTO_EXTRACT",
-        default_value = "true"
-    )]
-    auto_extract: bool,
-}
-
-#[cfg(feature = "text-injection")]
-#[derive(Args, Debug)]
-#[command(next_help_heading = "Text Injection")]
-struct InjectionArgs {
-    /// Enable text injection after transcription
-    #[arg(
-        long = "enable-text-injection",
-        env = "COLDVOX_ENABLE_TEXT_INJECTION",
-        action = ArgAction::Set,
-        default_value_t = true
-    )]
-    enable: bool,
-
-    /// Allow kdotool as an injection fallback
-    #[arg(long = "allow-kdotool", env = "COLDVOX_ALLOW_KDOTOOL")]
-    allow_kdotool: bool,
-
-    /// Allow enigo as an injection fallback
-    #[arg(long = "allow-enigo", env = "COLDVOX_ALLOW_ENIGO")]
-    allow_enigo: bool,
-
-    /// Attempt injection even if the focused application is unknown
-    #[arg(
-        long = "inject-on-unknown-focus",
-        env = "COLDVOX_INJECT_ON_UNKNOWN_FOCUS",
-        action = ArgAction::Set,
-        default_value_t = true
-    )]
-    inject_on_unknown_focus: bool,
-
-    /// Restore clipboard contents after injection
-    #[arg(long = "restore-clipboard", env = "COLDVOX_RESTORE_CLIPBOARD")]
-    restore_clipboard: bool,
-
-    /// Max total latency for an injection call (ms)
-    #[arg(long, env = "COLDVOX_INJECTION_MAX_LATENCY_MS")]
-    max_total_latency_ms: Option<u64>,
-
-    /// Timeout for each injection method (ms)
-    #[arg(long, env = "COLDVOX_INJECTION_METHOD_TIMEOUT_MS")]
-    per_method_timeout_ms: Option<u64>,
-
-    /// Initial cooldown on failure (ms)
-    #[arg(long, env = "COLDVOX_INJECTION_COOLDOWN_MS")]
-    cooldown_initial_ms: Option<u64>,
 }
 
 #[tokio::main]
@@ -295,14 +185,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Starting ColdVox application");
 
     let cli = Cli::parse();
-
-    // Apply environment variable overrides
-    let device = cli
-        .device
-        .clone()
-        .or_else(|| std::env::var("COLDVOX_DEVICE").ok());
-    let resampler_quality =
-        std::env::var("COLDVOX_RESAMPLER_QUALITY").unwrap_or(cli.resampler_quality.clone());
+    let settings = Settings::new()?;
 
     if cli.list_devices {
         let dm = DeviceManager::new()?;
@@ -324,93 +207,73 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     state_manager.transition(AppState::Running)?;
     tracing::info!("Application state: Running");
 
-    // Build STT configuration from CLI arguments
+    // Build STT configuration from settings
     let stt_selection = {
         use coldvox_stt::plugin::{FailoverConfig, GcPolicy, MetricsConfig, PluginSelectionConfig};
 
-        // Default to Vosk as preferred STT plugin
-        let mut preferred_plugin = cli.stt.preferred.clone().or(Some("vosk".to_string()));
-        tracing::info!("Defaulting to Vosk STT plugin as preferred");
-
-        // Handle backward compatibility with VOSK_MODEL_PATH
-        if preferred_plugin.is_none() {
-            if let Ok(vosk_model_path) = std::env::var("VOSK_MODEL_PATH") {
-                tracing::warn!(
-                    "VOSK_MODEL_PATH environment variable is deprecated. Use --stt-preferred=vosk instead."
-                );
-                tracing::info!(
-                    "Setting preferred plugin to 'vosk' based on VOSK_MODEL_PATH={}",
-                    vosk_model_path
-                );
-                preferred_plugin = Some("vosk".to_string());
-            }
-        }
-
-        let fallback_plugins = cli.stt.fallbacks.unwrap_or_else(|| {
-            coldvox_stt::plugin::PluginSelectionConfig::default().fallback_plugins
-        });
-
         let failover = FailoverConfig {
-            failover_threshold: cli.stt.failover_threshold,
-            failover_cooldown_secs: cli.stt.failover_cooldown_secs,
+            failover_threshold: settings.stt.failover_threshold,
+            failover_cooldown_secs: settings.stt.failover_cooldown_secs,
         };
 
         let gc_policy = GcPolicy {
-            model_ttl_secs: cli.stt.model_ttl_secs,
-            enabled: !cli.stt.disable_gc,
+            model_ttl_secs: settings.stt.model_ttl_secs,
+            enabled: !settings.stt.disable_gc,
         };
 
         let metrics = MetricsConfig {
-            log_interval_secs: if cli.stt.metrics_log_interval_secs == 0 {
+            log_interval_secs: if settings.stt.metrics_log_interval_secs == 0 {
                 None
             } else {
-                Some(cli.stt.metrics_log_interval_secs)
+                Some(settings.stt.metrics_log_interval_secs)
             },
-            debug_dump_events: cli.stt.debug_dump_events,
+            debug_dump_events: settings.stt.debug_dump_events,
         };
 
         Some(PluginSelectionConfig {
-            preferred_plugin,
-            fallback_plugins,
-            require_local: cli.stt.require_local,
-            max_memory_mb: cli.stt.max_mem_mb,
-            required_language: cli.stt.language,
+            preferred_plugin: settings.stt.preferred,
+            fallback_plugins: settings.stt.fallbacks,
+            require_local: settings.stt.require_local,
+            max_memory_mb: settings.stt.max_mem_mb,
+            required_language: settings.stt.language,
             failover: Some(failover),
             gc_policy: Some(gc_policy),
             metrics: Some(metrics),
-            auto_extract_model: cli.stt.auto_extract,
+            auto_extract_model: settings.stt.auto_extract,
         })
     };
 
-    let opts = AppRuntimeOptions {
-        device,
-        resampler_quality: match resampler_quality.to_lowercase().as_str() {
-            "fast" => ResamplerQuality::Fast,
-            "quality" => ResamplerQuality::Quality,
-            _ => ResamplerQuality::Balanced,
-        },
-        activation_mode: match cli.activation_mode {
-            ActivationMode::Vad => RuntimeMode::Vad,
-            ActivationMode::Hotkey => RuntimeMode::Hotkey,
-        },
-        stt_selection,
-        #[cfg(feature = "text-injection")]
-        injection: if cfg!(feature = "text-injection") {
+    let mut opts = AppRuntimeOptions::default();
+    opts.device = settings.device;
+    opts.resampler_quality = match settings.resampler_quality.to_lowercase().as_str() {
+        "fast" => ResamplerQuality::Fast,
+        "quality" => ResamplerQuality::Quality,
+        _ => ResamplerQuality::Balanced,
+    };
+    opts.activation_mode = match settings.activation_mode.as_str() {
+        "vad" => RuntimeMode::Vad,
+        "hotkey" => RuntimeMode::Hotkey,
+        _ => RuntimeMode::Vad,
+    };
+    opts.stt_selection = stt_selection;
+    #[cfg(feature = "text-injection")]
+    {
+        opts.injection = if cfg!(feature = "text-injection") {
             Some(coldvox_app::runtime::InjectionOptions {
-                enable: cli.injection.enable,
-                allow_kdotool: cli.injection.allow_kdotool,
-                allow_enigo: cli.injection.allow_enigo,
-                inject_on_unknown_focus: cli.injection.inject_on_unknown_focus,
-                restore_clipboard: cli.injection.restore_clipboard,
-                max_total_latency_ms: cli.injection.max_total_latency_ms,
-                per_method_timeout_ms: cli.injection.per_method_timeout_ms,
-                cooldown_initial_ms: cli.injection.cooldown_initial_ms,
+                enable: true, // Assuming text injection is enabled if the feature is on
+                allow_kdotool: settings.injection.allow_kdotool,
+                allow_enigo: settings.injection.allow_enigo,
+                inject_on_unknown_focus: settings.injection.inject_on_unknown_focus,
+                max_total_latency_ms: Some(settings.injection.max_total_latency_ms),
+                per_method_timeout_ms: Some(settings.injection.per_method_timeout_ms),
+                cooldown_initial_ms: Some(settings.injection.cooldown_initial_ms),
+                fail_fast: Some(if settings.injection.fail_fast { "exit".to_string() } else { "off".to_string() }),
             })
         } else {
             None
-        },
-        enable_device_monitor: cli.enable_device_monitor,
-    };
+        };
+    }
+    opts.enable_device_monitor = settings.enable_device_monitor;
 
     let app = app_runtime::start(opts)
         .await
@@ -513,124 +376,7 @@ mod tests {
     fn test_cli_parsing_basic() {
         let args = vec!["coldvox"];
         let cli = Cli::try_parse_from(args).unwrap();
-
-        assert_eq!(cli.activation_mode, ActivationMode::Hotkey);
-        assert_eq!(cli.stt.failover_threshold, 3);
-        assert_eq!(cli.stt.failover_cooldown_secs, 30);
-        assert_eq!(cli.stt.model_ttl_secs, 300);
-        assert_eq!(cli.stt.metrics_log_interval_secs, 60);
-        assert!(!cli.stt.disable_gc);
-        assert!(!cli.stt.debug_dump_events);
-        assert!(!cli.stt.require_local);
-    }
-
-    #[test]
-    fn test_cli_parsing_stt_flags() {
-        let args = vec![
-            "coldvox",
-            "--stt-preferred",
-            "vosk",
-            "--stt-fallbacks",
-            "whisper,mock",
-            "--stt-require-local",
-            "--stt-max-mem-mb",
-            "512",
-            "--stt-language",
-            "en",
-            "--stt-failover-threshold",
-            "5",
-            "--stt-failover-cooldown-secs",
-            "60",
-            "--stt-model-ttl-secs",
-            "600",
-            "--stt-disable-gc",
-            "--stt-metrics-log-interval-secs",
-            "120",
-            "--stt-debug-dump-events",
-        ];
-
-        let cli = Cli::try_parse_from(args).unwrap();
-
-        assert_eq!(cli.stt.preferred, Some("vosk".to_string()));
-        assert_eq!(
-            cli.stt.fallbacks,
-            Some(vec!["whisper".to_string(), "mock".to_string()])
-        );
-        assert!(cli.stt.require_local);
-        assert_eq!(cli.stt.max_mem_mb, Some(512));
-        assert_eq!(cli.stt.language, Some("en".to_string()));
-        assert_eq!(cli.stt.failover_threshold, 5);
-        assert_eq!(cli.stt.failover_cooldown_secs, 60);
-        assert_eq!(cli.stt.model_ttl_secs, 600);
-        assert!(cli.stt.disable_gc);
-        assert_eq!(cli.stt.metrics_log_interval_secs, 120);
-        assert!(cli.stt.debug_dump_events);
-    }
-
-    #[test]
-    fn test_build_plugin_selection_config() {
-        use coldvox_stt::plugin::{FailoverConfig, GcPolicy, MetricsConfig, PluginSelectionConfig};
-
-        let stt_args = SttArgs {
-            preferred: Some("vosk".to_string()),
-            fallbacks: Some(vec!["whisper".to_string()]),
-            require_local: true,
-            max_mem_mb: Some(256),
-            language: Some("fr".to_string()),
-            failover_threshold: 2,
-            failover_cooldown_secs: 45,
-            model_ttl_secs: 180,
-            disable_gc: false,
-            metrics_log_interval_secs: 90,
-            debug_dump_events: true,
-            auto_extract: std::env::var("COLDVOX_STT_AUTO_EXTRACT")
-                .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
-                .unwrap_or(true),
-        };
-
-        let config = PluginSelectionConfig {
-            preferred_plugin: stt_args.preferred,
-            fallback_plugins: stt_args.fallbacks.unwrap_or_default(),
-            require_local: stt_args.require_local,
-            max_memory_mb: stt_args.max_mem_mb,
-            required_language: stt_args.language,
-            failover: Some(FailoverConfig {
-                failover_threshold: stt_args.failover_threshold,
-                failover_cooldown_secs: stt_args.failover_cooldown_secs,
-            }),
-            gc_policy: Some(GcPolicy {
-                model_ttl_secs: stt_args.model_ttl_secs,
-                enabled: !stt_args.disable_gc,
-            }),
-            metrics: Some(MetricsConfig {
-                log_interval_secs: if stt_args.metrics_log_interval_secs == 0 {
-                    None
-                } else {
-                    Some(stt_args.metrics_log_interval_secs)
-                },
-                debug_dump_events: stt_args.debug_dump_events,
-            }),
-            auto_extract_model: std::env::var("COLDVOX_STT_AUTO_EXTRACT")
-                .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
-                .unwrap_or(true),
-        };
-
-        assert_eq!(config.preferred_plugin, Some("vosk".to_string()));
-        assert_eq!(config.fallback_plugins, vec!["whisper".to_string()]);
-        assert!(config.require_local);
-        assert_eq!(config.max_memory_mb, Some(256));
-        assert_eq!(config.required_language, Some("fr".to_string()));
-
-        let failover = config.failover.unwrap();
-        assert_eq!(failover.failover_threshold, 2);
-        assert_eq!(failover.failover_cooldown_secs, 45);
-
-        let gc_policy = config.gc_policy.unwrap();
-        assert_eq!(gc_policy.model_ttl_secs, 180);
-        assert!(gc_policy.enabled);
-
-        let metrics = config.metrics.unwrap();
-        assert_eq!(metrics.log_interval_secs, Some(90));
-        assert!(metrics.debug_dump_events);
+        assert!(!cli.list_devices);
+        assert!(!cli.tui);
     }
 }

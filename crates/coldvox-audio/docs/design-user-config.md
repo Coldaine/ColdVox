@@ -124,11 +124,11 @@ COLDVOX_ALLOW_ENIGO=true
 ```bash
 # CLI
 --inject-on-unknown-focus
---restore-clipboard
 
 # Environment
 COLDVOX_INJECT_ON_UNKNOWN_FOCUS=true
-COLDVOX_RESTORE_CLIPBOARD=true
+
+Note: clipboard restoration is automatic after injection; `COLDVOX_RESTORE_CLIPBOARD` is ignored.
 ```
 
 ### Performance Limits

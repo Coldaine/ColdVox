@@ -205,7 +205,7 @@ mod tests {
         use coldvox_text_injection::types::InjectionContext;
 
         let config = InjectionConfig {
-            restore_clipboard: true,
+            // clipboard restoration is automatic
             inject_on_unknown_focus: true,
             ..Default::default()
         };

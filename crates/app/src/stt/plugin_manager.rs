@@ -57,7 +57,7 @@ impl Default for SttPluginManager {
 impl SttPluginManager {
     /// Create a new plugin manager with default configuration
     pub fn new() -> Self {
-        Self::new_with_config_path(PathBuf::from("./plugins.json"))
+        Self::new_with_config_path(PathBuf::from("config/plugins.json"))
     }
 
     /// Create a new plugin manager with custom config path

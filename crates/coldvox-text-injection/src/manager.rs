@@ -23,6 +23,8 @@ use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, trace, warn};
+use std::process;
+use std::io::Write;
 
 /// Key for identifying a specific app-method combination
 type AppMethodKey = (String, InjectionMethod);
@@ -956,12 +958,11 @@ impl StrategyManager {
             method_order.len()
         );
 
-        // Try each method in order
-        let total_start = Instant::now();
-        let mut attempts = 0;
-        let total_methods = method_order.len();
-
-        for method in method_order {
+    // Try each method in order
+    let total_start = Instant::now();
+    let mut attempts = 0;
+    let total_methods = method_order.len();
+    for method in method_order.clone() {
             attempts += 1;
             // Skip if in cooldown
             if self.is_in_cooldown(method) {
@@ -1040,15 +1041,23 @@ impl StrategyManager {
                 Err(e) => {
                     let duration = start.elapsed().as_millis() as u64;
                     let error_string = e.to_string();
+                    let backend_name = self.injectors.get_mut(method)
+                        .map(|inj| inj.backend_name())
+                        .unwrap_or("unknown");
+                    error!(
+                        "Injection method {:?} (backend: {}) failed after {}ms (attempt {} of {}): {}",
+                        method,
+                        backend_name,
+                        duration,
+                        attempts,
+                        total_methods,
+                        error_string
+                    );
                     if let Ok(mut m) = self.metrics.lock() {
                         m.record_failure(method, duration, error_string.clone());
                     }
                     self.update_success_record(&app_id, method, false);
                     self.update_cooldown(method, &error_string);
-                    debug!(
-                        "Method {:?} failed after {}ms (attempt {}): {}",
-                        method, duration, attempts, error_string
-                    );
                     trace!("Continuing to next method in fallback chain");
                     // Continue to next method
                 }
@@ -1063,9 +1072,27 @@ impl StrategyManager {
             total_elapsed.as_millis(),
             attempts
         );
-        Err(InjectionError::MethodFailed(
-            "All injection methods failed".to_string(),
-        ))
+
+        // Prepare diagnostic payload
+        let diag = format!(
+            "Injection failure diagnostics:\n  app_id={}\n  attempts={}\n  total_methods={}\n  total_elapsed_ms={}\n  redact_logs={}\n  method_order={:?}\n",
+            app_id,
+            attempts,
+            total_methods,
+            total_elapsed.as_millis(),
+            self.config.redact_logs,
+            method_order
+        );
+
+        if self.config.fail_fast {
+            error!("Fail-fast mode enabled: {}", diag);
+            let _ = std::io::stderr().write_all(diag.as_bytes());
+            process::exit(1);
+        } else {
+            Err(InjectionError::MethodFailed(
+                "All injection methods failed".to_string(),
+            ))
+        }
     }
 
     /// Get metrics for the strategy manager
