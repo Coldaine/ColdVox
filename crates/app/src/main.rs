@@ -269,6 +269,10 @@ struct Cli {
     /// Enable TUI dashboard
     #[arg(long = "tui")]
     tui: bool,
+
+    /// Exit immediately if all injection methods fail
+    #[arg(long = "injection-fail-fast")]
+    injection_fail_fast: bool,
 }
 
 #[tokio::main]
@@ -288,10 +292,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Starting ColdVox application");
 
     let cli = Cli::parse();
-    let settings = Settings::new().unwrap_or_else(|e| {
+    let mut settings = Settings::new().unwrap_or_else(|e| {
         tracing::error!("Failed to load settings: {}", e);
         Settings::default()
     });
+
+    // Override settings with CLI flags
+    if cli.injection_fail_fast {
+        settings.injection.fail_fast = true;
+    }
 
     if cli.list_devices {
         let dm = DeviceManager::new()?;
