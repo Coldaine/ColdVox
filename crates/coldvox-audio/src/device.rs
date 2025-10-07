@@ -24,7 +24,7 @@ pub struct DeviceManager {
 
 impl DeviceManager {
     pub fn new() -> Result<Self, AudioError> {
-        let host = StderrSuppressor::with_suppressed(|| cpal::default_host());
+        let host = StderrSuppressor::with_suppressed(cpal::default_host);
         Ok(Self {
             host,
             preferred_device: None,

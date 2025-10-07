@@ -186,6 +186,7 @@ Platform-specific text injection backends are automatically enabled at build tim
 - **Linux backends**: AT-SPI, wl-clipboard, ydotool (Wayland), kdotool (X11)
 - **Cross-platform**: Enigo
 - **Strategy**: Runtime backend selection with fallback chains
+- **Clipboard behavior**: Clipboard-based injectors automatically save and restore user's clipboard content after injection (configurable delay)
 
 ## Configuration
 

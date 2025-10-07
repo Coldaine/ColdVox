@@ -1,23 +1,19 @@
 {
-  "preferred_plugin": "vosk",
-  "fallback_plugins": [
-    "vosk",
-    "whisper-local",
-    "gcloud"
-  ],
+  "preferred_plugin": null,
+  "fallback_plugins": [],
   "require_local": false,
   "max_memory_mb": null,
   "required_language": null,
   "failover": {
-    "failover_threshold": 3,
-    "failover_cooldown_secs": 30
+    "failover_threshold": 5,
+    "failover_cooldown_secs": 10
   },
   "gc_policy": {
     "model_ttl_secs": 300,
     "enabled": true
   },
   "metrics": {
-    "log_interval_secs": 60,
+    "log_interval_secs": 30,
     "debug_dump_events": false
   },
   "auto_extract_model": true

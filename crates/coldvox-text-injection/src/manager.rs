@@ -20,11 +20,11 @@ use crate::ydotool_injector::YdotoolInjector;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::io::Write;
+use std::process;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, trace, warn};
-use std::process;
-use std::io::Write;
 
 /// Key for identifying a specific app-method combination
 type AppMethodKey = (String, InjectionMethod);
@@ -958,11 +958,11 @@ impl StrategyManager {
             method_order.len()
         );
 
-    // Try each method in order
-    let total_start = Instant::now();
-    let mut attempts = 0;
-    let total_methods = method_order.len();
-    for method in method_order.clone() {
+        // Try each method in order
+        let total_start = Instant::now();
+        let mut attempts = 0;
+        let total_methods = method_order.len();
+        for method in method_order.clone() {
             attempts += 1;
             // Skip if in cooldown
             if self.is_in_cooldown(method) {
@@ -1041,7 +1041,9 @@ impl StrategyManager {
                 Err(e) => {
                     let duration = start.elapsed().as_millis() as u64;
                     let error_string = e.to_string();
-                    let backend_name = self.injectors.get_mut(method)
+                    let backend_name = self
+                        .injectors
+                        .get_mut(method)
                         .map(|inj| inj.backend_name())
                         .unwrap_or("unknown");
                     error!(

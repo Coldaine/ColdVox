@@ -81,3 +81,40 @@ When deploying ColdVox, handle configurations carefully to ensure security, flex
 This file contains the configuration for the STT (Speech-to-Text) plugin manager. It defines the preferred plugin, fallback plugins, and other settings related to plugin management.
 
 While the main application configuration is in `default.toml`, this file is kept separate to potentially allow for dynamic updates or for management by external tools in the future.
+
+## For Test Authors
+
+Tests that need to load configuration should use `Settings::from_path()` with `CARGO_MANIFEST_DIR`:
+
+```rust
+#[cfg(test)]
+use std::env;
+use std::path::PathBuf;
+
+fn get_test_config_path() -> PathBuf {
+    // Try workspace root first (for integration tests)
+    let workspace_config = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("config/default.toml");
+
+    if workspace_config.exists() {
+        return workspace_config;
+    }
+
+    // Fallback to relative path from crate root
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../config/default.toml")
+}
+
+#[test]
+fn my_test() {
+    let config_path = get_test_config_path();
+    let settings = Settings::from_path(&config_path)?;
+    // ... test logic
+}
+```
+
+This ensures tests work regardless of working directory context.

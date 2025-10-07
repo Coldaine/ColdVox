@@ -3,8 +3,9 @@ use std::time::Duration;
 
 /// Behavior when all injection methods fail. Used for debugging/CI to cause
 /// immediate termination or panic when injection cannot succeed.
-
-fn default_fail_fast() -> bool { false }
+fn default_fail_fast() -> bool {
+    false
+}
 
 /// Enumeration of all available text injection methods
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -24,7 +25,6 @@ pub enum InjectionMethod {
     NoOp,
 }
 
-/// Configuration for text injection system
 /// Configuration for text injection system
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InjectionConfig {

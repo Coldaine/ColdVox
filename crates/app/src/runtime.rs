@@ -536,18 +536,17 @@ pub async fn start(
 
                     #[cfg(feature = "text-injection")]
                     {
-                        if injection_active {
-                            if text_injection_tx_forwarder
+                        if injection_active
+                            && text_injection_tx_forwarder
                                 .send(event.clone())
                                 .await
                                 .is_err()
-                            {
-                                tracing::debug!(
-                                    "Text injection channel closed; continuing without injection"
-                                );
-                                injection_closed_this_event = true;
-                                injection_active = false;
-                            }
+                        {
+                            tracing::debug!(
+                                "Text injection channel closed; continuing without injection"
+                            );
+                            injection_closed_this_event = true;
+                            injection_active = false;
                         }
                     }
 
@@ -613,7 +612,10 @@ pub async fn start(
                 }
                 // Map optional fail_fast setting (if provided) to the enum
                 // CLI flag and env var wiring
-                config.fail_fast = inj.fail_fast || std::env::var("COLDVOX_FAIL_FAST").map(|v| v == "1" || v.to_lowercase() == "true").unwrap_or(false);
+                config.fail_fast = inj.fail_fast
+                    || std::env::var("COLDVOX_FAIL_FAST")
+                        .map(|v| v == "1" || v.to_lowercase() == "true")
+                        .unwrap_or(false);
 
                 let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>(1);
                 let processor = crate::text_injection::AsyncInjectionProcessor::new(

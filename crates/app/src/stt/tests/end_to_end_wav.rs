@@ -60,6 +60,7 @@ fn resolve_vosk_model_path() -> String {
             let final_path = absolute_path.to_string_lossy().to_string();
             return final_path;
         }
+    }
     if model_path.join("graph").exists() {
         return model_path.to_string_lossy().to_string();
     }
@@ -766,7 +767,7 @@ async fn test_end_to_end_with_real_injection() {
     let mut injection_config = InjectionConfig {
         allow_kdotool: false,
         allow_enigo: false,
-    // clipboard restoration is automatic
+        // clipboard restoration is automatic
         inject_on_unknown_focus: false, // Require proper focus
         require_focus: true,
         ..Default::default()

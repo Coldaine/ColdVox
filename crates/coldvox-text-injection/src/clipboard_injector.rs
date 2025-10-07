@@ -35,38 +35,50 @@ impl TextInjector for ClipboardInjector {
     }
 
     async fn inject_text(&self, text: &str) -> InjectionResult<()> {
+        use std::io::Read;
+        use wl_clipboard_rs::copy::{MimeType, Options, Source};
+        use wl_clipboard_rs::paste::{get_contents, ClipboardType, MimeType as PasteMimeType, Seat};
+        use tokio::time::Duration;
+
         if text.is_empty() {
             return Ok(());
         }
 
-        let _start = Instant::now();
-
-    // Save current clipboard (always performed)
-    // Note: Clipboard saving uses blocking APIs so we offload via spawn_blocking
-        // Pattern note: TextInjector is synchronous by design; for async-capable
-        // backends, we offload to a blocking thread and communicate via channels.
-        // This keeps the trait simple while still allowing async operations under the hood.
-
-        // Set new clipboard content with timeout
-        let text_clone = text.to_string();
-        let timeout_ms = self.config.per_method_timeout_ms;
-
-        let result = tokio::task::spawn_blocking(move || {
-            let source = Source::Bytes(text_clone.into_bytes().into());
-            let options = Options::new();
-
-            options.copy(source, MimeType::Text)
-        })
-        .await;
-
-        match result {
-            Ok(Ok(_)) => {
-                info!("Clipboard set successfully ({} chars)", text.len());
-                Ok(())
+        // Save current clipboard
+        let saved_clipboard = match get_contents(ClipboardType::Regular, Seat::Unspecified, PasteMimeType::Text) {
+            Ok((mut pipe, _mime)) => {
+                let mut contents = String::new();
+                if pipe.read_to_string(&mut contents).is_ok() {
+                    Some(contents)
+                } else {
+                    None
+                }
             }
-            Ok(Err(e)) => Err(InjectionError::Clipboard(e.to_string())),
-            Err(_) => Err(InjectionError::Timeout(timeout_ms)),
+            Err(_) => None,
+        };
+
+        // Set new clipboard content
+        let source = Source::Bytes(text.as_bytes().to_vec().into());
+        let opts = Options::new();
+        match opts.copy(source, MimeType::Text) {
+            Ok(_) => {
+                debug!("Clipboard set successfully ({} chars)", text.len());
+            }
+            Err(e) => return Err(InjectionError::Clipboard(e.to_string())),
         }
+
+        // Schedule restoration after a delay
+        if let Some(content) = saved_clipboard {
+            let delay_ms = self.config.clipboard_restore_delay_ms.unwrap_or(500);
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                let src = Source::Bytes(content.as_bytes().to_vec().into());
+                let opts = Options::new();
+                let _ = opts.copy(src, MimeType::Text);
+            });
+        }
+
+        Ok(())
     }
 
     fn backend_info(&self) -> Vec<(&'static str, String)> {
@@ -281,7 +293,9 @@ mod tests {
     fn test_clipboard_restore() {
         env::set_var("WAYLAND_DISPLAY", "wayland-0");
 
-        let config = InjectionConfig { ..Default::default() };
+        let config = InjectionConfig {
+            ..Default::default()
+        };
 
         let mut injector = ClipboardInjector::new(config);
 

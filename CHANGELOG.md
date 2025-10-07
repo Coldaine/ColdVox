@@ -26,6 +26,7 @@ Details
 - crates/coldvox-text-injection
 	- StrategyManager prefers AT‑SPI first on Wayland, then Clipboard; Combo Clipboard+ydotool gated via config
 	- Cooldown and per-method success cache to avoid retries on flaky backends; environment-first ordering
+	- Clipboard injectors now automatically save and restore user's clipboard content after injection (configurable delay)
 - crates/coldvox-telemetry
 	- Minor additions for STT metrics integration
 - docs
