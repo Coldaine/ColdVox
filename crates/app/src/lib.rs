@@ -59,8 +59,24 @@ pub struct Settings {
 }
 
 impl Settings {
+    /// Load settings from a specific config file path (for tests)
+    pub fn from_path(config_path: impl AsRef<std::path::Path>) -> Result<Self, String> {
+        let builder = Config::builder()
+            .add_source(Environment::with_prefix("coldvox").separator("__"))
+            .add_source(File::with_name(config_path.as_ref().to_str().unwrap()));
+
+        let config = builder.build()
+            .map_err(|e| format!("Failed to build config: {}", e))?;
+
+        let mut settings: Settings = config.try_deserialize()
+            .map_err(|e| format!("Failed to deserialize settings: {}", e))?;
+
+        settings.validate().map_err(|e| e.to_string())?;
+        Ok(settings)
+    }
+
     pub fn new() -> Result<Self, String> {
-        let mut builder = Config::builder()
+        let builder = Config::builder()
             .add_source(Environment::with_prefix("coldvox").separator("__"))
             .add_source(File::with_name("config/default.toml"));
 
