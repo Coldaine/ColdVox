@@ -2,9 +2,9 @@ use crate::clipboard_injector::ClipboardInjector;
 use crate::types::{InjectionConfig, InjectionResult};
 use crate::TextInjector;
 use async_trait::async_trait;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::process::Command;
-use crate::types::{InjectionConfig, InjectionMetrics, InjectionError};
+use crate::types::{InjectionMetrics, InjectionError};
 use tracing::{debug, trace};
 
 #[cfg(feature = "atspi")]
@@ -70,7 +70,7 @@ impl TextInjector for ClipboardPasteInjector {
         #[cfg(feature = "wl_clipboard")]
         {
             use std::io::Read;
-            match get_contents(ClipboardType::Regular, Seat::Unspecified, PasteMime::Text) {
+            match get_contents(ClipboardType::Regular, Seat::Unspecified, PasteMimeType::Text) {
                 Ok((mut pipe, _mime)) => {
                     let mut buf = String::new();
                     if pipe.read_to_string(&mut buf).is_ok() {

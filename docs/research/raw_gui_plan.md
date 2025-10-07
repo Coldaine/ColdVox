@@ -1,5 +1,9 @@
 # Raw Plan for GUI Integration
 
+> ⚠️ **RESEARCH DOCUMENT - WORK IN PROGRESS**
+> Contains incomplete sections and future work markers.
+> Last updated: 2025-10-07
+
 This is a raw, unedited plan for setting up a Qt-based GUI on Fedora/Nobara.
 
 ### 0) Preconditions

@@ -1,5 +1,9 @@
 # Parakeet-TDT-1.1B Rust Implementation: Technical Solutions
 
+> ⚠️ **RESEARCH DOCUMENT - WORK IN PROGRESS**
+> Contains incomplete sections and future work markers.
+> Last updated: 2025-10-07
+
 Based on comprehensive research into the Parakeet-TDT-1.1B model and Rust ecosystem, I've identified practical solutions for all four technical challenges you've outlined. Here's a detailed analysis with working code examples and implementation strategies.
 
 ## 1. Audio Preprocessing for Parakeet

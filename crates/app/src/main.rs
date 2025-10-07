@@ -4,208 +4,21 @@
 // - The logs/ directory is created on startup if missing; file output uses a non-blocking writer.
 // - File layer disables ANSI to keep logs clean for analysis.
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use std::time::SystemTime;
 
 use clap::Parser;
-use config::{Config, Environment, File};
-use serde::Deserialize;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
+use coldvox_app::Settings;
 use coldvox_app::runtime::{self as app_runtime, ActivationMode as RuntimeMode, AppRuntimeOptions};
 use coldvox_audio::{DeviceManager, ResamplerQuality};
 use coldvox_foundation::{AppState, HealthMonitor, ShutdownHandler, StateManager};
 
 #[cfg(feature = "tui")]
 use coldvox_app::tui;
-
-#[derive(Debug, Deserialize, Default)]
-pub struct InjectionSettings {
-    fail_fast: bool,
-    allow_kdotool: bool,
-    allow_enigo: bool,
-    inject_on_unknown_focus: bool,
-    require_focus: bool,
-    pause_hotkey: String,
-    redact_logs: bool,
-    max_total_latency_ms: u64,
-    per_method_timeout_ms: u64,
-    paste_action_timeout_ms: u64,
-    cooldown_initial_ms: u64,
-    cooldown_backoff_factor: f64,
-    cooldown_max_ms: u64,
-    injection_mode: String,
-    keystroke_rate_cps: u32,
-    max_burst_chars: u32,
-    paste_chunk_chars: u32,
-    chunk_delay_ms: u64,
-    focus_cache_duration_ms: u64,
-    enable_window_detection: bool,
-    clipboard_restore_delay_ms: u64,
-    discovery_timeout_ms: u64,
-    allowlist: Vec<String>,
-    blocklist: Vec<String>,
-    min_success_rate: f32,
-    min_sample_size: u32,
-}
-
-#[derive(Debug, Deserialize, Default)]
-pub struct SttSettings {
-    preferred: Option<String>,
-    fallbacks: Vec<String>,
-    require_local: bool,
-    max_mem_mb: Option<u32>,
-    language: Option<String>,
-    failover_threshold: u32,
-    failover_cooldown_secs: u32,
-    model_ttl_secs: u32,
-    disable_gc: bool,
-    metrics_log_interval_secs: u32,
-    debug_dump_events: bool,
-    auto_extract: bool,
-}
-
-#[derive(Debug, Deserialize, Default)]
-pub struct Settings {
-    device: Option<String>,
-    resampler_quality: String,
-    enable_device_monitor: bool,
-    activation_mode: String,
-    injection: InjectionSettings,
-    stt: SttSettings,
-}
-
-impl Settings {
-    /// Load settings from a specific config file path (for tests)
-    #[cfg(test)]
-    pub fn from_path(config_path: impl AsRef<Path>) -> Result<Self, String> {
-        let builder = Config::builder()
-            .add_source(Environment::with_prefix("coldvox").separator("__"))
-            .add_source(File::with_name(config_path.as_ref().to_str().unwrap()));
-
-        let config = builder.build()
-            .map_err(|e| format!("Failed to build config: {}", e))?;
-
-        let mut settings: Settings = config.try_deserialize()
-            .map_err(|e| format!("Failed to deserialize settings: {}", e))?;
-
-        settings.validate().map_err(|e| e.to_string())?;
-        Ok(settings)
-    }
-
-    fn new() -> Result<Self, String> {
-        let builder = Config::builder()
-            .add_source(Environment::with_prefix("coldvox").separator("__"))
-            .add_source(File::with_name("config/default.toml"));
-
-        let config = builder.build().map_err(|e| format!("Failed to build config (likely invalid env vars): {}", e))?;
-
-        let mut settings: Settings = config.try_deserialize().map_err(|e| format!("Failed to deserialize settings from config: {}", e))?;
-
-        // Log if default.toml was not found (non-critical)
-        if !Path::new("config/default.toml").exists() {
-            tracing::debug!("config/default.toml not found. Using environment variables and defaults.");
-        }
-
-        // Post-parsing validation
-        settings.validate().map_err(|e| e.to_string())?;
-
-        Ok(settings)
-    }
-
-    fn validate(&mut self) -> Result<(), String> {
-        let mut errors = Vec::new();
-
-        // Validate resampler_quality
-        if !["fast", "balanced", "quality"].contains(&self.resampler_quality.to_lowercase().as_str()) {
-            tracing::warn!("Invalid resampler_quality '{}'. Defaulting to 'balanced'.", self.resampler_quality);
-            self.resampler_quality = "balanced".to_string();
-        }
-
-        // Validate activation_mode
-        if !["vad", "hotkey"].contains(&self.activation_mode.to_lowercase().as_str()) {
-            tracing::warn!("Invalid activation_mode '{}'. Defaulting to 'vad'.", self.activation_mode);
-            self.activation_mode = "vad".to_string();
-        }
-
-        // Validate injection settings
-        if self.injection.max_total_latency_ms == 0 {
-            errors.push("Injection max_total_latency_ms must be >0".to_string());
-        }
-        if self.injection.per_method_timeout_ms == 0 {
-            errors.push("Injection per_method_timeout_ms must be >0".to_string());
-        }
-        if self.injection.paste_action_timeout_ms == 0 {
-            errors.push("Injection paste_action_timeout_ms must be >0".to_string());
-        }
-        if self.injection.cooldown_initial_ms == 0 {
-            errors.push("Injection cooldown_initial_ms must be >0".to_string());
-        }
-        if self.injection.cooldown_max_ms == 0 {
-            errors.push("Injection cooldown_max_ms must be >0".to_string());
-        }
-        if self.injection.cooldown_backoff_factor <= 0.0 || self.injection.cooldown_backoff_factor > 10.0 {
-            tracing::warn!("Invalid cooldown_backoff_factor {}. Clamping to 2.0.", self.injection.cooldown_backoff_factor);
-            self.injection.cooldown_backoff_factor = 2.0;
-        }
-        if !["keystroke", "paste", "auto"].contains(&self.injection.injection_mode.to_lowercase().as_str()) {
-            tracing::warn!("Invalid injection_mode '{}'. Defaulting to 'auto'.", self.injection.injection_mode);
-            self.injection.injection_mode = "auto".to_string();
-        }
-        if self.injection.keystroke_rate_cps == 0 || self.injection.keystroke_rate_cps > 100 {
-            tracing::warn!("Invalid keystroke_rate_cps {}. Clamping to 20.", self.injection.keystroke_rate_cps);
-            self.injection.keystroke_rate_cps = 20;
-        }
-        if self.injection.max_burst_chars == 0 {
-            errors.push("Injection max_burst_chars must be >0".to_string());
-        }
-        if self.injection.paste_chunk_chars == 0 {
-            errors.push("Injection paste_chunk_chars must be >0".to_string());
-        }
-        if self.injection.chunk_delay_ms == 0 {
-            errors.push("Injection chunk_delay_ms must be >0".to_string());
-        }
-        if self.injection.focus_cache_duration_ms == 0 {
-            errors.push("Injection focus_cache_duration_ms must be >0".to_string());
-        }
-        if self.injection.clipboard_restore_delay_ms == 0 {
-            errors.push("Injection clipboard_restore_delay_ms must be >0".to_string());
-        }
-        if self.injection.discovery_timeout_ms == 0 {
-            errors.push("Injection discovery_timeout_ms must be >0".to_string());
-        }
-        if self.injection.min_success_rate < 0.0 || self.injection.min_success_rate > 1.0 {
-            tracing::warn!("Invalid min_success_rate {}. Clamping to 0.3.", self.injection.min_success_rate);
-            self.injection.min_success_rate = 0.3;
-        }
-        if self.injection.min_sample_size == 0 {
-            errors.push("Injection min_sample_size must be >0".to_string());
-        }
-
-        // Validate STT settings
-        if self.stt.failover_threshold == 0 {
-            errors.push("STT failover_threshold must be >0".to_string());
-        }
-        if self.stt.failover_cooldown_secs == 0 {
-            errors.push("STT failover_cooldown_secs must be >0".to_string());
-        }
-        if self.stt.model_ttl_secs == 0 {
-            errors.push("STT model_ttl_secs must be >0".to_string());
-        }
-
-        if !errors.is_empty() {
-            let error_msg = format!("Critical config validation errors: {:?}", errors);
-            return Err(error_msg);
-        }
-
-        // Log non-critical warnings if any were applied
-        tracing::info!("Configuration validation completed successfully.");
-
-        Ok(())
-    }
-}
 
 fn init_logging() -> Result<tracing_appender::non_blocking::WorkerGuard, Box<dyn std::error::Error>>
 {
@@ -375,19 +188,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
     };
 
-    let mut opts = AppRuntimeOptions::default();
-    opts.device = settings.device;
-    opts.resampler_quality = match settings.resampler_quality.to_lowercase().as_str() {
+    let device = settings.device.clone();
+    let resampler_quality = match settings.resampler_quality.to_lowercase().as_str() {
         "fast" => ResamplerQuality::Fast,
         "quality" => ResamplerQuality::Quality,
         _ => ResamplerQuality::Balanced,
     };
-    opts.activation_mode = match settings.activation_mode.as_str() {
+    let activation_mode = match settings.activation_mode.as_str() {
         "vad" => RuntimeMode::Vad,
         "hotkey" => RuntimeMode::Hotkey,
         _ => RuntimeMode::Vad,
     };
-    opts.stt_selection = stt_selection;
+
+    let mut opts = AppRuntimeOptions {
+        device,
+        resampler_quality,
+        activation_mode,
+        stt_selection,
+        enable_device_monitor: settings.enable_device_monitor,
+        ..Default::default()
+    };
     #[cfg(feature = "text-injection")]
     {
         opts.injection = if cfg!(feature = "text-injection") {
@@ -405,8 +225,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             None
         };
     }
-    opts.enable_device_monitor = settings.enable_device_monitor;
-
     let app = app_runtime::start(opts)
         .await
         .map_err(|e| e as Box<dyn std::error::Error>)?;
@@ -501,8 +319,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::field_reassign_with_default)]
+
     use super::*;
     use std::env;
+
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let previous = env::var(key).ok();
+            env::set_var(key, value);
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            if let Some(prev) = self.previous.take() {
+                env::set_var(self.key, prev);
+            } else {
+                env::remove_var(self.key);
+            }
+        }
+    }
 
     #[test]
     fn test_settings_new_default() {
@@ -510,17 +353,19 @@ mod tests {
         let settings = Settings::new().unwrap();
         assert_eq!(settings.resampler_quality.to_lowercase(), "balanced");
         assert_eq!(settings.activation_mode.to_lowercase(), "vad");
-        assert!(settings.injection.max_total_latency_ms > 0);
+        assert_eq!(settings.injection.max_total_latency_ms, 800);
         assert!(settings.stt.failover_threshold > 0);
     }
 
     #[test]
     fn test_settings_new_invalid_env_var_deserial() {
-        env::set_var("COLDVOX_INJECTION__MAX_TOTAL_LATENCY_MS", "abc");  // Invalid for u64
+        let _guard = EnvVarGuard::set("COLDVOX_INJECTION__MAX_TOTAL_LATENCY_MS", "abc"); // Invalid for u64
         let result = Settings::new();
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("deserialize"));
-        env::remove_var("COLDVOX_INJECTION__MAX_TOTAL_LATENCY_MS");
+        let err = result.expect_err("expected invalid env var to cause error");
+        assert!(
+            err.contains("deserialize"),
+            "unexpected error message: {err}"
+        );
     }
 
     #[test]
@@ -534,28 +379,28 @@ mod tests {
 
     #[test]
     fn test_settings_validate_invalid_mode() {
-        let mut settings = Settings::default();
+        let mut settings = Settings::new().unwrap();
         settings.resampler_quality = "invalid".to_string();
         let result = settings.validate();
-        assert!(result.is_ok());  // Warns but defaults applied
+        assert!(result.is_ok()); // Warns but defaults applied
         assert_eq!(settings.resampler_quality, "balanced");
     }
 
     #[test]
     fn test_settings_validate_invalid_rate() {
-        let mut settings = Settings::default();
-        settings.injection.keystroke_rate_cps = 200;  // Too high
+        let mut settings = Settings::new().unwrap();
+        settings.injection.keystroke_rate_cps = 200; // Too high
         let result = settings.validate();
-        assert!(result.is_ok());  // Warns and clamps
+        assert!(result.is_ok()); // Warns and clamps
         assert_eq!(settings.injection.keystroke_rate_cps, 20);
     }
 
     #[test]
     fn test_settings_validate_success_rate() {
-        let mut settings = Settings::default();
+        let mut settings = Settings::new().unwrap();
         settings.injection.min_success_rate = 1.5;
         let result = settings.validate();
-        assert!(result.is_ok());  // Warns and clamps
+        assert!(result.is_ok()); // Warns and clamps
         assert_eq!(settings.injection.min_success_rate, 0.3);
     }
 
@@ -570,18 +415,16 @@ mod tests {
 
     #[test]
     fn test_settings_new_with_env_override() {
-        env::set_var("COLDVOX_ACTIVATION_MODE", "hotkey");
+        let _guard = EnvVarGuard::set("COLDVOX_ACTIVATION_MODE", "hotkey");
         let settings = Settings::new().unwrap();
         assert_eq!(settings.activation_mode, "hotkey");
-        env::remove_var("COLDVOX_ACTIVATION_MODE");
     }
 
     #[test]
     fn test_settings_new_validation_err() {
-        env::set_var("COLDVOX_INJECTION__MAX_TOTAL_LATENCY_MS", "0");
+        let _guard = EnvVarGuard::set("COLDVOX_INJECTION__MAX_TOTAL_LATENCY_MS", "0");
         let result = Settings::new();
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("max_total_latency_ms"));
-        env::remove_var("COLDVOX_INJECTION__MAX_TOTAL_LATENCY_MS");
     }
 }
