@@ -6,6 +6,12 @@ activation_mode = "vad"
 enable_device_monitor = true
 device = null
 
+[App]
+resampler_quality = "balanced"     # "high", "balanced", "fast"
+activation_mode = "vad"            # "vad", "ptt"
+enable_device_monitor = true       # Automatically detect audio device changes
+device = null                      # Specific audio device name (null for default)
+ 
 [Injection]
 # Core behavior
 fail_fast = false                # Exit immediately if all injection methods fail

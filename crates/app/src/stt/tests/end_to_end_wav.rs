@@ -30,8 +30,10 @@ use coldvox_vad::types::VadEvent;
 /// test asset) and returns the first match. If nothing is found, returns the
 /// conventional relative path used previously so existing error messaging
 /// remains accurate.
+/// This is robust for both local development and CI runners.
 fn resolve_vosk_model_path() -> String {
     // 1. Environment override wins immediately
+    // 1. Environment variable override has the highest priority.
     if let Ok(p) = std::env::var("VOSK_MODEL_PATH") {
         return p;
     }
@@ -42,6 +44,12 @@ fn resolve_vosk_model_path() -> String {
         "../models/vosk-model-small-en-us-0.15",
         "../../models/vosk-model-small-en-us-0.15",
     ];
+    // 2. Dynamically locate the model relative to the project root.
+    // `CARGO_MANIFEST_DIR` is set by Cargo to the directory of the crate's Cargo.toml.
+    // From `crates/app`, we go up two levels to the project root.
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
+    let project_root = std::path::Path::new(&manifest_dir).join("../..");
+    let model_path = project_root.join("models/vosk-model-small-en-us-0.15");
 
     for cand in CANDIDATES {
         let graph_path = std::path::Path::new(cand).join("graph");
@@ -52,6 +60,8 @@ fn resolve_vosk_model_path() -> String {
             let final_path = absolute_path.to_string_lossy().to_string();
             return final_path;
         }
+    if model_path.join("graph").exists() {
+        return model_path.to_string_lossy().to_string();
     }
 
     // 3. Walk upward a few levels to locate a models directory dynamically
@@ -70,6 +80,9 @@ fn resolve_vosk_model_path() -> String {
     }
 
     // Fallback: original default path (so existing guidance still applies)
+    // 3. Fallback to the original default path. This ensures that if the model
+    // is placed in the working directory, it's still found. This is useful
+    // for CI setups that might copy artifacts.
     "models/vosk-model-small-en-us-0.15".to_string()
 }
 

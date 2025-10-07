@@ -1,21 +1,38 @@
-# Documentation & Test Infrastructure Fixes for Branch `anchor/oct-06-2025`
+# Documentation & Test Infrastructure Fixes for Branch anchor/oct-06-2025
+
+> **🚀 EXECUTION DIRECTIVE FOR AGENTS**
+>
+> This plan contains multiple independent tasks suitable for parallel execution. When executing this plan:
+> 1. **Dispatch subagents immediately** for tasks marked with 🤖 to maximize parallelism
+> 2. **Use general-purpose agents** for file search/modification tasks across different crates
+> 3. **Coordinate results** from parallel agents before proceeding to verification phases
+> 4. **Example dispatch pattern**:
+>    - Main agent: Handle Phase 1 core Settings implementation
+>    - Subagent 1: Fix all documentation files in Phase 2 concurrently
+>    - Subagent 2: Run clippy fixes in Phase 3 while others work
+>    - Subagent 3: Search for additional instances of deprecated patterns
+>
+> This approach can reduce execution time from 2-3 hours to ~45 minutes.
 
 ## Context
+
 Branch `anchor/oct-06-2025` contains comprehensive refactor work (76 files, 3,719 insertions, 1,729 deletions) that is production-ready except for:
-1. Test infrastructure issues (7 failing tests in settings_test.rs)
-2. Documentation inconsistencies (XDG claims, missing doc links, broken symlinks)
-3. Minor code hygiene issues (clippy warnings)
+
+- Test infrastructure issues (7 failing tests in `settings_test.rs`)
+- Documentation inconsistencies (XDG claims, missing doc links, broken symlinks)
+- Minor code hygiene issues (clippy warnings)
 
 ## Pre-Execution: Git State Management
 
 ### Step 0: Document and Handle Working Directory State
+
 ```bash
 # Check current state
 git status
 
 # Current uncommitted changes (expected):
 # M  config/default.toml
-# M  crates/app/tests/settings_test.rs  
+# M  crates/app/tests/settings_test.rs
 # M  docs/tasks/refactor_debug_plan.md
 # ?? crates/app/config/
 
@@ -35,14 +52,20 @@ git commit -m "chore: document refactor state before systematic fixes
 - In-progress config and test changes to be formalized"
 ```
 
----
-
 ## Phase 1: Critical Test Infrastructure Fix
 
 ### Objective
+
 Fix 7 failing tests in `settings_test.rs` that fail due to config file path issues.
 
+### 🤖 Subagent Opportunity
+**Dispatch a general-purpose agent** to search for all instances of `Settings::new()` usage across the codebase while the main agent implements the fix:
+```
+Task: "Search for all Settings::new() usages and config file references across the entire codebase to ensure we catch all path-dependent code"
+```
+
 ### Root Cause Analysis
+
 **Problem**: `Settings::new()` in `crates/app/src/main.rs:84` hardcodes path:
 ```rust
 .add_source(File::with_name("config/default.toml"))
@@ -104,11 +127,11 @@ fn get_test_config_path() -> PathBuf {
         .parent()
         .unwrap()
         .join("config/default.toml");
-    
+
     if workspace_config.exists() {
         return workspace_config;
     }
-    
+
     // Fallback to relative path from crate root
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../config/default.toml")
@@ -128,6 +151,7 @@ fn test_settings_new_default() {
 ```
 
 ### Verification (Phase 1)
+
 ```bash
 # Must pass before proceeding
 cargo test --test settings_test
@@ -139,6 +163,7 @@ cargo test --workspace --lib
 ```
 
 ### Commit Strategy (Phase 1)
+
 ```bash
 git add crates/app/src/main.rs crates/app/tests/settings_test.rs
 git commit -m "fix(tests): make Settings path-configurable for test environments
@@ -150,65 +175,85 @@ git commit -m "fix(tests): make Settings path-configurable for test environments
 Tests now pass in both unit and integration contexts."
 ```
 
----
-
 ## Phase 2: Documentation Corrections
 
 ### Objective
+
 Fix false claims and broken references in documentation to match actual implementation.
 
-### Task 2.1: Fix XDG_CONFIG_HOME False Claim
+### 🤖 Parallel Execution Opportunity
+
+**Dispatch multiple subagents** to fix documentation issues simultaneously:
+
+```
+Subagent 1: "Fix all XDG_CONFIG_HOME false claims in config/README.md and docs/deployment.md"
+Subagent 2: "Fix overrides.toml claims and update loading order documentation in config/README.md"
+Subagent 3: "Search entire codebase for any other XDG_CONFIG_HOME references or broken doc links to text_injection_headless.md and THIRDPARTY.md"
+Subagent 4: "Identify and remove all broken symlinks in docs/reference/crates/ directory"
+```
+
+**Main agent**: Coordinate results and ensure consistency across all documentation changes.
+
+#### Task 2.1: Fix XDG_CONFIG_HOME False Claim
 
 **File**: `config/README.md` (line ~52)
 
-**Context**: Code does NOT implement XDG search; docs claim it does.
+Context: Code does NOT implement XDG search; docs claim it does.
 
+**OLD**:
 ```markdown
-OLD:
 - **Runtime Loading**: The app searches for `default.toml` in the current directory or `$XDG_CONFIG_HOME/coldvox/`. Ensure it's accessible post-deploy.
+```
 
-NEW:
+**NEW**:
+```markdown
 - **Runtime Loading**: The app loads `config/default.toml` relative to the working directory. XDG support not implemented; to add it, extend `Settings::new()` with XDG path lookup (see deployment docs for details).
 ```
 
-### Task 2.2: Fix overrides.toml Auto-Loading Claim
+#### Task 2.2: Fix overrides.toml Auto-Loading Claim
 
 **File**: `config/README.md` (line ~70)
 
+**OLD**:
 ```markdown
-OLD:
   - Load order: CLI flags > Env vars > overrides.toml > default.toml > hardcoded defaults.
+```
 
-NEW:
+**NEW**:
+```markdown
   - Current load order: CLI flags > Env vars > default.toml > hardcoded defaults.
   - Note: `overrides.toml` is a template and NOT automatically loaded. To enable, add `.add_source(File::with_name("config/overrides.toml").required(false))` to Settings::new().
 ```
 
-### Task 2.3: Fix Deployment Doc XDG Claim
+#### Task 2.3: Fix Deployment Doc XDG Claim
 
 **File**: `docs/deployment.md` (line ~29)
 
+**OLD**:
 ```markdown
-OLD:
 - **Build Inclusion**: The TOML file is not embedded in the binary; it is loaded at runtime from the working directory or XDG_CONFIG_HOME.
+```
 
-NEW:
+**NEW**:
+```markdown
 - **Build Inclusion**: The TOML file is not embedded in the binary; it is loaded at runtime from `config/default.toml` relative to the working directory. XDG_CONFIG_HOME support is not currently implemented.
 ```
 
-### Task 2.4: Fix Missing Doc Reference
+#### Task 2.4: Fix Missing Doc Reference
 
 **File**: `README.md` (line ~75)
 
+**OLD**:
 ```markdown
-OLD:
 Headless behavior notes: see [`docs/text_injection_headless.md`](docs/text_injection_headless.md).
+```
 
-NEW:
+**NEW**:
+```markdown
 Headless behavior: Text injection works in headless environments via clipboard strategies. See `docs/deployment.md` for configuration and `crates/coldvox-text-injection/README.md` for backend details.
 ```
 
-### Task 2.5: Remove Broken Symlinks
+#### Task 2.5: Remove Broken Symlinks
 
 ```bash
 cd docs/reference/crates/
@@ -218,18 +263,20 @@ rm app.md coldvox-vad.md coldvox-vad-silero.md
 # Crates have inline rustdoc; use `cargo doc` instead.
 ```
 
-### Task 2.6: Fix Missing THIRDPARTY.md Reference
+#### Task 2.6: Fix Missing THIRDPARTY.md Reference
 
 **File**: `docs/adr/0001-vosk-model-distribution.md` (line ~44)
 
+**OLD**:
 ```markdown
-OLD:
 ## Related Documents
 - `THIRDPARTY.md`
 - `crates/coldvox-stt-vosk/src/model.rs`
 - `README.md` (root)
+```
 
-NEW:
+**NEW**:
+```markdown
 ## Related Documents
 - `crates/coldvox-stt-vosk/src/model.rs`
 - `README.md` (root)
@@ -237,6 +284,7 @@ NEW:
 ```
 
 ### Verification (Phase 2)
+
 ```bash
 # Check for broken markdown links
 find docs -name "*.md" -type f -exec grep -l "docs/text_injection_headless.md\|THIRDPARTY.md\|XDG_CONFIG_HOME" {} \;
@@ -248,6 +296,7 @@ ls -la docs/reference/crates/ | grep " -> " | grep -E "(app|coldvox-vad)"
 ```
 
 ### Commit Strategy (Phase 2)
+
 ```bash
 git add config/README.md docs/deployment.md README.md docs/adr/0001-vosk-model-distribution.md
 git rm docs/reference/crates/app.md docs/reference/crates/coldvox-vad.md docs/reference/crates/coldvox-vad-silero.md
@@ -262,30 +311,41 @@ git commit -m "docs: fix false XDG claims and remove broken references
 All documentation now matches actual implementation behavior."
 ```
 
----
-
 ## Phase 3: Code Hygiene (Clippy Warnings)
 
 ### Objective
+
 Clean up compiler warnings to maintain code quality standards.
 
-### Task 3.1: Auto-Fix Safe Warnings
+### 🤖 Parallel Clippy Fix Opportunity
+
+**While main agent continues with critical path work**, dispatch a subagent:
+
+```
+Subagent: "Run cargo clippy --fix on the entire workspace and manually fix any remaining warnings in device.rs, types.rs, lib.rs, and main.rs according to the specific fixes listed in the plan"
+```
+
+This allows clippy fixes to proceed in parallel with other work since they don't block other tasks.
+
+#### Task 3.1: Auto-Fix Safe Warnings
 
 ```bash
 cargo clippy --fix --allow-dirty --workspace --all-targets
 ```
 
-### Task 3.2: Manual Fixes for Remaining Warnings
+#### Task 3.2: Manual Fixes for Remaining Warnings
 
 Based on current clippy output:
 
 **File**: `crates/coldvox-audio/src/device.rs` (line ~27)
+
 ```rust
 OLD: let host = StderrSuppressor::with_suppressed(|| cpal::default_host());
 NEW: let host = StderrSuppressor::with_suppressed(cpal::default_host);
 ```
 
 **File**: `crates/coldvox-text-injection/src/types.rs` (line ~5)
+
 ```rust
 // Remove empty line after doc comment
 OLD:
@@ -299,24 +359,28 @@ pub struct InjectionError {
 ```
 
 **File**: `crates/app/src/lib.rs` (line ~3)
+
 ```rust
 OLD: use tracing;
 NEW: // Remove if unused, or keep if re-exported
 ```
 
 **File**: `crates/app/src/lib.rs` (line ~63)
+
 ```rust
 OLD: let mut builder = Config::builder()
 NEW: let builder = Config::builder()
 ```
 
 **File**: `crates/app/src/main.rs` (line ~82)
+
 ```rust
 OLD: let mut builder = Config::builder()
 NEW: let builder = Config::builder()
 ```
 
 ### Verification (Phase 3)
+
 ```bash
 # Must pass with zero warnings
 cargo clippy --workspace --all-targets -- -D warnings
@@ -328,6 +392,7 @@ cargo test --workspace
 ```
 
 ### Commit Strategy (Phase 3)
+
 ```bash
 git add -A
 git commit -m "style: fix clippy warnings across workspace
@@ -340,11 +405,23 @@ git commit -m "style: fix clippy warnings across workspace
 All clippy warnings resolved; workspace builds cleanly."
 ```
 
----
-
 ## Phase 4: Comprehensive Verification
 
+### 🤖 Parallel Verification Strategy
+
+**Dispatch multiple subagents** to run verification steps concurrently:
+
+```
+Subagent 1: "Run full test suite (cargo test --workspace) and report any failures"
+Subagent 2: "Run build verification (cargo build --workspace --all-targets and cargo build --release --workspace)"
+Subagent 3: "Execute all smoke tests listed in Phase 4 and document results"
+Subagent 4: "Run documentation verification checks for broken links and symlinks"
+```
+
+**Main agent**: Collect all verification results and determine if any issues need addressing before proceeding.
+
 ### Build Verification
+
 ```bash
 # Clean build from scratch
 cargo clean
@@ -357,6 +434,7 @@ cargo build --release --workspace
 ```
 
 ### Test Suite Verification
+
 ```bash
 # Full test suite
 cargo test --workspace
@@ -372,6 +450,7 @@ cargo test --workspace --test '*'
 ```
 
 ### Smoke Tests (Manual)
+
 ```bash
 # 1. App starts and shows new flag
 cargo run -- --help | grep injection-fail-fast
@@ -397,6 +476,7 @@ cargo run -- --list-devices
 ```
 
 ### Documentation Verification
+
 ```bash
 # Check all markdown files for common issues
 find . -name "*.md" -type f ! -path "./target/*" -exec grep -l "XDG_CONFIG_HOME\|text_injection_headless\|THIRDPARTY\.md" {} \;
@@ -407,18 +487,27 @@ find docs -type l ! -exec test -e {} \; -print
 # Expected: No output
 ```
 
----
-
 ## Phase 5: Optional Enhancements
+
+### 🤖 Parallel Enhancement Opportunity
+
+If time permits, **dispatch subagents** for optional improvements:
+
+```
+Subagent 1: "Add WIP badges to all files in docs/research/*.md and crates/coldvox-gui/docs/implementation-plan.md"
+Subagent 2: "Add comprehensive test author documentation to config/README.md with examples of Settings::from_path() usage"
+Subagent 3: "Search for any additional documentation that references deprecated patterns or needs updating"
+```
 
 ### Task 5.1: Add WIP Badges to Research Docs
 
 **Files**: `docs/research/*.md`, `crates/coldvox-gui/docs/implementation-plan.md`
 
 Add at top:
+
 ```markdown
-> ⚠️ **RESEARCH DOCUMENT - WORK IN PROGRESS**  
-> Contains incomplete sections and future work markers.  
+> ⚠️ **RESEARCH DOCUMENT - WORK IN PROGRESS**
+> Contains incomplete sections and future work markers.
 > Last updated: 2025-10-07
 ```
 
@@ -442,11 +531,9 @@ let settings = Settings::from_path(&config_path)?;
 This ensures tests work regardless of working directory context.
 ```
 
----
-
 ## Success Criteria
 
-**Before merge, all must be ✅**:
+Before merge, all must be ✅:
 
 - [ ] All tests pass: `cargo test --workspace`
 - [ ] Clean build: `cargo clippy --workspace -- -D warnings`
@@ -454,30 +541,31 @@ This ensures tests work regardless of working directory context.
 - [ ] Documentation matches implementation (no XDG claims)
 - [ ] Git history is clean with descriptive commits
 - [ ] Smoke tests confirm core functionality works
-- [ ] settings_test.rs passes all 9 tests
-
----
+- [ ] `settings_test.rs` passes all 9 tests
 
 ## Risk Assessment
 
 ### Configuration System (Originally "High" - Now "Low")
+
 - **Mitigation Applied**: Path-configurable Settings with test helpers
 - **Residual Risk**: Deployment environments must ensure `config/default.toml` is present
-- **Documentation**: deployment.md updated to clarify this requirement
+- **Documentation**: `deployment.md` updated to clarify this requirement
 
 ### Text Injection (Medium - Unchanged)
+
 - **Status**: Clipboard paste priority well-tested on Linux desktops
 - **Residual Risk**: Platform-specific behaviors (Wayland vs X11)
 - **Mitigation**: Fallback chains documented in crate README
 - **Action**: Manual smoke test recommended on target deployment platform
 
 ### Code Quality (Low)
+
 - **Status**: Clippy warnings resolved
 - **Residual Risk**: Minimal - standard Rust code quality practices
 
----
-
 ## Effort Summary
+
+### Sequential Execution Time
 
 | Phase | Effort | Blocking? |
 |-------|--------|-----------|
@@ -488,40 +576,58 @@ This ensures tests work regardless of working directory context.
 | Phase 4 (Verification) | Medium | Yes |
 | Phase 5 (Optional) | Small | No |
 
-**Total effort**: 2-3 hours for required phases
+**Total effort (sequential)**: 2-3 hours for required phases
 
----
+### 🤖 Parallel Execution Time with Subagents
+
+| Phase | Main Agent | Subagents | Time Saved |
+|-------|------------|-----------|------------|
+| Phase 1 | Implement Settings fix | Search for all Settings usages | 15 min |
+| Phase 2 | Coordinate changes | 4 agents fixing docs in parallel | 30 min |
+| Phase 3 | Continue other work | 1 agent runs clippy fixes | 20 min |
+| Phase 4 | Collect results | 4 agents run verification in parallel | 30 min |
+| Phase 5 | Final review | 3 agents apply enhancements | 15 min |
+
+**Total effort (parallel with subagents)**: ~45 minutes
+
+### Agent Coordination Best Practices
+
+1. **Launch agents early**: Dispatch subagents as soon as their tasks are identified
+2. **Use descriptive prompts**: Include specific file paths and expected outcomes
+3. **Coordinate checkpoints**: Wait for all Phase N agents before starting Phase N+1
+4. **Handle conflicts**: Main agent resolves any merge conflicts from parallel edits
+5. **Verify completeness**: Main agent ensures all subtasks are completed before moving phases
 
 ## Post-Completion Actions
 
-1. **Update PR description** with:
+1. Update PR description with:
    - Test fixes applied
    - Documentation corrections made
    - Clean clippy build achieved
 
-2. **Request review** from:
+2. Request review from:
    - Code owner for config system changes
    - Platform maintainer for injection system
 
-3. **Prepare merge commit message**:
-   ```
-   refactor: production-ready config system and docs
-   
-   - Fixed test infrastructure with path-aware Settings
-   - Corrected documentation XDG/overrides claims
-   - Resolved all clippy warnings
-   - Comprehensive refactor (76 files, 3.7k additions)
-   
-   Tests: All pass
-   Build: Clean (no warnings)
-   Docs: Accurate and complete
-   ```
+3. Prepare merge commit message:
 
----
+```
+refactor: production-ready config system and docs
+
+- Fixed test infrastructure with path-aware Settings
+- Corrected documentation XDG/overrides claims
+- Resolved all clippy warnings
+- Comprehensive refactor (76 files, 3.7k additions)
+
+Tests: All pass
+Build: Clean (no warnings)
+Docs: Accurate and complete
+```
 
 ## Notes for Reviewers
 
-**This plan addresses**:
+This plan addresses:
+
 - ✅ Test infrastructure brittleness with robust path handling
 - ✅ Documentation accuracy (no false XDG/overrides claims)
 - ✅ Code quality (all clippy warnings)
@@ -529,8 +635,39 @@ This ensures tests work regardless of working directory context.
 - ✅ Clear commit strategy
 - ✅ Evidence-based approach (all claims verified with code/output)
 
-**Philosophy**: 
-- **Thoroughness over brevity** in documentation (users need context)
-- **Phased verification** for critical changes (tests, builds)
-- **Clear commit messages** for reviewability
-- **Production-ready standards** (no warnings, all tests pass)
+**Philosophy**:
+- Thoroughness over brevity in documentation (users need context)
+- Phased verification for critical changes (tests, builds)
+- Clear commit messages for reviewability
+- Production-ready standards (no warnings, all tests pass)
+
+---
+
+## 🤖 Quick Reference: All Subagent Tasks
+
+For agents executing this plan, here's a consolidated list of all parallel tasks:
+
+### Phase 1 Subagents
+- Search for all `Settings::new()` usages and config file references
+
+### Phase 2 Subagents (4 parallel)
+1. Fix XDG_CONFIG_HOME false claims in `config/README.md` and `docs/deployment.md`
+2. Fix overrides.toml claims in `config/README.md`
+3. Search for deprecated pattern references across codebase
+4. Remove broken symlinks in `docs/reference/crates/`
+
+### Phase 3 Subagent
+- Run `cargo clippy --fix` and apply manual fixes per plan
+
+### Phase 4 Subagents (4 parallel)
+1. Run full test suite (`cargo test --workspace`)
+2. Run build verification (debug and release)
+3. Execute all smoke tests
+4. Run documentation verification checks
+
+### Phase 5 Subagents (3 parallel)
+1. Add WIP badges to research docs
+2. Add test author documentation to `config/README.md`
+3. Search for additional documentation needing updates
+
+**Total potential subagents: 13** (can reduce execution time by ~75%)
