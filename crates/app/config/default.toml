@@ -1,11 +1,6 @@
 # ColdVox default configuration file
 # All options below are shown with their default values and comments.
 
-resampler_quality = "balanced"
-activation_mode = "vad"
-enable_device_monitor = true
-device = null
-
 [Injection]
 # Core behavior
 fail_fast = false                # Exit immediately if all injection methods fail
@@ -46,17 +41,3 @@ blocklist = []                   # List of blocked app patterns (regex)
 # Success rate tuning
 min_success_rate = 0.3           # Minimum success rate before fallback
 min_sample_size = 5              # Samples before trusting success rate
-
-[stt]
-preferred = null
-fallbacks = []
-require_local = false
-max_mem_mb = null
-language = null
-failover_threshold = 5
-failover_cooldown_secs = 10
-model_ttl_secs = 300
-disable_gc = false
-metrics_log_interval_secs = 30
-debug_dump_events = false
-auto_extract = true

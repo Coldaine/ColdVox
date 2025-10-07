@@ -1,8 +1,23 @@
 use coldvox_app::Settings;
 use std::env;
+use std::fs;
+use std::path::Path;
+
+fn setup_test_config() {
+    let config_dir = Path::new("config");
+    if !config_dir.exists() {
+        fs::create_dir_all(config_dir).unwrap();
+    }
+    if !Path::new("config/default.toml").exists() {
+        fs::copy("../config/default.toml", "config/default.toml")
+            .or_else(|_| fs::copy("../../config/default.toml", "config/default.toml"))
+            .expect("Failed to copy config for tests");
+    }
+}
 
 #[test]
 fn test_settings_new_default() {
+    setup_test_config();
     // Test default loading without file
     let settings = Settings::new().unwrap();
     assert_eq!(settings.resampler_quality.to_lowercase(), "balanced");
@@ -13,6 +28,7 @@ fn test_settings_new_default() {
 
 #[test]
 fn test_settings_new_invalid_env_var_deserial() {
+    setup_test_config();
     env::set_var("COLDVOX_INJECTION__MAX_TOTAL_LATENCY_MS", "abc");  // Invalid for u64
     let result = Settings::new();
     assert!(result.is_err());
@@ -67,6 +83,7 @@ fn test_settings_validate_zero_validation() {
 
 #[test]
 fn test_settings_new_with_env_override() {
+    setup_test_config();
     env::set_var("COLDVOX_ACTIVATION_MODE", "hotkey");
     let settings = Settings::new().unwrap();
     assert_eq!(settings.activation_mode, "hotkey");
@@ -75,6 +92,7 @@ fn test_settings_new_with_env_override() {
 
 #[test]
 fn test_settings_new_validation_err() {
+    setup_test_config();
     env::set_var("COLDVOX_INJECTION__MAX_TOTAL_LATENCY_MS", "0");
     let result = Settings::new();
     assert!(result.is_err());

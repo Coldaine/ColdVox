@@ -2,7 +2,7 @@
 
 Owner: Coldaine
 Date: 2025-09-22
-Branch: refactor/combined-final-2
+Branch: anchor/oct-06-2025
 
 ## Goals
 - Get the workspace to compile cleanly across key feature combinations.
