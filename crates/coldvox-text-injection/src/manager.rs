@@ -66,6 +66,7 @@ struct InjectorRegistry {
     injectors: HashMap<InjectionMethod, Box<dyn TextInjector>>,
 }
 
+#[allow(clippy::unused_async)] // Function contains await calls in feature-gated blocks
 impl InjectorRegistry {
     async fn build(config: &InjectionConfig, backend_detector: &BackendDetector) -> Self {
         let mut injectors: HashMap<InjectionMethod, Box<dyn TextInjector>> = HashMap::new();
@@ -332,6 +333,7 @@ impl StrategyManager {
 
     /// Get active window class via window manager
     #[cfg(target_os = "linux")]
+    #[allow(clippy::unused_async)] // Function needs to be async to match trait/interface expectations
     async fn get_active_window_class(&self) -> Result<String, InjectionError> {
         use std::process::Command;
 
@@ -352,7 +354,7 @@ impl StrategyManager {
                     {
                         if class_output.status.success() {
                             let class_str = String::from_utf8_lossy(&class_output.stdout);
-                            // Parse WM_CLASS string (format: WM_CLASS(STRING) = "instance", "class")
+                            // Parse WM_CLASS string
                             if let Some(class_part) = class_str.split('"').nth(3) {
                                 return Ok(class_part.to_string());
                             }
@@ -362,8 +364,43 @@ impl StrategyManager {
             }
         }
 
+        // Try swaymsg for Wayland
+        if let Ok(output) = Command::new("swaymsg")
+            .args(["-t", "get_tree"])
+            .output()
+        {
+            if output.status.success() {
+                let tree = String::from_utf8_lossy(&output.stdout);
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&tree) {
+                    // Find focused window
+                    fn find_focused_window(node: &serde_json::Value) -> Option<String> {
+                        if node.get("focused").and_then(|v| v.as_bool()) == Some(true) {
+                            if let Some(app_id) = node.get("app_id").and_then(|v| v.as_str()) {
+                                return Some(app_id.to_string());
+                            }
+                        }
+
+                        // Check children
+                        if let Some(nodes) = node.get("nodes").and_then(|v| v.as_array()) {
+                            for n in nodes {
+                                if let Some(found) = find_focused_window(n) {
+                                    return Some(found);
+                                }
+                            }
+                        }
+
+                        None
+                    }
+
+                    if let Some(app_id) = find_focused_window(&json) {
+                        return Ok(app_id);
+                    }
+                }
+            }
+        }
+
         Err(InjectionError::Other(
-            "Could not determine active window".to_string(),
+            "Could not determine active window class".to_string(),
         ))
     }
 

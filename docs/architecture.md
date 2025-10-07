@@ -646,6 +646,10 @@ let dump_handle = if opts.enable_audio_dumping() {
 - `text-injection-kdotool`: kdotool backend
 - `text-injection-regex`: Regex support
 
+**ClipboardPaste contract**: The clipboard+paste backend reports failure any time a
+paste action cannot be triggered. Setting the clipboard is not considered success—callers
+must handle `InjectionError` and fall back to other injectors.
+
 **Platform-Specific**:
 - Linux: `coldvox-text-injection` with `["atspi", "wl_clipboard", "ydotool"]`
 - Windows/macOS: `coldvox-text-injection` with `["enigo"]`

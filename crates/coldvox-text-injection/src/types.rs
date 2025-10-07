@@ -12,7 +12,8 @@ fn default_fail_fast() -> bool {
 pub enum InjectionMethod {
     /// Insert text directly using AT-SPI2 EditableText interface
     AtspiInsert,
-    /// Set clipboard then trigger paste (AT-SPI Action when available, else system fallback)
+    /// Set clipboard then trigger paste (AT-SPI Action when available, else fallback) and
+    /// report failure if nothing pastes
     ClipboardPaste,
     /// Use ydotool to simulate Ctrl+V paste (opt-in)
     YdoToolPaste,

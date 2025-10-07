@@ -1,3 +1,5 @@
+#![allow(unused_imports)]
+
 use crate::types::{InjectionConfig, InjectionError, InjectionResult};
 use crate::TextInjector;
 use async_trait::async_trait;
@@ -328,7 +330,7 @@ mod tests {
         // Test with a text that would cause timeout in real implementation
         // In our mock, we'll simulate timeout by using a long-running operation
         // Simulate timeout - no metrics in new implementation
-        let start = Instant::now();
+        let start = std::time::Instant::now();
         while start.elapsed() < Duration::from_millis(10) {}
         // Test passes if we get here without panicking
 

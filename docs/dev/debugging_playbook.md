@@ -133,11 +133,15 @@ This playbook provides troubleshooting steps for common issues in ColdVox subsys
 - Platform detection: Linux → AT-SPI + clipboard + ydotool/kdotool
 - Permissions: uinput access (`sudo usermod -a -G input $USER`)
 - Logs: "Injection backend available: atspi"
+- Logs: `ClipboardPasteInjector aborting` warns that no paste action succeeded; the
+  call returns an error rather than silently succeeding.
 
 **Solutions**:
 - Test backends: `cargo run --example inject_demo`
 - Check permissions: `ls -l /dev/uinput`
 - Simulate environments for testing
+- Investigate paste failures immediately—`ClipboardPaste` never reports success if
+  neither AT-SPI nor ydotool can issue the paste.
 
 ### Injection Timing / Reliability
 

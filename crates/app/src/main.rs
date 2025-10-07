@@ -4,7 +4,7 @@
 // - The logs/ directory is created on startup if missing; file output uses a non-blocking writer.
 // - File layer disables ANSI to keep logs clean for analysis.
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 use std::time::SystemTime;
 
