@@ -2,9 +2,9 @@ use crate::clipboard_injector::ClipboardInjector;
 use crate::types::{InjectionConfig, InjectionResult};
 use crate::TextInjector;
 use async_trait::async_trait;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::process::Command;
-use tokio::time::timeout;
+use crate::types::{InjectionConfig, InjectionMetrics, InjectionError};
 use tracing::{debug, trace};
 
 #[cfg(feature = "atspi")]
@@ -15,8 +15,8 @@ use atspi::{
 
 #[cfg(feature = "wl_clipboard")]
 use wl_clipboard_rs::{
-    copy::{MimeType as CopyMime, Options as CopyOptions, Source as CopySource},
-    paste::{get_contents, ClipboardType, MimeType as PasteMime, Seat},
+    copy::{MimeType, Options, Source},
+    paste::{get_contents, ClipboardType, MimeType as PasteMimeType, Seat},
 };
 
 /// Clipboard injector that always issues a paste (AT-SPI first, then ydotool when available)
@@ -93,93 +93,48 @@ impl TextInjector for ClipboardPasteInjector {
         trace!("Waiting 20ms for clipboard to stabilize");
         tokio::time::sleep(Duration::from_millis(20)).await;
 
-        #[cfg(feature = "atspi")]
-        {
-            match timeout(
-                Duration::from_millis(self.config.paste_action_timeout_ms),
-                self.try_atspi_paste(),
-            )
-            .await
-            {
-                Ok(Ok(())) => {
-                    #[cfg(feature = "wl_clipboard")]
-                    if let Some(content) = saved_clipboard.clone() {
-                        let delay_ms = self.config.clipboard_restore_delay_ms.unwrap_or(500);
-                        tokio::spawn(async move {
-                            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
-                            let _ = tokio::task::spawn_blocking(move || {
-                                let src = CopySource::Bytes(content.into_bytes().into());
-                                let opts = CopyOptions::new();
-                                let _ = opts.copy(src, CopyMime::Text);
-                            })
-                            .await;
-                        });
-                    }
-                    let elapsed = start.elapsed();
-                    debug!(
-                        "AT-SPI paste succeeded; clipboard injection completed in {}ms",
-                        elapsed.as_millis()
-                    );
-                    return Ok(());
-                }
-                Ok(Err(e)) => {
-                    debug!("AT-SPI paste failed; evaluating ydotool fallback: {}", e);
-                }
-                Err(_) => {
-                    debug!("AT-SPI paste timed out; evaluating ydotool fallback");
-                }
-            }
+        use std::io::Read;
+        use wl_clipboard_rs::copy::{MimeType, Options, Source};
+        use wl_clipboard_rs::paste::{get_contents, ClipboardType, MimeType as PasteMimeType, Seat};
+        use tokio::time::Duration;
+
+        if text.is_empty() {
+            return Ok(());
         }
 
-        // ydotool fallback (optional)
-        if Self::ydotool_available().await {
-            let paste_start = Instant::now();
-            let output = timeout(
-                Duration::from_millis(self.config.paste_action_timeout_ms),
-                Command::new("ydotool").args(["key", "ctrl+v"]).output(),
-            )
-            .await
-            .map_err(|_| {
-                crate::types::InjectionError::Timeout(self.config.paste_action_timeout_ms)
-            })?
-            .map_err(|e| crate::types::InjectionError::Process(format!("ydotool failed: {e}")))?;
-
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                return Err(crate::types::InjectionError::MethodFailed(format!(
-                    "ydotool paste failed: {stderr}"
-                )));
+        // Save current clipboard
+        let saved_clipboard = match get_contents(ClipboardType::Regular, Seat::Unspecified, PasteMimeType::Text) {
+            Ok((mut pipe, _mime)) => {
+                let mut contents = String::new();
+                if pipe.read_to_string(&mut contents).is_ok() {
+                    Some(contents)
+                } else {
+                    None
+                }
             }
+            Err(_) => None,
+        };
 
-            debug!(
-                "Paste triggered via ydotool in {}ms",
-                paste_start.elapsed().as_millis()
-            );
-        } else {
-            return Err(crate::types::InjectionError::MethodFailed(
-                "AT-SPI paste failed and ydotool is unavailable".to_string(),
-            ));
+        // Set new clipboard content
+        let source = Source::Bytes(text.as_bytes().to_vec().into());
+        let opts = Options::new();
+        match opts.copy(source, MimeType::Text) {
+            Ok(_) => {
+                debug!("ClipboardPasteInjector set clipboard ({} chars)", text.len());
+            }
+            Err(e) => return Err(InjectionError::Clipboard(e.to_string())),
         }
 
-        #[cfg(feature = "wl_clipboard")]
+        // Schedule restoration after a delay
         if let Some(content) = saved_clipboard {
             let delay_ms = self.config.clipboard_restore_delay_ms.unwrap_or(500);
             tokio::spawn(async move {
                 tokio::time::sleep(Duration::from_millis(delay_ms)).await;
-                let _ = tokio::task::spawn_blocking(move || {
-                    let src = CopySource::Bytes(content.into_bytes().into());
-                    let opts = CopyOptions::new();
-                    let _ = opts.copy(src, CopyMime::Text);
-                })
-                .await;
+                let src = Source::Bytes(content.as_bytes().to_vec().into());
+                let opts = Options::new();
+                let _ = opts.copy(src, MimeType::Text);
             });
         }
-
-        let elapsed = start.elapsed();
-        debug!(
-            "ClipboardPasteInjector completed in {}ms",
-            elapsed.as_millis()
-        );
 
         Ok(())
     }
