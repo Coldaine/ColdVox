@@ -23,6 +23,8 @@ This crate provides text injection capabilities that automatically type transcri
 
 ### Text Injection Backends
 - **Clipboard**: Copy transcription to clipboard and paste
+- **Clipboard**: Copy transcription to clipboard and paste
+	- Note: Clipboard injectors now save and restore the user's clipboard automatically after injection. The restoration occurs after a configurable delay (milliseconds) controlled by `clipboard_restore_delay_ms` in the injection configuration. This prevents leaving transient clipboard contents after an injection operation.
 - **AT-SPI**: Accessibility API for direct text insertion (if enabled)
 - **Combo (Clipboard + Paste)**: Clipboard set plus AT-SPI paste or `ydotool` fallback
 - **YDotool**: uinput-based paste or key events (opt-in)
@@ -68,6 +70,7 @@ The system automatically selects the best available backend for each application
 - `--allow-kdotool`: Enable KDE-specific tools
 - `--allow-enigo`: Enable Enigo input simulation
 - `--restore-clipboard`: Restore clipboard contents after injection
+	- Note: By default clipboard restoration is enabled for the clipboard-based injectors and controlled by `clipboard_restore_delay_ms` (default ~500ms). You can tune or disable behavior via configuration.
 - `--inject-on-unknown-focus`: Inject even when focus detection fails
 
 ### Timing Controls
