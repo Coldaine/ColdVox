@@ -55,9 +55,11 @@ Multi-crate Cargo workspace:
   - `vosk_transcriber.rs`: `VoskTranscriber` for offline speech recognition
 
 - `crates/coldvox-text-injection/` - Text injection backends (feature-gated)
-  - **Linux**: `atspi_injector.rs`, `clipboard_injector.rs`, `ydotool_injector.rs`, `kdotool_injector.rs`
+  - **Linux**: `atspi_injector.rs`, `ydotool_injector.rs`, `kdotool_injector.rs`
   - **Cross-platform**: `enigo_injector.rs`
-  - **Combined**: `combo_clip_ydotool.rs` (clipboard + AT-SPI paste, fallback to ydotool)
+  - **Composite strategies**:
+    - `clipboard_paste_injector.rs` - Sets clipboard + triggers paste (AT-SPI first, ydotool fallback)
+    - `clipboard_injector.rs` - Internal helper for clipboard operations only
   - **Management**: `manager.rs` (StrategyManager), `session.rs`, `window_manager.rs`
 
 - `crates/coldvox-telemetry/` - Pipeline metrics
@@ -183,10 +185,13 @@ Platform-specific text injection backends are automatically enabled at build tim
 - **Events**: `TranscriptionEvent::{Partial, Final, Error}`
 
 ### Text Injection
-- **Linux backends**: AT-SPI, wl-clipboard, ydotool (Wayland), kdotool (X11)
-- **Cross-platform**: Enigo
-- **Strategy**: Runtime backend selection with fallback chains
-- **Clipboard behavior**: Clipboard-based injectors automatically save and restore user's clipboard content after injection (configurable delay)
+- **Direct insertion**: AT-SPI (accessibility API for text insertion)
+- **Composite strategy**: ClipboardPaste (sets clipboard + triggers paste via AT-SPI/ydotool)
+  - Note: There is no "clipboard-only" injector - setting clipboard without pasting is useless for automation
+  - ClipboardPaste is ONE strategy that: saves clipboard → sets new text → pastes via AT-SPI or ydotool → restores clipboard
+- **Optional backends**: ydotool (Wayland), kdotool (X11), enigo (cross-platform)
+- **Strategy management**: Runtime selection with per-app success caching and fallback chains
+- **Clipboard preservation**: Clipboard-based strategies automatically save/restore user clipboard (default 500ms delay)
 
 ## Configuration
 

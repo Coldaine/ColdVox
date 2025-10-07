@@ -2,13 +2,15 @@
 
 Automated text injection system for ColdVox transcribed speech.
 
-## What's New (workspace v2.0.1)
+## What's New
 
-- FocusProvider DI: inject focus detection for deterministic and safe tests
-- Combo clipboard+paste injector (`combo_clip_ydotool`) with async `ydotool` check
-- Real injection testing with lightweight test applications for comprehensive validation
-- Full desktop CI support with real audio devices and desktop environments available
-- Allow/block list semantics: compiled regex path when `regex` is enabled; substring matching otherwise
+- **Composite ClipboardPaste strategy**: Unified clipboard + paste (AT-SPI first, ydotool fallback)
+  - Replaced old `combo_clip_ydotool` with cleaner ClipboardPasteInjector
+  - Automatic clipboard save/restore with configurable delay
+- **FocusProvider DI**: Inject focus detection for deterministic and safe tests
+- **Real injection testing**: Lightweight test applications for comprehensive validation
+- **Full desktop CI support**: Real audio devices and desktop environments available
+- **Allow/block lists**: Compiled regex when `regex` enabled; substring matching otherwise
 
 ## Purpose
 
@@ -22,14 +24,16 @@ This crate provides text injection capabilities that automatically type transcri
 ## Key Components
 
 ### Text Injection Backends
-- **Clipboard**: Copy transcription to clipboard and paste
-- **Clipboard**: Copy transcription to clipboard and paste
-	- Note: Clipboard injectors now save and restore the user's clipboard automatically after injection. The restoration occurs after a configurable delay (milliseconds) controlled by `clipboard_restore_delay_ms` in the injection configuration. This prevents leaving transient clipboard contents after an injection operation.
-- **AT-SPI**: Accessibility API for direct text insertion (if enabled)
-- **Combo (Clipboard + Paste)**: Clipboard set plus AT-SPI paste or `ydotool` fallback
-- **YDotool**: uinput-based paste or key events (opt-in)
+- **AT-SPI Insert**: Direct text insertion via accessibility API (preferred method)
+- **ClipboardPaste** (composite strategy):
+  - Sets clipboard content using wl-clipboard
+  - Triggers paste via AT-SPI action (tries first) OR ydotool fallback (Ctrl+V simulation)
+  - Automatically saves and restores user's clipboard after configurable delay (`clipboard_restore_delay_ms`, default 500ms)
+  - **Critical**: This is ONE unified strategy, not separate "clipboard" and "paste" methods
+  - **Requires**: Either AT-SPI paste support OR ydotool installed to actually trigger the paste
+- **YDotool**: Direct uinput-based key simulation (opt-in, useful when AT-SPI unavailable)
 - **KDotool Assist**: KDE/X11 window activation assistance (opt-in)
-- **Enigo**: Cross-platform input simulation (opt-in)
+- **Enigo**: Cross-platform input simulation library (opt-in)
 
 ### Focus Detection
 - Active window detection and application identification
@@ -53,15 +57,19 @@ This crate provides text injection capabilities that automatically type transcri
 - `all-backends`: Enable all available backends
 - `linux-desktop`: Enable recommended Linux desktop backends
 
-## Backend Selection
+## Backend Selection Strategy
 
-The system automatically selects the best available backend for each application:
+The system tries backends in this order (skips unavailable methods):
 
-1. **AT-SPI** (preferred for accessibility compliance)
-2. **Clipboard + Paste** (AT-SPI paste when available; `ydotool` fallback)
-3. **Clipboard** (plain clipboard set)
-4. **Input Simulation** (YDotool/Enigo as opt-in fallbacks)
-5. **KDotool Assist** (window activation assistance)
+1. **AT-SPI Insert** - Direct text insertion via accessibility API (most reliable when supported)
+2. **ClipboardPaste** - Composite strategy: set clipboard → paste via AT-SPI or ydotool
+   - Only registered if AT-SPI paste actions OR ydotool available
+   - Fails if neither paste mechanism works
+3. **YDotool** - Direct uinput key simulation (opt-in, requires ydotool daemon)
+4. **KDotool Assist** - Window activation help (opt-in, X11 only)
+5. **Enigo** - Cross-platform input simulation (opt-in)
+
+**Note**: There is NO "clipboard-only" backend. Setting clipboard without triggering paste is useless for automation.
 
 ## Configuration
 
