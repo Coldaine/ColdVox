@@ -72,7 +72,7 @@ Some end‑to‑end tests exercise real injection & STT. Gate them locally by se
 export COLDVOX_SLOW_TESTS=1
 cargo test -- --ignored
 ```
-Headless behavior notes: see [`docs/text_injection_headless.md`](docs/text_injection_headless.md).
+Headless behavior: Text injection works in headless environments via clipboard strategies. See `docs/deployment.md` for configuration and `crates/coldvox-text-injection/README.md` for backend details.
 
 ## License
 Dual-licensed under MIT or Apache-2.0. See `LICENSE-MIT` and `LICENSE-APACHE` if present, else crate-level manifests.
