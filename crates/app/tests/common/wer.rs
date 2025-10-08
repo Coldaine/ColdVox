@@ -43,8 +43,8 @@ pub fn calculate_wer(reference: &str, hypothesis: &str) -> f64 {
     let mut dp = vec![vec![0; hyp_len + 1]; ref_len + 1];
 
     // Initialize base cases
-    for i in 0..=ref_len {
-        dp[i][0] = i; // deletions
+    for (i, row) in dp.iter_mut().enumerate().take(ref_len + 1) {
+        row[0] = i; // deletions
     }
 
     for j in 0..=hyp_len {

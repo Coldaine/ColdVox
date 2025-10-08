@@ -163,7 +163,6 @@ mod vosk_tests {
 
         // Integration test with real model (if available)
         #[test]
-        #[ignore] // Run with: cargo test -- --ignored
         fn test_vosk_transcriber_with_model() {
             let model_path = "models/vosk-model-small-en-us-0.15";
             if !std::path::Path::new(model_path).exists() {
