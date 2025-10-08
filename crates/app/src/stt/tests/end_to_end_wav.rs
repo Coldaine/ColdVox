@@ -1,14 +1,25 @@
-use crate::audio::wav_file_loader::WavFileLoader;
 use anyhow::Result;
-use std::path::Path;
-use std::sync::Arc;
+use hound::WavReader;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, mpsc};
 use tracing::{debug, info};
 
+/// Live end-to-end WAV/STT integration tests.
+///
+/// These tests exercise the production audio pipeline (chunker → VAD → Vosk STT →
+/// injection). They require the bundled Vosk model and, for desktop injection
+/// coverage, an accessible Wayland/X11 session. Set `COLDVOX_E2E_SKIP=1` when
+/// running in environments that cannot satisfy these requirements. To attempt
+/// desktop coverage in a headless CI that can provide a virtual display,
+/// export `COLDVOX_E2E_FORCE_DESKTOP=1`.
 // Test constants
 const TEST_FINAL_EVENT_TIMEOUT: Duration = Duration::from_secs(3);
 const TEST_POLLING_INTERVAL: Duration = Duration::from_millis(10);
+
+const LIVE_SKIP_ENV: &str = "COLDVOX_E2E_SKIP";
+const FORCE_DESKTOP_ENV: &str = "COLDVOX_E2E_FORCE_DESKTOP";
 
 use crate::stt::plugin_manager::SttPluginManager;
 use crate::stt::processor::PluginSttProcessor;
@@ -17,7 +28,7 @@ use crate::stt::{TranscriptionConfig, TranscriptionEvent};
 use crate::text_injection::{AsyncInjectionProcessor, InjectionConfig};
 use coldvox_audio::chunker::AudioFrame;
 use coldvox_audio::chunker::{AudioChunker, ChunkerConfig};
-use coldvox_audio::ring_buffer::AudioRingBuffer;
+use coldvox_audio::ring_buffer::{AudioProducer, AudioRingBuffer};
 use coldvox_audio::DeviceConfig;
 use coldvox_stt::plugin::PluginSelectionConfig;
 use coldvox_vad::config::{UnifiedVadConfig, VadMode};
@@ -30,10 +41,8 @@ use coldvox_vad::types::VadEvent;
 /// test asset) and returns the first match. If nothing is found, returns the
 /// conventional relative path used previously so existing error messaging
 /// remains accurate.
-/// This is robust for both local development and CI runners.
 fn resolve_vosk_model_path() -> String {
     // 1. Environment override wins immediately
-    // 1. Environment variable override has the highest priority.
     if let Ok(p) = std::env::var("VOSK_MODEL_PATH") {
         return p;
     }
@@ -44,12 +53,6 @@ fn resolve_vosk_model_path() -> String {
         "../models/vosk-model-small-en-us-0.15",
         "../../models/vosk-model-small-en-us-0.15",
     ];
-    // 2. Dynamically locate the model relative to the project root.
-    // `CARGO_MANIFEST_DIR` is set by Cargo to the directory of the crate's Cargo.toml.
-    // From `crates/app`, we go up two levels to the project root.
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
-    let project_root = std::path::Path::new(&manifest_dir).join("../..");
-    let model_path = project_root.join("models/vosk-model-small-en-us-0.15");
 
     for cand in CANDIDATES {
         let graph_path = std::path::Path::new(cand).join("graph");
@@ -60,9 +63,6 @@ fn resolve_vosk_model_path() -> String {
             let final_path = absolute_path.to_string_lossy().to_string();
             return final_path;
         }
-    }
-    if model_path.join("graph").exists() {
-        return model_path.to_string_lossy().to_string();
     }
 
     // 3. Walk upward a few levels to locate a models directory dynamically
@@ -81,10 +81,328 @@ fn resolve_vosk_model_path() -> String {
     }
 
     // Fallback: original default path (so existing guidance still applies)
-    // 3. Fallback to the original default path. This ensures that if the model
-    // is placed in the working directory, it's still found. This is useful
-    // for CI setups that might copy artifacts.
     "models/vosk-model-small-en-us-0.15".to_string()
+}
+
+fn is_env_truthy(name: &str) -> bool {
+    std::env::var(name)
+        .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .unwrap_or(false)
+}
+
+fn should_skip_live(test_name: &str, reason: &str) -> bool {
+    if is_env_truthy(LIVE_SKIP_ENV) {
+        eprintln!(
+            "Skipping {test_name}: {reason} ({LIVE_SKIP_ENV} is set)."
+        );
+        true
+    } else {
+        false
+    }
+}
+
+fn is_headless() -> bool {
+    let has_x11 = std::env::var("DISPLAY").map(|v| !v.is_empty()).unwrap_or(false);
+    let has_wayland = std::env::var("WAYLAND_DISPLAY").map(|v| !v.is_empty()).unwrap_or(false);
+    !(has_x11 || has_wayland)
+}
+
+fn manifest_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+}
+
+fn test_data_dir() -> PathBuf {
+    manifest_path().join("test_data")
+}
+
+fn resolve_user_path<P: AsRef<Path>>(value: P) -> PathBuf {
+    let direct = PathBuf::from(value.as_ref());
+    if direct.exists() {
+        return direct;
+    }
+
+    let manifest_join = manifest_path().join(value.as_ref());
+    if manifest_join.exists() {
+        return manifest_join;
+    }
+
+    direct
+}
+
+/// Playback mode for WAV streaming
+#[derive(Debug, Clone, Copy)]
+pub enum PlaybackMode {
+    /// Real-time playback (default)
+    Realtime,
+    /// Accelerated playback with speed multiplier
+    Accelerated(f32),
+    /// Deterministic playback (no sleeps, feed as fast as possible)
+    Deterministic,
+}
+
+/// Initialize tracing for tests with debug level
+fn init_test_tracing() {
+    use std::sync::Once;
+    use tracing_subscriber::{fmt, EnvFilter};
+
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("debug"));
+
+        fmt().with_env_filter(filter).with_test_writer().init();
+    });
+}
+
+/// Initialize test infrastructure (tracing, sleep observer)
+pub fn init_test_infrastructure() {
+    init_test_tracing();
+    crate::sleep_instrumentation::init_sleep_observer();
+}
+
+/// Mock text injector that captures injection attempts for testing
+pub struct MockTextInjector {
+    injections: Arc<Mutex<Vec<String>>>,
+}
+
+impl MockTextInjector {
+    pub fn new() -> Self {
+        Self {
+            injections: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    pub async fn inject(&self, text: &str) -> Result<()> {
+        info!("Mock injection: {}", text);
+        self.injections.lock().unwrap().push(text.to_string());
+        Ok(())
+    }
+
+    pub fn get_injections(&self) -> Vec<String> {
+        self.injections.lock().unwrap().clone()
+    }
+}
+
+/// WAV file loader that feeds audio data through the pipeline
+pub struct WavFileLoader {
+    samples: Vec<i16>,
+    sample_rate: u32,
+    channels: u16,
+    current_pos: usize,
+    frame_size_total: usize,
+    playback_mode: PlaybackMode,
+}
+
+impl WavFileLoader {
+    /// Load WAV file and prepare for streaming (no resample/mono conversion)
+    /// This mirrors live capture: raw device rate/channels into ring buffer.
+    pub fn new<P: AsRef<Path>>(wav_path: P) -> Result<Self> {
+        let mut reader = WavReader::open(wav_path)?;
+        let spec = reader.spec();
+
+        info!(
+            "Loading WAV: {} Hz, {} channels, {} bits",
+            spec.sample_rate, spec.channels, spec.bits_per_sample
+        );
+
+        // Read all samples as interleaved i16
+        let samples: Vec<i16> = reader.samples::<i16>().collect::<Result<Vec<_>, _>>()?;
+
+        info!(
+            "WAV loaded: {} samples (interleaved) at {} Hz, {} channels",
+            samples.len(),
+            spec.sample_rate,
+            spec.channels
+        );
+
+        // Choose a chunk size close to ~32ms per channel to emulate callback pacing
+        // FRAME_SIZE_SAMPLES is per mono channel; scale by channel count for total i16 samples
+        let frame_size_total = FRAME_SIZE_SAMPLES * spec.channels as usize;
+
+        // Get playback mode from environment (namespaced)
+        let playback_mode = match std::env::var("COLDVOX_PLAYBACK_MODE") {
+            Ok(mode) if mode.eq_ignore_ascii_case("deterministic") => PlaybackMode::Deterministic,
+            Ok(mode) if mode.eq_ignore_ascii_case("accelerated") => {
+                let speed = std::env::var("COLDVOX_PLAYBACK_SPEED_MULTIPLIER")
+                    .unwrap_or_else(|_| "2.0".to_string())
+                    .parse::<f32>()
+                    .unwrap_or(2.0);
+                PlaybackMode::Accelerated(speed)
+            }
+            _ => PlaybackMode::Realtime,
+        };
+
+        Ok(Self {
+            samples,
+            sample_rate: spec.sample_rate,
+            channels: spec.channels,
+            current_pos: 0,
+            frame_size_total,
+            playback_mode,
+        })
+    }
+
+    /// Stream audio data to ring buffer with realistic timing
+    pub async fn stream_to_ring_buffer(&mut self, mut producer: AudioProducer) -> Result<()> {
+        // Duration for one chunk of size `frame_size_total` (interleaved across channels)
+        // time = samples_total / (sample_rate * channels)
+        let nanos_per_sample_total =
+            1_000_000_000u64 / (self.sample_rate as u64 * self.channels as u64);
+
+        while self.current_pos < self.samples.len() {
+            let end_pos = (self.current_pos + self.frame_size_total).min(self.samples.len());
+            let chunk = &self.samples[self.current_pos..end_pos];
+
+            // Try to write chunk to ring buffer
+            let mut written = 0;
+            while written < chunk.len() {
+                match producer.write(&chunk[written..]) {
+                    Ok(count) => written += count,
+                    Err(_) => {
+                        // Ring buffer full, wait a bit
+                        tokio::time::sleep(Duration::from_millis(1)).await;
+                    }
+                }
+            }
+
+            self.current_pos = end_pos;
+
+            // Maintain realistic timing for the total interleaved samples written
+            let written_total = chunk.len() as u64;
+            let sleep_nanos = written_total * nanos_per_sample_total;
+
+            match self.playback_mode {
+                PlaybackMode::Realtime => {
+                    tokio::time::sleep(Duration::from_nanos(sleep_nanos)).await;
+                }
+                PlaybackMode::Accelerated(speed) => {
+                    let accelerated_nanos = (sleep_nanos as f32 / speed) as u64;
+                    let clamped = accelerated_nanos.max(50_000); // 50us minimum to yield
+                    tokio::time::sleep(Duration::from_nanos(clamped)).await;
+                }
+                PlaybackMode::Deterministic => {
+                    // No real sleep; logical frame progression (future: integrate TestClock)
+                }
+            }
+        }
+
+        info!(
+            "WAV streaming completed ({} total samples processed), feeding silence to flush VAD.",
+            self.current_pos
+        );
+
+        // After WAV is done, feed some silence to ensure VAD emits SpeechEnd.
+        let silence_chunk = vec![0i16; self.frame_size_total];
+        for _ in 0..15 {
+            // Feed ~500ms of silence (15 * 32ms)
+            let mut written = 0;
+            while written < silence_chunk.len() {
+                if let Ok(count) = producer.write(&silence_chunk[written..]) {
+                    written += count;
+                } else {
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(32)).await;
+        }
+
+        Ok(())
+    }
+
+    pub fn duration_ms(&self) -> u64 {
+        // Total interleaved samples divided by (rate * channels)
+        let base_duration =
+            ((self.samples.len() as u64) * 1000) / (self.sample_rate as u64 * self.channels as u64);
+
+        match self.playback_mode {
+            PlaybackMode::Realtime => base_duration,
+            PlaybackMode::Accelerated(speed) => (base_duration as f32 / speed) as u64,
+            PlaybackMode::Deterministic => 0, // Logical time only; test should not rely on wall time
+        }
+    }
+
+    pub fn sample_rate(&self) -> u32 {
+        self.sample_rate
+    }
+    pub fn channels(&self) -> u16 {
+        self.channels
+    }
+}
+
+/// Mock injection processor that uses our mock injector
+pub struct MockInjectionProcessor {
+    injector: MockTextInjector,
+    transcription_rx: broadcast::Receiver<TranscriptionEvent>,
+    shutdown_rx: mpsc::Receiver<()>,
+}
+
+impl MockInjectionProcessor {
+    pub fn new(
+        injector: MockTextInjector,
+        transcription_rx: broadcast::Receiver<TranscriptionEvent>,
+        shutdown_rx: mpsc::Receiver<()>,
+    ) -> Self {
+        Self {
+            injector,
+            transcription_rx,
+            shutdown_rx,
+        }
+    }
+
+    pub async fn run(mut self) -> Result<()> {
+        let mut buffer = String::new();
+        let check_interval = Duration::from_millis(200);
+        let mut last_transcription = None;
+
+        loop {
+            tokio::select! {
+                // Handle transcription events
+                Ok(event) = self.transcription_rx.recv() => {
+                    match event {
+                        TranscriptionEvent::Final { text, .. } => {
+                            info!("Mock processor received final: {}", text);
+                            if !text.trim().is_empty() {
+                                buffer.push_str(&text);
+                                buffer.push(' ');
+                                last_transcription = Some(Instant::now());
+                            }
+                        }
+                        TranscriptionEvent::Partial { text, .. } => {
+                            info!("Mock processor received partial: {}", text);
+                        }
+                        TranscriptionEvent::Error { code, message } => {
+                            info!("Mock processor received error [{}]: {}", code, message);
+                        }
+                    }
+                }
+
+                // Check for silence timeout and inject
+                _ = tokio::time::sleep(check_interval) => {
+                    if let Some(last_time) = last_transcription {
+                        if last_time.elapsed() > Duration::from_millis(500) && !buffer.trim().is_empty() {
+                            let text_to_inject = buffer.trim().to_string();
+                            if !text_to_inject.is_empty() {
+                                self.injector.inject(&text_to_inject).await?;
+                                buffer.clear();
+                                last_transcription = None;
+                            }
+                        }
+                    }
+                }
+
+                // Shutdown signal
+                _ = self.shutdown_rx.recv() => {
+                    info!("Mock injection processor shutting down");
+                    // Inject any remaining buffer content
+                    if !buffer.trim().is_empty() {
+                        self.injector.inject(buffer.trim()).await?;
+                    }
+                    break;
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 /// End-to-end test that processes a WAV file through the entire pipeline
@@ -92,15 +410,13 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
     wav_path: P,
     expected_text_fragments: Vec<&str>,
 ) -> Result<Vec<String>> {
-    // NOTE: test_utils not yet implemented - temporarily disabled
-    // // NOTE: test_utils not yet implemented
-    // crate::test_utils::init_test_infrastructure();
-    let _is_mock = std::env::var("COLDVOX_STT_PREFERRED").unwrap_or_default() == "mock";
+    init_test_infrastructure();
     info!("Starting end-to-end WAV pipeline test");
     debug!("Processing WAV file: {:?}", wav_path.as_ref());
     debug!("Expected text fragments: {:?}", expected_text_fragments);
 
     // Set up components
+    let mock_injector = MockTextInjector::new();
     let ring_buffer = AudioRingBuffer::new(16384 * 4);
     let (audio_producer, audio_consumer) = ring_buffer.split();
 
@@ -164,7 +480,7 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
     // Set up STT processor
     let (stt_transcription_tx, stt_transcription_rx) = mpsc::channel::<TranscriptionEvent>(100);
     let (broadcast_tx, _) = broadcast::channel::<TranscriptionEvent>(100);
-    let _stt_transcription_rx_clone = broadcast_tx.subscribe();
+    let stt_transcription_rx_clone = broadcast_tx.subscribe();
 
     // Forward from mpsc to broadcast
     let broadcast_tx_clone = broadcast_tx.clone();
@@ -184,7 +500,9 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
         max_alternatives: 1,
         include_words: false,
         buffer_size_ms: 512,
-        auto_extract_model: false,
+        auto_extract_model: std::env::var("COLDVOX_STT_AUTO_EXTRACT")
+            .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+            .unwrap_or(true),
     };
 
     // Check if STT model exists
@@ -196,15 +514,18 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
     }
 
     let stt_audio_rx = audio_tx.subscribe();
-    // Set up Plugin Manager with Vosk preferred for testing
+    // Set up Plugin Manager to require the live Vosk plugin
     let mut plugin_manager = SttPluginManager::new();
     let selection_cfg = PluginSelectionConfig {
         preferred_plugin: Some("vosk".to_string()),
-        fallback_plugins: vec!["noop".to_string()],
+        fallback_plugins: vec![],
         ..Default::default()
     };
     plugin_manager.set_selection_config(selection_cfg).await;
-    let plugin_id = plugin_manager.initialize().await.unwrap();
+    let plugin_id = plugin_manager
+        .initialize()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to initialize Vosk plugin: {e}"))?;
     info!("Initialized plugin manager with plugin: {}", plugin_id);
     let plugin_manager = Arc::new(tokio::sync::RwLock::new(plugin_manager));
 
@@ -241,21 +562,14 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
         stt_processor.run().await;
     });
 
-    // Set up real injection processor
+    // Set up mock injection processor
     let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>(1);
-    let injection_config = InjectionConfig::default();
-    let (text_injection_tx, text_injection_rx) = mpsc::channel::<TranscriptionEvent>(100);
-    let mut stt_rx_for_injection = broadcast_tx.subscribe();
-    tokio::spawn(async move {
-        while let Ok(event) = stt_rx_for_injection.recv().await {
-            if text_injection_tx.send(event).await.is_err() {
-                break;
-            }
-        }
-    });
+    let mock_injector_clone = MockTextInjector {
+        injections: Arc::clone(&mock_injector.injections),
+    };
 
     let injection_processor =
-        AsyncInjectionProcessor::new(injection_config, text_injection_rx, shutdown_rx, None).await;
+        MockInjectionProcessor::new(mock_injector_clone, stt_transcription_rx_clone, shutdown_rx);
     let _injection_handle = tokio::spawn(async move { injection_processor.run().await });
 
     // Start streaming WAV data
@@ -289,13 +603,44 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
     }
 
     if !final_event_found {
-        info!("No Final event received after {}s - continuing to check for any injections (pipeline may still have produced events)", TEST_FINAL_EVENT_TIMEOUT.as_secs());
-        anyhow::bail!("No Final event from real STT - test failure");
+        anyhow::bail!(
+            "Timed out waiting for a Final transcription event from the Vosk plugin ({:?})",
+            TEST_FINAL_EVENT_TIMEOUT
+        );
     }
 
-    // For a real injection test, we would need to capture the output from the OS
-    // For now, we will just check that the pipeline ran without errors.
-    Ok(vec![])
+    let injections = mock_injector.get_injections();
+    info!("Test completed. Injections captured: {:?}", injections);
+
+    anyhow::ensure!(
+        !injections.is_empty(),
+        "Pipeline produced no injected text. Expected to see fragments {:?}",
+        expected_text_fragments
+    );
+
+    // Verify at least one expected text fragment is present (STT may not be 100% accurate)
+    let all_text = injections.join(" ").to_lowercase();
+    let mut found_any = false;
+    let mut found_fragments = Vec::new();
+
+    for expected in &expected_text_fragments {
+        if all_text.contains(&expected.to_lowercase()) {
+            found_any = true;
+            found_fragments.push(expected.to_string());
+        }
+    }
+
+    if !found_any && !expected_text_fragments.is_empty() {
+        anyhow::bail!(
+            "None of the expected text fragments {:?} were found in injections: {:?}",
+            expected_text_fragments,
+            injections
+        );
+    }
+
+    info!("Found expected fragments: {:?}", found_fragments);
+
+    Ok(injections)
 }
 
 // Helper to open a test terminal that captures input to a file
@@ -380,8 +725,13 @@ async fn get_clipboard_content() -> Option<String> {
 
 #[tokio::test]
 async fn test_end_to_end_wav_pipeline() {
-    // NOTE: test_utils not yet implemented
-    // crate::test_utils::init_test_infrastructure();
+    if should_skip_live(
+        "test_end_to_end_wav_pipeline",
+        "live WAV → Vosk pipeline coverage",
+    ) {
+        return;
+    }
+    init_test_infrastructure();
 
     // Set up the Vosk model path for this test (fallback if not mock)
     let model_path = resolve_vosk_model_path();
@@ -394,7 +744,14 @@ async fn test_end_to_end_wav_pipeline() {
     // 2. Vosk model downloaded and configured
 
     // Look for test WAV files in test_data directory
-    let test_data_dir = "test_data";
+    let test_data_dir = test_data_dir();
+    if !test_data_dir.exists() {
+        eprintln!(
+            "Skipping test: test data directory not found at {}",
+            test_data_dir.display()
+        );
+        return;
+    }
 
     // Allow an opt-in mode to run ALL WAV samples sequentially
     let run_all = std::env::var("TEST_WAV_MODE")
@@ -403,11 +760,13 @@ async fn test_end_to_end_wav_pipeline() {
 
     if run_all {
         // Discover all WAV+TXT pairs
-        let entries = match fs::read_dir(test_data_dir) {
+        let entries = match fs::read_dir(&test_data_dir) {
             Ok(entries) => entries,
             Err(_) => {
-                eprintln!("Skipping test: test_data directory not found");
-                eprintln!("Expected test WAV files in: {}", test_data_dir);
+                eprintln!(
+                    "Skipping test: unable to read test data directory at {}",
+                    test_data_dir.display()
+                );
                 return;
             }
         };
@@ -418,7 +777,7 @@ async fn test_end_to_end_wav_pipeline() {
             if path.extension().and_then(|s| s.to_str()) == Some("wav") {
                 let txt_path = path.with_extension("txt");
                 if txt_path.exists() {
-                    wav_files.push(path.to_string_lossy().to_string());
+                    wav_files.push(path);
                 }
             }
         }
@@ -431,7 +790,7 @@ async fn test_end_to_end_wav_pipeline() {
         println!("Running ALL {} WAV samples...", wav_files.len());
         let mut failures = Vec::new();
         for wav_path in wav_files {
-            let txt_path = std::path::Path::new(&wav_path).with_extension("txt");
+            let txt_path = wav_path.with_extension("txt");
             let transcript = fs::read_to_string(&txt_path).unwrap_or_else(|e| {
                 panic!("Failed to read transcript {}: {}", txt_path.display(), e)
             });
@@ -455,7 +814,7 @@ async fn test_end_to_end_wav_pipeline() {
                 words
             };
 
-            println!("Testing with WAV file: {}", wav_path);
+            println!("Testing with WAV file: {}", wav_path.display());
             println!("Expected keywords: {:?}", expected);
             let expected_refs: Vec<&str> = expected.iter().map(|s| s.as_str()).collect();
 
@@ -463,12 +822,12 @@ async fn test_end_to_end_wav_pipeline() {
                 Ok(injections) => {
                     println!("✅ Test passed! Injections: {:?}", injections);
                     if injections.is_empty() {
-                        failures.push(format!("{}: no text injected", wav_path));
+                        failures.push(format!("{}: no text injected", wav_path.display()));
                     }
                 }
                 Err(e) => {
-                    eprintln!("❌ Test failed for {}: {}", wav_path, e);
-                    failures.push(format!("{}: {}", wav_path, e));
+                    eprintln!("❌ Test failed for {}: {}", wav_path.display(), e);
+                    failures.push(format!("{}: {}", wav_path.display(), e));
                 }
             }
         }
@@ -481,15 +840,19 @@ async fn test_end_to_end_wav_pipeline() {
 
     // If TEST_WAV is set, use that specific file (single-file mode)
     if let Ok(specific_wav) = std::env::var("TEST_WAV") {
-        if !std::path::Path::new(&specific_wav).exists() {
-            eprintln!("Skipping test: WAV file '{}' not found", specific_wav);
+        let wav_path = resolve_user_path(&specific_wav);
+        if !wav_path.exists() {
+            eprintln!(
+                "Skipping test: WAV file '{}' not found",
+                wav_path.display()
+            );
             return;
         }
         let expected_fragments = vec!["the".to_string()]; // Generic expectation for ad-hoc file
-        println!("Testing with WAV file: {}", specific_wav);
+        println!("Testing with WAV file: {}", wav_path.display());
         println!("Expected keywords: {:?}", expected_fragments);
         let expected_refs: Vec<&str> = expected_fragments.iter().map(|s| s.as_str()).collect();
-        match test_wav_pipeline(specific_wav, expected_refs).await {
+        match test_wav_pipeline(&wav_path, expected_refs).await {
             Ok(injections) => {
                 println!("Test completed. Injections: {:?}", injections);
                 if injections.is_empty() {
@@ -508,11 +871,13 @@ async fn test_end_to_end_wav_pipeline() {
 
     // Default: random single-file mode (fast CI-friendly)
     // Find all WAV files in test_data that have corresponding transcripts
-    let entries = match fs::read_dir(test_data_dir) {
+    let entries = match fs::read_dir(&test_data_dir) {
         Ok(entries) => entries,
         Err(_) => {
-            eprintln!("Skipping test: test_data directory not found");
-            eprintln!("Expected test WAV files in: {}", test_data_dir);
+            eprintln!(
+                "Skipping test: test_data directory not found at {}",
+                test_data_dir.display()
+            );
             return;
         }
     };
@@ -523,7 +888,7 @@ async fn test_end_to_end_wav_pipeline() {
         if path.extension().and_then(|s| s.to_str()) == Some("wav") {
             let txt_path = path.with_extension("txt");
             if txt_path.exists() {
-                wav_files.push(path.to_string_lossy().to_string());
+                wav_files.push(path);
             }
         }
     }
@@ -538,7 +903,7 @@ async fn test_end_to_end_wav_pipeline() {
     let selected_wav = wav_files.choose(&mut rng).unwrap().clone();
 
     // Load the corresponding transcript
-    let txt_path = std::path::Path::new(&selected_wav).with_extension("txt");
+    let txt_path = selected_wav.with_extension("txt");
     let transcript = fs::read_to_string(&txt_path)
         .unwrap_or_else(|e| panic!("Failed to read transcript {}: {}", txt_path.display(), e));
 
@@ -563,24 +928,28 @@ async fn test_end_to_end_wav_pipeline() {
         words
     };
 
-    println!("Testing with WAV file: {}", selected_wav);
+    println!("Testing with WAV file: {}", selected_wav.display());
     println!("Expected keywords: {:?}", expected_fragments);
     let expected_refs: Vec<&str> = expected_fragments.iter().map(|s| s.as_str()).collect();
-    match test_wav_pipeline(selected_wav, expected_refs).await {
+    match test_wav_pipeline(&selected_wav, expected_refs).await {
         Ok(injections) => {
             println!("Test completed. Injections: {:?}", injections);
             if injections.is_empty() {
                 eprintln!("Warning: No injections captured, but pipeline executed successfully");
             } else {
                 println!("✅ Injections verified: {:?}", injections);
-                // For mock, ensure it contains expected mock text
-                if let Some(first) = injections.first() {
-                    assert!(
-                        first.contains("mock"),
-                        "Expected mock transcription: {}",
-                        first
-                    );
-                }
+                let combined = injections.join(" ").to_lowercase();
+                let matched = expected_fragments
+                    .iter()
+                    .filter(|fragment| combined.contains(fragment.as_str()))
+                    .count();
+
+                assert!(
+                    matched > 0,
+                    "Transcription did not contain any expected fragments {:?}. Got: {:?}",
+                    expected_fragments,
+                    injections
+                );
             }
         }
         Err(e) => {
@@ -590,10 +959,38 @@ async fn test_end_to_end_wav_pipeline() {
     }
 }
 
+#[test]
+fn test_wav_file_loader() {
+    // Test WAV file loading with a simple synthetic file
+    // This could be expanded to create a simple test WAV file
+
+    // For now, just test the struct creation
+    let injector = MockTextInjector::new();
+    assert_eq!(injector.get_injections().len(), 0);
+
+    // Test injection
+    tokio_test::block_on(async {
+        injector.inject("test").await.unwrap();
+        assert_eq!(injector.get_injections(), vec!["test"]);
+    });
+}
+
 #[tokio::test]
 async fn test_end_to_end_with_real_injection() {
-    // NOTE: test_utils not yet implemented
-    // crate::test_utils::init_test_infrastructure();
+    if should_skip_live(
+        "test_end_to_end_with_real_injection",
+        "desktop injection coverage requires focusable terminal",
+    ) {
+        return;
+    }
+    if is_headless() && !is_env_truthy(FORCE_DESKTOP_ENV) {
+        eprintln!(
+            "Skipping test_end_to_end_with_real_injection: desktop session not detected. \
+Set {FORCE_DESKTOP_ENV}=1 to attempt execution with a virtual display."
+        );
+        return;
+    }
+    init_test_infrastructure();
     // This test uses the real AsyncInjectionProcessor for comprehensive testing
     // It requires:
     // 1. A WAV file with known speech content
@@ -604,12 +1001,21 @@ async fn test_end_to_end_with_real_injection() {
     // Transcript (uppercase original):
     // FAR FROM IT SIRE YOUR MAJESTY HAVING GIVEN NO DIRECTIONS ABOUT IT THE MUSICIANS HAVE RETAINED IT
     // We normalize to lowercase and compare presence of key fragments to allow minor ASR variance.
-    let test_wav = "test_data/test_2.wav";
-    let transcript_path = "test_data/test_2.txt";
-    if !std::path::Path::new(test_wav).exists() || !std::path::Path::new(transcript_path).exists() {
+    let test_data_root = test_data_dir();
+    if !test_data_root.exists() {
+        eprintln!(
+            "Skipping test: required test data directory missing at {}",
+            test_data_root.display()
+        );
+        return;
+    }
+    let test_wav = test_data_root.join("test_2.wav");
+    let transcript_path = test_data_root.join("test_2.txt");
+    if !test_wav.exists() || !transcript_path.exists() {
         eprintln!(
             "Skipping test: required fixed test assets missing ({} / {})",
-            test_wav, transcript_path
+            test_wav.display(),
+            transcript_path.display()
         );
         return;
     }
@@ -635,7 +1041,7 @@ async fn test_end_to_end_with_real_injection() {
     let (audio_producer, audio_consumer) = ring_buffer.split();
 
     // Load WAV file (native rate/channels)
-    let mut wav_loader = WavFileLoader::new(test_wav).unwrap();
+    let mut wav_loader = WavFileLoader::new(&test_wav).unwrap();
     let test_duration = Duration::from_millis(wav_loader.duration_ms() + 2000);
 
     // Set up audio chunker
@@ -670,7 +1076,7 @@ async fn test_end_to_end_with_real_injection() {
         mode: VadMode::Silero,
         frame_size_samples: FRAME_SIZE_SAMPLES,
         sample_rate_hz: SAMPLE_RATE_HZ,
-        silero: Default::default(),
+        ..Default::default()
     };
 
     let (vad_event_tx, vad_event_rx) = mpsc::channel::<VadEvent>(100);
@@ -698,7 +1104,9 @@ async fn test_end_to_end_with_real_injection() {
         include_words: false,
         buffer_size_ms: 512,
         streaming: false,
-        auto_extract_model: false,
+        auto_extract_model: std::env::var("COLDVOX_STT_AUTO_EXTRACT")
+            .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+            .unwrap_or(true),
     };
 
     // Check if STT model exists; if missing, fail fast with actionable guidance
@@ -712,7 +1120,18 @@ async fn test_end_to_end_with_real_injection() {
     let stt_audio_rx = audio_tx.subscribe();
     // Set up Plugin Manager
     let mut plugin_manager = SttPluginManager::new();
-    plugin_manager.initialize().await.unwrap();
+    plugin_manager
+        .set_selection_config(PluginSelectionConfig {
+            preferred_plugin: Some("vosk".to_string()),
+            fallback_plugins: vec![],
+            ..PluginSelectionConfig::default()
+        })
+        .await;
+    plugin_manager
+        .initialize()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to initialize Vosk plugin: {e}"))
+        .unwrap();
     let plugin_manager = Arc::new(tokio::sync::RwLock::new(plugin_manager));
 
     // Set up SessionEvent channel and translator
@@ -769,9 +1188,10 @@ async fn test_end_to_end_with_real_injection() {
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     let mut injection_config = InjectionConfig {
+        allow_ydotool: false, // Test primary methods only
         allow_kdotool: false,
         allow_enigo: false,
-        // clipboard restoration is automatic
+        restore_clipboard: true,        // Enable clipboard restoration
         inject_on_unknown_focus: false, // Require proper focus
         require_focus: true,
         ..Default::default()
@@ -901,12 +1321,12 @@ async fn test_end_to_end_with_real_injection() {
 }
 
 /// Test AT-SPI injection specifically
+#[ignore]
 #[tokio::test]
 #[cfg(feature = "text-injection")]
 
 async fn test_atspi_injection() {
-    // NOTE: test_utils not yet implemented
-    // crate::test_utils::init_test_infrastructure();
+    init_test_infrastructure();
     #[cfg(feature = "text-injection")]
     {
         use crate::text_injection::{atspi_injector::AtspiInjector, InjectionConfig, TextInjector};
@@ -972,7 +1392,7 @@ async fn test_atspi_injection() {
         )
         .await
         {
-            Ok(_) => {} // Test completed successfully or skipped gracefully
+            Ok(_) => {}
             Err(timeout_msg) => {
                 eprintln!(
                     "AT-SPI test timed out - skipping (desktop likely unavailable): {}",
@@ -984,11 +1404,69 @@ async fn test_atspi_injection() {
 }
 
 /// Test clipboard injection specifically
+#[ignore]
 #[tokio::test]
 #[cfg(feature = "text-injection")]
 
 async fn test_clipboard_injection() {
-    // NOTE: test_utils not yet implemented, clipboard_paste_injector module renamed
-    // Temporarily disabled until API is updated
-    eprintln!("Test temporarily disabled - awaiting API updates");
+    init_test_infrastructure();
+    #[cfg(feature = "text-injection")]
+    {
+        use crate::text_injection::{
+            clipboard_injector::ClipboardInjector, InjectionConfig, TextInjector,
+        };
+
+        let config = InjectionConfig::default();
+        let injector = ClipboardInjector::new(config);
+
+        // Check availability
+        if !injector.is_available().await {
+            eprintln!("Skipping clipboard test: Backend not available");
+            return;
+        }
+
+        // Save current clipboard
+        let original_clipboard = get_clipboard_content().await;
+
+        // Open test terminal
+        let capture_file = std::env::temp_dir().join("coldvox_clipboard_test.txt");
+        let terminal = match open_test_terminal(&capture_file).await {
+            Ok(term) => term,
+            Err(_) => {
+                eprintln!("Skipping clipboard test: Could not open terminal");
+                return;
+            }
+        };
+
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        // Test injection
+        let test_text = "Clipboard injection test";
+        match injector.inject_text(test_text).await {
+            Ok(_) => info!("Clipboard injection successful"),
+            Err(e) => eprintln!("Clipboard injection failed: {:?}", e),
+        }
+
+        // Verify clipboard was restored
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let restored_clipboard = get_clipboard_content().await;
+
+        if original_clipboard == restored_clipboard {
+            info!("✅ Clipboard correctly restored");
+        } else {
+            eprintln!("⚠️ Clipboard not restored properly");
+        }
+
+        // Cleanup
+        if let Some(mut term) = terminal {
+            let _ = term.kill().await;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let captured = std::fs::read_to_string(&capture_file).unwrap_or_default();
+        let _ = std::fs::remove_file(&capture_file);
+
+        if captured.contains(test_text) {
+            info!("✅ Clipboard injection verified");
+        }
+    }
 }
