@@ -101,7 +101,7 @@ jobs:
     needs: [setup-vosk-dependencies]
     strategy:
       matrix:
-        rust-version: [stable, "1.75"] # MSRV is 1.75
+        rust-version: [stable] # TODO: Re-enable MSRV 1.75 after downgrading Cargo.lock to v3
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
