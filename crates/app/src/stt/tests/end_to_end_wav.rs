@@ -1188,10 +1188,8 @@ Set {FORCE_DESKTOP_ENV}=1 to attempt execution with a virtual display."
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     let mut injection_config = InjectionConfig {
-        allow_ydotool: false, // Test primary methods only
         allow_kdotool: false,
         allow_enigo: false,
-        restore_clipboard: true,        // Enable clipboard restoration
         inject_on_unknown_focus: false, // Require proper focus
         require_focus: true,
         ..Default::default()
