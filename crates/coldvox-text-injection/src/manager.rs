@@ -8,9 +8,7 @@ use crate::TextInjector;
 #[cfg(feature = "atspi")]
 use crate::atspi_injector::AtspiInjector;
 #[cfg(feature = "wl_clipboard")]
-use crate::clipboard_injector::ClipboardInjector;
-#[cfg(all(feature = "wl_clipboard", feature = "ydotool"))]
-use crate::combo_clip_ydotool::ComboClipboardYdotool;
+use crate::clipboard_paste_injector::ClipboardPasteInjector;
 #[cfg(feature = "enigo")]
 use crate::enigo_injector::EnigoInjector;
 #[cfg(feature = "kdotool")]
@@ -18,10 +16,12 @@ use crate::kdotool_injector::KdotoolInjector;
 
 use crate::noop_injector::NoOpInjector;
 #[cfg(feature = "ydotool")]
-use crate::ydotool_injector::YdotoolInjector;
+use crate::ydotool_injector::YdotoolInjector; // retained for direct tests; not registered in strategy
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::io::Write;
+use std::process;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, trace, warn};
@@ -66,6 +66,7 @@ struct InjectorRegistry {
     injectors: HashMap<InjectionMethod, Box<dyn TextInjector>>,
 }
 
+#[allow(clippy::unused_async)] // Function contains await calls in feature-gated blocks
 impl InjectorRegistry {
     async fn build(config: &InjectionConfig, backend_detector: &BackendDetector) -> Self {
         let mut injectors: HashMap<InjectionMethod, Box<dyn TextInjector>> = HashMap::new();
@@ -91,35 +92,19 @@ impl InjectorRegistry {
             }
         }
 
-        // Add clipboard injectors if available
+        // Add clipboard paste injector if available
         #[cfg(feature = "wl_clipboard")]
         {
             if _has_wayland || _has_x11 {
-                let clipboard_injector = ClipboardInjector::new(config.clone());
-                if clipboard_injector.is_available().await {
-                    injectors.insert(InjectionMethod::Clipboard, Box::new(clipboard_injector));
-                }
-
-                // Add combo clipboard+paste if wl_clipboard + ydotool features are enabled
-                #[cfg(all(feature = "wl_clipboard", feature = "ydotool"))]
-                {
-                    let combo_injector = ComboClipboardYdotool::new(config.clone());
-                    if combo_injector.is_available().await {
-                        injectors
-                            .insert(InjectionMethod::ClipboardAndPaste, Box::new(combo_injector));
-                    }
+                let paste_injector = ClipboardPasteInjector::new(config.clone());
+                if paste_injector.is_available().await {
+                    injectors.insert(InjectionMethod::ClipboardPasteFallback, Box::new(paste_injector));
                 }
             }
         }
 
-        // Add optional injectors based on config
-        #[cfg(feature = "ydotool")]
-        if config.allow_ydotool {
-            let ydotool = YdotoolInjector::new(config.clone());
-            if ydotool.is_available().await {
-                injectors.insert(InjectionMethod::YdoToolPaste, Box::new(ydotool));
-            }
-        }
+        // Do not register YdoTool as a standalone method: ClipboardPaste already falls back to ydotool.
+        // This keeps a single paste path in the strategy manager.
 
         #[cfg(feature = "enigo")]
         if config.allow_enigo {
@@ -172,6 +157,7 @@ pub struct StrategyManager {
     /// Metrics for the strategy manager
     metrics: Arc<Mutex<InjectionMetrics>>,
     /// Backend detector for platform-specific capabilities
+    #[cfg_attr(not(test), allow(dead_code))]
     backend_detector: BackendDetector,
     /// Registry of available injectors
     injectors: InjectorRegistry,
@@ -341,6 +327,7 @@ impl StrategyManager {
 
     /// Get active window class via window manager
     #[cfg(target_os = "linux")]
+    #[allow(clippy::unused_async)] // Function needs to be async to match trait/interface expectations
     async fn get_active_window_class(&self) -> Result<String, InjectionError> {
         use std::process::Command;
 
@@ -361,7 +348,7 @@ impl StrategyManager {
                     {
                         if class_output.status.success() {
                             let class_str = String::from_utf8_lossy(&class_output.stdout);
-                            // Parse WM_CLASS string (format: WM_CLASS(STRING) = "instance", "class")
+                            // Parse WM_CLASS string
                             if let Some(class_part) = class_str.split('"').nth(3) {
                                 return Ok(class_part.to_string());
                             }
@@ -371,8 +358,43 @@ impl StrategyManager {
             }
         }
 
+        // Try swaymsg for Wayland
+        if let Ok(output) = Command::new("swaymsg")
+            .args(["-t", "get_tree"])
+            .output()
+        {
+            if output.status.success() {
+                let tree = String::from_utf8_lossy(&output.stdout);
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&tree) {
+                    // Find focused window
+                    fn find_focused_window(node: &serde_json::Value) -> Option<String> {
+                        if node.get("focused").and_then(|v| v.as_bool()) == Some(true) {
+                            if let Some(app_id) = node.get("app_id").and_then(|v| v.as_str()) {
+                                return Some(app_id.to_string());
+                            }
+                        }
+
+                        // Check children
+                        if let Some(nodes) = node.get("nodes").and_then(|v| v.as_array()) {
+                            for n in nodes {
+                                if let Some(found) = find_focused_window(n) {
+                                    return Some(found);
+                                }
+                            }
+                        }
+
+                        None
+                    }
+
+                    if let Some(app_id) = find_focused_window(&json) {
+                        return Ok(app_id);
+                    }
+                }
+            }
+        }
+
         Err(InjectionError::Other(
-            "Could not determine active window".to_string(),
+            "Could not determine active window class".to_string(),
         ))
     }
 
@@ -526,7 +548,7 @@ impl StrategyManager {
 
     /// Update cooldown state for a failed method (legacy method for compatibility)
     fn update_cooldown(&mut self, method: InjectionMethod, error: &str) {
-        // TODO: This should use actual app_id from get_current_app_id()
+        // TODO(#38): This should use actual app_id from get_current_app_id()
         let app_id = "unknown_app";
         self.apply_cooldown(app_id, method, error);
     }
@@ -541,30 +563,26 @@ impl StrategyManager {
     /// Get ordered list of methods to try based on backend availability and success rates.
     /// Includes NoOp as a final fallback so the list is never empty.
     pub(crate) fn _get_method_priority(&self, app_id: &str) -> Vec<InjectionMethod> {
-        // Base order derived from detected backends (mirrors get_method_order_cached)
-        let available_backends = self.backend_detector.detect_available_backends();
+        // Base order derived from environment first (robust when portals/VK are unavailable)
+        use std::env;
+        let on_wayland = env::var("XDG_SESSION_TYPE")
+            .map(|s| s == "wayland")
+            .unwrap_or(false)
+            || env::var("WAYLAND_DISPLAY").is_ok();
+        let on_x11 = env::var("XDG_SESSION_TYPE")
+            .map(|s| s == "x11")
+            .unwrap_or(false)
+            || env::var("DISPLAY").is_ok();
+
         let mut base_order: Vec<InjectionMethod> = Vec::new();
 
-        for backend in available_backends {
-            match backend {
-                Backend::WaylandXdgDesktopPortal | Backend::WaylandVirtualKeyboard => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::X11Xdotool | Backend::X11Native => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::MacCgEvent | Backend::WindowsSendInput => {
-                    // 2025-09-04: Currently not targeting Windows builds
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                _ => {}
-            }
+        if on_wayland {
+            // Prefer AT-SPI direct insert first on Wayland when available; delay clipboard paste to last.
+            base_order.push(InjectionMethod::AtspiInsert);
+        }
+
+        if on_x11 {
+            base_order.push(InjectionMethod::AtspiInsert);
         }
 
         // Optional, opt-in fallbacks
@@ -575,45 +593,116 @@ impl StrategyManager {
             base_order.push(InjectionMethod::EnigoText);
         }
 
-        if self.config.allow_ydotool {
-            base_order.push(InjectionMethod::YdoToolPaste);
-        }
+    // Clipboard paste (with fallback) is intentionally last to avoid clipboard disruption unless needed
+    base_order.push(InjectionMethod::ClipboardPasteFallback);
 
         // Deduplicate while preserving order
         use std::collections::HashSet;
         let mut seen = HashSet::new();
         base_order.retain(|m| seen.insert(*m));
 
-        // Sort by historical success rate, preserving base order when equal
+        // Sort primarily by base order; use historical success rate only as a tiebreaker
         let base_order_copy = base_order.clone();
         base_order.sort_by(|a, b| {
-            let key_a = (app_id.to_string(), *a);
-            let key_b = (app_id.to_string(), *b);
-
-            let rate_a = self
-                .success_cache
-                .get(&key_a)
-                .map(|r| r.success_rate)
-                .unwrap_or(0.5);
-            let rate_b = self
-                .success_cache
-                .get(&key_b)
-                .map(|r| r.success_rate)
-                .unwrap_or(0.5);
-
-            rate_b
-                .partial_cmp(&rate_a)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| {
-                    let pos_a = base_order_copy.iter().position(|m| m == a).unwrap_or(0);
-                    let pos_b = base_order_copy.iter().position(|m| m == b).unwrap_or(0);
-                    pos_a.cmp(&pos_b)
-                })
+            let pos_a = base_order_copy
+                .iter()
+                .position(|m| m == a)
+                .unwrap_or(usize::MAX);
+            let pos_b = base_order_copy
+                .iter()
+                .position(|m| m == b)
+                .unwrap_or(usize::MAX);
+            pos_a.cmp(&pos_b).then_with(|| {
+                let key_a = (app_id.to_string(), *a);
+                let key_b = (app_id.to_string(), *b);
+                let rate_a = self
+                    .success_cache
+                    .get(&key_a)
+                    .map(|r| r.success_rate)
+                    .unwrap_or(0.5);
+                let rate_b = self
+                    .success_cache
+                    .get(&key_b)
+                    .map(|r| r.success_rate)
+                    .unwrap_or(0.5);
+                rate_b
+                    .partial_cmp(&rate_a)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
         });
 
         // Always include NoOp at the end as a last resort
         base_order.push(InjectionMethod::NoOp);
 
+        base_order
+    }
+
+    /// Helper: Compute method order based on environment and config
+    fn compute_method_order(&self, app_id: &str) -> Vec<InjectionMethod> {
+        use std::env;
+        let on_wayland = env::var("XDG_SESSION_TYPE")
+            .map(|s| s == "wayland")
+            .unwrap_or(false)
+            || env::var("WAYLAND_DISPLAY").is_ok();
+        let on_x11 = env::var("XDG_SESSION_TYPE")
+            .map(|s| s == "x11")
+            .unwrap_or(false)
+            || env::var("DISPLAY").is_ok();
+
+        let mut base_order = Vec::new();
+
+        if on_wayland || on_x11 {
+            base_order.push(InjectionMethod::AtspiInsert);
+        }
+
+        // Add optional methods if enabled
+        if self.config.allow_kdotool {
+            base_order.push(InjectionMethod::KdoToolAssist);
+        }
+        if self.config.allow_enigo {
+            base_order.push(InjectionMethod::EnigoText);
+        }
+
+        // Ensure ClipboardPaste (with internal fallback) is tried last
+        base_order.push(InjectionMethod::ClipboardPasteFallback);
+
+        // Deduplicate while preserving order
+        use std::collections::HashSet;
+        let mut seen = HashSet::new();
+        base_order.retain(|m| seen.insert(*m));
+
+        // Sort primarily by base order; use success rate as tiebreaker
+        let base_order_copy = base_order.clone();
+        base_order.sort_by(|a, b| {
+            let pos_a = base_order_copy
+                .iter()
+                .position(|m| m == a)
+                .unwrap_or(usize::MAX);
+            let pos_b = base_order_copy
+                .iter()
+                .position(|m| m == b)
+                .unwrap_or(usize::MAX);
+            pos_a.cmp(&pos_b).then_with(|| {
+                let key_a = (app_id.to_string(), *a);
+                let key_b = (app_id.to_string(), *b);
+                let success_a = self
+                    .success_cache
+                    .get(&key_a)
+                    .map(|r| r.success_rate)
+                    .unwrap_or(0.5);
+                let success_b = self
+                    .success_cache
+                    .get(&key_b)
+                    .map(|r| r.success_rate)
+                    .unwrap_or(0.5);
+                success_b
+                    .partial_cmp(&success_a)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+        });
+
+        // Ensure NoOp is always available as a last resort
+        base_order.push(InjectionMethod::NoOp);
         base_order
     }
 
@@ -626,87 +715,7 @@ impl StrategyManager {
             }
         }
 
-        // Get available backends
-        let available_backends = self.backend_detector.detect_available_backends();
-
-        // Base order as specified in the requirements
-        let mut base_order = Vec::new();
-
-        // Add methods based on available backends
-        for backend in available_backends {
-            match backend {
-                Backend::WaylandXdgDesktopPortal | Backend::WaylandVirtualKeyboard => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::X11Xdotool | Backend::X11Native => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::MacCgEvent => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::WindowsSendInput => {
-                    // 2025-09-04: Currently not targeting Windows builds
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                _ => {}
-            }
-        }
-
-        // Add optional methods if enabled
-        if self.config.allow_kdotool {
-            base_order.push(InjectionMethod::KdoToolAssist);
-        }
-        if self.config.allow_enigo {
-            base_order.push(InjectionMethod::EnigoText);
-        }
-
-        if self.config.allow_ydotool {
-            base_order.push(InjectionMethod::YdoToolPaste);
-        }
-        // Deduplicate while preserving order
-        use std::collections::HashSet;
-        let mut seen = HashSet::new();
-        base_order.retain(|m| seen.insert(*m));
-
-        // Sort by preference: methods with higher success rate first, then by base order
-
-        // Create a copy of base order for position lookup
-        let base_order_copy = base_order.clone();
-
-        base_order.sort_by(|a, b| {
-            let key_a = (app_id.to_string(), *a);
-            let key_b = (app_id.to_string(), *b);
-
-            let success_a = self
-                .success_cache
-                .get(&key_a)
-                .map(|r| r.success_rate)
-                .unwrap_or(0.5);
-            let success_b = self
-                .success_cache
-                .get(&key_b)
-                .map(|r| r.success_rate)
-                .unwrap_or(0.5);
-
-            // Sort by success rate (descending), then by base order
-            success_b.partial_cmp(&success_a).unwrap().then_with(|| {
-                // Preserve base order for equal success rates
-                let pos_a = base_order_copy.iter().position(|m| m == a).unwrap_or(0);
-                let pos_b = base_order_copy.iter().position(|m| m == b).unwrap_or(0);
-                pos_a.cmp(&pos_b)
-            })
-        });
-
-        // Ensure NoOp is always available as a last resort
-        base_order.push(InjectionMethod::NoOp);
+        let base_order = self.compute_method_order(app_id);
 
         // Cache and return
         self.cached_method_order = Some((app_id.to_string(), base_order.clone()));
@@ -716,69 +725,7 @@ impl StrategyManager {
     /// Back-compat: previous tests may call no-arg version; compute without caching
     #[allow(dead_code)]
     pub fn get_method_order_uncached(&self) -> Vec<InjectionMethod> {
-        // Compute using a placeholder app id without affecting cache
-        // Duplicate core logic minimally by delegating to a copy of code
-        let available_backends = self.backend_detector.detect_available_backends();
-        let mut base_order = Vec::new();
-        for backend in available_backends {
-            match backend {
-                Backend::WaylandXdgDesktopPortal | Backend::WaylandVirtualKeyboard => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::X11Xdotool | Backend::X11Native => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::MacCgEvent | Backend::WindowsSendInput => {
-                    // 2025-09-04: Currently not targeting Windows builds
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                _ => {}
-            }
-        }
-        if self.config.allow_kdotool {
-            base_order.push(InjectionMethod::KdoToolAssist);
-        }
-        if self.config.allow_enigo {
-            base_order.push(InjectionMethod::EnigoText);
-        }
-
-        if self.config.allow_ydotool {
-            base_order.push(InjectionMethod::YdoToolPaste);
-        }
-        use std::collections::HashSet;
-        let mut seen = HashSet::new();
-        base_order.retain(|m| seen.insert(*m));
-        // Sort by success rate for placeholder app id
-        let app_id = "unknown_app";
-        let base_order_copy = base_order.clone();
-        let mut base_order2 = base_order;
-        base_order2.sort_by(|a, b| {
-            let key_a = (app_id.to_string(), *a);
-            let key_b = (app_id.to_string(), *b);
-            let success_a = self
-                .success_cache
-                .get(&key_a)
-                .map(|r| r.success_rate)
-                .unwrap_or(0.5);
-            let success_b = self
-                .success_cache
-                .get(&key_b)
-                .map(|r| r.success_rate)
-                .unwrap_or(0.5);
-            success_b.partial_cmp(&success_a).unwrap().then_with(|| {
-                let pos_a = base_order_copy.iter().position(|m| m == a).unwrap_or(0);
-                let pos_b = base_order_copy.iter().position(|m| m == b).unwrap_or(0);
-                pos_a.cmp(&pos_b)
-            })
-        });
-        base_order2.push(InjectionMethod::NoOp);
-        base_order2
+        self.compute_method_order("unknown_app")
     }
 
     /// Check if we've exceeded the global time budget
@@ -980,8 +927,7 @@ impl StrategyManager {
         let total_start = Instant::now();
         let mut attempts = 0;
         let total_methods = method_order.len();
-
-        for method in method_order {
+        for method in method_order.clone() {
             attempts += 1;
             // Skip if in cooldown
             if self.is_in_cooldown(method) {
@@ -1060,15 +1006,25 @@ impl StrategyManager {
                 Err(e) => {
                     let duration = start.elapsed().as_millis() as u64;
                     let error_string = e.to_string();
+                    let backend_name = self
+                        .injectors
+                        .get_mut(method)
+                        .map(|inj| inj.backend_name())
+                        .unwrap_or("unknown");
+                    error!(
+                        "Injection method {:?} (backend: {}) failed after {}ms (attempt {} of {}): {}",
+                        method,
+                        backend_name,
+                        duration,
+                        attempts,
+                        total_methods,
+                        error_string
+                    );
                     if let Ok(mut m) = self.metrics.lock() {
                         m.record_failure(method, duration, error_string.clone());
                     }
                     self.update_success_record(&app_id, method, false);
                     self.update_cooldown(method, &error_string);
-                    debug!(
-                        "Method {:?} failed after {}ms (attempt {}): {}",
-                        method, duration, attempts, error_string
-                    );
                     trace!("Continuing to next method in fallback chain");
                     // Continue to next method
                 }
@@ -1083,9 +1039,27 @@ impl StrategyManager {
             total_elapsed.as_millis(),
             attempts
         );
-        Err(InjectionError::MethodFailed(
-            "All injection methods failed".to_string(),
-        ))
+
+        // Prepare diagnostic payload
+        let diag = format!(
+            "Injection failure diagnostics:\n  app_id={}\n  attempts={}\n  total_methods={}\n  total_elapsed_ms={}\n  redact_logs={}\n  method_order={:?}\n",
+            app_id,
+            attempts,
+            total_methods,
+            total_elapsed.as_millis(),
+            self.config.redact_logs,
+            method_order
+        );
+
+        if self.config.fail_fast {
+            error!("Fail-fast mode enabled: {}", diag);
+            let _ = std::io::stderr().write_all(diag.as_bytes());
+            process::exit(1);
+        } else {
+            Err(InjectionError::MethodFailed(
+                "All injection methods failed".to_string(),
+            ))
+        }
     }
 
     /// Get metrics for the strategy manager
@@ -1249,13 +1223,11 @@ mod tests {
         let has_desktop = !available.is_empty();
         if has_desktop {
             assert!(order.contains(&InjectionMethod::AtspiInsert));
-            assert!(order.contains(&InjectionMethod::ClipboardAndPaste));
-            assert!(order.contains(&InjectionMethod::Clipboard));
+            assert!(order.contains(&InjectionMethod::ClipboardPasteFallback));
         }
 
         // Verify optional methods are included if enabled
         let config = InjectionConfig {
-            allow_ydotool: true,
             allow_kdotool: true,
             allow_enigo: true,
 
@@ -1273,10 +1245,9 @@ mod tests {
         let available = manager.backend_detector.detect_available_backends();
         if !available.is_empty() {
             assert!(order.contains(&InjectionMethod::AtspiInsert));
-            assert!(order.contains(&InjectionMethod::ClipboardAndPaste));
-            assert!(order.contains(&InjectionMethod::Clipboard));
+            assert!(order.contains(&InjectionMethod::ClipboardPasteFallback));
         }
-        assert!(order.contains(&InjectionMethod::YdoToolPaste));
+    // YdoToolPaste is no longer a standalone method; its behavior is subsumed by ClipboardPaste
         assert!(order.contains(&InjectionMethod::KdoToolAssist));
         assert!(order.contains(&InjectionMethod::EnigoText));
     }
