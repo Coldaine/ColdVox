@@ -267,6 +267,12 @@ impl SttPerformanceMetrics {
             .fetch_add(1, Ordering::Relaxed);
     }
 
+    pub fn increment_total_requests(&self) {
+        self.operational
+            .requests_per_second
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
     /// Record processing error
     pub fn record_error(&self) {
         self.operational
