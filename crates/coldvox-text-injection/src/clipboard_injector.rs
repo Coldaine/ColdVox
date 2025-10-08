@@ -1,8 +1,6 @@
 #![allow(unused_imports)]
 
 use crate::types::{InjectionConfig, InjectionError, InjectionResult};
-use crate::TextInjector;
-use async_trait::async_trait;
 use std::time::{Duration, Instant};
 use tracing::{debug, info, warn};
 use wl_clipboard_rs::copy::{MimeType, Options, Source};
@@ -25,18 +23,18 @@ impl ClipboardInjector {
     }
 }
 
-#[async_trait]
-impl TextInjector for ClipboardInjector {
-    fn backend_name(&self) -> &'static str {
-        "Clipboard"
-    }
-
-    async fn is_available(&self) -> bool {
-        // Check if we can access the Wayland display
+impl ClipboardInjector {
+    /// Check if clipboard operations appear available in the environment
+    pub async fn is_available(&self) -> bool {
+        // Check if we can access the Wayland display (best-effort check)
         std::env::var("WAYLAND_DISPLAY").is_ok()
     }
 
-    async fn inject_text(&self, text: &str) -> InjectionResult<()> {
+    /// Set clipboard content and schedule an optional restore of prior contents.
+    /// This was previously the trait implementation used when ClipboardInjector was exposed
+    /// as a standalone backend. We keep the functionality as inherent methods so the
+    /// clipboard-only option is no longer registered as an injectable backend.
+    pub async fn inject_text(&self, text: &str) -> InjectionResult<()> {
         use std::io::Read;
         use wl_clipboard_rs::copy::{MimeType, Options, Source};
         use wl_clipboard_rs::paste::{get_contents, ClipboardType, MimeType as PasteMimeType, Seat};
@@ -81,21 +79,6 @@ impl TextInjector for ClipboardInjector {
         }
 
         Ok(())
-    }
-
-    fn backend_info(&self) -> Vec<(&'static str, String)> {
-        vec![
-            ("type", "clipboard".to_string()),
-            (
-                "description",
-                "Sets clipboard content using Wayland wl-clipboard API".to_string(),
-            ),
-            ("platform", "Linux (Wayland)".to_string()),
-            (
-                "requires",
-                "WAYLAND_DISPLAY environment variable".to_string(),
-            ),
-        ]
     }
 }
 
@@ -241,8 +224,8 @@ mod tests {
     fn test_clipboard_injector_creation() {
         let config = InjectionConfig::default();
         let injector = ClipboardInjector::new(config);
-
-        assert_eq!(injector.backend_name(), "Clipboard");
+        // Ensure creation succeeds and availability can be queried
+        let _avail = futures::executor::block_on(injector.is_available());
         // Basic creation test - no metrics in new implementation
     }
 
