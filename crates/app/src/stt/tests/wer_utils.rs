@@ -1,7 +1,7 @@
 /// Word Error Rate (WER) calculation utilities for STT testing.
 ///
 /// Centralized implementation to avoid code duplication between test files.
-
+///
 /// Calculate Word Error Rate (WER) between reference and hypothesis strings.
 ///
 /// WER = (insertions + deletions + substitutions) / reference_word_count

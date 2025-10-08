@@ -1,4 +1,3 @@
-#![cfg(feature = "vosk")]
 use anyhow::Result;
 use hound::WavReader;
 use std::path::Path;
@@ -407,8 +406,7 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
             min_speech_duration_ms: 250,  // Default
             min_silence_duration_ms: 100, // Lower to detect silence faster
             window_size_samples: FRAME_SIZE_SAMPLES,
-        },
-        ..Default::default()
+        }
     };
 
     let (vad_event_tx, vad_event_rx) = mpsc::channel::<VadEvent>(100);
@@ -463,9 +461,11 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
     let stt_audio_rx = audio_tx.subscribe();
     // Set up Plugin Manager with Mock preferred for testing
     let mut plugin_manager = SttPluginManager::new();
-    let mut selection_cfg = PluginSelectionConfig::default();
-    selection_cfg.preferred_plugin = Some("mock".to_string());
-    selection_cfg.fallback_plugins = vec!["noop".to_string()];
+    let selection_cfg = PluginSelectionConfig {
+        preferred_plugin: Some("mock".to_string()),
+        fallback_plugins: vec!["noop".to_string()],
+        ..Default::default()
+    };
     plugin_manager.set_selection_config(selection_cfg).await;
     let plugin_id = plugin_manager.initialize().await.unwrap();
     info!("Initialized plugin manager with plugin: {}", plugin_id);
@@ -563,14 +563,12 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
         info!("Mock mode: verifying pipeline execution with mock events");
         if injections.is_empty() {
             info!("No mock injection received, but pipeline completed successfully - this may be due to short audio session");
-        } else {
-            if let Some(first_inj) = injections.first() {
-                assert!(
-                    first_inj.contains("mock"),
-                    "Expected mock transcription in first injection: {}",
-                    first_inj
-                );
-            }
+        } else if let Some(first_inj) = injections.first() {
+            assert!(
+                first_inj.contains("mock"),
+                "Expected mock transcription in first injection: {}",
+                first_inj
+            );
         }
     } else {
         // Verify at least one expected text fragment is present (STT may not be 100% accurate)

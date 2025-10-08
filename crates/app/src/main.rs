@@ -211,7 +211,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         opts.injection = if cfg!(feature = "text-injection") {
             Some(coldvox_app::runtime::InjectionOptions {
-                enable: true, // Assuming text injection is enabled if the feature is on
+                enable: true,         // Assuming text injection is enabled if the feature is on
                 allow_ydotool: false, // Default to false, can be configured later
                 allow_kdotool: settings.injection.allow_kdotool,
                 allow_enigo: settings.injection.allow_enigo,

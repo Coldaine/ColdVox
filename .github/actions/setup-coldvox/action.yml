@@ -14,16 +14,16 @@ runs:
         set -euo pipefail
         echo "--- Runner Provisioning Assumptions ---"
         cat <<'INFO'
-The ColdVox runner action now assumes the self-hosted runner is pre-provisioned
-with the desktop automation and multimedia dependencies documented in
-docs/dev/runnerAgent/RunnerAgent.md. Direct command/library verification has
-been removed to avoid failing fast on partially provisioned systems; downstream
-tests will surface any missing tools in a more actionable context.
+        The ColdVox runner action now assumes the self-hosted runner is pre-provisioned
+        with the desktop automation and multimedia dependencies documented in
+        docs/dev/runnerAgent/RunnerAgent.md. Direct command/library verification has
+        been removed to avoid failing fast on partially provisioned systems; downstream
+        tests will surface any missing tools in a more actionable context.
 
-If you encounter missing dependency errors during later workflow steps, refer to
-docs/dev/runnerAgent/RunnerAgent.md#interactive-dependency-management for the
-recommended package list.
-INFO
+        If you encounter missing dependency errors during later workflow steps, refer to
+        docs/dev/runnerAgent/RunnerAgent.md#interactive-dependency-management for the
+        recommended package list.
+        INFO
 
     - name: Setup Rust toolchain
       if: inputs.skip-toolchain != 'true'
