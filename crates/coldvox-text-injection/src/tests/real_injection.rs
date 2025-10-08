@@ -353,4 +353,4 @@ async fn test_enigo_typing_special_chars() {
     run_enigo_typing_test("Enigo types\nnew lines and\ttabs.").await;
 }
 
-// TODO: Add tests for kdotool, combo injectors etc.
+// TODO(#40): Add tests for kdotool, combo injectors etc.

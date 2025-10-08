@@ -548,7 +548,7 @@ impl StrategyManager {
 
     /// Update cooldown state for a failed method (legacy method for compatibility)
     fn update_cooldown(&mut self, method: InjectionMethod, error: &str) {
-        // TODO: This should use actual app_id from get_current_app_id()
+        // TODO(#38): This should use actual app_id from get_current_app_id()
         let app_id = "unknown_app";
         self.apply_cooldown(app_id, method, error);
     }
@@ -637,16 +637,8 @@ impl StrategyManager {
         base_order
     }
 
-    /// Get the preferred method order based on current context and history (cached per app)
-    pub(crate) fn get_method_order_cached(&mut self, app_id: &str) -> Vec<InjectionMethod> {
-        // Use cached order when app_id unchanged
-        if let Some((cached_app, cached_order)) = &self.cached_method_order {
-            if cached_app == app_id {
-                return cached_order.clone();
-            }
-        }
-
-        // Environment-first ordering (more reliable than portal/VK detection)
+    /// Helper: Compute method order based on environment and config
+    fn compute_method_order(&self, app_id: &str) -> Vec<InjectionMethod> {
         use std::env;
         let on_wayland = env::var("XDG_SESSION_TYPE")
             .map(|s| s == "wayland")
@@ -659,11 +651,7 @@ impl StrategyManager {
 
         let mut base_order = Vec::new();
 
-        if on_wayland {
-            base_order.push(InjectionMethod::AtspiInsert);
-        }
-
-        if on_x11 {
+        if on_wayland || on_x11 {
             base_order.push(InjectionMethod::AtspiInsert);
         }
 
@@ -675,8 +663,9 @@ impl StrategyManager {
             base_order.push(InjectionMethod::EnigoText);
         }
 
-    // Ensure ClipboardPaste (with internal fallback) is tried last
-    base_order.push(InjectionMethod::ClipboardPasteFallback);
+        // Ensure ClipboardPaste (with internal fallback) is tried last
+        base_order.push(InjectionMethod::ClipboardPasteFallback);
+
         // Deduplicate while preserving order
         use std::collections::HashSet;
         let mut seen = HashSet::new();
@@ -714,6 +703,19 @@ impl StrategyManager {
 
         // Ensure NoOp is always available as a last resort
         base_order.push(InjectionMethod::NoOp);
+        base_order
+    }
+
+    /// Get the preferred method order based on current context and history (cached per app)
+    pub(crate) fn get_method_order_cached(&mut self, app_id: &str) -> Vec<InjectionMethod> {
+        // Use cached order when app_id unchanged
+        if let Some((cached_app, cached_order)) = &self.cached_method_order {
+            if cached_app == app_id {
+                return cached_order.clone();
+            }
+        }
+
+        let base_order = self.compute_method_order(app_id);
 
         // Cache and return
         self.cached_method_order = Some((app_id.to_string(), base_order.clone()));
@@ -723,68 +725,7 @@ impl StrategyManager {
     /// Back-compat: previous tests may call no-arg version; compute without caching
     #[allow(dead_code)]
     pub fn get_method_order_uncached(&self) -> Vec<InjectionMethod> {
-        // Compute using environment-first ordering with a placeholder app id
-        use std::env;
-        let on_wayland = env::var("XDG_SESSION_TYPE")
-            .map(|s| s == "wayland")
-            .unwrap_or(false)
-            || env::var("WAYLAND_DISPLAY").is_ok();
-        let on_x11 = env::var("XDG_SESSION_TYPE")
-            .map(|s| s == "x11")
-            .unwrap_or(false)
-            || env::var("DISPLAY").is_ok();
-
-        let mut base_order = Vec::new();
-        if on_wayland {
-            base_order.push(InjectionMethod::AtspiInsert);
-        }
-        if on_x11 {
-            base_order.push(InjectionMethod::AtspiInsert);
-        }
-        if self.config.allow_kdotool {
-            base_order.push(InjectionMethod::KdoToolAssist);
-        }
-        if self.config.allow_enigo {
-            base_order.push(InjectionMethod::EnigoText);
-        }
-
-    base_order.push(InjectionMethod::ClipboardPasteFallback);
-        use std::collections::HashSet;
-        let mut seen = HashSet::new();
-        base_order.retain(|m| seen.insert(*m));
-        // Sort primarily by base order; use success rate as tiebreaker for placeholder app id
-        let app_id = "unknown_app";
-        let base_order_copy = base_order.clone();
-        let mut base_order2 = base_order;
-        base_order2.sort_by(|a, b| {
-            let pos_a = base_order_copy
-                .iter()
-                .position(|m| m == a)
-                .unwrap_or(usize::MAX);
-            let pos_b = base_order_copy
-                .iter()
-                .position(|m| m == b)
-                .unwrap_or(usize::MAX);
-            pos_a.cmp(&pos_b).then_with(|| {
-                let key_a = (app_id.to_string(), *a);
-                let key_b = (app_id.to_string(), *b);
-                let success_a = self
-                    .success_cache
-                    .get(&key_a)
-                    .map(|r| r.success_rate)
-                    .unwrap_or(0.5);
-                let success_b = self
-                    .success_cache
-                    .get(&key_b)
-                    .map(|r| r.success_rate)
-                    .unwrap_or(0.5);
-                success_b
-                    .partial_cmp(&success_a)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-        });
-        base_order2.push(InjectionMethod::NoOp);
-        base_order2
+        self.compute_method_order("unknown_app")
     }
 
     /// Check if we've exceeded the global time budget
