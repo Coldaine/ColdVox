@@ -414,5 +414,6 @@ pub mod text_injection;
 pub mod tui;
 pub mod vad;
 
-#[cfg(test)]
-pub mod test_utils;
+// NOTE: test_utils module not yet implemented
+// #[cfg(test)]
+// pub mod test_utils;
