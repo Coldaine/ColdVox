@@ -345,37 +345,6 @@ async fn open_test_terminal(
     Err(anyhow::anyhow!("No suitable terminal emulator found"))
 }
 
-// Helper to get clipboard content
-async fn get_clipboard_content() -> Option<String> {
-    // Try wl-paste first (Wayland)
-    let wl_result = tokio::process::Command::new("wl-paste")
-        .arg("--no-newline")
-        .output()
-        .await;
-
-    if let Ok(output) = wl_result {
-        if output.status.success() {
-            return Some(String::from_utf8_lossy(&output.stdout).to_string());
-        }
-    }
-
-    // Try xclip (X11)
-    let xclip_result = tokio::process::Command::new("xclip")
-        .arg("-selection")
-        .arg("clipboard")
-        .arg("-o")
-        .output()
-        .await;
-
-    if let Ok(output) = xclip_result {
-        if output.status.success() {
-            return Some(String::from_utf8_lossy(&output.stdout).to_string());
-        }
-    }
-
-    None
-}
-
 // End-to-end integration tests for WAV file processing
 
 #[tokio::test]
