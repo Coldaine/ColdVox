@@ -2,7 +2,9 @@
 
 > ⚠️ **Internal Alpha** - This project is in early development and not ready for production use.
 
-Minimal root README. Full developer & architecture guide: see [`CLAUDE.md`](CLAUDE.md).
+Minimal root README. Full developer & architecture guide: see [docs/architecture.md](docs/architecture.md) and [.github/copilot-instructions.md](.github/copilot-instructions.md).
+
+**Version History**: See [CHANGELOG.md](CHANGELOG.md) for all notable changes and release notes.
 
 ## Overview
 ColdVox is a modular Rust workspace providing real‑time audio capture, VAD, STT (Vosk), and cross‑platform text injection.
@@ -43,7 +45,7 @@ cargo run --bin mic_probe -- list-devices
 2. **Push-to-Talk**: Hold `Super+Ctrl`, speak, release (hotkey mode)
 3. **Voice Activation**: Automatically detects speech and transcribes (VAD mode)
 
-More detail: See [`CLAUDE.md`](CLAUDE.md) for full developer guide.
+More detail: See [docs/architecture.md](docs/architecture.md) for full developer guide.
 
 ## Known Issues
 

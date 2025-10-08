@@ -148,14 +148,22 @@ mod integration_tests {
         #[cfg(feature = "wl_clipboard")]
         {
             use std::io::Read;
-            use wl_clipboard_rs::paste::{get_contents, ClipboardType, MimeType as PasteMimeType, Seat};
+            use wl_clipboard_rs::paste::{
+                get_contents, ClipboardType, MimeType as PasteMimeType, Seat,
+            };
 
-            match get_contents(ClipboardType::Regular, Seat::Unspecified, PasteMimeType::Text) {
+            match get_contents(
+                ClipboardType::Regular,
+                Seat::Unspecified,
+                PasteMimeType::Text,
+            ) {
                 Ok((mut pipe, _mime)) => {
                     let mut current_clipboard = String::new();
                     if pipe.read_to_string(&mut current_clipboard).is_ok() {
-                        assert_eq!(current_clipboard, _initial_clipboard,
-                            "Clipboard should be restored to initial value after injection");
+                        assert_eq!(
+                            current_clipboard, _initial_clipboard,
+                            "Clipboard should be restored to initial value after injection"
+                        );
                         info!("Clipboard restoration verified successfully");
                     } else {
                         panic!("Failed to read restored clipboard content");

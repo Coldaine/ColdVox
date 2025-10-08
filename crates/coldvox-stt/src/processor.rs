@@ -160,7 +160,9 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
 
         self.state = UtteranceState::SpeechActive {
             started_at: start_instant,
-            audio_buffer: Vec::with_capacity(SAMPLE_RATE_HZ as usize * DEFAULT_BUFFER_DURATION_SECONDS),
+            audio_buffer: Vec::with_capacity(
+                SAMPLE_RATE_HZ as usize * DEFAULT_BUFFER_DURATION_SECONDS,
+            ),
             frames_buffered: 0,
         };
 
@@ -275,8 +277,11 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
 
         // Send to channel with backpressure - wait if channel is full
         // Use timeout to prevent indefinite blocking
-        match tokio::time::timeout(std::time::Duration::from_secs(SEND_TIMEOUT_SECONDS), self.event_tx.send(event))
-            .await
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(SEND_TIMEOUT_SECONDS),
+            self.event_tx.send(event),
+        )
+        .await
         {
             Ok(Ok(())) => {
                 // Successfully sent

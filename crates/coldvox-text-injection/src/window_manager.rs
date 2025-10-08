@@ -1,6 +1,6 @@
+use crate::types::InjectionError;
 use std::process::Command;
 use tracing::debug;
-use crate::types::InjectionError;
 
 // Get KDE window class synchronously
 fn get_kde_window_class() -> Result<String, InjectionError> {
@@ -154,8 +154,7 @@ pub fn get_active_window_class() -> Result<String, InjectionError> {
 
 /// Get window information using multiple methods
 pub fn get_window_info() -> WindowInfo {
-    let class = get_active_window_class()
-        .unwrap_or_else(|_| "unknown".to_string());
+    let class = get_active_window_class().unwrap_or_else(|_| "unknown".to_string());
     let title = get_window_title().unwrap_or_default();
     let pid = get_window_pid().unwrap_or(0);
 
@@ -249,14 +248,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_window_detection() {
-        let info = get_window_info();  // Removed .await
+        let info = get_window_info(); // Removed .await
         println!("Window info: {:?}", info);
         // Test passes as long as no panic occurs
     }
 
     #[tokio::test]
     async fn test_window_info() {
-        let info = get_window_info();  // Removed .await
+        let info = get_window_info(); // Removed .await
         assert!(!info.class.is_empty());
         // Note: title and pid may be empty depending on environment
     }

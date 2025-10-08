@@ -15,7 +15,10 @@ fn main() {
 
     // Priority 1: vendored library
     if vendor_lib.join("libvosk.so").exists() {
-        println!("cargo:warning=Using vendored libvosk from {}", vendor_lib.display());
+        println!(
+            "cargo:warning=Using vendored libvosk from {}",
+            vendor_lib.display()
+        );
         println!("cargo:rustc-link-search=native={}", vendor_lib.display());
         // Add rpath so runtime can find the vendored library relative to the binary
         println!("cargo:rustc-link-arg=-Wl,-rpath,{}", vendor_lib.display());

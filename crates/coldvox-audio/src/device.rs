@@ -151,9 +151,7 @@ impl DeviceManager {
     }
 
     pub fn default_input_device_name(&self) -> Option<String> {
-        with_stderr_suppressed(|| {
-            self.host.default_input_device().and_then(|d| d.name().ok())
-        })
+        with_stderr_suppressed(|| self.host.default_input_device().and_then(|d| d.name().ok()))
     }
 
     /// Return candidate device names in a priority order suitable for Linux ALSA/PipeWire setups.

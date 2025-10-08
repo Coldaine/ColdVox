@@ -6,7 +6,7 @@ mod tests {
     async fn test_window_class_detection() {
         // This test will only work in a graphical environment
         if std::env::var("DISPLAY").is_ok() || std::env::var("WAYLAND_DISPLAY").is_ok() {
-            let result = get_active_window_class();  // Removed .await
+            let result = get_active_window_class(); // Removed .await
 
             // We can't assert specific values since it depends on the environment
             // but we can check that it doesn't panic
@@ -24,7 +24,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_window_info_structure() {
-        let info = get_window_info();  // Removed .await
+        let info = get_window_info(); // Removed .await
 
         // Basic sanity checks
         assert!(!info.class.is_empty());

@@ -436,7 +436,6 @@ async fn run_app(
                                     enable_device_monitor: false,
                                     #[cfg(feature = "text-injection")]
                                     injection: None,
-                                    enable_device_monitor: false,
                                 };
 
                                 let ui_tx = tx.clone();

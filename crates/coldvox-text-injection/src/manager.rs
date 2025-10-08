@@ -98,7 +98,10 @@ impl InjectorRegistry {
             if _has_wayland || _has_x11 {
                 let paste_injector = ClipboardPasteInjector::new(config.clone());
                 if paste_injector.is_available().await {
-                    injectors.insert(InjectionMethod::ClipboardPasteFallback, Box::new(paste_injector));
+                    injectors.insert(
+                        InjectionMethod::ClipboardPasteFallback,
+                        Box::new(paste_injector),
+                    );
                 }
             }
         }
@@ -359,10 +362,7 @@ impl StrategyManager {
         }
 
         // Try swaymsg for Wayland
-        if let Ok(output) = Command::new("swaymsg")
-            .args(["-t", "get_tree"])
-            .output()
-        {
+        if let Ok(output) = Command::new("swaymsg").args(["-t", "get_tree"]).output() {
             if output.status.success() {
                 let tree = String::from_utf8_lossy(&output.stdout);
                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(&tree) {
@@ -593,8 +593,8 @@ impl StrategyManager {
             base_order.push(InjectionMethod::EnigoText);
         }
 
-    // Clipboard paste (with fallback) is intentionally last to avoid clipboard disruption unless needed
-    base_order.push(InjectionMethod::ClipboardPasteFallback);
+        // Clipboard paste (with fallback) is intentionally last to avoid clipboard disruption unless needed
+        base_order.push(InjectionMethod::ClipboardPasteFallback);
 
         // Deduplicate while preserving order
         use std::collections::HashSet;
@@ -1247,7 +1247,7 @@ mod tests {
             assert!(order.contains(&InjectionMethod::AtspiInsert));
             assert!(order.contains(&InjectionMethod::ClipboardPasteFallback));
         }
-    // YdoToolPaste is no longer a standalone method; its behavior is subsumed by ClipboardPaste
+        // YdoToolPaste is no longer a standalone method; its behavior is subsumed by ClipboardPaste
         assert!(order.contains(&InjectionMethod::KdoToolAssist));
         assert!(order.contains(&InjectionMethod::EnigoText));
     }

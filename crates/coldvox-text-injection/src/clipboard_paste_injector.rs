@@ -1,7 +1,7 @@
 #![allow(unused_imports)]
 
 use crate::clipboard_injector::ClipboardInjector;
-use crate::types::{InjectionConfig, InjectionResult, InjectionError};
+use crate::types::{InjectionConfig, InjectionError, InjectionResult};
 use crate::TextInjector;
 use async_trait::async_trait;
 use std::time::{Duration, Instant};
@@ -76,7 +76,11 @@ impl TextInjector for ClipboardPasteInjector {
         #[cfg(feature = "wl_clipboard")]
         {
             use std::io::Read;
-            match get_contents(ClipboardType::Regular, Seat::Unspecified, PasteMimeType::Text) {
+            match get_contents(
+                ClipboardType::Regular,
+                Seat::Unspecified,
+                PasteMimeType::Text,
+            ) {
                 Ok((mut pipe, _)) => {
                     let mut buf = String::new();
                     if pipe.read_to_string(&mut buf).is_ok() {
