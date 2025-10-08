@@ -102,7 +102,7 @@ mod tests {
         assert!(metrics_guard.attempts > 0, "Should attempt injection");
 
         // The specific number of attempts depends on available backends
-        // but should be at least the base methods (AtspiInsert, ClipboardPaste)
+    // but should be at least the base methods (AtspiInsert, ClipboardPasteFallback)
         assert!(metrics_guard.attempts >= 2, "Should try at least 2 methods");
     }
 
