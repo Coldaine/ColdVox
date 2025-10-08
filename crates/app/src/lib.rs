@@ -200,7 +200,7 @@ impl Settings {
         );
 
         let config = builder.build()?;
-        
+
         // Log a warning if no config file was found
         if !config_file_exists {
             tracing::warn!("No config file found, using default values only");
@@ -413,6 +413,3 @@ pub mod text_injection;
 #[cfg(feature = "tui")]
 pub mod tui;
 pub mod vad;
-
-#[cfg(test)]
-pub mod test_utils;

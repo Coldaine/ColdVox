@@ -12,8 +12,8 @@ use clap::Parser;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
-use coldvox_app::Settings;
 use coldvox_app::runtime::{self as app_runtime, ActivationMode as RuntimeMode, AppRuntimeOptions};
+use coldvox_app::Settings;
 use coldvox_audio::{DeviceManager, ResamplerQuality};
 use coldvox_foundation::{AppState, HealthMonitor, ShutdownHandler, StateManager};
 
