@@ -15,8 +15,6 @@ use crate::enigo_injector::EnigoInjector;
 use crate::kdotool_injector::KdotoolInjector;
 
 use crate::noop_injector::NoOpInjector;
-#[cfg(feature = "ydotool")]
-use crate::ydotool_injector::YdotoolInjector; // retained for direct tests; not registered in strategy
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};

@@ -48,31 +48,13 @@ impl FocusTracker {
 
     #[allow(clippy::unused_async)] // Keep async because cfg(feature = "atspi") block contains await calls
     async fn check_focus_status(&self) -> Result<FocusStatus, InjectionError> {
-        #[cfg(feature = "atspi")]
-        {
-            // Temporarily disabled due to AT-SPI API changes
-            // TODO(#38): Update to work with current atspi crate API
-            return Ok(FocusStatus::Unknown);
-        }
-
-        // Fallback: check if we can get focused element via other methods
-        #[cfg(feature = "wl_clipboard")]
-        {
-            use std::process::Command;
-
-            // Check for focused window using xdotool or similar
-            let output = Command::new("xdotool").arg("getwindowfocus").output();
-            if let Ok(output) = output {
-                if !output.stdout.is_empty() {
-                    return Ok(FocusStatus::NonEditable);
-                }
-            }
-        }
-
+        // Temporarily disabled due to AT-SPI API changes
+        // TODO(#38): Update to work with current atspi crate API
         Ok(FocusStatus::Unknown)
     }
 
     #[cfg(feature = "atspi")]
+    #[allow(dead_code)]
     async fn get_atspi_focus_status(&mut self) -> Result<FocusStatus, InjectionError> {
         // Temporarily disabled due to AT-SPI API changes
         // TODO(#38): Update to work with current atspi crate API
