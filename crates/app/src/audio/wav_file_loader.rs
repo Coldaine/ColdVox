@@ -146,6 +146,11 @@ impl WavFileLoader {
     }
 
     /// Stream audio using a shared producer protected by a parking_lot Mutex
+    ///
+    /// NOTE: Uses parking_lot::Mutex instead of tokio::sync::Mutex for consistency
+    /// with the capture thread (coldvox-audio) which also uses parking_lot. This
+    /// avoids mixing mutex types and maintains lock-free audio path performance.
+    /// The short critical sections (ring buffer writes) make parking_lot ideal.
     pub async fn stream_to_ring_buffer_locked(
         &mut self,
         producer: Arc<parking_lot::Mutex<AudioProducer>>,

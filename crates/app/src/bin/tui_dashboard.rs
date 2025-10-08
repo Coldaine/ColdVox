@@ -435,6 +435,7 @@ async fn run_app(
                                     stt_selection: Some(coldvox_stt::plugin::PluginSelectionConfig::default()),
                                     #[cfg(feature = "text-injection")]
                                     injection: None,
+                                    enable_device_monitor: false,
                                 };
 
                                 let ui_tx = tx.clone();
