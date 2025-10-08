@@ -5,9 +5,27 @@ use std::process::Command;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+#[cfg(unix)]
 use crate::stderr_suppressor::StderrSuppressor;
 
 const DEVICE_CACHE_TTL: Duration = Duration::from_secs(5);
+
+/// Helper to suppress stderr on Unix, no-op on other platforms
+#[cfg(unix)]
+fn with_stderr_suppressed<F, R>(f: F) -> R
+where
+    F: FnOnce() -> R,
+{
+    StderrSuppressor::with_suppressed(f)
+}
+
+#[cfg(not(unix))]
+fn with_stderr_suppressed<F, R>(f: F) -> R
+where
+    F: FnOnce() -> R,
+{
+    f()
+}
 
 struct DeviceCache {
     devices: Vec<DeviceInfo>,
@@ -24,7 +42,7 @@ pub struct DeviceManager {
 
 impl DeviceManager {
     pub fn new() -> Result<Self, AudioError> {
-        let host = StderrSuppressor::with_suppressed(cpal::default_host);
+        let host = with_stderr_suppressed(cpal::default_host);
         Ok(Self {
             host,
             preferred_device: None,
@@ -101,7 +119,7 @@ impl DeviceManager {
         let mut devices = Vec::new();
 
         // Input devices - suppress ALSA stderr spam about missing PCM plugins
-        let inputs = StderrSuppressor::with_suppressed(|| self.host.input_devices());
+        let inputs = with_stderr_suppressed(|| self.host.input_devices());
         if let Ok(inputs) = inputs {
             for device in inputs {
                 if let Ok(name) = device.name() {
@@ -118,7 +136,7 @@ impl DeviceManager {
         }
 
         // Mark default - suppress ALSA stderr spam
-        let default_device = StderrSuppressor::with_suppressed(|| self.host.default_input_device());
+        let default_device = with_stderr_suppressed(|| self.host.default_input_device());
         if let Some(default) = default_device {
             if let Ok(default_name) = default.name() {
                 for device in &mut devices {
@@ -133,7 +151,7 @@ impl DeviceManager {
     }
 
     pub fn default_input_device_name(&self) -> Option<String> {
-        StderrSuppressor::with_suppressed(|| {
+        with_stderr_suppressed(|| {
             self.host.default_input_device().and_then(|d| d.name().ok())
         })
     }
