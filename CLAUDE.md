@@ -75,7 +75,7 @@ Multi-crate Cargo workspace:
 ### Building
 
 ```bash
-# Main app with default features (Silero VAD + text injection, no STT by default)
+# Main app with default features (Silero VAD + Vosk STT + text injection)
 cargo build
 
 # With Vosk STT
@@ -94,29 +94,24 @@ cargo build --release --features vosk,text-injection
 ### Running
 
 ```bash
-# Main application (default features)
+# Main application (uses config/default.toml + env overrides)
 cargo run
 
-# With specific device
-cargo run -- --device "USB Microphone"
+# Override input device for a single launch
+COLDVOX_DEVICE="USB Microphone" cargo run
 
-# With Vosk STT (for actual voice dictation)
+# Ensure Vosk STT + text injection are compiled (defaults already include these)
 cargo run --features vosk,text-injection
 
-# With specific device and STT
-cargo run --features vosk,text-injection -- --device "HyperX QuadCast"
+# TUI Dashboard (shared runtime; keyboard shortcuts S/A/R/Q)
+cargo run --bin tui_dashboard
 
-# TUI Dashboard (shared runtime)
-cargo run --bin tui_dashboard  # S=Start, A=Toggle VAD/PTT, R=Reset, Q=Quit
-# Optional explicit device or extra logging
-cargo run --bin tui_dashboard -- --device "USB Microphone" --log-level "info,stt=debug,coldvox_audio=debug"
-
-# Mic probe utility
+# Mic probe utility (duration in seconds)
 cargo run --bin mic_probe -- --duration 30
 
-# Examples (must include required features)
+# Examples (enable required features explicitly)
 cargo run --example foundation_probe
-cargo run --example record_10s
+cargo run --example record_10s --features examples
 cargo run --example vosk_test --features vosk,examples
 cargo run --example inject_demo --features text-injection
 cargo run --example test_silero_wav --features examples
@@ -185,15 +180,16 @@ Platform-specific text injection backends are automatically enabled at build tim
 - **Events**: `TranscriptionEvent::{Partial, Final, Error}`
 
 ### Text Injection
-- **Direct insertion**: AT-SPI (accessibility API for text insertion)
-- **Composite strategy**: ClipboardPaste (sets clipboard + triggers paste via AT-SPI/ydotool)
-  - Note: There is no "clipboard-only" injector - setting clipboard without pasting is useless for automation
-  - ClipboardPaste is ONE strategy that: saves clipboard → sets new text → pastes via AT-SPI or ydotool → restores clipboard
-- **Optional backends**: ydotool (Wayland), kdotool (X11), enigo (cross-platform)
-- **Strategy management**: Runtime selection with per-app success caching and fallback chains
-- **Clipboard preservation**: Clipboard-based strategies automatically save/restore user clipboard (default 500ms delay)
+- **Direct insertion**: AT-SPI injector exists but current `FocusTracker` path returns `FocusStatus::Unknown` until the AT-SPI API regression is resolved (`focus.rs` short-circuits the call).
+- **Composite strategy**: `ClipboardPasteInjector` sets the clipboard then triggers paste (AT-SPI first, ydotool fallback) and schedules clipboard restoration.
+- **Optional backends**: ydotool (Wayland), kdotool (X11), enigo (cross-platform); enable per-target platform features.
+- **Strategy management**: `StrategyManager` keeps per-app success metrics and reorders fallbacks accordingly.
+- **Clipboard preservation**: Clipboard-based strategies restore prior clipboard contents after `clipboard_restore_delay_ms` (defaults to 500 ms).
 
 ## Configuration
+
+- Primary defaults live in `config/default.toml`; `Settings::new()` loads this file and applies env overrides (`COLDVOX_*` with `__` for nested keys).
+- `config/overrides.toml` is not loaded automatically; extend `Settings` construction if layered configs are required.
 
 ### Audio Pipeline
 - Target: 16 kHz, 16-bit i16, mono
@@ -201,14 +197,15 @@ Platform-specific text injection backends are automatically enabled at build tim
 - Resampler quality: Fast/Balanced/Quality
 
 ### VAD Config
-- Silero threshold: 0.3
-- Min speech duration: 250ms
-- Min silence duration: 100ms
+- Silero threshold: 0.1
+- Min speech duration: 100 ms
+- Min silence duration: 500 ms (documented rationale in code/docs)
+- Window size: 512 samples @ 16 kHz
 
 ### Logging
-- Main app: stderr + `logs/coldvox.log` (daily rotation)
-- TUI: file-only to `logs/coldvox.log` (avoids display corruption)
-- Control: `RUST_LOG` environment variable or `--log-level` flag
+- Main app: stderr + daily rotated `logs/coldvox.log` via `tracing-appender`
+- TUI: logs to file to avoid terminal conflicts
+- Control: set `RUST_LOG=info,stt=debug` (no dedicated CLI flag in current branch)
 
 ## Platform Detection
 
