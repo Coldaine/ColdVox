@@ -71,7 +71,7 @@ impl InjectionProcessor {
         injection_metrics: Arc<Mutex<InjectionMetrics>>,
     ) -> Self {
         // Create session with shared metrics
-        let session_config = SessionConfig::default(); // TODO: Expose this if needed
+        let session_config = SessionConfig::default(); // TODO: Expose this if needed (config refinement)
         let session = InjectionSession::new(session_config, injection_metrics.clone());
 
         let injector = StrategyManager::new(config.clone(), injection_metrics.clone()).await;
@@ -331,7 +331,7 @@ impl AsyncInjectionProcessor {
 
     /// Run the injection processor loop
     pub async fn run(mut self) -> anyhow::Result<()> {
-        let check_interval = Duration::from_millis(100); // TODO: Make configurable
+        let check_interval = Duration::from_millis(100); // TODO: Make configurable (config refinement)
         let mut interval = time::interval(check_interval);
 
         info!("Injection processor started");

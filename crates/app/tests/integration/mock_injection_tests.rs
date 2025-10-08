@@ -110,10 +110,10 @@ mod mock_injection_tests {
         }
 
         // Create injection configuration that allows injection on unknown focus for testing
+        // Note: clipboard restoration is automatic (always enabled)
         let config = InjectionConfig {
             allow_kdotool: false,
             allow_enigo: false,
-            // clipboard restoration is automatic
             inject_on_unknown_focus: true, // Allow injection for testing
             max_total_latency_ms: 5000,
             per_method_timeout_ms: 2000,
@@ -170,6 +170,7 @@ mod mock_injection_tests {
         let _ = mock_app.focus().await;
 
         // Create injection configuration
+        // Note: clipboard restoration is automatic (always enabled)
         let config = InjectionConfig {
             allow_kdotool: false,
             allow_enigo: false,
@@ -233,6 +234,7 @@ mod mock_injection_tests {
         // This test verifies the AT-SPI -> ydotool fallback behavior
         // We don't need a real app since we're testing the strategy selection
 
+        // Note: clipboard restoration is automatic (always enabled)
         let config = InjectionConfig {
             allow_kdotool: false,
             allow_enigo: false,
@@ -276,6 +278,7 @@ mod mock_injection_tests {
 
     #[tokio::test]
     async fn test_injection_timeout_handling() {
+        // Note: clipboard restoration is automatic (always enabled)
         let config = InjectionConfig {
             allow_kdotool: false,
             allow_enigo: false,

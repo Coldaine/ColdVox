@@ -77,6 +77,7 @@ pub struct ResourceMetrics {
 /// Operational metrics for monitoring
 #[derive(Default)]
 pub struct OperationalMetrics {
+    /// TODO(#130): Rename to `total_requests` - this is a counter, not a rate
     /// Transcription requests per second
     pub requests_per_second: Arc<AtomicU64>,
     /// Error rate per component (per 1000 operations)
