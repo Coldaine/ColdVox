@@ -300,8 +300,9 @@ find docs -name "*.md" -exec markdown-link-check {} \;
 | **Phase 3: PR Creation** | 30 min | Agent: PR-Creator |
 | **Phase 4: Review** | 3-6 hours | Agents: Reviewers (parallel where safe) |
 | **Phase 5: Sequential Merge** | 1-2 weeks | Agent: Merge-Coordinator (CI-gated) |
-| **Total Active Work** | ~6 hours | Agents |
-| **Total Calendar Time** | 1-2 weeks | Team + CI |
+| **Phase 6: Post-Merge Cleanup** | 1-2 days | Team (docs/diagrams/CI) |
+| **Total Active Work** | ~6 hours + 1-2 days | Agents + Team |
+| **Total Calendar Time** | 2-3 weeks | Team + CI |
 
 ---
 
@@ -508,24 +509,95 @@ for pr in merge_order:
 
 ---
 
+## Post-Merge Cleanup Tasks (Phase 6)
+
+**Status:** Code refactor is effectively done; what's left is cleanup and docs/diagrams to reflect the "single paste path with ydotool fallback" decision plus a CI build pass.
+
+**Timeline:** After all 9 PRs merge to main (1-2 days work)
+
+### Documentation Sweep
+
+- [ ] **Crate README** (`crates/coldvox-text-injection/README.md`)
+  - State "ydotool is fallback-only inside ClipboardPaste; no standalone ydotool strategy registered"
+  - Update system requirements: "ydotool (optional fallback for paste)"
+
+- [ ] **Library docs** (`lib.rs`)
+  - Align with crate README on ydotool fallback positioning
+  - Remove references to "separate ydotool strategy"
+
+- [ ] **Architecture docs** (`docs/architecture.md`)
+  - Replace "clipboard-only" and "standalone ydotool paste" with unified ClipboardPaste path
+  - Clarify AT-SPI → ydotool fallback chain
+
+- [ ] **Feature documentation**
+  - Confirm `text-injection-ydotool` feature described as "enables fallback capability, not a standalone strategy"
+
+### Diagrams Refresh
+
+- [ ] **`diagrams/text_injection_strategy_manager.mmd`**
+  - Remove `YdotoolStrategy` class
+  - Rename `ClipboardStrategy` → `ClipboardPasteStrategy`
+  - Re-export PNG/SVG
+
+- [ ] **`diagrams/text_injection_flow.mmd`**
+  - Show ydotool only as fallback within ClipboardPaste lane
+  - Remove obsolete `allow_ydotool` config labels
+  - Re-export PNG/SVG
+
+### Residual References Cleanup
+
+- [ ] **Docs referencing "ydotool injector as first-class strategy"**
+  - `docs/updated_architecture_diagram.md`
+  - `docs/architecture.md`
+  - Reword to "ydotool fallback in ClipboardPaste"
+
+- [ ] **Examples/tests using YdotoolInjector directly**
+  - `examples/real_injection_smoke.rs`
+  - Add comment: "Backend probe only; manager doesn't register as standalone strategy"
+
+### CI/Build Validation
+
+- [ ] **Linux build + tests**
+  - Ensure no lingering references to removed enum variants
+  - Run `cargo test --workspace --features vosk,text-injection`
+
+- [ ] **Feature combo testing**
+  - Test with AT-SPI present + ydotool present
+  - Test with AT-SPI absent + ydotool present (fallback path)
+  - Test with both absent (graceful failure)
+
+### Minor Polish
+
+- [ ] **Logging consistency**
+  - Ensure all logs use `ClipboardPasteFallback` variant name
+  - Check method name strings in telemetry
+
+- [ ] **Cargo.toml feature clarity**
+  - If keeping `text-injection-ydotool` feature, document "enables fallback compilation only"
+
+**Owner:** Development team or cleanup agents
+**Priority:** High (polish before announcing release)
+
+---
+
 ## Post-Refactor Work
 
-### Text Injection Improvements (Separate PR after stack completes)
+### Text Injection Additional Fallbacks (Separate PR after stack merges)
 
 **Problem:** AT-SPI paste only works with accessibility-enabled apps. Most apps lack support, requiring ydotool manual setup.
 
-**Research Task:** Investigate fallback methods for triggering paste:
+**Research Task:** Investigate additional fallback methods for triggering paste:
 - X11: xdotool, xte, dotool
 - Wayland: wtype, wshowkeys alternatives
 - Kernel: evdev, /dev/uinput direct access
 - DBus: KDE KGlobalAccel for shortcuts
 
-**Deliverable:** New PR with fallback chain:
+**Deliverable:** New PR with extended fallback chain:
 ```
 AT-SPI → ydotool → xdotool/wtype → evdev → fail
 ```
 
-**Priority:** P1 (high) - blocks usability for users without ydotool setup
+**Priority:** P1 (high) - improves usability for users without ydotool setup
 **Timeline:** 1 week after stack merges
 
 ---
@@ -581,15 +653,24 @@ gt create --insert --message "<new branch description>"
 
 ## Next Actions
 
+### Immediate (Start Execution)
 1. ✅ Review this plan
 2. ⏳ Merge PR #122 (strategy docs)
-3. ⏳ Kick off Agent: Splitter
-4. ⏳ Launch Validator agents (parallel)
-5. ⏳ Launch PR-Creator agent
-6. ⏳ Launch Reviewer agents (parallel where safe)
-7. ⏳ Hand off to Merge-Coordinator agent
+3. ⏳ Kick off Agent: Splitter (Phase 1)
+4. ⏳ Launch Validator agents (Phase 2, parallel)
+5. ⏳ Launch PR-Creator agent (Phase 3)
+6. ⏳ Launch Reviewer agents (Phase 4, parallel where safe)
+7. ⏳ Hand off to Merge-Coordinator agent (Phase 5)
 8. ⏳ Verify `git diff main anchor/oct-06-2025` is empty
-9. ⏳ Create post-refactor PR for text injection fallbacks
+
+### Post-Merge Cleanup (Phase 6)
+9. ⏳ Complete docs sweep (README, architecture, lib.rs)
+10. ⏳ Refresh diagrams (text_injection_*.mmd → PNG/SVG)
+11. ⏳ Run full CI validation on main
+12. ⏳ Verify all checkboxes in "Post-Merge Cleanup Tasks" section
+
+### Future Enhancements
+13. ⏳ Create PR for additional text injection fallbacks (xdotool/wtype/evdev)
 
 ---
 
