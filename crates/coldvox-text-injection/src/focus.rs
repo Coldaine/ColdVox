@@ -51,7 +51,7 @@ impl FocusTracker {
         #[cfg(feature = "atspi")]
         {
             // Temporarily disabled due to AT-SPI API changes
-            // TODO: Update to work with current atspi crate API
+            // TODO(#38): Update to work with current atspi crate API
             return Ok(FocusStatus::Unknown);
         }
 
@@ -75,7 +75,7 @@ impl FocusTracker {
     #[cfg(feature = "atspi")]
     async fn get_atspi_focus_status(&mut self) -> Result<FocusStatus, InjectionError> {
         // Temporarily disabled due to AT-SPI API changes
-        // TODO: Update to work with current atspi crate API
+        // TODO(#38): Update to work with current atspi crate API
         /*
         use atspi::{
             connection::AccessibilityConnection, proxy::component::ComponentProxy,

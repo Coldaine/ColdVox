@@ -204,8 +204,8 @@ mod tests {
         use coldvox_text_injection::strategies::combo_clip_atspi::ComboClipAtspiStrategy;
         use coldvox_text_injection::types::InjectionContext;
 
+        // Note: clipboard restoration is automatic (always enabled)
         let config = InjectionConfig {
-            // clipboard restoration is automatic
             inject_on_unknown_focus: true,
             ..Default::default()
         };

@@ -225,7 +225,7 @@ mod tests {
         let config = InjectionConfig::default();
         let injector = ClipboardInjector::new(config);
         // Ensure creation succeeds and availability can be queried
-        let _avail = injector.is_available().await;
+        let _avail = futures::executor::block_on(injector.is_available());
         // Basic creation test - no metrics in new implementation
     }
 
