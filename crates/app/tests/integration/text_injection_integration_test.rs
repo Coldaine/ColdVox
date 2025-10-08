@@ -90,7 +90,6 @@ mod tests {
         let mut manager = StrategyManager::new(config, metrics.clone());
 
         // Temporarily disable all methods to force fallback sequence
-        manager.config.allow_ydotool = false;
         manager.config.allow_kdotool = false;
         manager.config.allow_enigo = false;
 
@@ -205,8 +204,8 @@ mod tests {
         use coldvox_text_injection::strategies::combo_clip_atspi::ComboClipAtspiStrategy;
         use coldvox_text_injection::types::InjectionContext;
 
+        // Note: clipboard restoration is automatic (always enabled)
         let config = InjectionConfig {
-            restore_clipboard: true,
             inject_on_unknown_focus: true,
             ..Default::default()
         };
