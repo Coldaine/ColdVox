@@ -200,7 +200,7 @@ impl Settings {
         );
 
         let config = builder.build()?;
-        
+
         // Log a warning if no config file was found
         if !config_file_exists {
             tracing::warn!("No config file found, using default values only");
