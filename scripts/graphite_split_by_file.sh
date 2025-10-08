@@ -25,28 +25,31 @@ BRANCHES=(
 # Routing matrix (file globs). Keep in sync with docs.
 # IMPORTANT: These are path-level filters; any file containing mixed-domain hunks
 # should be reviewed afterwards interactively.
-read -r -d '' ROUTE_01 <<'EOF'
+ROUTE_01=$(cat <<'EOF'
 config/**
 crates/app/src/lib.rs
 crates/app/src/main.rs
 crates/coldvox-foundation/**
 crates/app/tests/settings_test.rs
 EOF
+)
 
-read -r -d '' ROUTE_02 <<'EOF'
+ROUTE_02=$(cat <<'EOF'
 crates/coldvox-audio/**
 crates/app/src/audio/mod.rs
 crates/app/src/audio/vad_adapter.rs
 crates/app/src/audio/vad_processor.rs
 EOF
+)
 
-read -r -d '' ROUTE_03 <<'EOF'
+ROUTE_03=$(cat <<'EOF'
 crates/coldvox-vad/**
 crates/coldvox-vad-silero/**
 crates/app/src/vad.rs
 EOF
+)
 
-read -r -d '' ROUTE_04 <<'EOF'
+ROUTE_04=$(cat <<'EOF'
 crates/coldvox-stt/**
 crates/coldvox-stt-vosk/**
 crates/app/src/stt/processor.rs
@@ -56,28 +59,33 @@ crates/app/src/stt/plugin_manager.rs
 crates/app/src/stt/session.rs
 crates/app/src/stt/types.rs
 EOF
+)
 
-read -r -d '' ROUTE_05 <<'EOF'
+ROUTE_05=$(cat <<'EOF'
 crates/app/src/runtime.rs
 crates/app/src/audio/wav_file_loader.rs
 crates/app/src/stt/tests/end_to_end_wav.rs
 EOF
+)
 
-read -r -d '' ROUTE_06 <<'EOF'
+ROUTE_06=$(cat <<'EOF'
 crates/coldvox-text-injection/**
 EOF
+)
 
-read -r -d '' ROUTE_07 <<'EOF'
+ROUTE_07=$(cat <<'EOF'
 **/tests/**
 examples/**
 EOF
+)
 
-read -r -d '' ROUTE_08 <<'EOF'
+ROUTE_08=$(cat <<'EOF'
 crates/coldvox-telemetry/**
 crates/app/src/bin/*.rs
 EOF
+)
 
-read -r -d '' ROUTE_09 <<'EOF'
+ROUTE_09=$(cat <<'EOF'
 docs/**
 CHANGELOG.md
 README.md
@@ -86,6 +94,7 @@ agents.md
 .github/**
 Cargo.lock
 EOF
+)
 
 routes_for_branch() {
   case "$1" in
@@ -140,9 +149,10 @@ apply_paths_from_anchor() {
   printf "%s\n" "$paths" | while read -r p; do
     [[ -z "$p" ]] && continue
     echo "  - $p"
-    # Use pathspec from anchor; if glob doesn’t match, skip.
-    # git checkout <tree-ish> -- <paths> supports globs from current workdir.
-    git checkout "$ANCHOR_BRANCH" -- "$p" 2>/dev/null || true
+    # Use git pathspec globbing for recursive patterns
+    local pathspec=":(glob)$p"
+    # Try to checkout matching paths from anchor; if no match, skip
+    git checkout "$ANCHOR_BRANCH" -- "$pathspec" 2>/dev/null || true
   done
   # Commit if changes were applied
   if ! git diff --quiet; then
