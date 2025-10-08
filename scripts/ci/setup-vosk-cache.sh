@@ -47,10 +47,38 @@ if [ -d "$MODEL_CACHE_PATH" ]; then
     ln -sfn "$MODEL_CACHE_PATH" "$MODEL_LINK_PATH"
 else
     echo "📥 Model not found in cache. Downloading from $MODEL_URL..."
-    wget -q -O "$MODEL_ZIP" "$MODEL_URL"
+
+    # Retry download up to 3 times with 5s delay between attempts
+    MAX_RETRIES=3
+    RETRY_DELAY=5
+    for attempt in $(seq 1 $MAX_RETRIES); do
+        echo "Download attempt $attempt/$MAX_RETRIES..."
+        if wget -q -O "$MODEL_ZIP" "$MODEL_URL"; then
+            echo "Download successful."
+            break
+        else
+            echo "Download failed."
+            if [ $attempt -lt $MAX_RETRIES ]; then
+                echo "Retrying in ${RETRY_DELAY}s..."
+                sleep $RETRY_DELAY
+            else
+                echo "❌ Download failed after $MAX_RETRIES attempts."
+                exit 1
+            fi
+        fi
+    done
 
     echo "Verifying checksum..."
-    echo "$MODEL_SHA256  $MODEL_ZIP" | sha256sum -c -
+    COMPUTED_SHA256=$(sha256sum "$MODEL_ZIP" | awk '{print $1}')
+    echo "Expected checksum: $MODEL_SHA256"
+    echo "Computed checksum: $COMPUTED_SHA256"
+
+    if [ "$COMPUTED_SHA256" != "$MODEL_SHA256" ]; then
+        echo "❌ Checksum mismatch! Expected: $MODEL_SHA256, Got: $COMPUTED_SHA256"
+        rm -f "$MODEL_ZIP"
+        exit 1
+    fi
+    echo "✅ Checksum verified successfully."
 
     echo "Extracting model..."
     unzip -q "$MODEL_ZIP"
@@ -77,10 +105,38 @@ if [ -f "$LIB_CACHE_FILE" ]; then
 else
     mkdir -p "$LIB_DIR"
     echo "📥 Library not found in cache. Downloading from $LIB_URL..."
-    wget -q -O "$LIB_ZIP" "$LIB_URL"
+
+    # Retry download up to 3 times with 5s delay between attempts
+    MAX_RETRIES=3
+    RETRY_DELAY=5
+    for attempt in $(seq 1 $MAX_RETRIES); do
+        echo "Download attempt $attempt/$MAX_RETRIES..."
+        if wget -q -O "$LIB_ZIP" "$LIB_URL"; then
+            echo "Download successful."
+            break
+        else
+            echo "Download failed."
+            if [ $attempt -lt $MAX_RETRIES ]; then
+                echo "Retrying in ${RETRY_DELAY}s..."
+                sleep $RETRY_DELAY
+            else
+                echo "❌ Download failed after $MAX_RETRIES attempts."
+                exit 1
+            fi
+        fi
+    done
 
     echo "Verifying checksum..."
-    echo "$LIB_SHA256  $LIB_ZIP" | sha256sum -c -
+    COMPUTED_SHA256=$(sha256sum "$LIB_ZIP" | awk '{print $1}')
+    echo "Expected checksum: $LIB_SHA256"
+    echo "Computed checksum: $COMPUTED_SHA256"
+
+    if [ "$COMPUTED_SHA256" != "$LIB_SHA256" ]; then
+        echo "❌ Checksum mismatch! Expected: $LIB_SHA256, Got: $COMPUTED_SHA256"
+        rm -f "$LIB_ZIP"
+        exit 1
+    fi
+    echo "✅ Checksum verified successfully."
 
     echo "Extracting library..."
     unzip -q "$LIB_ZIP"
