@@ -64,30 +64,33 @@ docs/dev/runnerAgent/
 
 ### Debugging a CI Failure
 ```bash
-# 1. View logs
+# 1. View runner service logs (on the runner machine)
 journalctl -u actions.runner.Coldaine-ColdVox.laptop-extra.service --since "1 hour ago"
 
-# 2. Get AI diagnosis
-gh run view 18344561673 --log-failed | \
-  gemini "$(cat docs/dev/runnerAgent/prompts/debug_agent_prompt.md) 
+# 2. Reproduce failing command in the runner workspace:
+cd /home/coldaine/actions-runner/_work/ColdVox/ColdVox
+cargo build --workspace --features vosk 2>&1 | tee /tmp/last_build.log
 
-My CI failed with these logs. Diagnose and provide fix commands."
+# 3. Get AI diagnosis (stream logs into the debug prompt)
+cat /tmp/last_build.log | \
+   gemini "$(cat docs/dev/runnerAgent/prompts/debug_agent_prompt.md)\n\nMy CI failed with these logs. Diagnose and provide fix commands."
 ```
 
 ### Updating Runner Dependencies
 ```bash
-# 1. Check current versions
-rustc --version
-cargo --version
+# 1. Check current versions on the runner (SSH or run on the runner host)
+ssh coldaine@laptop-extra "rustc --version && cargo --version"
 
-# 2. Get update plan
+# 2. Get update plan (send the system update prompt to your LLM CLI)
 gemini "$(cat docs/dev/runnerAgent/prompts/system_update_prompt.md)
 
 My CI is failing with 'lock file version 4 not understood'. I'm using Cargo 1.90.0 locally.
 What do I need to update on the runner?"
 
-# 3. Execute updates (from LLM response)
+# 3. Execute updates on the runner (example commands)
+# On the runner host (laptop-extra):
 rustup update stable
+sudo dnf install -y openbox pulseaudio at-spi2-core-devel
 sudo systemctl restart actions.runner.Coldaine-ColdVox.laptop-extra.service
 ```
 
@@ -102,6 +105,7 @@ cargo build --timings 2>&1 | \
 
 Here's my build timing. Identify the slowest 3 crates and suggest optimizations."
 ```
+
 
 ## Integration with Existing Infrastructure
 
@@ -119,7 +123,7 @@ Here's my build timing. Identify the slowest 3 crates and suggest optimizations.
 ### Runner Service
 - Location: `/home/coldaine/actions-runner/`
 - Service: `actions.runner.Coldaine-ColdVox.laptop-extra.service`
-- Workspace: `/home/coldaine/actions-runner/_work/ColdVox/ColdVox`
+- Workspace (exact path used by GitHub Actions jobs): `/home/coldaine/actions-runner/_work/ColdVox/ColdVox`
 
 ## Benefits
 

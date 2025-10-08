@@ -19,6 +19,8 @@ rustup update stable
 bash scripts/runner_health_check.sh
 
 # 3. Simulate CI locally
+# NOTE: run this from the runner's workspace where GitHub Actions executes jobs:
+# /home/coldaine/actions-runner/_work/ColdVox/ColdVox
 cd /home/coldaine/actions-runner/_work/ColdVox/ColdVox
 bash scripts/ci/setup-vosk-cache.sh
 cargo check --workspace --features vosk
@@ -29,7 +31,7 @@ cargo check --workspace --features vosk
 # View runner logs
 journalctl -u actions.runner.Coldaine-ColdVox.laptop-extra.service --since "1 hour ago"
 
-# Check environment
+# Check environment (run in the runner workspace)
 cd /home/coldaine/actions-runner/_work/ColdVox/ColdVox
 env | grep -E "(RUST|CARGO|VOSK|LD_LIBRARY)"
 

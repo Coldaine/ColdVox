@@ -61,6 +61,7 @@ graph LR
 
 #### **3.2.1 Setup Vosk Dependencies**
 ```bash
+# Run these commands from the runner workspace where Actions jobs are executed:
 cd /home/coldaine/actions-runner/_work/ColdVox/ColdVox
 bash scripts/ci/setup-vosk-cache.sh
 ```
@@ -70,6 +71,7 @@ bash scripts/ci/setup-vosk-cache.sh
 
 #### **3.2.2 Build & Check (Core Rust Validation)**
 ```bash
+# Recommended: run from the runner workspace: /home/coldaine/actions-runner/_work/ColdVox/ColdVox
 cargo check --workspace --features vosk
 cargo build --workspace --features vosk
 cargo test --workspace --features vosk
@@ -77,12 +79,15 @@ cargo test --workspace --features vosk
 
 #### **3.2.3 Text Injection Tests (GUI-Dependent)**
 ```bash
+# Ensure DISPLAY and run in runner workspace if tests need the runner environment:
 export DISPLAY=:0  # Required for X11/Wayland interaction
+cd /home/coldaine/actions-runner/_work/ColdVox/ColdVox
 cargo test -p coldvox-text-injection --features text-injection
 ```
 
 #### **3.2.4 End-to-End Pipeline Test**
 ```bash
+# From the runner workspace (/home/coldaine/actions-runner/_work/ColdVox/ColdVox):
 # Record 5s of audio
 cargo run --bin mic_probe -- --duration 5 --device "default" --save-audio
 
@@ -366,4 +371,8 @@ The system requires **no additional infrastructure**, only disciplined use of sh
 
 --- 
 
-*End of Document*
+*End of Document*# Debug a CI failure with AI assistance
+gh run view 18344561673 --log-failed | \
+  gemini "$(cat docs/dev/runnerAgent/prompts/debug_agent_prompt.md) 
+
+My CI failed with these logs. Diagnose and provide fix commands."
