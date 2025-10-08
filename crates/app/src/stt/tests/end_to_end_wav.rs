@@ -987,11 +987,11 @@ async fn test_clipboard_injection() {
     #[cfg(feature = "text-injection")]
     {
         use crate::text_injection::{
-            clipboard_injector::ClipboardInjector, InjectionConfig, TextInjector,
+            clipboard_paste_injector::ClipboardPasteInjector, InjectionConfig, TextInjector,
         };
 
         let config = InjectionConfig::default();
-        let injector = ClipboardInjector::new(config);
+    let injector = ClipboardPasteInjector::new(config);
 
         // Check availability
         if !injector.is_available().await {

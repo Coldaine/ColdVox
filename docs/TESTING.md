@@ -256,3 +256,9 @@ RUST_LOG=debug cargo test test_name          # Enable debug logging
 - Run `cargo test` for complete validation (includes all tests)
 - All tests use real hardware and models
 - Use `scripts/ci/setup-vosk-cache.sh` for model setup
+
+## TODOs (Testing docs)
+
+- [ ] Update text injection test sections to reflect the single paste path (Clipboard+Paste with fallback) and removal of clipboard-only as a public method.
+- [ ] Clarify expected behavior on Windows: gate Linux-specific injection tests or document limitations.
+- [ ] Link to `docs/architecture.md` for the Clipboard+Paste contract and error modes.

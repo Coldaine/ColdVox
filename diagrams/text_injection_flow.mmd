@@ -77,7 +77,7 @@ flowchart TB
 
     REG --> REG_ATSPI[Register AtspiInsert]:::reg
     REG --> REG_CLIPPASTE[Register ClipboardPaste]:::reg
-    REG --> REG_YDO[Register YdoToolPaste (when available)]:::reg
+  %% YdoTool is not registered standalone; it's a fallback inside ClipboardPaste
     REG --> REG_ENIGO[Register EnigoText (opt-in)]:::reg
     REG --> REG_KDO[Register KdoToolAssist (opt-in)]:::reg
     REG --> REG_NOOP[Ensure NoOp fallback]:::reg
@@ -104,10 +104,7 @@ flowchart TB
       CLYDO -.-> CLERR([Error]):::err
     end
 
-    subgraph "YdoToolPaste"
-      YD1[/ydotool ctrl+v/]:::io --> YDOK([Ok]):::ok
-      YD1 -.-> YDERR([Error]):::err
-    end
+    %% YdoToolPaste removed as standalone; fallback is represented within ClipboardPaste
 
     subgraph "EnigoText"
       EN1{Mode?}:::decision -->|paste| ENP[/enigo paste/]:::io --> ENOK([Ok]):::ok
@@ -128,7 +125,7 @@ flowchart TB
 
   CALL -->|AtspiInsert| AT1
   CALL -->|ClipboardPaste| CL1
-  CALL -->|YdoToolPaste| YD1
+  %% YdoToolPaste not called directly; integrated into ClipboardPaste path
   CALL -->|EnigoText| EN1
   CALL -->|KdoToolAssist| KD1
   CALL -->|NoOp| NO1

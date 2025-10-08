@@ -16,7 +16,7 @@ use crate::kdotool_injector::KdotoolInjector;
 
 use crate::noop_injector::NoOpInjector;
 #[cfg(feature = "ydotool")]
-use crate::ydotool_injector::YdotoolInjector;
+use crate::ydotool_injector::YdotoolInjector; // retained for direct tests; not registered in strategy
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -98,19 +98,13 @@ impl InjectorRegistry {
             if _has_wayland || _has_x11 {
                 let paste_injector = ClipboardPasteInjector::new(config.clone());
                 if paste_injector.is_available().await {
-                    injectors.insert(InjectionMethod::ClipboardPaste, Box::new(paste_injector));
+                    injectors.insert(InjectionMethod::ClipboardPasteFallback, Box::new(paste_injector));
                 }
             }
         }
 
-        // Add optional injectors based on config
-        #[cfg(feature = "ydotool")]
-        {
-            let ydotool = YdotoolInjector::new(config.clone());
-            if ydotool.is_available().await {
-                injectors.insert(InjectionMethod::YdoToolPaste, Box::new(ydotool));
-            }
-        }
+        // Do not register YdoTool as a standalone method: ClipboardPaste already falls back to ydotool.
+        // This keeps a single paste path in the strategy manager.
 
         #[cfg(feature = "enigo")]
         if config.allow_enigo {
@@ -583,14 +577,12 @@ impl StrategyManager {
         let mut base_order: Vec<InjectionMethod> = Vec::new();
 
         if on_wayland {
-            // Prefer AT-SPI direct insert first on Wayland when available
+            // Prefer AT-SPI direct insert first on Wayland when available; delay clipboard paste to last.
             base_order.push(InjectionMethod::AtspiInsert);
-            base_order.push(InjectionMethod::ClipboardPaste);
         }
 
         if on_x11 {
             base_order.push(InjectionMethod::AtspiInsert);
-            base_order.push(InjectionMethod::ClipboardPaste);
         }
 
         // Optional, opt-in fallbacks
@@ -601,8 +593,8 @@ impl StrategyManager {
             base_order.push(InjectionMethod::EnigoText);
         }
 
-        #[cfg(feature = "ydotool")]
-        base_order.push(InjectionMethod::YdoToolPaste);
+    // Clipboard paste (with fallback) is intentionally last to avoid clipboard disruption unless needed
+    base_order.push(InjectionMethod::ClipboardPasteFallback);
 
         // Deduplicate while preserving order
         use std::collections::HashSet;
@@ -669,12 +661,10 @@ impl StrategyManager {
 
         if on_wayland {
             base_order.push(InjectionMethod::AtspiInsert);
-            base_order.push(InjectionMethod::ClipboardPaste);
         }
 
         if on_x11 {
             base_order.push(InjectionMethod::AtspiInsert);
-            base_order.push(InjectionMethod::ClipboardPaste);
         }
 
         // Add optional methods if enabled
@@ -685,8 +675,8 @@ impl StrategyManager {
             base_order.push(InjectionMethod::EnigoText);
         }
 
-        #[cfg(feature = "ydotool")]
-        base_order.push(InjectionMethod::YdoToolPaste);
+    // Ensure ClipboardPaste (with internal fallback) is tried last
+    base_order.push(InjectionMethod::ClipboardPasteFallback);
         // Deduplicate while preserving order
         use std::collections::HashSet;
         let mut seen = HashSet::new();
@@ -747,11 +737,9 @@ impl StrategyManager {
         let mut base_order = Vec::new();
         if on_wayland {
             base_order.push(InjectionMethod::AtspiInsert);
-            base_order.push(InjectionMethod::ClipboardPaste);
         }
         if on_x11 {
             base_order.push(InjectionMethod::AtspiInsert);
-            base_order.push(InjectionMethod::ClipboardPaste);
         }
         if self.config.allow_kdotool {
             base_order.push(InjectionMethod::KdoToolAssist);
@@ -760,8 +748,7 @@ impl StrategyManager {
             base_order.push(InjectionMethod::EnigoText);
         }
 
-        #[cfg(feature = "ydotool")]
-        base_order.push(InjectionMethod::YdoToolPaste);
+    base_order.push(InjectionMethod::ClipboardPasteFallback);
         use std::collections::HashSet;
         let mut seen = HashSet::new();
         base_order.retain(|m| seen.insert(*m));
@@ -1295,7 +1282,7 @@ mod tests {
         let has_desktop = !available.is_empty();
         if has_desktop {
             assert!(order.contains(&InjectionMethod::AtspiInsert));
-            assert!(order.contains(&InjectionMethod::ClipboardPaste));
+            assert!(order.contains(&InjectionMethod::ClipboardPasteFallback));
         }
 
         // Verify optional methods are included if enabled
@@ -1317,10 +1304,9 @@ mod tests {
         let available = manager.backend_detector.detect_available_backends();
         if !available.is_empty() {
             assert!(order.contains(&InjectionMethod::AtspiInsert));
-            assert!(order.contains(&InjectionMethod::ClipboardPaste));
+            assert!(order.contains(&InjectionMethod::ClipboardPasteFallback));
         }
-        #[cfg(feature = "ydotool")]
-        assert!(order.contains(&InjectionMethod::YdoToolPaste));
+    // YdoToolPaste is no longer a standalone method; its behavior is subsumed by ClipboardPaste
         assert!(order.contains(&InjectionMethod::KdoToolAssist));
         assert!(order.contains(&InjectionMethod::EnigoText));
     }
