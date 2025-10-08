@@ -21,11 +21,20 @@ TIMESTAMP=$(date -u +%Y%m%dT%H%M%SZ)
 OUT_DIR="$OUT_BASE/$TIMESTAMP"
 mkdir -p "$OUT_DIR"
 
-GEMINI_BIN=$(command -v gemini || true)
-if [ -z "$GEMINI_BIN" ]; then
-  echo "gemini CLI not found in PATH. Please install gemini and ensure it's available." >&2
-  exit 1
+# Allow the user to override the LLM command. Default to `gemini` if available.
+LLM_CMD=${LLM_CMD:-}
+if [ -z "$LLM_CMD" ]; then
+  if command -v gemini >/dev/null 2>&1; then
+    LLM_CMD="gemini"
+  else
+    echo "No LLM CLI found. Set LLM_CMD to a CLI command (e.g. 'gemini' or 'openai chat') and ensure it's in PATH." >&2
+    exit 1
+  fi
 fi
+
+# Timeout for LLM calls (seconds)
+LLM_TIMEOUT=${LLM_TIMEOUT:-300}
+
 
 echo "Using runner workspace: $RUNNER_PATH"
 echo "Reproduction command: $CMD"
@@ -65,14 +74,22 @@ for ITER in 1 2; do
   RESPONSE="$OUT_DIR/response_iter_${ITER}.txt"
 
   # Prefer piping the combined file into gemini; this works with most CLI builds
-  echo "Sending combined logs and prompt to gemini (this may take a moment)..."
-  if gemini --help 2>&1 | grep -q " -i \|--input"; then
-    # If gemini supports -i, send the system prompt explicitly and the combined as stdin
-    # Some gemini clients accept a system prompt via -i; we try a generic approach first.
-    cat "$COMBINED" | "$GEMINI_BIN" - > "$RESPONSE" || true
-  else
-    # Fallback: feed the combined file directly
-    cat "$COMBINED" | "$GEMINI_BIN" > "$RESPONSE" || true
+  echo "Sending combined logs and prompt to LLM ($LLM_CMD) with timeout ${LLM_TIMEOUT}s..."
+  # Run the configured LLM command headless with a timeout. Capture stderr to a file for debugging.
+  # The command string should read from stdin and write to stdout.
+  # Use sh -c to allow complex commands in LLM_CMD (e.g. 'gemini --model=gpt-4o-mini').
+  GEMINI_ERR="$OUT_DIR/gemini_error_iter_${ITER}.log"
+  set +e
+  timeout "$LLM_TIMEOUT" sh -c "cat '$COMBINED' | $LLM_CMD" > "$RESPONSE" 2> "$GEMINI_ERR"
+  LLM_EXIT=$?
+  set -e
+  if [ $LLM_EXIT -eq 124 ]; then
+    echo "LLM command timed out after ${LLM_TIMEOUT}s. See $GEMINI_ERR for stderr." >&2
+  elif [ $LLM_EXIT -ne 0 ]; then
+    echo "LLM command exited with code $LLM_EXIT. See $GEMINI_ERR for stderr." >&2
+  fi
+  if [ -s "$GEMINI_ERR" ]; then
+    echo "LLM stderr captured to: $GEMINI_ERR"
   fi
 
   echo "Gemini response saved to: $RESPONSE"
