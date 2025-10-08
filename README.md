@@ -66,6 +66,12 @@ More detail: See [`CLAUDE.md`](CLAUDE.md) for full developer guide.
 
 **Workaround for other devices**: Manually edit the device name in the probe source code if you need to test with a different microphone during this transition period.
 
+### Documentation Review (Pending)
+- [ ] Recent text injection changes consolidated paste behavior. A docs/diagram sweep is pending to reflect:
+	- Clipboard-only injector is internal-only.
+	- Single paste path (Clipboard+Paste with AT‑SPI→ydotool fallback) is last in order.
+	- Updated diagrams exported in `diagrams/`.
+
 ## Slow / Environment-Sensitive Tests
 Some end‑to‑end tests exercise real injection & STT. Gate them locally by setting an env variable (planned):
 ```bash
