@@ -40,6 +40,6 @@ Option 3: Commit the small (≈40–50MB) English model directory `models/vosk-m
 - CI job validates directory structure plus checksum (to be extended with full hash check if needed).
 
 ## Related Documents
-- `THIRDPARTY.md`
 - `crates/coldvox-stt-vosk/src/model.rs`
 - `README.md` (root)
+- Model license: See `models/vosk-model-small-en-us-0.15/LICENSE`

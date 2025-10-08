@@ -9,6 +9,10 @@ last_reviewed: 2025-09-06
 
 # ColdVox GUI Backend Integration Implementation Plan
 
+> ⚠️ **RESEARCH DOCUMENT - WORK IN PROGRESS**
+> Contains incomplete sections and future work markers.
+> Last updated: 2025-10-07
+
 This document outlines the detailed implementation plan for connecting the Qt Quick/QML GUI with the existing ColdVox backend services. It provides a step-by-step approach to replace the current stub implementations with actual backend integration using the existing service architecture.
 
 ## Current State Analysis
