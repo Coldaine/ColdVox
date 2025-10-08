@@ -1,56 +1,29 @@
-# Graphite Split Execution Plan: anchor/oct-06-2025 → 9 Stacked PRs
+# Graphite Domain-Based Execution Plan (Merged)
 
-**Date:** 2024-10-07
-**Status:** Ready for Execution
-**Branch to Split:** `anchor/oct-06-2025` (93 files, 33 commits)
-**Target:** 9 domain-based PRs using Graphite stacked workflow
-
----
-
-## Quick Reference: Agent Cheat Sheet
-
-```
-Phase 1 - Split:
-  Agent-1: Splitter (gt split --by-hunk, solo, 2-3h)
-
-Phase 2 - Validation (parallel):
-  Agent-2: Validator-Foundation (PR #01)
-  Agent-3: Validator-Audio (PR #02)
-  Agent-4: Validator-Processing (PR #03, #04)
-  Agent-5: Validator-Integration (PR #05, #06, #07)
-  Agent-6: Validator-Infra (PR #08, #09)
-
-Phase 3 - PR Creation:
-  Agent-7: PR-Creator (gh pr create ×9, solo, 30min)
-
-Phase 4 - Review (parallel where safe):
-  Agent-8:  Reviewer-Config (PR #01)
-  Agent-9:  Reviewer-Audio (PR #02)
-  Agent-10: Reviewer-VAD (PR #03) ← parallel with Agent-11
-  Agent-11: Reviewer-STT (PR #04) ← parallel with Agent-10
-  Agent-12: Reviewer-Runtime (PR #05)
-  Agent-13: Reviewer-Injection (PR #06)
-  Agent-14: Reviewer-Testing (PR #07)
-  Agent-15: Reviewer-Observability (PR #08)
-  Agent-16: Reviewer-Docs (PR #09)
-
-Phase 5 - Merge:
-  Agent-17: Merge-Coordinator (sequential, CI-gated, 1-2 weeks)
-
-Total: 17 agents (max 5 concurrent in Phase 2, max 2 concurrent in Phase 4)
-```
+**Date:** 2024-10-08  
+**Status:** Ready for Execution  
+**Branch to Split:** `anchor/oct-06-2025` (93 files, 33 commits)  
+**Stack Shape:** 9 domain-focused PRs (`01`–`09`) stacked with Graphite  
+**Hotfix Assumption:** The clipboard P0 fix (#00) already landed on `main`; this stack contains the refactor payload only.  
+**Parallelism Support:** Agents may run up to 5 tool calls concurrently. Async edit agents are available for doc rewrites, restacks, and PR template updates when noted.
 
 ---
 
-## Executive Summary
+## Agent Launch Board (Start Here)
 
-This plan splits the monolithic refactor branch into 9 reviewable PRs organized by crate/domain boundaries. Each PR maps to the multi-crate workspace structure, minimizing merge conflicts and enabling parallel development where possible.
+1. **Pre-flight (5 min):** `git fetch origin` and confirm `anchor/oct-06-2025` is rebased onto the latest `main`. Create a backup branch `backup/anchor-oct-06-2025-$(date +%Y%m%d-%H%M%S)` before touching Graphite state.
+2. **Phase 1 – Split (Agent-1 Splitter):** Adopt the branch (`gt track`) and run `gt split --by-hunk`, assigning hunks according to the routing rules in *Execution Workflow*. Keep a scratch log of tricky hunks for reviewer notes.
+3. **Phase 2 – Validation (Agents 2-6, parallel):** Once the nine branches exist, dispatch validator agents concurrently (≤5 shells). Each validator runs the command block tied to its PRs and appends results to `/tmp/validation.log`.
+4. **Phase 3 – PR Creation (Agent-7 PR-Creator):** After validation passes, generate stacked PRs via Graphite Cloud or `gh pr create`, respecting the base relationships in the stack diagram.
+5. **Phase 4 – Review (Agents 8-16):** Assign domain reviewers. PR #03 and PR #04 can be reviewed in parallel; the rest proceed in stack order to minimize context switching.
+6. **Phase 5 – Merge Coordination (Agent-17):** Merge sequentially, restacking (`gt sync`) after each merge. Hold PR #05 until both PR #03 and PR #04 are merged; pause if CI fails.
+7. **Phase 6 – Cleanup (Async-Editor + Team):** Trigger the documentation, diagram, and CI sweep once the stack lands. File retro notes and archive validation artifacts.
 
-**Key Decision:** Skip P0 extraction. The text injection improvements (AT-SPI/ydotool alternatives) will be addressed in a **post-refactor follow-up** after the stack merges.
+> Tip: If a phase stalls, delegate documentation or automation tasks to the Async-Editor agent so the main pipeline keeps moving.
 
 ---
 
-## The Stack (9 PRs)
+## Quick Stack Reference
 
 ```
 main
@@ -58,547 +31,442 @@ main
      └─ 02-audio-capture
          ├─ 03-vad (parallel with 04)
          └─ 04-stt (parallel with 03)
-             └─ 05-app-runtime-wav (waits for BOTH 03 & 04)
+             └─ 05-app-runtime-wav (waits for 03 & 04)
                  └─ 06-text-injection
                      └─ 07-testing
                          └─ 08-logging-observability
                              └─ 09-docs-changelog
 ```
 
-**Parallel-Safe:** PRs #03 and #04 can be reviewed simultaneously (both depend only on #02).
+---
+
+## Agent Cheat Sheet
+
+```
+Phase 0 – Prep
+  Agent-0: Async-Editor (optional) → update PR templates, seed CI scripts, prep diagrams.
+
+Phase 1 – Split
+  Agent-1: Splitter (solo, 2-3h) → gt track; gt split --by-hunk; enforce routing matrix.
+
+Phase 2 – Validation (≤5 concurrent shells)
+  Agent-2: Validator-Foundation → PR #01
+  Agent-3: Validator-Audio → PR #02
+  Agent-4: Validator-Processing → PR #03 then PR #04
+  Agent-5: Validator-Integration → PR #05, #06, #07
+  Agent-6: Validator-Infra → PR #08, #09
+
+Phase 3 – PR Creation
+  Agent-7: PR-Creator (solo, 30m) → gh pr create / gt submit
+
+Phase 4 – Review (assign domain experts)
+  Agent-8: Reviewer-Config → PR #01
+  Agent-9: Reviewer-Audio → PR #02
+  Agent-10: Reviewer-VAD → PR #03
+  Agent-11: Reviewer-STT → PR #04
+  Agent-12: Reviewer-Runtime → PR #05
+  Agent-13: Reviewer-Injection → PR #06
+  Agent-14: Reviewer-Testing → PR #07
+  Agent-15: Reviewer-Observability → PR #08
+  Agent-16: Reviewer-Docs → PR #09
+
+Phase 5 – Merge
+  Agent-17: Merge-Coordinator (CI-gated, 1-2 weeks) → merge order enforcement, gt sync, conflict alerts.
+
+Phase 6 – Cleanup
+  Agent-0 + Team: Docs sweep, diagram exports, CI validation, retro capture.
+```
 
 ---
 
 ## PR Breakdown
 
 ### PR #01: config-settings
-**Title:** `[01/09] config: centralize Settings + path-aware load`
-**Base:** `main`
-**Scope:** `crates/app/src/lib.rs`, `config/**`, `crates/app/tests/settings_test.rs`
-**Size Estimate:** Medium (200-400 lines)
-
-**Changes:**
-- Centralize configuration loading with path-aware logic
-- Add `COLDVOX_CONFIG_PATH` environment variable override
-- Update Settings API for deterministic testing
-- Add TOML config files (`config/default.toml`, `config/overrides.toml`)
-
-**Why First:** Config is foundation; all other crates consume it.
-
-**Validation:**
+- **Title:** `[01/09] config: centralize Settings + path-aware load`
+- **Base:** `main`
+- **Depends On:** None
+- **Blocks:** PR #02 → PR #09
+- **Scope:** `crates/app/src/lib.rs`, `config/**`, `crates/app/tests/settings_test.rs`
+- **Size Guardrail:** Target 200-400 LOC · Max 800 LOC · Split into `config-core` + `config-integration` if exceeded.
+- **Key Changes:**
+  - Centralize configuration loading with path-aware logic.
+  - Add `COLDVOX_CONFIG_PATH` environment override.
+  - Update Settings API for deterministic tests.
+  - Introduce default and overrides TOML fixtures.
+- **Validation:**
 ```bash
+cargo check --workspace
 cargo test --test settings_test
-cargo build -p coldvox-app
-# Verify config loading: COLDVOX_CONFIG_PATH=config/test.toml cargo run
+cargo clippy --workspace -- -D warnings
 ```
-
----
+- **Notes:** Async-Editor can update config docs or templates if reviewers ask for more context.
 
 ### PR #02: audio-capture
-**Title:** `[02/09] audio: capture lifecycle fix + ALSA stderr suppression`
-**Base:** `01-config-settings`
-**Scope:** `crates/coldvox-audio/**`
-**Size Estimate:** Medium (300-500 lines)
-
-**Changes:**
-- Audio capture thread lifecycle improvements
-- Device monitor enhancements (PipeWire priority)
-- ALSA stderr suppression (reduces log noise)
-- Watchdog stability fixes
-
-**Why Second:** Audio is the first processing layer after config.
-
-**Validation:**
+- **Title:** `[02/09] audio: capture lifecycle fix + ALSA stderr suppression`
+- **Base:** `01-config-settings`
+- **Depends On:** PR #01
+- **Blocks:** PR #03, PR #04, PR #05+
+- **Scope:** `crates/coldvox-audio/**`
+- **Size Guardrail:** Target 300-500 LOC · Max 1000 LOC · Split by subsystem (device monitor vs capture core) if needed.
+- **Key Changes:**
+  - Stabilize audio capture thread lifecycle.
+  - Prioritize PipeWire devices via monitor enhancements.
+  - Suppress ALSA stderr noise.
+  - Harden watchdog and error recovery paths.
+- **Validation:**
 ```bash
 cargo test -p coldvox-audio
 cargo run --bin mic_probe -- --duration 30
-# Verify: PipeWire FPS stable, no ALSA stderr spam
 ```
-
----
+- **Notes:** Capture sample logs for reviewers; noisy logs belong in PR #08.
 
 ### PR #03: vad
-**Title:** `[03/09] vad: windowing/debounce consistency`
-**Base:** `02-audio-capture`
-**Scope:** `crates/coldvox-vad/**`, `crates/coldvox-vad-silero/**`
-**Size Estimate:** Small-Medium (150-300 lines)
-**Parallel-Safe:** ✅ Can review with PR #04
-
-**Changes:**
-- Frame-based VAD debouncing for deterministic testing
-- Timestamp-ms candidates for reproducibility
-- Windowing consistency improvements
-
-**Why This Order:** VAD processes audio frames; independent of STT.
-
-**Validation:**
+- **Title:** `[03/09] vad: windowing/debounce consistency`
+- **Base:** `02-audio-capture`
+- **Depends On:** PR #02
+- **Blocks:** PR #05
+- **Parallel-Safe:** ✅ Parallel review with PR #04.
+- **Scope:** `crates/coldvox-vad/**`, `crates/coldvox-vad-silero/**`
+- **Size Guardrail:** Target 150-300 LOC · Max 600 LOC.
+- **Key Changes:**
+  - Frame-based debounce for deterministic outcomes.
+  - Timestamp-ms utilities for reproducibility.
+  - Windowing consistency across CPU/GPU paths.
+- **Validation:**
 ```bash
 cargo test -p coldvox-vad
 cargo test -p coldvox-vad-silero
 cargo run --example test_silero_wav --features examples
 ```
 
----
-
 ### PR #04: stt
-**Title:** `[04/09] stt: finalize handling + helpers`
-**Base:** `02-audio-capture`
-**Scope:** `crates/coldvox-stt/**`, `crates/coldvox-stt-vosk/**`
-**Size Estimate:** Small-Medium (150-300 lines)
-**Parallel-Safe:** ✅ Can review with PR #03
-
-**Changes:**
-- STT finalization behavior improvements
-- Helper utilities for transcription processing
-- Session event handling refinements
-
-**Why This Order:** STT processes audio frames; independent of VAD.
-
-**Validation:**
+- **Title:** `[04/09] stt: finalize handling + helpers`
+- **Base:** `02-audio-capture`
+- **Depends On:** PR #02
+- **Blocks:** PR #05
+- **Parallel-Safe:** ✅ Parallel review with PR #03.
+- **Scope:** `crates/coldvox-stt/**`, `crates/coldvox-stt-vosk/**`
+- **Size Guardrail:** Target 150-300 LOC · Max 600 LOC.
+- **Key Changes:**
+  - Improve STT finalization behavior.
+  - Add transcription helper utilities.
+  - Refine session event handling and telemetry hooks.
+- **Validation:**
 ```bash
 cargo test -p coldvox-stt
 cargo test -p coldvox-stt-vosk --features vosk
 cargo run --features vosk --example vosk_test
 ```
 
----
-
 ### PR #05: app-runtime-wav
-**Title:** `[05/09] app: unify VAD↔STT runtime + real WAV loader`
-**Base:** `02-audio-capture` (rebase after #03 & #04 merge)
-**Scope:** `crates/app/src/runtime.rs`, `crates/app/src/audio/wav_file_loader.rs`, E2E glue
-**Size Estimate:** Large (400-600 lines)
-**Dependencies:** **REQUIRES both #03 AND #04 merged first**
-
-**Changes:**
-- Unified VAD/STT pipeline in runtime
-- Deterministic WAV file streaming for E2E tests
-- Real WAV loader with trailing silence support
-- Integration hooks for deterministic testing
-
-**Why This Order:** Integrates VAD and STT; requires both to be complete.
-
-**Special Handling:**
-```bash
-# Option A: Wait for both #03 and #04 to merge, then create PR #05
-# Option B: Create PR early based on #02, rebase twice after #03 & #04 merge
-```
-
-**Validation:**
+- **Title:** `[05/09] app: unify VAD↔STT runtime + real WAV loader`
+- **Base:** `02-audio-capture` (rebased after PR #03 and PR #04 merge)
+- **Depends On:** PR #03 and PR #04
+- **Blocks:** PR #06, PR #07
+- **Scope:** `crates/app/src/runtime.rs`, `crates/app/src/audio/wav_file_loader.rs`, integration glue
+- **Size Guardrail:** Target 400-600 LOC · Max 1200 LOC · Split into runtime core vs WAV loader if breached.
+- **Key Changes:**
+  - Unify the runtime pipeline across VAD and STT.
+  - Provide deterministic WAV streaming for E2E tests.
+  - Implement real WAV loader with trailing silence support.
+  - Wire integration hooks for reproducible testing.
+- **Validation:**
 ```bash
 cargo test -p coldvox-app test_end_to_end_wav --features vosk --nocapture
 cargo test -p coldvox-app --features vosk
-# Verify: WAV files stream correctly, E2E tests deterministic
 ```
-
----
+- **Notes:** Hold merge until both PR #03 and PR #04 are green. Consider handing heavy edits to Async-Editor for formatting if rebases get messy.
 
 ### PR #06: text-injection
-**Title:** `[06/09] injection: clipboard-preserve + Wayland-first strategy`
-**Base:** `05-app-runtime-wav`
-**Scope:** `crates/coldvox-text-injection/**`
-**Size Estimate:** Medium-Large (300-500 lines)
-
-**Changes:**
-- Clipboard preservation (save → inject → restore)
-- Wayland-first strategy ordering (AT-SPI → Clipboard → ydotool)
-- Strategy manager refactor with per-app success caching
-- Combined clipboard+paste injector improvements
-- Timing improvements for clipboard restoration (500ms default)
-
-**Known Limitation:**
-AT-SPI paste only works with accessibility-enabled apps (Firefox, VS Code). Most apps lack AT-SPI support, requiring ydotool or manual setup.
-
-**Post-Refactor TODO:**
-Research and implement fallback methods (xdotool, wtype, evdev) - see separate knowledge agent research task.
-
-**Validation:**
+- **Title:** `[06/09] injection: clipboard-preserve + Wayland-first strategy`
+- **Base:** `05-app-runtime-wav`
+- **Depends On:** PR #05
+- **Blocks:** PR #07, PR #08
+- **Scope:** `crates/coldvox-text-injection/**`
+- **Size Guardrail:** Target 300-500 LOC · Max 1000 LOC.
+- **Key Changes:**
+  - Clipboard preservation (save → inject → restore) refinements.
+  - Wayland-first strategy ordering (AT-SPI → clipboard → ydotool fallback).
+  - Strategy manager refactor with per-app success caching.
+  - Combined clipboard + paste injector improvements and timing tweaks.
+- **Validation:**
 ```bash
 cargo test -p coldvox-text-injection
 cargo run --features text-injection --example inject_demo
-# Manual: Test clipboard preservation across apps
+# Manual: verify clipboard preservation across Firefox, VS Code, native apps
 ```
-
----
+- **Known Limitation:** AT-SPI works only where accessibility is enabled; ydotool remains fallback.
 
 ### PR #07: testing
-**Title:** `[07/09] tests: deterministic E2E + integration suites`
-**Base:** `06-text-injection`
-**Scope:** `**/tests/**`, E2E WAV tests, integration test setup
-**Size Estimate:** Medium (200-400 lines)
-
-**Changes:**
-- Deterministic E2E test infrastructure
-- Settings test fixtures with path-aware loading
-- Integration test suite improvements
-- WAV file-based testing validation
-
-**Why This Order:** Consolidates all test infrastructure after features are complete.
-
-**Validation:**
+- **Title:** `[07/09] tests: deterministic E2E + integration suites`
+- **Base:** `06-text-injection`
+- **Depends On:** PR #06
+- **Blocks:** PR #08, PR #09
+- **Scope:** `**/tests/**`, integration harnesses, E2E WAV fixtures
+- **Size Guardrail:** Target 200-400 LOC · Max 800 LOC.
+- **Key Changes:**
+  - Deterministic E2E infrastructure and fixtures.
+  - Path-aware settings test harness.
+  - Integration test suite coverage improvements.
+  - WAV-based validation for runtime correctness.
+- **Validation:**
 ```bash
 cargo test --workspace
-cargo test --workspace --features vosk
-# Verify: All tests pass, no flaky tests
+cargo test --workspace --features vosk,text-injection
 ```
 
----
-
 ### PR #08: logging-observability
-**Title:** `[08/09] logs: prune noisy hot paths; telemetry tweaks`
-**Base:** `07-testing`
-**Scope:** `crates/coldvox-telemetry/**`, scattered logging changes
-**Size Estimate:** Small-Medium (100-200 lines)
-
-**Changes:**
-- Reduce hot-path logging noise (audio frame processing)
-- Telemetry metric improvements
-- Observability enhancements for debugging
-- Log level adjustments (trace → debug for performance-critical paths)
-
-**Why This Order:** Logging touches many files; best done after features stabilize.
-
-**Validation:**
+- **Title:** `[08/09] logs: prune noisy hot paths; telemetry tweaks`
+- **Base:** `07-testing`
+- **Depends On:** PR #07
+- **Blocks:** PR #09
+- **Scope:** `crates/coldvox-telemetry/**`, logging adjustments across crates
+- **Size Guardrail:** Target 100-200 LOC · Max 400 LOC.
+- **Key Changes:**
+  - Reduce hot-path logging noise in audio pipelines.
+  - Tune telemetry metrics and sampling.
+  - Improve observability for debugging (structured fields).
+  - Normalize log levels (trace → debug where appropriate).
+- **Validation:**
 ```bash
 cargo run --bin tui_dashboard -- --log-level debug
 cargo run --features vosk,text-injection
-# Verify: Log output clean, no spam in hot paths
+# Confirm log volume and telemetry dashboards
 ```
-
----
 
 ### PR #09: docs-changelog
-**Title:** `[09/09] docs: changelog + guides + fixes`
-**Base:** `08-logging-observability`
-**Scope:** `docs/**`, `CHANGELOG.md`, `README.md`, deployment guides
-**Size Estimate:** Medium (200-400 lines)
-
-**Changes:**
-- Update CHANGELOG.md with all changes from stack
-- Fix false documentation claims (XDG paths, deployment)
-- Add deployment guides
-- Update configuration documentation
-- Add runflags reference
-
-**Why Last:** Documentation comes last when all changes are known.
-
-**Validation:**
+- **Title:** `[09/09] docs: changelog + guides + fixes`
+- **Base:** `08-logging-observability`
+- **Depends On:** PR #08
+- **Blocks:** None
+- **Scope:** `docs/**`, `CHANGELOG.md`, `README.md`, deployment guides
+- **Size Guardrail:** Target 200-400 LOC · Max 800 LOC.
+- **Key Changes:**
+  - Update changelog and public docs to match refactor.
+  - Fix stale documentation (XDG paths, deployment instructions).
+  - Add run flags and configuration references.
+  - Summarize integration and testing matrix.
+- **Validation:**
 ```bash
-# Link validation (if markdown-link-check installed)
 find docs -name "*.md" -exec markdown-link-check {} \;
-# Manual review of accuracy
+# Manual accuracy review
+```
+- **Notes:** Async-Editor can help with doc polish and diagram exports.
+
+---
+
+## Sizing & Quality Guardrails
+
+| PR | Target LOC | Max LOC | If Exceeds Max |
+|----|-----------:|--------:|----------------|
+| #01 | 200-400 | 800 | Split into `config-core` + `config-integration` |
+| #02 | 300-500 | 1000 | Split by audio subsystem (capture vs monitor) |
+| #03 | 150-300 | 600 | Acceptable as-is; flag reviewers if near max |
+| #04 | 150-300 | 600 | Same as PR #03 |
+| #05 | 400-600 | 1200 | Split into runtime core vs WAV loader |
+| #06 | 300-500 | 1000 | Already isolated from P0; split only if absolutely needed |
+| #07 | 200-400 | 800 | Separate E2E framework vs fixtures if necessary |
+| #08 | 100-200 | 400 | Keep telemetry tweaks focused |
+| #09 | 200-400 | 800 | Consider separate doc-only PR if scope expands |
+
+**Monitoring:** Validator agents log LOC counts; Async-Editor can spin up a quick `scripts/check_pr_size.sh` if automated checks fail.
+
+---
+
+## Validation & Automation Templates
+
+### GitHub Workflow Snippet (`.github/workflows/pr-validation.yml`)
+```yaml
+name: PR Validation
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check PR size
+        run: |
+          LINES=$(git diff --shortstat origin/main | awk '{print $4+$6}')
+          if [ "${LINES:-0}" -gt 1000 ]; then
+            echo "::warning::PR touches ${LINES:-0} lines. Consider splitting."
+          fi
+
+      - name: Check crate isolation
+        run: |
+          CRATES=$(git diff --name-only origin/main | grep "^crates/" | cut -d/ -f2 | sort -u | wc -l)
+          if [ "${CRATES:-0}" -gt 2 ]; then
+            echo "::error::PR spans ${CRATES:-0} crates (limit 2)."
+            exit 1
+          fi
+```
+*Assignment:* Async-Editor creates this workflow after PR #05 merges to enforce guardrails.
+
+### Dependency Block Template (paste into each PR)
+
+```markdown
+## Stack Position
+- **Position:** #NN of 09
+- **Depends On:** PR #XX (<domain>)
+- **Blocks:** PR #YY (<domain>)
+- **Parallel With:** <PRs> ✅/❌
+
+## Merge Checklist
+- [ ] Upstream merged and synced (`gt sync`)
+- [ ] Validation commands re-run
+- [ ] Downstream owners notified of interface changes
+
+## Rollback Plan
+1. `git revert <commit>`
+2. Affects: <crates>
+3. Downstream impact: <PRs that must rebase>
 ```
 
+### Integration Testing Matrix (documented in PR #09)
+
+| Config Profile | Audio | VAD | STT | Runtime | Injection | Outcome |
+|----------------|-------|-----|-----|---------|-----------|---------|
+| Full stack (default features) | ✅ | ✅ | ✅ | ✅ | ✅ | CI baseline |
+| Audio + VAD only | ✅ | ✅ | ❌ | ✅ | ❌ | Wake-word only mode |
+| Audio + STT only | ✅ | ❌ | ✅ | ✅ | ❌ | Transcription without VAD |
+| No injection | ✅ | ✅ | ✅ | ✅ | ❌ | Headless mode |
+
+### Merge Conflict Prevention Checklist
+
+- [ ] PR touches ≤2 crates and expected docs.
+- [ ] Interfaces documented in PR description.
+- [ ] `gt log` shows correct dependency chain.
+- [ ] `cargo test --workspace --features vosk,text-injection` green.
+- [ ] Manual domain smoke test complete.
+- [ ] Downstream PR owners acknowledged changes.
+
 ---
 
-## Execution Timeline
+## Execution Workflow (Detailed Commands)
 
-| Phase | Duration | Owner |
-|-------|----------|-------|
-| **Phase 1: Graphite Split** | 2-3 hours | Agent: Splitter |
-| **Phase 2: Validation** | 90 min | Agents: Validators (parallel) |
-| **Phase 3: PR Creation** | 30 min | Agent: PR-Creator |
-| **Phase 4: Review** | 3-6 hours | Agents: Reviewers (parallel where safe) |
-| **Phase 5: Sequential Merge** | 1-2 weeks | Agent: Merge-Coordinator (CI-gated) |
-| **Phase 6: Post-Merge Cleanup** | 1-2 days | Team (docs/diagrams/CI) |
-| **Total Active Work** | ~6 hours + 1-2 days | Agents + Team |
-| **Total Calendar Time** | 2-3 weeks | Team + CI |
-
----
-
-## Agent Assignments
-
-### Phase 1: Split (Solo Agent)
-
-**Agent: "Splitter"**
+### Phase 0 – Pre-flight
 ```bash
-# On branch: anchor/oct-06-2025
+git checkout anchor/oct-06-2025
+git fetch origin
+git rebase origin/main
+git branch backup/anchor-oct-06-2025-$(date +%Y%m%d-%H%M%S)
+git status
+```
+
+### Phase 1 – Graphite Split (Agent-1)
+```bash
 gt track
 gt split --by-hunk
+```
+**Routing Matrix (enforce during split):**
+```
+config/**                          → 01-config-settings
+crates/app/src/lib.rs              → 01-config-settings
+crates/coldvox-audio/**            → 02-audio-capture
+crates/coldvox-vad*/**             → 03-vad
+crates/coldvox-stt*/**             → 04-stt
+crates/app/src/runtime.rs          → 05-app-runtime-wav
+crates/app/src/audio/wav_file_loader.rs → 05-app-runtime-wav
+crates/coldvox-text-injection/**   → 06-text-injection
+**/tests/** (except settings test) → 07-testing
+crates/coldvox-telemetry/**        → 08-logging-observability
+logging tweaks across crates       → 08-logging-observability
+docs/**, CHANGELOG*                → 09-docs-changelog
+```
 
-# Follow path-based rules:
-# - config/** → 01-config-settings
-# - crates/coldvox-audio/** → 02-audio-capture
-# - crates/coldvox-vad*/** → 03-vad
-# - crates/coldvox-stt*/** → 04-stt
-# - crates/app/src/runtime.rs, wav_file_loader.rs → 05-app-runtime-wav
-# - crates/coldvox-text-injection/** → 06-text-injection
-# - **/tests/** → 07-testing (except settings_test.rs → 01)
-# - crates/coldvox-telemetry/**, logging changes → 08-logging-observability
-# - docs/**, CHANGELOG* → 09-docs-changelog
-
-# Verify order
+### Phase 1.5 – Order Verification
+```bash
 gt log
-
-# Reorder if needed
-gt reorder
-
-# Push all branches
-git push --all
+gt reorder  # if needed
 ```
 
----
-
-### Phase 2: Validation (Parallel Agents)
-
-**Agent: "Validator-Foundation"** (Branches: 01)
+### Phase 2 – Validation (Agents 2-6)
+Each validator:
 ```bash
-git checkout 01-config-settings
-cargo check --workspace
-cargo test --test settings_test
-cargo clippy --workspace -- -D warnings
-echo "✅ 01 validated" >> /tmp/validation.log
+git checkout <branch>
+cargo fmt -- --check
+# Run the branch-specific validation block (see PR breakdown)
+echo "✅ <branch>" >> /tmp/validation.log
 ```
 
-**Agent: "Validator-Audio"** (Branches: 02)
+### Phase 3 – PR Creation (Agent-7)
+For each branch:
 ```bash
-git checkout 02-audio-capture
-cargo test -p coldvox-audio
-cargo run --bin mic_probe -- --duration 10
-echo "✅ 02 validated" >> /tmp/validation.log
-```
-
-**Agent: "Validator-Processing"** (Branches: 03, 04 - parallel)
-```bash
-git checkout 03-vad
-cargo test -p coldvox-vad -p coldvox-vad-silero
-echo "✅ 03 validated" >> /tmp/validation.log
-
-git checkout 04-stt
-cargo test -p coldvox-stt -p coldvox-stt-vosk --features vosk
-echo "✅ 04 validated" >> /tmp/validation.log
-```
-
-**Agent: "Validator-Integration"** (Branches: 05, 06, 07)
-```bash
-for branch in 05-app-runtime-wav 06-text-injection 07-testing; do
-  git checkout $branch
-  cargo test --workspace --features vosk,text-injection
-  echo "✅ $branch validated" >> /tmp/validation.log
-done
-```
-
-**Agent: "Validator-Infra"** (Branches: 08, 09)
-```bash
-git checkout 08-logging-observability
-cargo check --workspace
-echo "✅ 08 validated" >> /tmp/validation.log
-
-git checkout 09-docs-changelog
-# Manual doc review
-echo "✅ 09 validated" >> /tmp/validation.log
-```
-
----
-
-### Phase 3: PR Creation (Solo Agent)
-
-**Agent: "PR-Creator"**
-
-For each branch (01-09), run:
-```bash
+gt checkout <branch>
 gh pr create \
   --base <parent-branch> \
-  --head <current-branch> \
-  --title "[XX/09] <domain>: <description>" \
-  --body "<PR template from execution guide>"
+  --title "[NN/09] <domain>: <summary>" \
+  --body-file docs/review/split-plan-comparison/execution-guide.md
 ```
+*Tip:* Pre-fill dependency blocks from template above.
 
-**Critical:**
-- PR #01 bases on `main`
-- PR #02 bases on `01-config-settings`
-- PR #03 bases on `02-audio-capture`
-- PR #04 bases on `02-audio-capture` (same as #03!)
-- PR #05 bases on `02-audio-capture` (will need rebase after #03 & #04)
-- Remaining PRs stack linearly
+### Phase 4 – Reviews (Agents 8-16)
+- Reviewers follow domain checklists.
+- Encourage parallel review for PR #03 and PR #04.
+- Track findings in shared checklist (Async-Editor can maintain).
 
----
-
-### Phase 4: Review (Parallel Agents)
-
-**9 Reviewer Agents** (one per PR):
-
-| Agent | PR | Domain | Review Time |
-|-------|-----|--------|-------------|
-| Reviewer-Config | #01 | Config/Settings | 30 min |
-| Reviewer-Audio | #02 | Audio capture | 30 min |
-| Reviewer-VAD | #03 | VAD/Silero | 30 min (parallel with #04) |
-| Reviewer-STT | #04 | STT/Vosk | 30 min (parallel with #03) |
-| Reviewer-Runtime | #05 | App runtime | 45 min |
-| Reviewer-Injection | #06 | Text injection | 45 min |
-| Reviewer-Testing | #07 | Test infrastructure | 30 min |
-| Reviewer-Observability | #08 | Logging/telemetry | 20 min |
-| Reviewer-Docs | #09 | Documentation | 20 min |
-
-**Review Checklist:**
-- [ ] Code quality and Rust best practices
-- [ ] Architectural alignment with CLAUDE.md
-- [ ] Test coverage adequate
-- [ ] Documentation accurate
-- [ ] No scope creep (only touches expected crates)
-- [ ] CI passes (build + tests + clippy)
-
----
-
-### Phase 5: Merge Coordination (Automated Agent)
-
-**Agent: "Merge-Coordinator"**
-
+### Phase 5 – Merge Coordination (Agent-17)
 ```python
-merge_order = [
+order = [
     "01-config-settings",
     "02-audio-capture",
-    # Parallel merge when both ready:
     "03-vad",
     "04-stt",
-    # Wait for BOTH above before proceeding:
     "05-app-runtime-wav",
     "06-text-injection",
     "07-testing",
     "08-logging-observability",
-    "09-docs-changelog"
+    "09-docs-changelog",
 ]
 
-for pr in merge_order:
-    # Wait for CI and approvals
-    while not (ci_passing(pr) and approvals_met(pr)):
-        sleep(1 hour)
-
-    # Special case: PR #05 needs both #03 and #04
-    if pr == "05-app-runtime-wav":
-        assert is_merged("03-vad") and is_merged("04-stt")
-
-    # Merge
-    merge_pr(pr)
-
-    # Restack remaining PRs
-    run_command("gt sync")
-
-    # Let CI stabilize
-    sleep(30 min)
+for branch in order:
+    wait_for_ci(branch)
+    if branch == "05-app-runtime-wav":
+        assert merged("03-vad") and merged("04-stt")
+    merge(branch)
+    run("gt sync")
 ```
 
-**Conflict Resolution:** If `gt sync` finds conflicts, pause and alert human.
+### Phase 6 – Cleanup (Async-Editor + Team)
+- Update `crates/coldvox-text-injection/README.md` to clarify ydotool fallback.
+- Sync `lib.rs` docs with new strategy manager behavior.
+- Refresh `docs/architecture.md` and related diagrams (`text_injection_strategy_manager.mmd`, `text_injection_flow.mmd`).
+- Remove stale references to standalone ydotool strategy.
+- Re-run full Linux build: `cargo test --workspace --features vosk,text-injection`.
+- Validate feature combos: AT-SPI only, ydotool only, no injection.
+- Normalize logging strings (ClipboardPasteFallback naming).
+- Confirm Cargo feature docs describe fallback semantics.
 
 ---
 
-## Expected Metrics
+## Metrics & ROI
 
 | Metric | Target | Rationale |
 |--------|--------|-----------|
-| **Merge Conflicts** | 2-3 total | Each crate modified once |
-| **CI Failures** | 0-1 PRs | Domain isolation prevents integration issues |
-| **Review Time** | 1-2 weeks | Parallel reviews (PRs #3 & #4) |
-| **Context Switches** | 1 per PR | Domain experts assigned per PR |
-| **Parallel Work** | 2 PRs | VAD + STT can review simultaneously |
+| Merge Conflicts | ≤3 total | Each crate touched once; stack sequencing limits churn. |
+| CI Failures | ≤1 PR | Domain isolation; quick to pinpoint. |
+| Review Duration | 1-2 weeks | Parallel reviews for PR #03/#04 reduce calendar time. |
+| Context Switches | 1 per reviewer | Domain mapping keeps focus. |
+| Stack Restacks | ≤2 | Expected after #03/#04 merge and final cleanup. |
+| Manual QA Hours | ≤6 | Validation scripts cover most scenarios. |
+
+**ROI Snapshot:** ≈4 hours to split/validate + 1-2 weeks review yields 50% fewer conflicts versus feature-based approach and keeps production hotfixes decoupled.
 
 ---
 
 ## Success Criteria
 
-- [ ] All 9 branches created and pushed
-- [ ] Each branch passes `cargo test --workspace`
-- [ ] Each branch passes `cargo clippy --workspace -- -D warnings`
-- [ ] Dependency graph matches plan (visualized with `gt log`)
-- [ ] No cross-cutting changes (each PR modifies 1-2 crates max)
-- [ ] PR descriptions document dependencies clearly
-- [ ] CI passes for each PR before merge
-- [ ] Merge order: 01 → 02 → 03/04 → 05 → 06 → 07 → 08 → 09
-- [ ] All PRs merged to main within 2 weeks
-- [ ] `git diff main anchor/oct-06-2025` is empty after final merge
-
----
-
-## Post-Merge Cleanup Tasks (Phase 6)
-
-**Status:** Code refactor is effectively done; what's left is cleanup and docs/diagrams to reflect the "single paste path with ydotool fallback" decision plus a CI build pass.
-
-**Timeline:** After all 9 PRs merge to main (1-2 days work)
-
-### Documentation Sweep
-
-- [ ] **Crate README** (`crates/coldvox-text-injection/README.md`)
-  - State "ydotool is fallback-only inside ClipboardPaste; no standalone ydotool strategy registered"
-  - Update system requirements: "ydotool (optional fallback for paste)"
-
-- [ ] **Library docs** (`lib.rs`)
-  - Align with crate README on ydotool fallback positioning
-  - Remove references to "separate ydotool strategy"
-
-- [ ] **Architecture docs** (`docs/architecture.md`)
-  - Replace "clipboard-only" and "standalone ydotool paste" with unified ClipboardPaste path
-  - Clarify AT-SPI → ydotool fallback chain
-
-- [ ] **Feature documentation**
-  - Confirm `text-injection-ydotool` feature described as "enables fallback capability, not a standalone strategy"
-
-### Diagrams Refresh
-
-- [ ] **`diagrams/text_injection_strategy_manager.mmd`**
-  - Remove `YdotoolStrategy` class
-  - Rename `ClipboardStrategy` → `ClipboardPasteStrategy`
-  - Re-export PNG/SVG
-
-- [ ] **`diagrams/text_injection_flow.mmd`**
-  - Show ydotool only as fallback within ClipboardPaste lane
-  - Remove obsolete `allow_ydotool` config labels
-  - Re-export PNG/SVG
-
-### Residual References Cleanup
-
-- [ ] **Docs referencing "ydotool injector as first-class strategy"**
-  - `docs/updated_architecture_diagram.md`
-  - `docs/architecture.md`
-  - Reword to "ydotool fallback in ClipboardPaste"
-
-- [ ] **Examples/tests using YdotoolInjector directly**
-  - `examples/real_injection_smoke.rs`
-  - Add comment: "Backend probe only; manager doesn't register as standalone strategy"
-
-### CI/Build Validation
-
-- [ ] **Linux build + tests**
-  - Ensure no lingering references to removed enum variants
-  - Run `cargo test --workspace --features vosk,text-injection`
-
-- [ ] **Feature combo testing**
-  - Test with AT-SPI present + ydotool present
-  - Test with AT-SPI absent + ydotool present (fallback path)
-  - Test with both absent (graceful failure)
-
-### Minor Polish
-
-- [ ] **Logging consistency**
-  - Ensure all logs use `ClipboardPasteFallback` variant name
-  - Check method name strings in telemetry
-
-- [ ] **Cargo.toml feature clarity**
-  - If keeping `text-injection-ydotool` feature, document "enables fallback compilation only"
-
-**Owner:** Development team or cleanup agents
-**Priority:** High (polish before announcing release)
-
----
-
-## Post-Refactor Work
-
-### Text Injection Additional Fallbacks (Separate PR after stack merges)
-
-**Problem:** AT-SPI paste only works with accessibility-enabled apps. Most apps lack support, requiring ydotool manual setup.
-
-**Research Task:** Investigate additional fallback methods for triggering paste:
-- X11: xdotool, xte, dotool
-- Wayland: wtype, wshowkeys alternatives
-- Kernel: evdev, /dev/uinput direct access
-- DBus: KDE KGlobalAccel for shortcuts
-
-**Deliverable:** New PR with extended fallback chain:
-```
-AT-SPI → ydotool → xdotool/wtype → evdev → fail
-```
-
-**Priority:** P1 (high) - improves usability for users without ydotool setup
-**Timeline:** 1 week after stack merges
+- [ ] All 9 branches created, validated, and pushed.
+- [ ] Every PR description includes dependency block and sizing notes.
+- [ ] `cargo test --workspace --features vosk,text-injection` passes for each branch.
+- [ ] `gt log` matches stack diagram after every restack.
+- [ ] Merge order follows plan (01 → 02 → 03+04 → 05 → 06 → 07 → 08 → 09).
+- [ ] `git diff main anchor/oct-06-2025` is empty after final merge.
+- [ ] Post-merge cleanup checklist fully resolved.
 
 ---
 
@@ -606,75 +474,61 @@ AT-SPI → ydotool → xdotool/wtype → evdev → fail
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|------------|--------|------------|
-| PR #05 integration fails | Medium | High | E2E tests validate before merge |
-| Merge conflicts during restack | Medium | Medium | `gt restack` + manual resolution |
-| CI flakes block merge | Low | Medium | Retry failed tests, fix if persistent |
-| Branch order wrong after split | Low | Low | `gt reorder` in interactive editor |
-| Text injection breaks in production | Medium | High | Post-refactor PR for fallback methods |
+| PR #05 integration breaks | Medium | High | Run E2E WAV tests pre-merge; hold until #03/#04 merged. |
+| Restack conflicts late in stack | Medium | Medium | Immediate `gt sync` after each merge; Async-Editor can assist with conflict resolution. |
+| Validator resource contention | Low | Medium | Limit to 5 concurrent shells; stagger long-running tests. |
+| Text injection regressions | Medium | High | Manual multi-app verification + follow-up fallback work item. |
+| Oversized PR slips through | Low | Medium | Guardrail table + workflow warnings. |
+| Documentation drift | Low | Medium | PR #09 update + cleanup phase enforcement. |
 
 ---
 
 ## Troubleshooting
 
-### Issue: `gt split` creates unexpected branches
-**Solution:**
-```bash
-gt fold  # Merge child back into parent
-gt split --by-commit  # Try commit-based split first
-```
-
-### Issue: Validation fails on a branch
-**Solution:**
-```bash
-git checkout <branch>
-# Fix issues
-git commit -am "fix: resolve validation issues"
-cargo test  # Re-validate
-```
-
-### Issue: Merge conflict during `gt restack`
-**Solution:**
-```bash
-git status  # Shows conflicted files
-# Resolve manually
-git add -A
-gt continue  # Resume restack
-```
-
-### Issue: Need to insert a new branch mid-stack
-**Solution:**
-```bash
-gt checkout <parent-branch>
-gt create --insert --message "<new branch description>"
-# Result: main → parent → NEW → child → ...
-```
+- **Unexpected branch allocation during `gt split`:**
+  ```bash
+  gt fold
+  gt split --by-commit  # fallback to commit split, then re-split by hunk
+  ```
+- **Validation failure on a branch:**
+  ```bash
+  git checkout <branch>
+  # fix issue
+  cargo test ...
+  git commit --amend
+  ```
+- **Restack conflicts:**
+  ```bash
+  gt restack
+  # resolve conflicts manually
+  git add -A
+  gt continue
+  ```
+- **Need to insert a corrective branch mid-stack:**
+  ```bash
+  gt checkout <parent>
+  gt create --insert
+  ```
 
 ---
 
-## Next Actions
+## Reference Material (Keep in Repository)
 
-### Immediate (Start Execution)
-1. ✅ Review this plan
-2. ⏳ Merge PR #122 (strategy docs)
-3. ⏳ Kick off Agent: Splitter (Phase 1)
-4. ⏳ Launch Validator agents (Phase 2, parallel)
-5. ⏳ Launch PR-Creator agent (Phase 3)
-6. ⏳ Launch Reviewer agents (Phase 4, parallel where safe)
-7. ⏳ Hand off to Merge-Coordinator agent (Phase 5)
-8. ⏳ Verify `git diff main anchor/oct-06-2025` is empty
-
-### Post-Merge Cleanup (Phase 6)
-9. ⏳ Complete docs sweep (README, architecture, lib.rs)
-10. ⏳ Refresh diagrams (text_injection_*.mmd → PNG/SVG)
-11. ⏳ Run full CI validation on main
-12. ⏳ Verify all checkboxes in "Post-Merge Cleanup Tasks" section
-
-### Future Enhancements
-13. ⏳ Create PR for additional text injection fallbacks (xdotool/wtype/evdev)
+- `docs/review/split-plan-comparison/refactor-split-strategy-comparison.md`
+- `docs/review/split-plan-comparison/dependency-graph-comparison.md`
+- `docs/review/split-plan-comparison/execution-guide.md`
+- `docs/review/split-plan-comparison/quick-reference.md`
+These explain *why* the domain-based plan was chosen and should remain alongside this execution plan.
 
 ---
 
-**Status:** Ready for Execution
-**Owner:** Development Team
-**Priority:** High
-**Estimated Completion:** 2024-10-21 (2 weeks from start)
+## Next Actions & Ownership
+
+- [ ] Assign Agent roles and time slots (Team Lead).
+- [ ] Kick off Phase 1 split (Agent-1).
+- [ ] Schedule validator execution windows (Project Ops).
+- [ ] Prep Async-Editor backlog (docs, CI workflow, diagrams).
+- [ ] Track review progress in shared checklist (Reviewer Coordinator).
+- [ ] After final merge, run cleanup tasks and log retro findings (Team).
+
+**Status:** Ready for execution. Ping the Async-Editor agent as soon as PR #05 starts if additional doc or automation support is needed.
