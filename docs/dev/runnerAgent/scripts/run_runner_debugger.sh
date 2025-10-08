@@ -115,7 +115,7 @@ for ITER in 1 2; do
     echo "\n--- CURRENT ENV ---\n"
     env | grep -E "(RUST|CARGO|VOSK|LD_LIBRARY|PATH)"
   } > "$SYS_COMBINED"
-  cat "$SYS_COMBINED" | "$GEMINI_BIN" > "$OUT_DIR/system_update_response_iter_${ITER}.txt" || true
+  timeout "$LLM_TIMEOUT" sh -c "cat '$SYS_COMBINED' | $LLM_CMD" > "$OUT_DIR/system_update_response_iter_${ITER}.txt" 2>> "$GEMINI_ERR" || true
 
   # If not last iteration, ask user whether to continue after printing summary
   if [ $ITER -lt 2 ]; then
