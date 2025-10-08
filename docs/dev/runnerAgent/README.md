@@ -37,6 +37,21 @@ env | grep -E "(RUST|CARGO|VOSK|LD_LIBRARY)"
 
 # Re-run failing command
 cargo build --workspace --features vosk
+
+### Automated debug helper
+
+There's a helper script that runs the reproduction command, collects logs, and iteratively sends them to the `gemini` CLI using the debug and system update prompts. It runs up to two debug iterations and writes a notification file with results.
+
+Script path:
+```
+docs/dev/runnerAgent/scripts/run_runner_debugger.sh
+```
+
+Usage (example):
+```bash
+# From any machine with access to the runner workspace
+docs/dev/runnerAgent/scripts/run_runner_debugger.sh /home/coldaine/actions-runner/_work/ColdVox/ColdVox "cargo build --workspace --features vosk"
+```
 ```
 
 ## Key Principles
