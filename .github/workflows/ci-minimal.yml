@@ -31,7 +31,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: ${{ matrix.rust }}
+      
+      - name: Get Rust version
+        id: rust-version
+        run: echo "version=$(rustc --version | cut -d' ' -f2)" >> $GITHUB_OUTPUT
+      
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ steps.rust-version.outputs.version }}
       
       - name: Type check
         run: cargo check --workspace --all-targets --locked
@@ -48,7 +55,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      
+      - name: Get Rust version
+        id: rust-version
+        run: echo "version=$(rustc --version | cut -d' ' -f2)" >> $GITHUB_OUTPUT
+      
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ steps.rust-version.outputs.version }}
       
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -66,7 +80,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
+      
+      - name: Get Rust version
+        id: rust-version
+        run: echo "version=$(rustc --version | cut -d' ' -f2)" >> $GITHUB_OUTPUT
+      
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ steps.rust-version.outputs.version }}
       
       # Core build dependencies only (no X11/text injection stuff)
       - name: Verify core deps
@@ -94,7 +115,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
+      
+      - name: Get Rust version
+        id: rust-version
+        run: echo "version=$(rustc --version | cut -d' ' -f2)" >> $GITHUB_OUTPUT
+      
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ steps.rust-version.outputs.version }}
       
       - name: Check if tools available
         id: check_tools
@@ -133,7 +161,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
+      
+      - name: Get Rust version
+        id: rust-version
+        run: echo "version=$(rustc --version | cut -d' ' -f2)" >> $GITHUB_OUTPUT
+      
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ steps.rust-version.outputs.version }}
       
       - name: Check if Vosk model available
         id: check_model
