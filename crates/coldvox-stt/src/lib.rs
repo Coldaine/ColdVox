@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 pub mod constants;
+// pub mod helpers; // TODO: Requires coldvox_telemetry dependency - move to app crate
 pub mod plugin;
 pub mod plugin_adapter; // new adapter implementing StreamingStt
 pub mod plugin_types;

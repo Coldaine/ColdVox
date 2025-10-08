@@ -1,13 +1,12 @@
 //! Common helpers for STT processing to reduce boilerplate and centralize logic.
 
-use crate::types::TranscriptionEvent;
 use crate::constants::*;
+use crate::types::{SttMetrics, TranscriptionEvent};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::mpsc;
-use tracing::{debug, warn, info, error};
-use coldvox_telemetry::{stt_metrics::SttPerformanceMetrics, pipeline_metrics::PipelineMetrics};
-use super::processor::SttMetrics;
+use tracing::{debug, error, info, warn};
+use coldvox_telemetry::{pipeline_metrics::PipelineMetrics, stt_metrics::SttPerformanceMetrics};
 
 /// Manages audio buffering for a single utterance.
 pub struct AudioBufferManager {
