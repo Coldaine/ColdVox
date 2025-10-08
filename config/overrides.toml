@@ -1,0 +1,54 @@
+# Local overrides for default.toml - add config/overrides.toml to .gitignore!
+# This file is not loaded by default; extend Settings::new() in crates/app/src/main.rs to include it if desired.
+# Use this for local development or production settings without committing sensitive data.
+# All values here override those in default.toml and can also be overridden by env vars.
+
+# Example: Override general settings
+device = "your_preferred_mic"  # Maps to COLDVOX_DEVICE=your_preferred_mic
+resampler_quality = "quality"  # Maps to COLDVOX_RESAMPLER_QUALITY=quality
+enable_device_monitor = true   # Maps to COLDVOX_ENABLE_DEVICE_MONITOR=true
+activation_mode = "hotkey"     # Maps to COLDVOX_ACTIVATION_MODE=hotkey
+
+# Example: Override injection settings
+[Injection]
+fail_fast = true                       # Maps to COLDVOX_INJECTION__FAIL_FAST=true
+allow_kdotool = true                   # Maps to COLDVOX_INJECTION__ALLOW_KDOTOOL=true
+allow_enigo = false                    # Maps to COLDVOX_INJECTION__ALLOW_ENIGO=false
+inject_on_unknown_focus = false        # Maps to COLDVOX_INJECTION__INJECT_ON_UNKNOWN_FOCUS=false
+require_focus = true                   # Maps to COLDVOX_INJECTION__REQUIRE_FOCUS=true
+pause_hotkey = "Ctrl+Alt+P"            # Maps to COLDVOX_INJECTION__PAUSE_HOTKEY=Ctrl+Alt+P
+redact_logs = true                     # Maps to COLDVOX_INJECTION__REDACT_LOGS=true
+max_total_latency_ms = 500             # Maps to COLDVOX_INJECTION__MAX_TOTAL_LATENCY_MS=500
+per_method_timeout_ms = 200            # Maps to COLDVOX_INJECTION__PER_METHOD_TIMEOUT_MS=200
+paste_action_timeout_ms = 150          # Maps to COLDVOX_INJECTION__PASTE_ACTION_TIMEOUT_MS=150
+cooldown_initial_ms = 5000             # Maps to COLDVOX_INJECTION__COOLDOWN_INITIAL_MS=5000
+cooldown_backoff_factor = 1.5          # Maps to COLDVOX_INJECTION__COOLDOWN_BACKOFF_FACTOR=1.5
+cooldown_max_ms = 60000                # Maps to COLDVOX_INJECTION__COOLDOWN_MAX_MS=60000
+injection_mode = "paste"               # Maps to COLDVOX_INJECTION__INJECTION_MODE=paste
+keystroke_rate_cps = 15                # Maps to COLDVOX_INJECTION__KEYSTROKE_RATE_CPS=15
+max_burst_chars = 30                   # Maps to COLDVOX_INJECTION__MAX_BURST_CHARS=30
+paste_chunk_chars = 300                # Maps to COLDVOX_INJECTION__PASTE_CHUNK_CHARS=300
+chunk_delay_ms = 50                    # Maps to COLDVOX_INJECTION__CHUNK_DELAY_MS=50
+focus_cache_duration_ms = 100          # Maps to COLDVOX_INJECTION__FOCUS_CACHE_DURATION_MS=100
+enable_window_detection = false        # Maps to COLDVOX_INJECTION__ENABLE_WINDOW_DETECTION=false
+clipboard_restore_delay_ms = 300       # Maps to COLDVOX_INJECTION__CLIPBOARD_RESTORE_DELAY_MS=300
+discovery_timeout_ms = 800             # Maps to COLDVOX_INJECTION__DISCOVERY_TIMEOUT_MS=800
+allowlist = ["firefox", "chrome"]      # Maps to COLDVOX_INJECTION__ALLOWLIST=firefox,chrome
+blocklist = ["password_manager"]       # Maps to COLDVOX_INJECTION__BLOCKLIST=password_manager
+min_success_rate = 0.5                 # Maps to COLDVOX_INJECTION__MIN_SUCCESS_RATE=0.5
+min_sample_size = 10                   # Maps to COLDVOX_INJECTION__MIN_SAMPLE_SIZE=10
+
+# Example: STT preferences (avoid committing sensitive model paths or API keys)
+[stt]
+preferred = "vosk"                     # Maps to COLDVOX_STT__PREFERRED=vosk
+fallbacks = ["whisper", "mock"]        # Maps to COLDVOX_STT__FALLBACKS=whisper,mock
+require_local = true                   # Maps to COLDVOX_STT__REQUIRE_LOCAL=true
+max_mem_mb = 1024                      # Maps to COLDVOX_STT__MAX_MEM_MB=1024
+language = "en"                        # Maps to COLDVOX_STT__LANGUAGE=en
+failover_threshold = 5                 # Maps to COLDVOX_STT__FAILOVER_THRESHOLD=5
+failover_cooldown_secs = 60            # Maps to COLDVOX_STT__FAILOVER_COOLDOWN_SECS=60
+model_ttl_secs = 600                   # Maps to COLDVOX_STT__MODEL_TTL_SECS=600
+disable_gc = false                     # Maps to COLDVOX_STT__DISABLE_GC=false
+metrics_log_interval_secs = 30         # Maps to COLDVOX_STT__METRICS_LOG_INTERVAL_SECS=30
+debug_dump_events = true               # Maps to COLDVOX_STT__DEBUG_DUMP_EVENTS=true
+auto_extract = true                    # Maps to COLDVOX_STT__AUTO_EXTRACT=true

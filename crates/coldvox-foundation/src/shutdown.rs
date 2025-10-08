@@ -32,7 +32,7 @@ impl ShutdownHandler {
                 .await
                 .expect("Failed to install Ctrl-C handler");
 
-            tracing::info!("Shutdown requested via Ctrl-C");
+            tracing::debug!("Shutdown requested via Ctrl-C");
             shutdown_requested.store(true, Ordering::SeqCst);
             shutdown_notify.notify_waiters();
         });

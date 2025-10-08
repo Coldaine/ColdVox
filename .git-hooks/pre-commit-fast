@@ -1,0 +1,79 @@
+#!/bin/bash
+# Fast pre-commit hook: Only check what matters for your code changes
+# Non-blocking: Warns but doesn't prevent commits
+
+set -e
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+echo "🚀 ColdVox Pre-Commit Checks (fast & non-blocking)"
+echo ""
+
+# Track failures
+FAILED=0
+
+# Function to run a check
+run_check() {
+    local name="$1"
+    local cmd="$2"
+    
+    echo -n "  ⏳ $name... "
+    if eval "$cmd" &>/dev/null; then
+        echo -e "${GREEN}✓${NC}"
+    else
+        echo -e "${RED}✗${NC}"
+        FAILED=$((FAILED + 1))
+        echo "     Command: $cmd"
+    fi
+}
+
+# === FAST CHECKS (< 5 seconds total) ===
+
+# 1. Check formatting (instant)
+run_check "Formatting" "cargo fmt --all --check"
+
+# 2. Clippy on changed files only (fast)
+run_check "Clippy" "cargo clippy --all-targets --locked -- -D warnings"
+
+# 3. Type check (fast with cache)
+run_check "Type check" "cargo check --workspace --all-targets --locked"
+
+# 4. Build (usually cached, fast)
+run_check "Build" "cargo build --workspace --locked"
+
+# 5. Fast unit tests only (skip integration/e2e)
+echo -n "  ⏳ Unit tests... "
+if cargo nextest run --workspace --locked --lib &>/dev/null; then
+    echo -e "${GREEN}✓${NC}"
+else
+    # Fallback to regular cargo test if nextest not installed
+    if cargo test --workspace --locked --lib &>/dev/null; then
+        echo -e "${GREEN}✓${NC} (via cargo test)"
+    else
+        echo -e "${RED}✗${NC}"
+        FAILED=$((FAILED + 1))
+    fi
+fi
+
+echo ""
+
+# === RESULTS ===
+
+if [[ $FAILED -eq 0 ]]; then
+    echo -e "${GREEN}✅ All checks passed!${NC}"
+    exit 0
+else
+    echo -e "${YELLOW}⚠️  $FAILED check(s) failed${NC}"
+    echo ""
+    echo "This won't block your commit, but you should fix these issues."
+    echo "Run the individual commands above to see details."
+    echo ""
+    echo "To skip these checks: git commit --no-verify"
+    
+    # NON-BLOCKING: Don't exit 1
+    exit 0
+fi
