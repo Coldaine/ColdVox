@@ -52,7 +52,7 @@ mod tests {
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
 
         // Create strategy manager
-        let mut manager = StrategyManager::new(config, metrics.clone());
+        let mut manager = StrategyManager::new(config, metrics.clone()).await;
 
         // Force a failure by setting very short budget
         manager.config.max_total_latency_ms = 1;
@@ -87,7 +87,7 @@ mod tests {
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
 
         // Create strategy manager
-        let mut manager = StrategyManager::new(config, metrics.clone());
+        let mut manager = StrategyManager::new(config, metrics.clone()).await;
 
         // Temporarily disable all methods to force fallback sequence
         manager.config.allow_kdotool = false;
@@ -116,7 +116,7 @@ mod tests {
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
 
         // Create strategy manager
-        let mut manager = StrategyManager::new(config, metrics.clone());
+        let mut manager = StrategyManager::new(config, metrics.clone()).await;
 
         // Force a failure
         manager.config.max_total_latency_ms = 1;
