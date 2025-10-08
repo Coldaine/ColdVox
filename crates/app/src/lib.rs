@@ -413,3 +413,6 @@ pub mod text_injection;
 #[cfg(feature = "tui")]
 pub mod tui;
 pub mod vad;
+
+#[cfg(test)]
+pub mod test_utils;

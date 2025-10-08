@@ -12,8 +12,8 @@ use clap::Parser;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
-use coldvox_app::runtime::{self as app_runtime, ActivationMode as RuntimeMode, AppRuntimeOptions};
 use coldvox_app::Settings;
+use coldvox_app::runtime::{self as app_runtime, ActivationMode as RuntimeMode, AppRuntimeOptions};
 use coldvox_audio::{DeviceManager, ResamplerQuality};
 use coldvox_foundation::{AppState, HealthMonitor, ShutdownHandler, StateManager};
 
@@ -205,6 +205,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         resampler_quality,
         activation_mode,
         stt_selection,
+        enable_device_monitor: settings.enable_device_monitor,
         ..Default::default()
     };
     #[cfg(feature = "text-injection")]
@@ -212,14 +213,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         opts.injection = if cfg!(feature = "text-injection") {
             Some(coldvox_app::runtime::InjectionOptions {
                 enable: true, // Assuming text injection is enabled if the feature is on
-                allow_ydotool: false, // Default to false, can be configured later
                 allow_kdotool: settings.injection.allow_kdotool,
                 allow_enigo: settings.injection.allow_enigo,
                 inject_on_unknown_focus: settings.injection.inject_on_unknown_focus,
-                restore_clipboard: true, // Default to true for safety
                 max_total_latency_ms: Some(settings.injection.max_total_latency_ms),
                 per_method_timeout_ms: Some(settings.injection.per_method_timeout_ms),
                 cooldown_initial_ms: Some(settings.injection.cooldown_initial_ms),
+                fail_fast: settings.injection.fail_fast,
             })
         } else {
             None
