@@ -406,7 +406,7 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
             min_speech_duration_ms: 250,  // Default
             min_silence_duration_ms: 100, // Lower to detect silence faster
             window_size_samples: FRAME_SIZE_SAMPLES,
-        }
+        },
     };
 
     let (vad_event_tx, vad_event_rx) = mpsc::channel::<VadEvent>(100);

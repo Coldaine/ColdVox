@@ -371,8 +371,6 @@ The system requires **no additional infrastructure**, only disciplined use of sh
 
 --- 
 
-*End of Document*# Debug a CI failure with AI assistance
-gh run view 18344561673 --log-failed | \
-  gemini "$(cat docs/dev/runnerAgent/prompts/debug_agent_prompt.md) 
+*End of Document*
 
-My CI failed with these logs. Diagnose and provide fix commands."
+For quick day-to-day operations, see the consolidated [Runner Agent Handbook](README.md).

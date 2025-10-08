@@ -188,21 +188,19 @@ fn find_our_source_output_source(app_name: &str) -> Option<String> {
                     continue;
                 }
 
-                if line.starts_with("application.name = \"")
-                    && line.contains(app_name) {
-                        current_block_is_ours = true;
-                        continue;
-                    }
+                if line.starts_with("application.name = \"") && line.contains(app_name) {
+                    current_block_is_ours = true;
+                    continue;
+                }
 
                 // Block end: if we have both flags, resolve name
-                if line.is_empty()
-                    && current_block_is_ours {
-                        if let Some(idx) = current_block_source_index.take() {
-                            if let Some(name) = source_index_to_name.get(&idx) {
-                                return Some(name.clone());
-                            }
+                if line.is_empty() && current_block_is_ours {
+                    if let Some(idx) = current_block_source_index.take() {
+                        if let Some(name) = source_index_to_name.get(&idx) {
+                            return Some(name.clone());
                         }
                     }
+                }
             }
 
             // In case the last block didn't end with an empty line
