@@ -27,6 +27,7 @@ flamegraph.svg
 # Logs
 logs/
 *.log
+docs/dev/runnerAgent/debug_runs/
 
 # Temporary files
 tmp/
