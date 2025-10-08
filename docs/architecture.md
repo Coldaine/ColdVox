@@ -9,6 +9,38 @@ last_reviewed: 2025-09-14
 
 # ColdVox TUI Architecture and Robustness Plan
 
+> REVIEW STATUS: Pending final review. The architecture plan and related docs are in draft status after recent text-injection strategy changes. See the TODO section below for outstanding tasks.
+
+## TODOs (Draft – needs review)
+
+- [ ] Text Injection Strategy (Linux) — Confirm the new single paste approach is the only user-facing paste path and ordered last in strategy selection.
+    - Context: Clipboard-only injector is now an internal helper; the public paste method is Clipboard+Paste with fallback (AT‑SPI paste → ydotool).
+    - Actions: Double-check `crates/coldvox-text-injection/src/manager.rs` ordering; ensure no standalone ydotool paste is registered.
+- [ ] Naming & UX — Decide on final user-facing label for the paste method.
+    - Options: "Clipboard + Paste (fallback)", "Paste via Clipboard (AT‑SPI→ydotool)", or keep current name and clarify in docs.
+    - Actions: If renaming, update enum/labels, logs, tests, and CLI/TUI references.
+- [ ] Documentation sweep — Remove references to "clipboard-only" and standalone ydotool paste.
+    - Files: README, docs/deployment.md, config/README.md, examples README (if any), crate READMEs.
+    - Ensure diagrams and narrative match the single paste path with fallback.
+- [ ] Diagrams — Verify `diagrams/text_injection_flow.mmd` reflects the consolidated paste approach.
+    - Confirm ydotool appears only as an internal fallback within Clipboard+Paste.
+    - Export updated PNG/SVG and check them into `diagrams/`.
+- [ ] Tests — Validate all updated tests on Linux/CI.
+    - Files to pay attention to: 
+        - `crates/coldvox-text-injection/src/tests/real_injection.rs`
+        - `crates/coldvox-text-injection/src/tests/real_injection_smoke.rs`
+        - `crates/coldvox-text-injection/src/tests/test_adaptive_strategy.rs`
+        - `crates/app/src/stt/tests/end_to_end_wav.rs`
+    - Confirm cooldown and ordering expectations still hold with the new single paste method.
+- [ ] Windows build notes — Track the Windows toolchain issue (dlltool missing) and clarify expected support.
+    - Actions: Add troubleshooting section to README/deployment; consider gating Linux-only injection tests on Windows.
+- [ ] API contract — Document Clipboard+Paste behavior and side-effects.
+    - Define success criteria: paste action must succeed; clipboard set alone is not success.
+    - State clipboard save/restore guarantees and error propagation.
+- [ ] Quality gates — Ensure build/lint/tests are green across default and feature matrices.
+    - Add a short checklist here linking to CI runs.
+
+
 ## Executive Summary
 
 This document outlines the current architecture of ColdVox's TUI system and the comprehensive improvements implemented to enhance robustness, observability, and concurrency safety. The analysis identified critical gaps in logging, error handling, and concurrent operations that could cause silent failures and performance degradation. All issues have been addressed with specific code changes, testing strategies, and validation criteria.

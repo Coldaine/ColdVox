@@ -1,5 +1,14 @@
 # Strategic Plan: Integrating Refactoring and Stabilizing `main`
 
+> REVIEW STATUS: Pending. This plan predates the text-injection strategy consolidation; see TODOs below to align terminology and references.
+
+## TODOs (Docs alignment)
+
+- [ ] Update mentions of clipboard-only injection to reflect its internal-helper status.
+- [ ] Ensure references to ydotool as a standalone paste method are removed; describe it as a fallback within Clipboard+Paste.
+- [ ] Cross-link to `docs/architecture.md` and `diagrams/text_injection_flow.*` for the consolidated paste path.
+- [ ] Confirm success criteria and error modes for Clipboard+Paste are documented consistently here and in architecture.
+
 ## 1. Executive Summary
 
 Recent development has been split between two conflicting efforts: a stable, behavior-preserving refactoring campaign (PR #115) and an unstable, incomplete feature introduction (PRs #112, #114). The attempt to merge these resulted in a broken `main` branch with a failing test suite, blocking all forward progress.

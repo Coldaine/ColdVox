@@ -1,5 +1,21 @@
 # Review Plan for Conclusion on Branch `anchor/oct-06-2025`
 
+> REVIEW STATUS: Active review pending. Recent text injection changes require targeted verification.
+
+## Reviewer TODOs (Focus Areas)
+
+- [ ] Text injection consolidation
+  - Verify only one paste method is exposed and it appears last in the strategy order.
+  - Confirm ydotool is used only as a fallback within the Clipboard+Paste path.
+  - Check updated tests reflect new ordering and cooldown behavior.
+- [ ] Docs & diagrams
+  - Ensure `diagrams/text_injection_flow.mmd` and exported images match the new flow.
+  - Sweep docs for lingering references to clipboard-only or standalone ydotool paste.
+- [ ] Build matrix
+  - Validate Linux builds and tests; annotate Windows toolchain limitation (dlltool) and expected support.
+- [ ] Contracts & error handling
+  - Confirm Clipboard+Paste success criteria and error propagation are documented and implemented.
+
 ## Objective
 Prepare to review the provided conclusion for the refactor-focused branch and identify areas where pushback may be warranted before sign-off.
 

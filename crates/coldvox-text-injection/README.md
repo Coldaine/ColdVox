@@ -31,7 +31,7 @@ This crate provides text injection capabilities that automatically type transcri
   - Automatically saves and restores user's clipboard after configurable delay (`clipboard_restore_delay_ms`, default 500ms)
   - **Critical**: This is ONE unified strategy, not separate "clipboard" and "paste" methods
   - **Requires**: Either AT-SPI paste support OR ydotool installed to actually trigger the paste
-- **YDotool**: Direct uinput-based key simulation (opt-in, useful when AT-SPI unavailable)
+- **Ydotool (fallback only)**: Used internally by ClipboardPaste to issue Ctrl+V when AT-SPI paste isn't available; not registered as a standalone strategy
 - **KDotool Assist**: KDE/X11 window activation assistance (opt-in)
 - **Enigo**: Cross-platform input simulation library (opt-in)
 
@@ -62,12 +62,11 @@ This crate provides text injection capabilities that automatically type transcri
 The system tries backends in this order (skips unavailable methods):
 
 1. **AT-SPI Insert** - Direct text insertion via accessibility API (most reliable when supported)
-2. **ClipboardPaste** - Composite strategy: set clipboard → paste via AT-SPI or ydotool
-   - Only registered if AT-SPI paste actions OR ydotool available
-   - Fails if neither paste mechanism works
-3. **YDotool** - Direct uinput key simulation (opt-in, requires ydotool daemon)
-4. **KDotool Assist** - Window activation help (opt-in, X11 only)
-5. **Enigo** - Cross-platform input simulation (opt-in)
+2. **ClipboardPaste** - Composite strategy: set clipboard → paste via AT-SPI or ydotool (fallback)
+  - Only registered if at least one paste mechanism works
+  - Fails if neither paste mechanism works
+3. **KDotool Assist** - Window activation help (opt-in, X11 only)
+4. **Enigo** - Cross-platform input simulation (opt-in)
 
 **Note**: There is NO "clipboard-only" backend. Setting clipboard without triggering paste is useless for automation.
 
@@ -99,7 +98,7 @@ sudo apt install libxtst-dev wmctrl
 # For clipboard functionality
 sudo apt install xclip wl-clipboard
 
-# For ydotool-based paste (optional)
+# For ydotool-based paste fallback (optional)
 sudo apt install ydotool
 ```
 
