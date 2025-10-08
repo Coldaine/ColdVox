@@ -25,7 +25,7 @@ jobs:
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
     strategy:
       matrix:
-        rust: [stable, "1.75"] # MSRV
+        rust: [stable, "1.90"] # MSRV
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@v1

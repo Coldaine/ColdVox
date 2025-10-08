@@ -55,7 +55,7 @@ cargo nextest run --lib  # Unit tests only
 **Only runs on push/PR:**
 
 1. **check** job
-   - Validates on stable + MSRV (1.75)
+   - Validates on stable + MSRV (1.90)
    - Just `cargo check` + `cargo build`
 
 2. **lint** job

@@ -288,7 +288,7 @@ This is a **comprehensive CI pipeline**, not dummy tests:
 - **Tests**: Our Vosk fix (cache path resolution, large model)
 - **Outputs**: Model and library paths for downstream jobs
 
-**Job: `build_and_check`** (matrix: stable + MSRV 1.75)
+**Job: `build_and_check`** (matrix: stable + MSRV 1.90)
 - **Format check**: `cargo fmt --all -- --check`
 - **Linting**: `cargo clippy --all-targets --locked`
 - **Type check**: `cargo check --workspace --all-targets --locked`

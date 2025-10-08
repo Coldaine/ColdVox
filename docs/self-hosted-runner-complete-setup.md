@@ -249,14 +249,14 @@ jobs:
 
   # MSRV validation
   msrv-check:
-    name: MSRV Check (Rust 1.75)
+    name: MSRV Check (Rust 1.90)
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
-          toolchain: 1.75
+          toolchain: 1.90
 
       - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
 
