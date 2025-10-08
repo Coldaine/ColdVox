@@ -610,12 +610,12 @@ pub async fn start(
                 if let Some(v) = inj.cooldown_initial_ms {
                     config.cooldown_initial_ms = v;
                 }
-                // Map optional fail_fast setting (if provided) to the enum
-                // CLI flag and env var wiring
-                config.fail_fast = inj.fail_fast
-                    || std::env::var("COLDVOX_FAIL_FAST")
-                        .map(|v| v == "1" || v.to_lowercase() == "true")
-                        .unwrap_or(false);
+                // NOTE: fail_fast is currently not a field on InjectionConfig
+                // This mapping may need to be re-added once the field is available
+                // config.fail_fast = inj.fail_fast
+                //     || std::env::var("COLDVOX_FAIL_FAST")
+                //         .map(|v| v == "1" || v.to_lowercase() == "true")
+                //         .unwrap_or(false);
 
                 let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>(1);
                 let processor = crate::text_injection::AsyncInjectionProcessor::new(
