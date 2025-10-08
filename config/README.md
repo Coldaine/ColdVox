@@ -49,7 +49,7 @@ When deploying ColdVox, handle configurations carefully to ensure security, flex
     CMD ["./coldvox-app"]
     ```
   - For binary distributions: Include in a `config/` subdirectory next to the executable.
-- **Runtime Loading**: The app searches for `default.toml` in the current directory or `$XDG_CONFIG_HOME/coldvox/`. Ensure it's accessible post-deploy.
+- **Runtime Loading**: The app loads `config/default.toml` relative to the working directory. XDG support not implemented; to add it, extend `Settings::new()` with XDG path lookup (see deployment docs for details).
 
 ### Environment-Specific Configurations
 - **Overrides via Environment Variables**: Preferred for secrets and dynamic settings. Use `COLDVOX__` prefix:
@@ -67,7 +67,8 @@ When deploying ColdVox, handle configurations carefully to ensure security, flex
     [injection]
     injection_mode = "keystroke"  # Staging: Test keystroke reliability
     ```
-  - Load order: CLI flags > Env vars > overrides.toml > default.toml > hardcoded defaults.
+  - Current load order: CLI flags > Env vars > default.toml > hardcoded defaults.
+  - Note: `overrides.toml` is a template and NOT automatically loaded. To enable, add `.add_source(File::with_name("config/overrides.toml").required(false))` to Settings::new().
 - **Validation**: On deploy, validate configs (see [docs/deployment.md](docs/deployment.md) for steps, including parsing checks and tests).
 
 ### Best Practices

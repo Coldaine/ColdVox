@@ -1,5 +1,6 @@
 use config::{Config, Environment, File};
 use serde::Deserialize;
+use std::path::Path;
 use tracing;
 
 #[derive(Debug, Deserialize, Default)]
@@ -48,32 +49,93 @@ pub struct SttSettings {
     pub auto_extract: bool,
 }
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize)]
 pub struct Settings {
     pub device: Option<String>,
     pub resampler_quality: String,
     pub enable_device_monitor: bool,
     pub activation_mode: String,
+    #[serde(default)]
     pub injection: InjectionSettings,
+    #[serde(default)]
     pub stt: SttSettings,
 }
 
+impl Default for Settings {
+    fn default() -> Self {
+        Settings {
+            device: None,
+            resampler_quality: "balanced".to_string(),
+            enable_device_monitor: true,
+            activation_mode: "vad".to_string(),
+            injection: InjectionSettings::default(),
+            stt: SttSettings::default(),
+        }
+    }
+}
+
 impl Settings {
+    /// Load settings from a specific config file path (for tests)
+    pub fn from_path(config_path: impl AsRef<Path>) -> Result<Self, String> {
+        let mut builder = Config::builder();
+
+        // Set defaults for required fields to prevent deserialization errors.
+        builder = builder
+            .set_default("resampler_quality", "balanced").unwrap()
+            .set_default("activation_mode", "vad").unwrap()
+            .set_default("enable_device_monitor", true).unwrap();
+
+        // Add the specific file source.
+        builder = builder.add_source(File::from(config_path.as_ref()).required(true));
+
+        // Add environment variables, which will override the file's settings.
+        builder = builder.add_source(
+            Environment::with_prefix("COLDVOX")
+                .separator("__")
+                .list_separator(" "),
+        );
+
+        // Build and deserialize
+        let config = builder.build().map_err(|e| format!("Failed to build config: {}", e))?;
+
+        let mut settings: Settings = config.try_deserialize().map_err(|e| format!("Failed to deserialize settings: {}", e))?;
+
+        // Validate the final settings
+        settings.validate().map_err(|e| e.to_string())?;
+
+        Ok(settings)
+    }
+
     pub fn new() -> Result<Self, String> {
-        let mut builder = Config::builder()
-            .add_source(Environment::with_prefix("coldvox").separator("__"))
-            .add_source(File::with_name("config/default.toml"));
+        let mut builder = Config::builder();
 
-        let config = builder.build().map_err(|e| format!("Failed to build config (likely invalid env vars): {}", e))?;
+        // Set defaults for required fields to prevent deserialization errors if no config file is found.
+        builder = builder
+            .set_default("resampler_quality", "balanced").unwrap()
+            .set_default("activation_mode", "vad").unwrap();
 
-        let mut settings: Settings = config.try_deserialize().map_err(|e| format!("Failed to deserialize settings from config: {}", e))?;
-
-        // Log if default.toml was not found (non-critical)
-        if !std::path::Path::new("config/default.toml").exists() {
-            tracing::debug!("config/default.toml not found. Using environment variables and defaults.");
+        // Find and add config file source.
+        let config_path = Path::new("config/default.toml");
+        if config_path.exists() {
+            tracing::info!("Loading configuration from: {}", config_path.display());
+            builder = builder.add_source(File::from(config_path).required(true));
+        } else {
+            tracing::warn!("No configuration file at 'config/default.toml'. Using defaults and environment variables.");
         }
 
-        // Post-parsing validation
+        // Add environment variables, which will override the file's settings.
+        builder = builder.add_source(
+            Environment::with_prefix("COLDVOX")
+                .separator("__")
+                .list_separator(" "),
+        );
+
+        // Build and deserialize
+        let config = builder.build().map_err(|e| format!("Failed to build config: {}", e))?;
+
+        let mut settings: Settings = config.try_deserialize().map_err(|e| format!("Failed to deserialize settings: {}", e))?;
+
+        // Validate the final settings
         settings.validate().map_err(|e| e.to_string())?;
 
         Ok(settings)

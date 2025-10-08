@@ -26,7 +26,7 @@ This document provides comprehensive guidance on deploying the ColdVox applicati
 
 ### Including config/default.toml
 - **Repository Inclusion**: Commit `config/default.toml` to the repository. It contains non-sensitive default values for all components (e.g., VAD thresholds, STT preferences, injection settings).
-- **Build Inclusion**: The TOML file is not embedded in the binary; it is loaded at runtime from the working directory or XDG_CONFIG_HOME.
+- **Build Inclusion**: The TOML file is not embedded in the binary; it is loaded at runtime from `config/default.toml` relative to the working directory. XDG_CONFIG_HOME support is not currently implemented.
   - In deployments, ensure `config/default.toml` is copied to the deployment directory (e.g., via Dockerfile or deployment script).
   - Example deployment script snippet:
     ```

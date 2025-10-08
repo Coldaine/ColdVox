@@ -101,6 +101,7 @@ tokio-test = "0.4"
 ctrlc = "3.5"
 proptest = "1.4"
 rand = "0.8"
+serial_test = "3.0.0"
 
 [features]
 default = ["silero", "text-injection", "vosk"]

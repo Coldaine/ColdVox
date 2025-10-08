@@ -1,7 +1,13 @@
 # ColdVox default configuration file
 # All options below are shown with their default values and comments.
 
-[Injection]
+# Top-level settings
+resampler_quality = "balanced"
+activation_mode = "vad"
+enable_device_monitor = true
+device = "" # Leave empty to use system default
+
+[injection]
 # Core behavior
 fail_fast = false                # Exit immediately if all injection methods fail
 allow_kdotool = false            # Enable kdotool fallback (KDE/X11)
@@ -41,3 +47,22 @@ blocklist = []                   # List of blocked app patterns (regex)
 # Success rate tuning
 min_success_rate = 0.3           # Minimum success rate before fallback
 min_sample_size = 5              # Samples before trusting success rate
+
+[stt]
+# Plugin selection
+preferred = "vosk"               # Preferred STT plugin
+fallbacks = ["onnx"]             # Fallback plugins in order of preference
+require_local = true             # Require local (non-cloud) plugins only
+max_mem_mb = 4096                # Max memory for STT models (MB)
+language = "en-us"               # Desired language code
+
+# Failover and garbage collection
+failover_threshold = 3           # Consecutive failures before failover
+failover_cooldown_secs = 300     # Cooldown after failover (seconds)
+model_ttl_secs = 3600            # Time-to-live for unused models (seconds)
+disable_gc = false               # Disable model garbage collection
+
+# Debugging and metrics
+metrics_log_interval_secs = 60   # Interval for logging STT metrics
+debug_dump_events = false        # Dump detailed STT events to logs
+auto_extract = true              # Automatically extract models from archives
