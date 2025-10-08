@@ -220,8 +220,8 @@ mod tests {
     }
 
     // Test that clipboard injector can be created
-    #[test]
-    fn test_clipboard_injector_creation() {
+    #[tokio::test]
+    async fn test_clipboard_injector_creation() {
         let config = InjectionConfig::default();
         let injector = ClipboardInjector::new(config);
         // Ensure creation succeeds and availability can be queried

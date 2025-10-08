@@ -251,18 +251,20 @@ mod mock_injection_tests {
         // Get the method order to verify AT-SPI is tried first
         let methods = manager.get_method_order_uncached();
 
-        // Should include AT-SPI methods when available
-        let has_atspi = methods.iter().any(|m| {
-            matches!(m, coldvox_text_injection::types::InjectionMethod::AtspiInsert |
-                        coldvox_text_injection::types::InjectionMethod::AtspiPaste)
-        });
+        // Should include AT-SPI insert and the single ClipboardPasteFallback method
+        let has_atspi = methods
+            .iter()
+            .any(|m| matches!(m, coldvox_text_injection::types::InjectionMethod::AtspiInsert));
 
-        let has_ydotool = methods.iter().any(|m| {
-            matches!(m, coldvox_text_injection::types::InjectionMethod::Ydotool)
+        let has_clipboard_paste = methods.iter().any(|m| {
+            matches!(
+                m,
+                coldvox_text_injection::types::InjectionMethod::ClipboardPasteFallback
+            )
         });
 
         println!("Available methods: {:?}", methods);
-        assert!(has_ydotool, "Should include ydotool method");
+    assert!(has_clipboard_paste, "Should include ClipboardPasteFallback method");
 
         // AT-SPI might not be available in test environment, but ydotool should be
         if has_atspi {
@@ -271,7 +273,7 @@ mod mock_injection_tests {
             println!("⚠️  AT-SPI not available (expected in headless environment)");
         }
 
-        assert!(has_ydotool, "Should have ydotool as fallback method");
+    assert!(has_clipboard_paste, "Should have ClipboardPasteFallback as fallback method");
     }
 
     #[tokio::test]

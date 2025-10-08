@@ -433,6 +433,7 @@ async fn run_app(
                                     activation_mode: state.activation_mode,
                                     resampler_quality: state.resampler_quality,
                                     stt_selection: Some(coldvox_stt::plugin::PluginSelectionConfig::default()),
+                                    enable_device_monitor: false,
                                     #[cfg(feature = "text-injection")]
                                     injection: None,
                                     enable_device_monitor: false,
@@ -1121,7 +1122,7 @@ fn draw_logs(f: &mut Frame, area: Rect, state: &DashboardState) {
     f.render_widget(paragraph, inner);
 }
 
-fn draw_plugins(f: &mut Frame, area: Rect, state: &DashboardState) {
+fn draw_plugins(f: &mut Frame, area: Rect, #[allow(unused_variables)] state: &DashboardState) {
     let block = Block::default()
         .title("Available Plugins")
         .borders(Borders::ALL);
@@ -1166,7 +1167,11 @@ fn draw_plugins(f: &mut Frame, area: Rect, state: &DashboardState) {
     f.render_widget(paragraph, inner);
 }
 
-fn draw_plugin_status(f: &mut Frame, area: Rect, state: &DashboardState) {
+fn draw_plugin_status(
+    f: &mut Frame,
+    area: Rect,
+    #[allow(unused_variables)] state: &DashboardState,
+) {
     let block = Block::default()
         .title("Plugin Status")
         .borders(Borders::ALL);
