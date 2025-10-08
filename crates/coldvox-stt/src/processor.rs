@@ -4,7 +4,8 @@
 //! segments and processes transcription when speech ends. The processor is designed
 //! to work with any VAD system and any STT implementation.
 
-use crate::types::{TranscriptionConfig, TranscriptionEvent};
+use crate::constants::*;
+use crate::types::{SttMetrics, TranscriptionConfig, TranscriptionEvent};
 use crate::StreamingStt;
 /// Minimal audio frame type (i16 PCM) used by the generic STT processor
 #[derive(Debug, Clone)]
@@ -39,27 +40,6 @@ pub enum UtteranceState {
         /// Number of frames buffered
         frames_buffered: u64,
     },
-}
-
-/// STT processor metrics
-#[derive(Debug, Clone, Default)]
-pub struct SttMetrics {
-    /// Total frames received
-    pub frames_in: u64,
-    /// Total frames processed
-    pub frames_out: u64,
-    /// Total frames dropped due to overflow
-    pub frames_dropped: u64,
-    /// Number of partial transcriptions
-    pub partial_count: u64,
-    /// Number of final transcriptions
-    pub final_count: u64,
-    /// Number of errors
-    pub error_count: u64,
-    /// Current queue depth
-    pub queue_depth: usize,
-    /// Time since last STT event
-    pub last_event_time: Option<Instant>,
 }
 
 /// Generic STT processor that works with any streaming STT implementation
@@ -180,7 +160,7 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
 
         self.state = UtteranceState::SpeechActive {
             started_at: start_instant,
-            audio_buffer: Vec::with_capacity(16000 * 10), // Pre-allocate for up to 10 seconds
+            audio_buffer: Vec::with_capacity(SAMPLE_RATE_HZ as usize * DEFAULT_BUFFER_DURATION_SECONDS),
             frames_buffered: 0,
         };
 
@@ -206,7 +186,7 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
                 target: "stt",
                 "Processing buffered audio: {} samples ({:.2}s), {} frames",
                 buffer_size,
-                buffer_size as f32 / 16000.0,
+                buffer_size as f32 / SAMPLE_RATE_HZ as f32,
                 frames_buffered
             );
 
@@ -214,8 +194,8 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
                 // Send the entire buffer to the STT engine
                 // Stream model expects per-frame feeding; here we feed the whole buffered audio
                 // in chunks to preserve event semantics.
-                for chunk in audio_buffer.chunks(16000) {
-                    // 1 second chunks arbitrary; adjust later if needed
+                for chunk in audio_buffer.chunks(DEFAULT_CHUNK_SIZE_SAMPLES) {
+                    // Process in 1-second chunks
                     if let Some(event) = self.stt_engine.on_speech_frame(chunk).await {
                         self.send_event(event).await;
                     }
@@ -262,13 +242,13 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
             *frames_buffered += 1;
 
             // Log periodically to show we're buffering
-            if *frames_buffered % 100 == 0 {
+            if *frames_buffered % LOGGING_INTERVAL_FRAMES == 0 {
                 debug!(
                     target: "stt",
                     "Buffering audio: {} frames, {} samples ({:.2}s)",
                     frames_buffered,
                     audio_buffer.len(),
-                    audio_buffer.len() as f32 / 16000.0
+                    audio_buffer.len() as f32 / SAMPLE_RATE_HZ as f32
                 );
             }
         }
@@ -295,7 +275,7 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
 
         // Send to channel with backpressure - wait if channel is full
         // Use timeout to prevent indefinite blocking
-        match tokio::time::timeout(std::time::Duration::from_secs(5), self.event_tx.send(event))
+        match tokio::time::timeout(std::time::Duration::from_secs(SEND_TIMEOUT_SECONDS), self.event_tx.send(event))
             .await
         {
             Ok(Ok(())) => {
