@@ -76,7 +76,7 @@ once_cell = "1.19"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 toml = "0.8"
-clap = { version = "4.0", features = ["derive", "env"] }
+clap = { version = "4.5", features = ["derive", "env"] }
 env_logger = "0.11"
 chrono = { version = "0.4", features = ["serde"] }
 ratatui = "0.28"
@@ -99,7 +99,7 @@ tempfile = "3.22"
 mockall = "0.12"
 tokio-test = "0.4"
 ctrlc = "3.5"
-proptest = "1.4"
+proptest = "1.8"
 rand = "0.8"
 serial_test = "3.0"
 

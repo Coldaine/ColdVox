@@ -6,6 +6,7 @@ use crate::TextInjector;
 use async_trait::async_trait;
 use std::time::{Duration, Instant};
 use tokio::process::Command;
+use tokio::time::timeout;
 use tracing::{debug, trace, warn};
 
 #[cfg(feature = "atspi")]
@@ -70,25 +71,44 @@ impl TextInjector for ClipboardPasteInjector {
             text.len()
         );
 
-        // Step 1: Save original clipboard ONCE
+        // Step 1: Save original clipboard ONCE with timeout
         #[allow(unused_mut)]
         let mut saved_clipboard: Option<String> = None;
         #[cfg(feature = "wl_clipboard")]
         {
-            use std::io::Read;
-            match get_contents(
-                ClipboardType::Regular,
-                Seat::Unspecified,
-                PasteMimeType::Text,
-            ) {
-                Ok((mut pipe, _)) => {
+            // Wrap the blocking clipboard read in a timeout to prevent hangs. When the
+            // compositor or a clipboard manager holds the selection, the blocking read can
+            // otherwise stall this async task indefinitely.
+            let clipboard_timeout = Duration::from_millis(500);
+
+            let read_future = tokio::task::spawn_blocking(|| {
+                use std::io::Read;
+
+                get_contents(
+                    ClipboardType::Regular,
+                    Seat::Unspecified,
+                    PasteMimeType::Text,
+                )
+                .map_err(|e| format!("get_contents failed: {}", e))
+                .and_then(|(mut pipe, _)| {
                     let mut buf = String::new();
-                    if pipe.read_to_string(&mut buf).is_ok() {
-                        debug!("Saved original clipboard ({} chars)", buf.len());
-                        saved_clipboard = Some(buf);
-                    }
+                    pipe.read_to_string(&mut buf)
+                        .map_err(|e| format!("read_to_string failed: {}", e))
+                        .map(|_| buf)
+                })
+            });
+
+            match timeout(clipboard_timeout, read_future).await {
+                Ok(Ok(Ok(buf))) => {
+                    debug!("Saved original clipboard ({} chars)", buf.len());
+                    saved_clipboard = Some(buf);
                 }
-                Err(e) => debug!("Could not read original clipboard: {}", e),
+                Ok(Ok(Err(e))) => debug!("Could not read original clipboard: {}", e),
+                Ok(Err(join_err)) => warn!("Clipboard read task join error: {}", join_err),
+                Err(_) => debug!(
+                    "Clipboard read timed out after {}ms",
+                    clipboard_timeout.as_millis()
+                ),
             }
         }
 

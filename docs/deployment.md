@@ -4,7 +4,7 @@ This document provides comprehensive guidance on deploying the ColdVox applicati
 
 ## Prerequisites
 
-- Rust toolchain (stable channel, MSRV 1.75)
+- Rust toolchain (stable channel, MSRV 1.90)
 - Cargo workspace setup (see `Cargo.toml`)
 - Vosk model and dependencies (handled via CI scripts like `scripts/ci/setup-vosk-cache.sh`)
 - GitHub Actions for CI/CD (see `.github/workflows/ci.yml`)
