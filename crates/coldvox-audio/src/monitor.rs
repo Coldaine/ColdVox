@@ -17,6 +17,8 @@ pub struct DeviceMonitor {
     last_devices: HashMap<String, DeviceStatus>,
     current_device: Option<String>,
     preferred_devices: Vec<String>,
+    // Track how many consecutive scans a device has been missing
+    missing_count: HashMap<String, u32>,
 }
 
 impl DeviceMonitor {
@@ -33,6 +35,7 @@ impl DeviceMonitor {
             last_devices: HashMap::new(),
             current_device: None,
             preferred_devices: Vec::new(),
+            missing_count: HashMap::new(),
         };
 
         Ok((monitor, event_rx))
@@ -67,7 +70,7 @@ impl DeviceMonitor {
                     thread::sleep(self.monitor_interval);
                 }
 
-                info!("Device monitor stopping");
+                debug!("Device monitor stopping");
             })
             .expect("Failed to spawn device monitor thread")
     }
@@ -120,21 +123,44 @@ impl DeviceMonitor {
             new_device_map.insert(name, status);
         }
 
-        // Check for removed devices
+        // Check for removed devices (with debouncing to prevent false positives)
+        const REMOVAL_THRESHOLD: u32 = 3; // Device must be missing for 3 consecutive scans
+
         for (old_name, old_status) in &self.last_devices {
             if !new_device_map.contains_key(old_name) {
-                debug!("Device removed: {}", old_name);
-                let _ = self.event_tx.send(DeviceEvent::DeviceRemoved {
-                    name: old_name.clone(),
-                });
+                // Increment missing count
+                let count = self.missing_count.entry(old_name.clone()).or_insert(0);
+                *count += 1;
 
-                // If current device was removed, signal disconnection
-                if old_status.is_current {
-                    warn!("Current device disconnected: {}", old_name);
-                    let _ = self.event_tx.send(DeviceEvent::CurrentDeviceDisconnected {
+                debug!(
+                    "Device '{}' not seen in scan (missing {} times)",
+                    old_name, count
+                );
+
+                // Only emit removal events after threshold
+                if *count >= REMOVAL_THRESHOLD {
+                    warn!(
+                        "Device removed after {} consecutive absences: {}",
+                        REMOVAL_THRESHOLD, old_name
+                    );
+                    let _ = self.event_tx.send(DeviceEvent::DeviceRemoved {
                         name: old_name.clone(),
                     });
+
+                    // If current device was removed, signal disconnection
+                    if old_status.is_current {
+                        warn!("Current device disconnected: {}", old_name);
+                        let _ = self.event_tx.send(DeviceEvent::CurrentDeviceDisconnected {
+                            name: old_name.clone(),
+                        });
+                    }
+
+                    // Clear from missing count after emitting removal
+                    self.missing_count.remove(old_name);
                 }
+            } else {
+                // Device reappeared, reset missing count
+                self.missing_count.remove(old_name);
             }
         }
 

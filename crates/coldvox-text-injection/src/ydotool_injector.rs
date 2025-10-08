@@ -181,12 +181,6 @@ impl TextInjector for YdotoolInjector {
             return Ok(());
         }
 
-        if !self.config.allow_ydotool {
-            return Err(InjectionError::MethodNotAvailable(
-                "Ydotool not allowed".to_string(),
-            ));
-        }
-
         // First try paste action (more reliable for batch text)
         match self.trigger_paste().await {
             Ok(()) => Ok(()),
@@ -199,7 +193,7 @@ impl TextInjector for YdotoolInjector {
     }
 
     async fn is_available(&self) -> bool {
-        self.is_available && self.config.allow_ydotool
+        self.is_available
     }
 
     fn backend_name(&self) -> &'static str {
@@ -214,7 +208,6 @@ impl TextInjector for YdotoolInjector {
                 "description",
                 "Ydotool uinput automation backend".to_string(),
             ),
-            ("allowed", self.config.allow_ydotool.to_string()),
         ]
     }
 }

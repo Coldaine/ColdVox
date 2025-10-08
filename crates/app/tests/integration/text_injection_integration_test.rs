@@ -90,7 +90,6 @@ mod tests {
         let mut manager = StrategyManager::new(config, metrics.clone());
 
         // Temporarily disable all methods to force fallback sequence
-        manager.config.allow_ydotool = false;
         manager.config.allow_kdotool = false;
         manager.config.allow_enigo = false;
 
@@ -103,8 +102,8 @@ mod tests {
         assert!(metrics_guard.attempts > 0, "Should attempt injection");
 
         // The specific number of attempts depends on available backends
-        // but should be at least the base methods (AtspiInsert, ClipboardAndPaste, Clipboard)
-        assert!(metrics_guard.attempts >= 3, "Should try at least 3 methods");
+    // but should be at least the base methods (AtspiInsert, ClipboardPasteFallback)
+        assert!(metrics_guard.attempts >= 2, "Should try at least 2 methods");
     }
 
     #[tokio::test]
@@ -206,7 +205,7 @@ mod tests {
         use coldvox_text_injection::types::InjectionContext;
 
         let config = InjectionConfig {
-            restore_clipboard: true,
+            // clipboard restoration is automatic
             inject_on_unknown_focus: true,
             ..Default::default()
         };

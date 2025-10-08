@@ -1,5 +1,9 @@
 # ColdVox Self-Hosted Runner: Current Status & Remaining Work
 
+> ⚠️ **RESEARCH DOCUMENT - WORK IN PROGRESS**
+> Contains incomplete sections and future work markers.
+> Last updated: 2025-10-07
+
 **Date**: 2025-09-10
 **Branch**: `update-self-hosted-runner-labels`
 **Phase**: Completed 2.3, Ready for 3.1

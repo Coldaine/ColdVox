@@ -1,1 +1,0 @@
-../../../crates/coldvox-vad-silero/README.md

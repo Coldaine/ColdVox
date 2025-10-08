@@ -147,7 +147,7 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
 
                 // Listen for audio frames
                 Ok(frame) = self.audio_rx.recv() => {
-                    self.handle_audio_frame(frame).await;
+                    self.handle_audio_frame(frame);
                 }
 
                 else => {
@@ -246,7 +246,7 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
     }
 
     /// Handle incoming audio frame
-    async fn handle_audio_frame(&mut self, frame: AudioFrame) {
+    fn handle_audio_frame(&mut self, frame: AudioFrame) {
         // Update metrics
         self.metrics.write().frames_in += 1;
 

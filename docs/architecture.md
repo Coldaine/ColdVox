@@ -9,6 +9,38 @@ last_reviewed: 2025-09-14
 
 # ColdVox TUI Architecture and Robustness Plan
 
+> REVIEW STATUS: Pending final review. The architecture plan and related docs are in draft status after recent text-injection strategy changes. See the TODO section below for outstanding tasks.
+
+## TODOs (Draft – needs review)
+
+- [ ] Text Injection Strategy (Linux) — Confirm the new single paste approach is the only user-facing paste path and ordered last in strategy selection.
+    - Context: Clipboard-only injector is now an internal helper; the public paste method is Clipboard+Paste with fallback (AT‑SPI paste → ydotool).
+    - Actions: Double-check `crates/coldvox-text-injection/src/manager.rs` ordering; ensure no standalone ydotool paste is registered.
+- [ ] Naming & UX — Decide on final user-facing label for the paste method.
+    - Options: "Clipboard + Paste (fallback)", "Paste via Clipboard (AT‑SPI→ydotool)", or keep current name and clarify in docs.
+    - Actions: If renaming, update enum/labels, logs, tests, and CLI/TUI references.
+- [ ] Documentation sweep — Remove references to "clipboard-only" and standalone ydotool paste.
+    - Files: README, docs/deployment.md, config/README.md, examples README (if any), crate READMEs.
+    - Ensure diagrams and narrative match the single paste path with fallback.
+- [ ] Diagrams — Verify `diagrams/text_injection_flow.mmd` reflects the consolidated paste approach.
+    - Confirm ydotool appears only as an internal fallback within Clipboard+Paste.
+    - Export updated PNG/SVG and check them into `diagrams/`.
+- [ ] Tests — Validate all updated tests on Linux/CI.
+    - Files to pay attention to: 
+        - `crates/coldvox-text-injection/src/tests/real_injection.rs`
+        - `crates/coldvox-text-injection/src/tests/real_injection_smoke.rs`
+        - `crates/coldvox-text-injection/src/tests/test_adaptive_strategy.rs`
+        - `crates/app/src/stt/tests/end_to_end_wav.rs`
+    - Confirm cooldown and ordering expectations still hold with the new single paste method.
+- [ ] Windows build notes — Track the Windows toolchain issue (dlltool missing) and clarify expected support.
+    - Actions: Add troubleshooting section to README/deployment; consider gating Linux-only injection tests on Windows.
+- [ ] API contract — Document Clipboard+Paste behavior and side-effects.
+    - Define success criteria: paste action must succeed; clipboard set alone is not success.
+    - State clipboard save/restore guarantees and error propagation.
+- [ ] Quality gates — Ensure build/lint/tests are green across default and feature matrices.
+    - Add a short checklist here linking to CI runs.
+
+
 ## Executive Summary
 
 This document outlines the current architecture of ColdVox's TUI system and the comprehensive improvements implemented to enhance robustness, observability, and concurrency safety. The analysis identified critical gaps in logging, error handling, and concurrent operations that could cause silent failures and performance degradation. All issues have been addressed with specific code changes, testing strategies, and validation criteria.
@@ -619,6 +651,58 @@ let dump_handle = if opts.enable_audio_dumping() {
 - **Latency**: P95 <10ms for metrics updates
 - **Contention**: Reduced RwLock contention by >50%
 - **Reliability**: 100% error visibility, 0 silent failures
+
+## Feature Gating and Cross-Crate Dependencies
+
+### App-Level Feature Gates (`crates/app/Cargo.toml`)
+
+**Default Features**: `["silero", "text-injection", "vosk"]`
+- Enables Silero VAD, text injection backends, and Vosk STT by default.
+
+**Optional Features**:
+- `vosk`: Enables Vosk STT plugin (`coldvox-stt-vosk` dependency)
+- `silero`: Enables Silero VAD (`coldvox-vad-silero/silero`)
+- `text-injection`: Enables text injection backends (`coldvox-text-injection`)
+- `examples`: Enables example binaries
+- `tui`: Enables TUI dashboard
+- `sleep-observer`: Enables sleep instrumentation
+- `live-hardware-tests`: Enables hardware-dependent tests
+- `no-stt`: Disables STT (legacy)
+- `parakeet`, `whisper`: Alternative STT backends (not implemented)
+
+**Text Injection Sub-Features**:
+- `text-injection-atspi`: AT-SPI backend
+- `text-injection-clipboard`: wl-clipboard backend
+- `text-injection-ydotool`: ydotool backend
+- `text-injection-enigo`: Enigo backend
+- `text-injection-kdotool`: kdotool backend
+- `text-injection-regex`: Regex support
+
+**ClipboardPaste contract**: The clipboard+paste backend reports failure any time a
+paste action cannot be triggered. Setting the clipboard is not considered success—callers
+must handle `InjectionError` and fall back to other injectors.
+
+**Platform-Specific**:
+- Linux: `coldvox-text-injection` with `["atspi", "wl_clipboard", "ydotool"]`
+- Windows/macOS: `coldvox-text-injection` with `["enigo"]`
+
+### Sub-Crate Features
+
+- **coldvox-audio**: No features (always enabled)
+- **coldvox-vad**: No features
+- **coldvox-vad-silero**: `silero` (enables ONNX inference)
+- **coldvox-stt**: `vosk`, `parakeet`, `whisper`, `coqui`, `leopard`, `silero-stt`
+- **coldvox-stt-vosk**: `vosk` (enables Vosk library)
+- **coldvox-text-injection**: `atspi`, `wl_clipboard`, `enigo`, `kdotool`, `ydotool`, `regex`, `all-backends`, `linux-desktop`, `live-hardware-tests`, `real-injection-tests`
+- **coldvox-telemetry**: `text-injection` (optional integration)
+
+### Cross-Crate Dependencies
+
+- App conditionally depends on subcrates based on features:
+  - `coldvox-stt-vosk` when `vosk`
+  - `coldvox-text-injection` when `text-injection`
+  - `coldvox-vad-silero` always (with `silero` feature)
+- Subcrates have internal feature gates for optional backends (e.g., STT plugins, injection methods)
 
 ## Conclusion
 

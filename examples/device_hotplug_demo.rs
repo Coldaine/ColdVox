@@ -11,12 +11,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create audio ring buffer
     let buffer = AudioRingBuffer::new(8192);
     let (producer, _consumer) = buffer.split();
+    let producer = std::sync::Arc::new(parking_lot::Mutex::new(producer));
 
     // Create audio configuration
     let config = AudioConfig::default();
 
     // Start audio capture with device monitoring
-    let result = AudioCaptureThread::spawn(config, producer, None);
+    let result = AudioCaptureThread::spawn(config, producer, None, true);
 
     match result {
         Ok((capture_thread, device_config, _config_rx, mut device_event_rx)) => {

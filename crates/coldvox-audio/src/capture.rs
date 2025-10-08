@@ -48,8 +48,9 @@ pub struct AudioCaptureThread {
 impl AudioCaptureThread {
     pub fn spawn(
         config: AudioConfig,
-        audio_producer: AudioProducer,
+        audio_producer: Arc<Mutex<AudioProducer>>,
         device_name: Option<String>,
+        enable_device_monitor: bool,
     ) -> Result<
         (
             Self,
@@ -59,7 +60,11 @@ impl AudioCaptureThread {
         ),
         AudioError,
     > {
-        let running = Arc::new(AtomicBool::new(false));
+        // Start in running state so the device monitor thread stays alive
+        // until we explicitly stop via `stop()`. Previously this was false,
+        // causing the monitor to exit immediately and the capture loop to
+        // detect a closed channel and terminate early.
+        let running = Arc::new(AtomicBool::new(true));
         let shutdown = running.clone();
         let device_config = Arc::new(RwLock::new(None::<DeviceConfig>));
         let device_config_clone = device_config.clone();
@@ -72,14 +77,21 @@ impl AudioCaptureThread {
         let (device_event_tx, device_event_rx) = tokio::sync::broadcast::channel(32);
         let device_event_tx_clone = device_event_tx.clone();
 
-        // Start device monitor
-        let (device_monitor, mut monitor_rx) = DeviceMonitor::new(Duration::from_millis(500))?;
+        // Start device monitor with 2-second interval to reduce false positives from CPAL enumeration glitches
         let monitor_running = running.clone();
-        let monitor_handle = device_monitor.start_monitoring(monitor_running);
+        let (monitor_rx_opt, monitor_handle) = if enable_device_monitor {
+            let (device_monitor, monitor_rx) = DeviceMonitor::new(Duration::from_secs(2))?;
+            let handle = device_monitor.start_monitoring(monitor_running);
+            (Some(monitor_rx), Some(handle))
+        } else {
+            tracing::debug!("Device monitor disabled; skipping hotplug polling");
+            (None, None)
+        };
 
         let handle = thread::Builder::new()
             .name("audio-capture".to_string())
             .spawn(move || {
+                let mut monitor_rx = monitor_rx_opt;
                 let mut capture = match AudioCapture::new(config, audio_producer, running.clone()) {
                     Ok(c) => c.with_config_channel(config_tx_clone)
                               .with_device_event_channel(device_event_tx_clone),
@@ -144,40 +156,42 @@ impl AudioCaptureThread {
                     let mut restart_reason = "unknown";
 
                     // Check for device monitor events
-                    match monitor_rx.try_recv() {
-                        Ok(event) => {
-                            tracing::debug!("Device event: {:?}", event);
-                            let _ = capture.device_event_tx.as_ref().map(|tx| tx.send(event.clone()));
+                    if let Some(rx) = monitor_rx.as_mut() {
+                        match rx.try_recv() {
+                            Ok(event) => {
+                                tracing::debug!("Device event: {:?}", event);
+                                let _ = capture.device_event_tx.as_ref().map(|tx| tx.send(event.clone()));
 
-                            match event {
-                                DeviceEvent::CurrentDeviceDisconnected { name } => {
-                                    if capture.current_device_name.as_ref() == Some(&name) {
-                                        tracing::warn!("Current device {} disconnected, attempting recovery", name);
-                                        needs_restart = true;
-                                        restart_reason = "device disconnected";
+                                match event {
+                                    DeviceEvent::CurrentDeviceDisconnected { name } => {
+                                        if capture.current_device_name.as_ref() == Some(&name) {
+                                            tracing::warn!("Current device {} disconnected, attempting recovery", name);
+                                            needs_restart = true;
+                                            restart_reason = "device disconnected";
+                                        }
                                     }
+                                    DeviceEvent::DeviceAdded { name } => {
+                                        tracing::info!("New device available: {}", name);
+                                        // Could implement automatic switching to preferred devices here
+                                    }
+                                    DeviceEvent::DeviceSwitchRequested { target } => {
+                                        tracing::info!("Manual device switch requested to: {}", target);
+                                        needs_restart = true;
+                                        restart_reason = "manual device switch requested";
+                                    }
+                                    _ => {}
                                 }
-                                DeviceEvent::DeviceAdded { name } => {
-                                    tracing::info!("New device available: {}", name);
-                                    // Could implement automatic switching to preferred devices here
-                                }
-                                DeviceEvent::DeviceSwitchRequested { target } => {
-                                    tracing::info!("Manual device switch requested to: {}", target);
-                                    needs_restart = true;
-                                    restart_reason = "manual device switch requested";
-                                }
-                                _ => {}
                             }
-                        }
-                        Err(tokio::sync::broadcast::error::TryRecvError::Empty) => {
-                            // No events, continue
-                        }
-                        Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) => {
-                            tracing::warn!("Device monitor events lagged, some events may have been missed");
-                        }
-                        Err(tokio::sync::broadcast::error::TryRecvError::Closed) => {
-                            tracing::error!("Device monitor channel closed");
-                            break;
+                            Err(tokio::sync::broadcast::error::TryRecvError::Empty) => {
+                                // No events, continue
+                            }
+                            Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) => {
+                                tracing::warn!("Device monitor events lagged, some events may have been missed");
+                            }
+                            Err(tokio::sync::broadcast::error::TryRecvError::Closed) => {
+                                tracing::error!("Device monitor channel closed");
+                                break;
+                            }
                         }
                     }
 
@@ -240,7 +254,7 @@ impl AudioCaptureThread {
                     thread::sleep(Duration::from_millis(100));
                 }
 
-                tracing::info!("Audio capture thread shutting down.");
+                tracing::debug!("Audio capture thread shutting down.");
                 capture.stop();
             })
             .map_err(|e| AudioError::Fatal(format!("Failed to spawn audio thread: {}", e)))?;
@@ -264,7 +278,7 @@ impl AudioCaptureThread {
             Self {
                 handle,
                 shutdown,
-                device_monitor_handle: Some(monitor_handle),
+                device_monitor_handle: monitor_handle,
             },
             cfg,
             config_rx,
@@ -303,13 +317,13 @@ pub struct CaptureStats {
 impl AudioCapture {
     pub fn new(
         config: AudioConfig,
-        audio_producer: AudioProducer,
+        audio_producer: Arc<Mutex<AudioProducer>>,
         running: Arc<AtomicBool>,
     ) -> Result<Self, AudioError> {
         let self_ = Self {
             device_manager: DeviceManager::new()?,
             stream: None,
-            audio_producer: Arc::new(Mutex::new(audio_producer)),
+            audio_producer,
             watchdog: WatchdogTimer::new(Duration::from_secs(5)),
             silence_detector: SilenceDetector::new(config.silence_threshold),
             stats: Arc::new(CaptureStats::default()),

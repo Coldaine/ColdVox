@@ -2,7 +2,10 @@
 name = "coldvox-app"
 version = "0.1.0"
 edition = "2021"
-default-run = "coldvox"
+
+[lib]
+name = "coldvox_app"
+path = "src/lib.rs"
 
 [[bin]]
 name = "coldvox"
@@ -88,6 +91,7 @@ coldvox-vad-silero = { path = "../coldvox-vad-silero", features = ["silero"] }
 coldvox-stt = { path = "../coldvox-stt", features = ["parakeet", "whisper"] }
 csv = "1.3"
 cpal = "0.16.0"
+config = { version = "0.14", features = ["toml"] }
 coldvox-stt-vosk = { path = "../coldvox-stt-vosk", optional = true }
 
 [dev-dependencies]
