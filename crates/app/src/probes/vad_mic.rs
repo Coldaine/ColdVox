@@ -21,11 +21,21 @@ pub struct VadMicCheck;
 
 impl VadMicCheck {
     pub async fn run(ctx: &TestContext) -> Result<LiveTestResult, TestError> {
-        // HARDCODED: Always use HyperX QuadCast for now to bypass broken device detection
-        let device_name = Some("HyperX QuadCast".to_string());
+        // Device selection priority: env var > context > default detection
+        let device_name = std::env::var("COLDVOX_TEST_DEVICE")
+            .ok()
+            .or_else(|| ctx.device.clone())
+            .or_else(|| {
+                tracing::warn!("No device specified, using default detection");
+                None
+            });
         let duration = ctx.duration;
 
-        tracing::info!("VAD Mic Test: Hardcoded to use HyperX QuadCast device");
+        if let Some(ref dev) = device_name {
+            tracing::info!("VAD Mic Test: Using device: {}", dev);
+        } else {
+            tracing::info!("VAD Mic Test: Using default device detection");
+        }
 
         let config = AudioConfig::default();
 
