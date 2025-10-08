@@ -220,12 +220,12 @@ mod tests {
     }
 
     // Test that clipboard injector can be created
-    #[test]
-    fn test_clipboard_injector_creation() {
+    #[tokio::test]
+    async fn test_clipboard_injector_creation() {
         let config = InjectionConfig::default();
         let injector = ClipboardInjector::new(config);
         // Ensure creation succeeds and availability can be queried
-        let _avail = futures::executor::block_on(injector.is_available());
+        let _avail = injector.is_available().await;
         // Basic creation test - no metrics in new implementation
     }
 
