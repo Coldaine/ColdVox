@@ -97,7 +97,7 @@ impl InjectionProcessor {
         if self.session.should_inject() {
             let text = self.session.take_buffer();
             if !text.is_empty() {
-                info!("Injecting {} characters from session", text.len());
+                debug!("Injecting {} characters from session", text.len());
                 return Some(text);
             }
         }
@@ -355,6 +355,7 @@ impl AsyncInjectionProcessor {
 
                     if let Some(text) = maybe_text {
                         // Perform the async injection outside the lock
+                        info!("Attempting injection of {} characters", text.len());
                         let result = self.injector.inject(&text).await;
                         let success = result.is_ok();
 
@@ -363,6 +364,8 @@ impl AsyncInjectionProcessor {
                         processor.record_injection_result(success);
                         if let Err(e) = result {
                             error!("Injection failed: {}", e);
+                        } else {
+                            info!("Injection completed successfully");
                         }
                     }
                 }
