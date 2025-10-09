@@ -17,7 +17,7 @@ impl NoOpInjector {
 
 #[async_trait]
 impl TextInjector for NoOpInjector {
-    async fn inject_text(&self, text: &str) -> InjectionResult<()> {
+    async fn inject_text(&self, text: &str, _context: Option<&crate::types::InjectionContext>) -> InjectionResult<()> {
         if text.is_empty() {
             return Ok(());
         }
@@ -64,7 +64,7 @@ mod tests {
         let config = InjectionConfig::default();
         let injector = NoOpInjector::new(config);
 
-        let result = injector.inject_text("test text").await;
+        let result = injector.inject_text("test text", None).await;
         assert!(result.is_ok());
     }
 
@@ -73,7 +73,7 @@ mod tests {
         let config = InjectionConfig::default();
         let injector = NoOpInjector::new(config);
 
-        let result = injector.inject_text("").await;
+        let result = injector.inject_text("", None).await;
         assert!(result.is_ok());
     }
 }

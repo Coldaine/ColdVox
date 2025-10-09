@@ -7,32 +7,15 @@
 use crate::confirm::{ConfirmationContext, create_confirmation_context};
 use crate::log_throttle::log_atspi_connection_failure;
 use crate::logging::utils;
-use crate::types::{InjectionConfig, InjectionError, InjectionResult, InjectionMethod};
+use crate::types::{InjectionConfig, InjectionContext, InjectionError, InjectionResult, InjectionMethod, InjectionMode};
 use crate::TextInjector;
 use async_trait::async_trait;
 use std::time::Instant;
 use tracing::{debug, trace, warn};
 
-/// Context for AT-SPI injection operations
-#[derive(Debug, Clone)]
-pub struct Context {
-    /// Pre-warmed AT-SPI connection data (stored as path string for portability)
-    pub focused_node_path: Option<String>,
-    /// Target application identifier
-    pub target_app: Option<String>,
-    /// Window identifier
-    pub window_id: Option<String>,
-}
-
-impl Default for Context {
-    fn default() -> Self {
-        Self {
-            focused_node_path: None,
-            target_app: None,
-            window_id: None,
-        }
-    }
-}
+// Re-export the old Context type for backwards compatibility
+#[deprecated(since = "0.1.0", note = "Use InjectionContext from types module instead")]
+pub type Context = InjectionContext;
 
 /// AT-SPI Text Injector with support for both insert and paste operations
 pub struct AtspiInjector {
@@ -53,7 +36,7 @@ impl AtspiInjector {
     }
 
     /// Insert text directly using AT-SPI EditableText interface
-    pub async fn insert_text(&self, text: &str, context: &Context) -> InjectionResult<()> {
+    pub async fn insert_text(&self, text: &str, context: &InjectionContext) -> InjectionResult<()> {
         let start_time = Instant::now();
         
         trace!("AT-SPI insert_text starting for {} chars", text.len());
@@ -225,7 +208,7 @@ impl AtspiInjector {
     }
 
     /// Paste text using AT-SPI clipboard operations
-    pub async fn paste_text(&self, text: &str, context: &Context) -> InjectionResult<()> {
+    pub async fn paste_text(&self, text: &str, context: &InjectionContext) -> InjectionResult<()> {
         let start_time = Instant::now();
         
         trace!("AT-SPI paste_text starting for {} chars", text.len());
@@ -477,17 +460,26 @@ impl AtspiInjector {
     }
 
     /// Main injection method that delegates to insert_text or paste_text
-    pub async fn inject(&self, text: &str, context: &Context) -> InjectionResult<()> {
+    /// Respects mode_override in context if present
+    pub async fn inject(&self, text: &str, context: &InjectionContext) -> InjectionResult<()> {
         if text.is_empty() {
             return Ok(());
         }
 
-        // Determine injection method based on configuration
-        let use_paste = match self.config.injection_mode.as_str() {
-            "paste" => true,
-            "keystroke" => false,
-            "auto" => text.len() > self.config.paste_chunk_chars as usize,
-            _ => text.len() > self.config.paste_chunk_chars as usize, // Default to auto
+        // Determine injection method based on context override or configuration
+        let use_paste = if let Some(mode_override) = context.mode_override {
+            match mode_override {
+                InjectionMode::Paste => true,
+                InjectionMode::Keystroke => false,
+            }
+        } else {
+            // Fall back to config-based decision
+            match self.config.injection_mode.as_str() {
+                "paste" => true,
+                "keystroke" => false,
+                "auto" => text.len() > self.config.paste_chunk_chars as usize,
+                _ => text.len() > self.config.paste_chunk_chars as usize, // Default to auto
+            }
         };
 
         if use_paste {
@@ -556,10 +548,11 @@ impl TextInjector for AtspiInjector {
         }
     }
 
-    async fn inject_text(&self, text: &str) -> InjectionResult<()> {
-        // Create a default context for the legacy inject_text method
-        let context = Context::default();
-        self.inject(text, &context).await
+    async fn inject_text(&self, text: &str, context: Option<&InjectionContext>) -> InjectionResult<()> {
+        // Use provided context or create default
+        let default_context = InjectionContext::default();
+        let ctx = context.unwrap_or(&default_context);
+        self.inject(text, ctx).await
     }
 }
 
@@ -587,9 +580,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_context_default() {
-        let context = Context::default();
+        let context = InjectionContext::default();
         
-        assert!(context.focused_node_path.is_none());
+        assert!(context.atspi_focused_node_path.is_none());
         assert!(context.target_app.is_none());
         assert!(context.window_id.is_none());
     }
@@ -598,7 +591,7 @@ mod tests {
     async fn test_empty_text_handling() {
         let config = InjectionConfig::default();
         let injector = AtspiInjector::new(config);
-        let context = Context::default();
+        let context = InjectionContext::default();
         
         // Empty text should succeed without error
         let result = injector.insert_text("", &context).await;
@@ -617,7 +610,7 @@ mod tests {
         let injector = AtspiInjector::new(config);
         
         // Empty text should succeed without error
-        let result = injector.inject_text("").await;
+        let result = injector.inject_text("", None).await;
         assert!(result.is_ok());
     }
 }

@@ -5,7 +5,7 @@
 //! text injection is requested.
 
 use crate::orchestrator::AtspiContext;
-use crate::types::{InjectionConfig, InjectionResult};
+use crate::types::{InjectionConfig, InjectionMethod, InjectionResult};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, RwLock};
@@ -52,6 +52,7 @@ impl<T> CachedData<T> {
 
 /// AT-SPI pre-warmed data
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct AtspiData {
     connection: Option<String>, // Simplified connection indicator
     focused_node: Option<String>, // Simplified node identifier
@@ -62,7 +63,7 @@ struct AtspiData {
 
 /// Clipboard snapshot data
 #[derive(Debug, Clone)]
-struct ClipboardData {
+pub struct ClipboardData {
     content: Option<Vec<u8>>,
     mime_type: Option<String>,
 }
@@ -79,14 +80,16 @@ impl From<ClipboardData> for Option<crate::ClipboardBackup> {
 
 /// Portal session data
 #[derive(Debug, Clone)]
-struct PortalData {
+#[allow(dead_code)]
+pub struct PortalData {
     session_available: bool,
     remote_desktop_connected: bool,
 }
 
 /// Virtual keyboard data
 #[derive(Debug, Clone)]
-struct VirtualKeyboardData {
+#[allow(dead_code)]
+pub struct VirtualKeyboardData {
     connected: bool,
     handle: Option<String>, // Handle identifier
 }
@@ -519,10 +522,78 @@ impl PrewarmController {
     }
 }
 
+/// Run targeted pre-warming for the given context and method
+/// This function pre-warms only what's needed for the specific injection method
+pub async fn run_for_method(_ctx: &AtspiContext, method: InjectionMethod) -> InjectionResult<()> {
+    // Create a default config for now - in a real implementation this would come from the context
+    let config = InjectionConfig::default();
+    let controller = PrewarmController::new(config);
+
+    match method {
+        InjectionMethod::AtspiInsert => {
+            // Only pre-warm AT-SPI and event listener for AT-SPI injection
+            let (atspi_result, event_result) = tokio::join!(
+                controller.prewarm_atspi(),
+                controller.arm_event_listener()
+            );
+
+            // Update caches
+            {
+                let mut cached = controller.atspi_data.write().await;
+                if let Ok(data) = atspi_result {
+                    cached.update(data);
+                    info!("AT-SPI pre-warming successful for AtspiInsert");
+                } else {
+                    warn!("AT-SPI pre-warming failed: {:?}", atspi_result);
+                }
+            }
+
+            if let Ok(_) = event_result {
+                info!("Event listener armed for AtspiInsert");
+            } else {
+                warn!("Event listener arming failed: {:?}", event_result);
+            }
+        }
+        InjectionMethod::ClipboardPasteFallback => {
+            // Pre-warm clipboard and event listener for clipboard injection
+            let (clipboard_result, event_result) = tokio::join!(
+                controller.snapshot_clipboard(),
+                controller.arm_event_listener()
+            );
+
+            // Update caches
+            {
+                let mut cached = controller.clipboard_data.write().await;
+                if let Ok(data) = clipboard_result {
+                    cached.update(data);
+                    info!("Clipboard pre-warming successful for ClipboardPasteFallback");
+                } else {
+                    warn!("Clipboard pre-warming failed: {:?}", clipboard_result);
+                }
+            }
+
+            if let Ok(_) = event_result {
+                info!("Event listener armed for ClipboardPasteFallback");
+            } else {
+                warn!("Event listener arming failed: {:?}", event_result);
+            }
+        }
+        _ => {
+            // For other methods, just arm the event listener
+            if let Ok(_) = controller.arm_event_listener().await {
+                info!("Event listener armed for {:?}", method);
+            }
+        }
+    }
+
+    Ok(())
+}
+
 /// Run pre-warming for the given context
 /// This function should be called as soon as the buffer isn't idle
 pub async fn run(_ctx: &AtspiContext) -> InjectionResult<()> {
-    // Create a default config for now - in a real implementation this would come from the context
+    // Legacy function - pre-warms everything for backward compatibility
+    // TODO: Remove this once all callers use run_for_method
     let config = InjectionConfig::default();
     let controller = PrewarmController::new(config);
 
@@ -538,6 +609,7 @@ pub async fn run(_ctx: &AtspiContext) -> InjectionResult<()> {
 
 /// Helper function to convert wl_clipboard_rs MIME type to string
 #[cfg(feature = "wl_clipboard")]
+#[allow(dead_code)]
 fn mime_to_string(mime: &str) -> String {
     // Simplified MIME type handling
     match mime {
