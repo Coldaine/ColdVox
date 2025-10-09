@@ -1,6 +1,6 @@
 #![allow(unused_imports)]
 
-use crate::injectors::clipboard::ClipboardInjector;
+use crate::clipboard_injector::ClipboardInjector;
 use crate::types::{InjectionConfig, InjectionError, InjectionResult};
 use crate::TextInjector;
 use async_trait::async_trait;
