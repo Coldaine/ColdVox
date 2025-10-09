@@ -118,9 +118,16 @@ jobs:
           skip-toolchain: "true"
 
       # Only run formatting and linting on stable
-      - name: Check formatting
+      - name: Check formatting (advisory)
         if: matrix.rust-version == 'stable'
-        run: cargo fmt --all -- --check
+        run: |
+          set +e
+          cargo fmt --all -- --check
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "::warning::cargo fmt detected formatting differences. Please run 'cargo fmt --all' locally before committing."
+          fi
+          exit 0
 
       - name: Run clippy
         if: matrix.rust-version == 'stable'

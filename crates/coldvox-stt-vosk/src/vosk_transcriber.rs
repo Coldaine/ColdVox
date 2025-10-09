@@ -14,35 +14,110 @@ pub struct VoskTranscriber {
 impl VoskTranscriber {
     /// Create a new VoskTranscriber with the given configuration
     pub fn new(config: TranscriptionConfig, sample_rate: f32) -> Result<Self, String> {
+        tracing::debug!(
+            target: "coldvox::stt::vosk",
+            sample_rate = sample_rate,
+            config_model_path = %config.model_path,
+            "Creating VoskTranscriber"
+        );
+
         // Validate sample rate - Vosk works best with 16kHz
         if (sample_rate - 16000.0).abs() > 0.1 {
             warn!(
-                "VoskTranscriber: Sample rate {}Hz differs from expected 16000Hz. \
-                This may affect transcription quality.",
-                sample_rate
+                target: "coldvox::stt::vosk",
+                requested_rate = sample_rate,
+                expected_rate = 16000.0,
+                "VoskTranscriber: Sample rate differs from expected 16000Hz. \
+                This may affect transcription quality."
             );
         }
 
         // Resolve / validate model path via centralized model manager
-        let model_info = crate::model::locate_model(if config.model_path.is_empty() {
+        let model_info = match crate::model::locate_model(if config.model_path.is_empty() {
             None
         } else {
             Some(&config.model_path)
-        })
-        .map_err(|e| format!("Failed to locate Vosk model: {}", e))?;
+        }) {
+            Ok(info) => info,
+            Err(e) => {
+                tracing::error!(
+                    target: "coldvox::stt::vosk",
+                    error = %e,
+                    config_path = %config.model_path,
+                    "Failed to locate Vosk model during transcriber creation"
+                );
+                return Err(format!("Failed to locate Vosk model: {}", e));
+            }
+        };
         let model_path = model_info.path.to_string_lossy().to_string();
 
+        tracing::debug!(
+            target: "coldvox::stt::vosk",
+            model_path = %model_path,
+            model_source = ?model_info.source,
+            "Loading Vosk model"
+        );
+
         // Load the model
-        let model = Model::new(&model_path)
-            .ok_or_else(|| format!("Failed to load Vosk model from: {}", model_path))?;
+        let model = match Model::new(&model_path) {
+            Some(m) => m,
+            None => {
+                // Check if the path exists and what it contains
+                let path_exists = std::path::Path::new(&model_path).exists();
+                let is_dir = std::path::Path::new(&model_path).is_dir();
+                let contents = if is_dir {
+                    std::fs::read_dir(&model_path)
+                        .ok()
+                        .map(|entries| {
+                            entries
+                                .filter_map(|e| e.ok())
+                                .take(10)
+                                .map(|e| e.file_name().to_string_lossy().to_string())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        })
+                        .unwrap_or_else(|| "unable to read".to_string())
+                } else {
+                    "not a directory".to_string()
+                };
+
+                tracing::error!(
+                    target: "coldvox::stt::vosk",
+                    model_path = %model_path,
+                    path_exists = path_exists,
+                    is_directory = is_dir,
+                    directory_contents = %contents,
+                    "Vosk library failed to load model - likely corrupted or incompatible model files"
+                );
+                return Err(format!(
+                    "Failed to load Vosk model from: {} (exists: {}, is_dir: {}, contents: {})",
+                    model_path, path_exists, is_dir, contents
+                ));
+            }
+        };
+
+        tracing::debug!(
+            target: "coldvox::stt::vosk",
+            sample_rate = sample_rate,
+            "Creating Vosk recognizer"
+        );
 
         // Create recognizer with configuration
-        let mut recognizer = Recognizer::new(&model, sample_rate).ok_or_else(|| {
-            format!(
-                "Failed to create Vosk recognizer with sample rate: {}",
-                sample_rate
-            )
-        })?;
+        let mut recognizer = match Recognizer::new(&model, sample_rate) {
+            Some(r) => r,
+            None => {
+                tracing::error!(
+                    target: "coldvox::stt::vosk",
+                    sample_rate = sample_rate,
+                    model_path = %model_path,
+                    "Failed to create Vosk recognizer - incompatible sample rate or model"
+                );
+                return Err(format!(
+                    "Failed to create Vosk recognizer with sample rate: {} (model: {})",
+                    sample_rate, model_path
+                ));
+            }
+        };
 
         // Configure recognizer based on config
         recognizer.set_max_alternatives(config.max_alternatives as u16);
@@ -52,6 +127,16 @@ impl VoskTranscriber {
         // Update the config to use the resolved model path
         let mut final_config = config;
         final_config.model_path = model_path;
+
+        tracing::info!(
+            target: "coldvox::stt::vosk",
+            model_path = %final_config.model_path,
+            sample_rate = sample_rate,
+            max_alternatives = final_config.max_alternatives,
+            partial_results = final_config.partial_results,
+            include_words = final_config.include_words,
+            "VoskTranscriber created successfully"
+        );
 
         Ok(Self {
             recognizer,

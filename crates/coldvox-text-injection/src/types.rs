@@ -7,6 +7,32 @@ fn default_fail_fast() -> bool {
     false
 }
 
+/// Injection mode override (paste vs keystroke decision)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InjectionMode {
+    /// Use paste-based injection
+    Paste,
+    /// Use keystroke-based injection
+    Keystroke,
+}
+
+/// Unified injection context passed to all injectors
+/// Contains pre-warmed data, focus info, and mode overrides
+#[derive(Debug, Clone, Default)]
+pub struct InjectionContext {
+    /// Target application identifier
+    pub target_app: Option<String>,
+    /// Window identifier
+    pub window_id: Option<String>,
+    /// Pre-warmed AT-SPI focused node path (stored as path string for portability)
+    pub atspi_focused_node_path: Option<String>,
+    /// Pre-warmed clipboard backup data
+    pub clipboard_backup: Option<String>,
+    /// Injection mode override (paste vs keystroke)
+    /// When Some, this overrides the config-based decision
+    pub mode_override: Option<InjectionMode>,
+}
+
 /// Enumeration of all available text injection methods
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum InjectionMethod {
