@@ -1,0 +1,32 @@
+#!/bin/bash
+# .git/hooks/pre-commit
+# Fast-fail injection tests that MUST pass before commit
+
+set -e
+
+echo "🚀 Running fast injection tests (target: <3 seconds)..."
+
+# Set timeout for entire test suite
+export PYTEST_TIMEOUT=3
+
+# Run only the fast, deterministic tests
+pytest tests/injection/fast/ \
+  -m "not hardware and not e2e" \
+  --fail-fast \
+  --timeout=0.5 \
+  --timeout-method=thread \
+  -q \
+  --tb=short \
+  --benchmark-disable
+
+if [ $? -ne 0 ]; then
+  echo "❌ Fast injection tests failed. Fix before committing."
+  echo "To bypass (NOT recommended): git commit --no-verify"
+  exit 1
+fi
+
+echo "✅ Fast tests passed in $(($SECONDS))s"
+
+# Warning for skipped hardware tests
+echo "⚠️  Hardware tests skipped (will run in CI)"
+echo "   Run manually: make test-hardware"
