@@ -878,7 +878,9 @@ async fn test_atspi_injection() {
     // crate::test_utils::init_test_infrastructure();
     #[cfg(feature = "text-injection")]
     {
-        use crate::text_injection::{injectors::atspi::AtspiInjector, InjectionConfig, TextInjector};
+        use crate::text_injection::{
+            injectors::atspi::AtspiInjector, InjectionConfig, TextInjector,
+        };
         use tokio::time::Duration;
 
         // Guard the whole test with a short timeout so CI doesn't hang if desktop isn't responsive

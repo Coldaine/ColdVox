@@ -176,7 +176,11 @@ impl YdotoolInjector {
 
 #[async_trait]
 impl TextInjector for YdotoolInjector {
-    async fn inject_text(&self, text: &str, _context: Option<&crate::types::InjectionContext>) -> InjectionResult<()> {
+    async fn inject_text(
+        &self,
+        text: &str,
+        _context: Option<&crate::types::InjectionContext>,
+    ) -> InjectionResult<()> {
         if text.is_empty() {
             return Ok(());
         }

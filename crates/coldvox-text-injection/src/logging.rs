@@ -24,7 +24,7 @@ pub fn init_tracing() {
         tracing::subscriber::set_global_default(subscriber)
             .expect("Failed to set tracing subscriber");
     }
-    
+
     #[cfg(not(feature = "all-backends"))]
     {
         // No-op when tracing-subscriber is not available
@@ -48,11 +48,14 @@ pub fn init_tracing_with_config(config: LoggingConfig) {
         tracing::subscriber::set_global_default(subscriber)
             .expect("Failed to set tracing subscriber");
     }
-    
+
     #[cfg(not(feature = "all-backends"))]
     {
         // Use the config in a simple message so it's not unused in builds without the feature
-        tracing::info!("Tracing initialization skipped (tracing subscriber not enabled). config={:?}", config);
+        tracing::info!(
+            "Tracing initialization skipped (tracing subscriber not enabled). config={:?}",
+            config
+        );
     }
 }
 
@@ -154,7 +157,11 @@ impl InjectionEvent {
     /// Log this event with appropriate tracing level
     pub fn log(&self) {
         match self {
-            InjectionEvent::InjectionStarted { method, text_length, timestamp } => {
+            InjectionEvent::InjectionStarted {
+                method,
+                text_length,
+                timestamp,
+            } => {
                 info!(
                     method = %method,
                     text_length = %text_length,
@@ -162,7 +169,12 @@ impl InjectionEvent {
                     "Injection started"
                 );
             }
-            InjectionEvent::InjectionCompleted { method, text_length, duration_ms, timestamp } => {
+            InjectionEvent::InjectionCompleted {
+                method,
+                text_length,
+                duration_ms,
+                timestamp,
+            } => {
                 info!(
                     method = %method,
                     text_length = %text_length,
@@ -171,7 +183,12 @@ impl InjectionEvent {
                     "Injection completed successfully"
                 );
             }
-            InjectionEvent::InjectionFailed { method, error, duration_ms, timestamp } => {
+            InjectionEvent::InjectionFailed {
+                method,
+                error,
+                duration_ms,
+                timestamp,
+            } => {
                 warn!(
                     method = %method,
                     error = %error,
@@ -180,7 +197,11 @@ impl InjectionEvent {
                     "Injection failed"
                 );
             }
-            InjectionEvent::MethodAvailabilityCheck { method, available, timestamp } => {
+            InjectionEvent::MethodAvailabilityCheck {
+                method,
+                available,
+                timestamp,
+            } => {
                 debug!(
                     method = %method,
                     available = %available,
@@ -188,7 +209,11 @@ impl InjectionEvent {
                     "Method availability check"
                 );
             }
-            InjectionEvent::FocusStatusCheck { has_focus, is_editable, timestamp } => {
+            InjectionEvent::FocusStatusCheck {
+                has_focus,
+                is_editable,
+                timestamp,
+            } => {
                 debug!(
                     has_focus = %has_focus,
                     is_editable = %is_editable,
@@ -196,7 +221,11 @@ impl InjectionEvent {
                     "Focus status check"
                 );
             }
-            InjectionEvent::WindowInfoUpdated { window_id, application, timestamp } => {
+            InjectionEvent::WindowInfoUpdated {
+                window_id,
+                application,
+                timestamp,
+            } => {
                 debug!(
                     window_id = %window_id,
                     application = %application,
@@ -204,7 +233,11 @@ impl InjectionEvent {
                     "Window information updated"
                 );
             }
-            InjectionEvent::BackendConfigChanged { backend, config_key, timestamp } => {
+            InjectionEvent::BackendConfigChanged {
+                backend,
+                config_key,
+                timestamp,
+            } => {
                 info!(
                     backend = %backend,
                     config_key = %config_key,
@@ -212,7 +245,13 @@ impl InjectionEvent {
                     "Backend configuration changed"
                 );
             }
-            InjectionEvent::PerformanceMetrics { method, avg_duration_ms, success_rate, total_attempts, timestamp } => {
+            InjectionEvent::PerformanceMetrics {
+                method,
+                avg_duration_ms,
+                success_rate,
+                total_attempts,
+                timestamp,
+            } => {
                 info!(
                     method = %method,
                     avg_duration_ms = %avg_duration_ms,
@@ -248,7 +287,12 @@ pub mod utils {
     }
 
     /// Log injection success with timing
-    pub fn log_injection_success(method: InjectionMethod, text: &str, duration: Duration, redact: bool) {
+    pub fn log_injection_success(
+        method: InjectionMethod,
+        text: &str,
+        duration: Duration,
+        redact: bool,
+    ) {
         let display_text = if redact && text.len() > 10 {
             format!("{}...({} chars)", &text[..10], text.len())
         } else {
@@ -265,7 +309,13 @@ pub mod utils {
     }
 
     /// Log injection failure with error details
-    pub fn log_injection_failure(method: InjectionMethod, text: &str, error: &str, duration: Duration, redact: bool) {
+    pub fn log_injection_failure(
+        method: InjectionMethod,
+        text: &str,
+        error: &str,
+        duration: Duration,
+        redact: bool,
+    ) {
         let display_text = if redact && text.len() > 10 {
             format!("{}...({} chars)", &text[..10], text.len())
         } else {
@@ -292,7 +342,12 @@ pub mod utils {
     }
 
     /// Log performance metrics
-    pub fn log_performance_metrics(method: InjectionMethod, avg_duration: Duration, success_rate: f64, attempts: u64) {
+    pub fn log_performance_metrics(
+        method: InjectionMethod,
+        avg_duration: Duration,
+        success_rate: f64,
+        attempts: u64,
+    ) {
         info!(
             method = ?method,
             avg_duration_ms = %avg_duration.as_millis(),
@@ -325,7 +380,7 @@ mod tests {
             text_length: 10,
             timestamp: chrono::Utc::now(),
         };
-        
+
         // This should not panic
         event.log();
     }
@@ -333,6 +388,10 @@ mod tests {
     #[test]
     fn test_log_injection_attempt() {
         utils::log_injection_attempt(crate::types::InjectionMethod::NoOp, "test text", false);
-        utils::log_injection_attempt(crate::types::InjectionMethod::NoOp, "very long test text that should be redacted", true);
+        utils::log_injection_attempt(
+            crate::types::InjectionMethod::NoOp,
+            "very long test text that should be redacted",
+            true,
+        );
     }
 }

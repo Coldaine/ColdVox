@@ -141,7 +141,11 @@ impl TextInjector for EnigoInjector {
         self.is_available && self.config.allow_enigo
     }
 
-    async fn inject_text(&self, text: &str, _context: Option<&crate::types::InjectionContext>) -> InjectionResult<()> {
+    async fn inject_text(
+        &self,
+        text: &str,
+        _context: Option<&crate::types::InjectionContext>,
+    ) -> InjectionResult<()> {
         if text.is_empty() {
             return Ok(());
         }

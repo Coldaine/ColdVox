@@ -6,7 +6,9 @@
 //! Optional Klipper cleanup is available behind a feature flag.
 
 use crate::logging::utils;
-use crate::types::{InjectionConfig, InjectionContext, InjectionError, InjectionResult, InjectionMethod};
+use crate::types::{
+    InjectionConfig, InjectionContext, InjectionError, InjectionMethod, InjectionResult,
+};
 use crate::TextInjector;
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -15,7 +17,10 @@ use tokio::process::Command;
 use tracing::{debug, trace, warn};
 
 // Re-export the old Context type for backwards compatibility
-#[deprecated(since = "0.1.0", note = "Use InjectionContext from types module instead")]
+#[deprecated(
+    since = "0.1.0",
+    note = "Use InjectionContext from types module instead"
+)]
 pub type Context = InjectionContext;
 
 /// Clipboard backup data with MIME type information
@@ -131,9 +136,14 @@ impl ClipboardInjector {
             .map_err(|e| InjectionError::Process(format!("Failed to execute wl-paste: {}", e)))?;
 
         if output.status.success() {
-            Ok(ClipboardBackup::new(output.stdout, "text/plain".to_string()))
+            Ok(ClipboardBackup::new(
+                output.stdout,
+                "text/plain".to_string(),
+            ))
         } else {
-            Err(InjectionError::Process("wl-paste command failed".to_string()))
+            Err(InjectionError::Process(
+                "wl-paste command failed".to_string(),
+            ))
         }
     }
 
@@ -146,7 +156,10 @@ impl ClipboardInjector {
             .map_err(|e| InjectionError::Process(format!("Failed to execute xclip: {}", e)))?;
 
         if output.status.success() {
-            Ok(ClipboardBackup::new(output.stdout, "text/plain".to_string()))
+            Ok(ClipboardBackup::new(
+                output.stdout,
+                "text/plain".to_string(),
+            ))
         } else {
             Err(InjectionError::Process("xclip command failed".to_string()))
         }
@@ -155,7 +168,11 @@ impl ClipboardInjector {
     /// Write content to clipboard
     pub async fn write_clipboard(&self, content: &[u8], mime_type: &str) -> InjectionResult<()> {
         let start_time = Instant::now();
-        trace!("Writing {} bytes to clipboard (MIME: {})", content.len(), mime_type);
+        trace!(
+            "Writing {} bytes to clipboard (MIME: {})",
+            content.len(),
+            mime_type
+        );
 
         match self.backend_type {
             ClipboardBackend::Wayland => self.write_wayland_clipboard(content, mime_type).await?,
@@ -179,7 +196,11 @@ impl ClipboardInjector {
     }
 
     /// Write content to Wayland clipboard
-    async fn write_wayland_clipboard(&self, content: &[u8], _mime_type: &str) -> InjectionResult<()> {
+    async fn write_wayland_clipboard(
+        &self,
+        content: &[u8],
+        _mime_type: &str,
+    ) -> InjectionResult<()> {
         // Use wl-copy command as a simple fallback implementation
         let _content_str = String::from_utf8_lossy(content);
         let output = Command::new("wl-copy")
@@ -191,13 +212,15 @@ impl ClipboardInjector {
         if output.status.success() {
             Ok(())
         } else {
-            Err(InjectionError::Process("wl-copy command failed".to_string()))
+            Err(InjectionError::Process(
+                "wl-copy command failed".to_string(),
+            ))
         }
     }
 
     /// Write content to X11 clipboard
     async fn write_x11_clipboard(&self, content: &[u8]) -> InjectionResult<()> {
-    let _content_str = String::from_utf8_lossy(content);
+        let _content_str = String::from_utf8_lossy(content);
         let output = Command::new("xclip")
             .args(&["-selection", "clipboard"])
             .stdin(std::process::Stdio::piped())
@@ -215,9 +238,13 @@ impl ClipboardInjector {
     /// Restore clipboard content from backup
     pub async fn restore_clipboard(&self, backup: &ClipboardBackup) -> InjectionResult<()> {
         let start_time = Instant::now();
-        trace!("Restoring clipboard from backup ({} bytes)", backup.content.len());
+        trace!(
+            "Restoring clipboard from backup ({} bytes)",
+            backup.content.len()
+        );
 
-        self.write_clipboard(&backup.content, &backup.mime_type).await?;
+        self.write_clipboard(&backup.content, &backup.mime_type)
+            .await?;
 
         let elapsed = start_time.elapsed();
         debug!("Restored clipboard in {}ms", elapsed.as_millis());
@@ -263,7 +290,8 @@ impl ClipboardInjector {
     async fn try_atspi_paste(&self) -> InjectionResult<()> {
         use atspi::{
             connection::AccessibilityConnection, proxy::action::ActionProxy,
-            proxy::collection::CollectionProxy, Interface, MatchType, ObjectMatchRule, SortOrder, State,
+            proxy::collection::CollectionProxy, Interface, MatchType, ObjectMatchRule, SortOrder,
+            State,
         };
 
         let conn = AccessibilityConnection::new()
@@ -354,16 +382,20 @@ impl ClipboardInjector {
         use enigo::{Direction, Enigo, Key, Keyboard, Settings};
 
         let result = tokio::task::spawn_blocking(move || {
-            let mut enigo = Enigo::new(&Settings::default())
-                .map_err(|e| InjectionError::MethodFailed(format!("Failed to create Enigo: {}", e)))?;
+            let mut enigo = Enigo::new(&Settings::default()).map_err(|e| {
+                InjectionError::MethodFailed(format!("Failed to create Enigo: {}", e))
+            })?;
 
             // Press Ctrl+V for paste
-            enigo.key(Key::Control, Direction::Press)
-                .map_err(|e| InjectionError::MethodFailed(format!("Failed to press Ctrl: {}", e)))?;
-            enigo.key(Key::Unicode('v'), Direction::Click)
+            enigo.key(Key::Control, Direction::Press).map_err(|e| {
+                InjectionError::MethodFailed(format!("Failed to press Ctrl: {}", e))
+            })?;
+            enigo
+                .key(Key::Unicode('v'), Direction::Click)
                 .map_err(|e| InjectionError::MethodFailed(format!("Failed to type 'v': {}", e)))?;
-            enigo.key(Key::Control, Direction::Release)
-                .map_err(|e| InjectionError::MethodFailed(format!("Failed to release Ctrl: {}", e)))?;
+            enigo.key(Key::Control, Direction::Release).map_err(|e| {
+                InjectionError::MethodFailed(format!("Failed to release Ctrl: {}", e))
+            })?;
 
             Ok(())
         })
@@ -406,13 +438,18 @@ impl ClipboardInjector {
             ])
             .output()
             .await
-            .map_err(|e| InjectionError::Process(format!("Failed to execute qdbus for Klipper: {}", e)))?;
+            .map_err(|e| {
+                InjectionError::Process(format!("Failed to execute qdbus for Klipper: {}", e))
+            })?;
 
         if output.status.success() {
             debug!("Klipper history cleared successfully");
             Ok(())
         } else {
-            warn!("Failed to clear Klipper history: {}", String::from_utf8_lossy(&output.stderr));
+            warn!(
+                "Failed to clear Klipper history: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
             // Don't fail the operation for Klipper cleanup issues
             Ok(())
         }
@@ -450,7 +487,7 @@ impl ClipboardInjector {
         }
 
         // Optional Klipper cleanup if enabled
-    #[cfg(feature = "kdotool")]
+        #[cfg(feature = "kdotool")]
         {
             if self.config.allow_kdotool {
                 // Use allow_kdotool as a proxy for enabling Klipper cleanup
@@ -461,7 +498,7 @@ impl ClipboardInjector {
         }
 
         let elapsed = start_time.elapsed();
-        
+
         // Log successful injection
         utils::log_injection_success(
             InjectionMethod::ClipboardPasteFallback,
@@ -547,7 +584,8 @@ impl TextInjector for ClipboardInjector {
             ("type", "clipboard seed/restore".to_string()),
             (
                 "description",
-                "Backs up clipboard, seeds with payload, performs paste, then restores backup".to_string(),
+                "Backs up clipboard, seeds with payload, performs paste, then restores backup"
+                    .to_string(),
             ),
             ("backend", format!("{:?}", self.backend_type)),
             ("paste_methods", "AT-SPI, Enigo, ydotool".to_string()),
@@ -569,7 +607,11 @@ impl TextInjector for ClipboardInjector {
         is_available
     }
 
-    async fn inject_text(&self, text: &str, context: Option<&InjectionContext>) -> InjectionResult<()> {
+    async fn inject_text(
+        &self,
+        text: &str,
+        context: Option<&InjectionContext>,
+    ) -> InjectionResult<()> {
         // Use provided context or create default
         let default_context = InjectionContext::default();
         let ctx = context.unwrap_or(&default_context);
@@ -585,7 +627,7 @@ mod tests {
     async fn test_clipboard_injector_creation() {
         let config = InjectionConfig::default();
         let injector = ClipboardInjector::new(config);
-        
+
         assert_eq!(injector.backend_name(), "clipboard-injector");
         assert_eq!(injector.method(), InjectionMethod::ClipboardPasteFallback);
     }
@@ -594,7 +636,7 @@ mod tests {
     async fn test_clipboard_backup_creation() {
         let content = b"test content".to_vec();
         let backup = ClipboardBackup::new(content.clone(), "text/plain".to_string());
-        
+
         assert_eq!(backup.content, content);
         assert_eq!(backup.mime_type, "text/plain");
         assert!(backup.is_valid(Duration::from_secs(1)));
@@ -604,7 +646,7 @@ mod tests {
     #[tokio::test]
     async fn test_context_default() {
         let context = InjectionContext::default();
-        
+
         assert!(context.atspi_focused_node_path.is_none());
         assert!(context.clipboard_backup.is_none());
         assert!(context.target_app.is_none());
@@ -615,13 +657,10 @@ mod tests {
     async fn test_with_seed_restore_wrapper() {
         let payload = b"test payload";
         let mime_type = "text/plain";
-        
+
         // Test the wrapper function
-        let result = with_seed_restore(payload, mime_type, None, || async {
-            Ok(())
-        })
-        .await;
-        
+        let result = with_seed_restore(payload, mime_type, None, || async { Ok(()) }).await;
+
         // The result may fail due to clipboard unavailability in test environment
         // but we're testing the wrapper structure
         assert!(result.is_ok() || result.is_err());
@@ -632,7 +671,7 @@ mod tests {
         let config = InjectionConfig::default();
         let injector = ClipboardInjector::new(config);
         let context = InjectionContext::default();
-        
+
         // Empty text should succeed without error
         let result = injector.inject("", &context).await;
         assert!(result.is_ok());
@@ -642,7 +681,7 @@ mod tests {
     async fn test_legacy_inject_text() {
         let config = InjectionConfig::default();
         let injector = ClipboardInjector::new(config);
-        
+
         // Empty text should succeed without error
         let result = injector.inject_text("", None).await;
         assert!(result.is_ok());
@@ -653,6 +692,9 @@ mod tests {
         // These tests might not work in all environments
         // but ensure the detection code doesn't panic
         let backend_type = ClipboardInjector::detect_backend();
-        assert!(matches!(backend_type, ClipboardBackend::Wayland | ClipboardBackend::X11 | ClipboardBackend::Unknown));
+        assert!(matches!(
+            backend_type,
+            ClipboardBackend::Wayland | ClipboardBackend::X11 | ClipboardBackend::Unknown
+        ));
     }
 }

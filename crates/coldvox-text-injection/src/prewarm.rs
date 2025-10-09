@@ -54,7 +54,7 @@ impl<T> CachedData<T> {
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 struct AtspiData {
-    connection: Option<String>, // Simplified connection indicator
+    connection: Option<String>,   // Simplified connection indicator
     focused_node: Option<String>, // Simplified node identifier
     target_app: Option<String>,
     window_id: Option<String>,
@@ -97,13 +97,13 @@ pub struct VirtualKeyboardData {
 /// Pre-warming controller that manages all pre-warming operations
 pub struct PrewarmController {
     config: InjectionConfig,
-    
+
     // Cached data with TTL
     atspi_data: Arc<RwLock<CachedData<AtspiData>>>,
     clipboard_data: Arc<RwLock<CachedData<ClipboardData>>>,
     portal_data: Arc<RwLock<CachedData<PortalData>>>,
     virtual_keyboard_data: Arc<RwLock<CachedData<VirtualKeyboardData>>>,
-    
+
     // Event listener state
     event_listener_armed: Arc<Mutex<bool>>,
 }
@@ -124,7 +124,7 @@ impl PrewarmController {
     /// Get the AT-SPI context with pre-warmed data
     pub async fn get_atspi_context(&self) -> AtspiContext {
         let atsi_data = self.atspi_data.read().await;
-        
+
         if let Some(data) = atsi_data.get() {
             AtspiContext {
                 focused_node: data.target_app.clone(), // Use target_app as focused_node for now
@@ -163,13 +163,12 @@ impl PrewarmController {
     async fn prewarm_atspi(&self) -> Result<AtspiData, String> {
         let start_time = Instant::now();
         debug!("Starting AT-SPI pre-warming");
-        
+
         #[cfg(feature = "atspi")]
         {
             use atspi::{
-                connection::AccessibilityConnection,
-                proxy::collection::CollectionProxy,
-                MatchType, ObjectMatchRule, SortOrder, State,
+                connection::AccessibilityConnection, proxy::collection::CollectionProxy, MatchType,
+                ObjectMatchRule, SortOrder, State,
             };
             use tokio::time;
 
@@ -178,7 +177,7 @@ impl PrewarmController {
                 .await
                 .map_err(|_| "AT-SPI connection timeout".to_string())?
                 .map_err(|e| format!("AT-SPI connect failed: {e}"))?;
-            
+
             let zbus_conn = conn.connection();
             trace!("AT-SPI connection established during pre-warming");
 
@@ -189,7 +188,7 @@ impl PrewarmController {
                 .path("/org/a11y.atspi/accessible/root")
                 .map_err(|e| format!("CollectionProxy path failed: {e}"))?
                 .build();
-            
+
             let collection = time::timeout(STEP_TIMEOUT, collection_fut)
                 .await
                 .map_err(|_| "CollectionProxy timeout".to_string())?
@@ -253,10 +252,10 @@ impl PrewarmController {
         #[cfg(feature = "atspi")]
         {
             use crate::confirm::create_confirmation_context;
-            
+
             // Create confirmation context to arm the listener
             let _confirmation_context = create_confirmation_context(self.config.clone());
-            
+
             // Mark the listener as armed
             {
                 let mut armed = self.event_listener_armed.lock().await;
@@ -314,14 +313,14 @@ impl PrewarmController {
                 Ok(output) if output.status.success() => {
                     let content = Some(output.stdout);
                     let mime_type = Some("text/plain".to_string());
-                    
+
                     let elapsed = start_time.elapsed();
                     debug!(
                         "Clipboard snapshot via wl-paste completed in {}ms ({} bytes)",
                         elapsed.as_millis(),
                         content.as_ref().map_or(0, |c| c.len())
                     );
-                    
+
                     Ok(ClipboardData { content, mime_type })
                 }
                 Ok(_) => {
@@ -532,10 +531,8 @@ pub async fn run_for_method(_ctx: &AtspiContext, method: InjectionMethod) -> Inj
     match method {
         InjectionMethod::AtspiInsert => {
             // Only pre-warm AT-SPI and event listener for AT-SPI injection
-            let (atspi_result, event_result) = tokio::join!(
-                controller.prewarm_atspi(),
-                controller.arm_event_listener()
-            );
+            let (atspi_result, event_result) =
+                tokio::join!(controller.prewarm_atspi(), controller.arm_event_listener());
 
             // Update caches
             {
@@ -626,16 +623,16 @@ mod tests {
     #[tokio::test]
     async fn test_cached_data_ttl() {
         let mut cached: CachedData<String> = CachedData::new();
-        
+
         // Initially invalid
         assert!(!cached.is_valid());
         assert!(cached.get().is_none());
-        
+
         // Update data
         cached.update("test".to_string());
         assert!(cached.is_valid());
         assert_eq!(cached.get(), Some(&"test".to_string()));
-        
+
         // Simulate time passing (in real tests, you'd use mock time)
         // For now, just verify the basic functionality
     }
@@ -644,13 +641,13 @@ mod tests {
     async fn test_prewarm_controller_creation() {
         let config = InjectionConfig::default();
         let controller = PrewarmController::new(config);
-        
+
         // Verify initial state
         assert!(!controller.is_event_listener_armed().await);
         assert!(controller.get_clipboard_data().await.is_none());
         assert!(controller.get_portal_status().await.is_none());
         assert!(controller.get_virtual_keyboard_status().await.is_none());
-        
+
         // Verify context creation works
         let ctx = controller.get_atspi_context().await;
         assert!(ctx.focused_node.is_none());
@@ -661,7 +658,7 @@ mod tests {
     #[tokio::test]
     async fn test_run_function() {
         let ctx = AtspiContext::default();
-        
+
         // This should not panic
         let result = run(&ctx).await;
         assert!(result.is_ok());

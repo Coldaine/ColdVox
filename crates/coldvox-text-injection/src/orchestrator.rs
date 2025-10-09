@@ -102,7 +102,7 @@ impl StrategyOrchestrator {
         info!("Detected desktop environment: {}", desktop_env);
 
         let prewarm_controller = Arc::new(PrewarmController::new(config.clone()));
-        
+
         // Create AT-SPI injector if available
         let atspi_injector = if cfg!(feature = "atspi") {
             Some(AtspiInjector::new(config.clone()))
@@ -112,7 +112,9 @@ impl StrategyOrchestrator {
 
         // Create session with default config
         let session_config = crate::session::SessionConfig::default();
-        let metrics = Arc::new(std::sync::Mutex::new(crate::types::InjectionMetrics::default()));
+        let metrics = Arc::new(std::sync::Mutex::new(
+            crate::types::InjectionMetrics::default(),
+        ));
         let session = Arc::new(RwLock::new(InjectionSession::new(session_config, metrics)));
 
         Self {
@@ -191,9 +193,7 @@ impl StrategyOrchestrator {
                 InjectionMethod::AtspiInsert,
                 InjectionMethod::ClipboardPasteFallback,
             ],
-            DesktopEnvironment::Windows => vec![
-                InjectionMethod::ClipboardPasteFallback,
-            ],
+            DesktopEnvironment::Windows => vec![InjectionMethod::ClipboardPasteFallback],
             _ => vec![
                 InjectionMethod::AtspiInsert,
                 InjectionMethod::ClipboardPasteFallback,
@@ -215,7 +215,9 @@ impl StrategyOrchestrator {
                     let ctx_clone = ctx.clone();
                     let method_clone = *first_method;
                     tokio::spawn(async move {
-                        if let Err(e) = crate::prewarm::run_for_method(&ctx_clone, method_clone).await {
+                        if let Err(e) =
+                            crate::prewarm::run_for_method(&ctx_clone, method_clone).await
+                        {
                             warn!("Targeted pre-warming failed for {:?}: {}", method_clone, e);
                         }
                     });
@@ -233,12 +235,21 @@ impl StrategyOrchestrator {
 
         // Get strategy order for current environment
         let strategy_order = self.get_strategy_order();
-        debug!("Strategy order for {}: {:?}", self.desktop_env, strategy_order);
+        debug!(
+            "Strategy order for {}: {:?}",
+            self.desktop_env, strategy_order
+        );
 
         // Get current context
         let context = self.prewarm_controller.get_atspi_context().await;
-        let target_app = context.target_app.clone().unwrap_or_else(|| "unknown".to_string());
-        let window_id = context.window_id.clone().unwrap_or_else(|| "unknown".to_string());
+        let target_app = context
+            .target_app
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string());
+        let window_id = context
+            .window_id
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string());
 
         // Try each strategy in order
         for (i, method) in strategy_order.iter().enumerate() {
@@ -248,7 +259,12 @@ impl StrategyOrchestrator {
                 return Err(InjectionError::BudgetExhausted);
             }
 
-            debug!("Attempting strategy {:?} ({}/{})", method, i + 1, strategy_order.len());
+            debug!(
+                "Attempting strategy {:?} ({}/{})",
+                method,
+                i + 1,
+                strategy_order.len()
+            );
 
             // Create injection context - orchestrator doesn't support pre-warming yet
             let context = crate::types::InjectionContext::default();
@@ -258,8 +274,12 @@ impl StrategyOrchestrator {
             let result = match method {
                 InjectionMethod::AtspiInsert => {
                     if let Some(ref injector) = self.atspi_injector {
-                        tokio::time::timeout(stage_budget, injector.inject_text(text, Some(&context))).await
-                            .map_err(|_| InjectionError::Timeout(stage_budget.as_millis() as u64))?
+                        tokio::time::timeout(
+                            stage_budget,
+                            injector.inject_text(text, Some(&context)),
+                        )
+                        .await
+                        .map_err(|_| InjectionError::Timeout(stage_budget.as_millis() as u64))?
                     } else {
                         continue;
                     }
@@ -267,8 +287,12 @@ impl StrategyOrchestrator {
                 InjectionMethod::ClipboardPasteFallback => {
                     // For now, we'll use AT-SPI paste as a fallback
                     if let Some(ref injector) = self.atspi_injector {
-                        tokio::time::timeout(stage_budget, injector.inject_text(text, Some(&context))).await
-                            .map_err(|_| InjectionError::Timeout(stage_budget.as_millis() as u64))?
+                        tokio::time::timeout(
+                            stage_budget,
+                            injector.inject_text(text, Some(&context)),
+                        )
+                        .await
+                        .map_err(|_| InjectionError::Timeout(stage_budget.as_millis() as u64))?
                     } else {
                         continue;
                     }
@@ -282,14 +306,19 @@ impl StrategyOrchestrator {
             match result {
                 Ok(()) => {
                     let stage_elapsed = stage_start.elapsed();
-                    debug!("Strategy {:?} succeeded in {}ms", method, stage_elapsed.as_millis());
+                    debug!(
+                        "Strategy {:?} succeeded in {}ms",
+                        method,
+                        stage_elapsed.as_millis()
+                    );
 
                     // Confirm injection with confirm budget
                     let confirm_start = Instant::now();
                     let confirm_result = tokio::time::timeout(
                         confirm_budget,
-                        text_changed(&target_app, text, &window_id)
-                    ).await;
+                        text_changed(&target_app, text, &window_id),
+                    )
+                    .await;
 
                     match confirm_result {
                         Ok(Ok(ConfirmationResult::Success)) => {
@@ -310,7 +339,10 @@ impl StrategyOrchestrator {
                             // Continue to next strategy
                         }
                         Err(_) => {
-                            debug!("Confirmation timed out after {}ms", confirm_budget.as_millis());
+                            debug!(
+                                "Confirmation timed out after {}ms",
+                                confirm_budget.as_millis()
+                            );
                             // Continue to next strategy
                         }
                     }
@@ -319,7 +351,9 @@ impl StrategyOrchestrator {
                     let stage_elapsed = stage_start.elapsed();
                     debug!(
                         "Strategy {:?} failed in {}ms: {}",
-                        method, stage_elapsed.as_millis(), e
+                        method,
+                        stage_elapsed.as_millis(),
+                        e
                     );
                     // Continue to next strategy
                 }
@@ -335,7 +369,7 @@ impl StrategyOrchestrator {
         );
 
         Err(InjectionError::AllMethodsFailed(
-            "All strategies failed in fast-fail loop".to_string()
+            "All strategies failed in fast-fail loop".to_string(),
         ))
     }
 
@@ -399,12 +433,27 @@ mod tests {
     #[test]
     fn test_strategy_order() {
         let config = InjectionConfig::default();
-        
+
         // Test with different environments
         let test_cases = vec![
-            (DesktopEnvironment::KdeWayland, vec![InjectionMethod::AtspiInsert, InjectionMethod::ClipboardPasteFallback]),
-            (DesktopEnvironment::Hyprland, vec![InjectionMethod::AtspiInsert, InjectionMethod::ClipboardPasteFallback]),
-            (DesktopEnvironment::Windows, vec![InjectionMethod::ClipboardPasteFallback]),
+            (
+                DesktopEnvironment::KdeWayland,
+                vec![
+                    InjectionMethod::AtspiInsert,
+                    InjectionMethod::ClipboardPasteFallback,
+                ],
+            ),
+            (
+                DesktopEnvironment::Hyprland,
+                vec![
+                    InjectionMethod::AtspiInsert,
+                    InjectionMethod::ClipboardPasteFallback,
+                ],
+            ),
+            (
+                DesktopEnvironment::Windows,
+                vec![InjectionMethod::ClipboardPasteFallback],
+            ),
         ];
 
         for (env, expected_order) in test_cases {
@@ -416,13 +465,19 @@ mod tests {
                 atspi_injector: None,
                 session: Arc::new(RwLock::new(InjectionSession::new(
                     crate::session::SessionConfig::default(),
-                    Arc::new(std::sync::Mutex::new(crate::types::InjectionMetrics::default()))
+                    Arc::new(std::sync::Mutex::new(
+                        crate::types::InjectionMetrics::default(),
+                    )),
                 ))),
                 last_context: Arc::new(RwLock::new(None)),
             };
 
             let order = orchestrator.get_strategy_order();
-            assert_eq!(order, expected_order, "Strategy order mismatch for {:?}", env);
+            assert_eq!(
+                order, expected_order,
+                "Strategy order mismatch for {:?}",
+                env
+            );
         }
     }
 
@@ -430,7 +485,7 @@ mod tests {
     async fn test_orchestrator_creation() {
         let config = InjectionConfig::default();
         let orchestrator = StrategyOrchestrator::new(config).await;
-        
+
         // Just ensure it creates without panicking
         assert!(orchestrator.is_available().await || !orchestrator.is_available().await);
     }
@@ -439,7 +494,7 @@ mod tests {
     async fn test_empty_text_handling() {
         let config = InjectionConfig::default();
         let orchestrator = StrategyOrchestrator::new(config).await;
-        
+
         // Empty text should succeed without error
         let result = orchestrator.inject_text("").await;
         assert!(result.is_ok());
