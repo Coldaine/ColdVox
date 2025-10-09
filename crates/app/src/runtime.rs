@@ -1,5 +1,6 @@
 use std::sync::Arc;
-use std::time::{Instant, Ordering};
+use std::time::Instant;
+use std::sync::atomic::Ordering;
 
 use tokio::signal;
 use tokio::sync::{broadcast, mpsc, Mutex, RwLock};

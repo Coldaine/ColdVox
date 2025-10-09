@@ -114,6 +114,8 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
         }
 
         let metrics = Arc::new(parking_lot::RwLock::new(SttMetrics::default()));
+        let stt_metrics_clone = stt_metrics.clone();
+        let pipeline_metrics_clone = pipeline_metrics.clone();
         Self {
             audio_rx,
             vad_event_rx,
@@ -125,7 +127,7 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
             pipeline_metrics,
             config,
             buffer_mgr: None,
-            emitter: EventEmitter::new(event_tx, metrics, stt_metrics.clone(), pipeline_metrics.clone()),
+            emitter: EventEmitter::new(event_tx, metrics, stt_metrics_clone, pipeline_metrics_clone),
         }
     }
 
