@@ -6,7 +6,7 @@
 
 use crate::confirm::{text_changed, ConfirmationResult};
 use crate::injectors::atspi::AtspiInjector;
-use crate::prewarm::{PrewarmController, run};
+use crate::prewarm::PrewarmController;
 use crate::session::{InjectionSession, SessionState};
 use crate::types::{InjectionConfig, InjectionError, InjectionMethod, InjectionResult};
 use crate::TextInjector;
@@ -201,20 +201,25 @@ impl StrategyOrchestrator {
         }
     }
 
-    /// Trigger pre-warming when session enters Buffering state
+    /// Trigger targeted pre-warming for the first method we'll try
     async fn check_and_trigger_prewarm(&self) {
         let session = self.session.read().await;
         if session.state() == SessionState::Buffering {
             // Get current context for pre-warming
             let context = self.last_context.read().await;
             if let Some(ref ctx) = *context {
-                // Run pre-warming in the background (non-blocking)
-                let ctx_clone = ctx.clone();
-                tokio::spawn(async move {
-                    if let Err(e) = run(&ctx_clone).await {
-                        warn!("Pre-warming failed: {}", e);
-                    }
-                });
+                // Get the first method we'll try
+                let strategy_order = self.get_strategy_order();
+                if let Some(first_method) = strategy_order.first() {
+                    // Run targeted pre-warming for just this method (non-blocking)
+                    let ctx_clone = ctx.clone();
+                    let method_clone = *first_method;
+                    tokio::spawn(async move {
+                        if let Err(e) = crate::prewarm::run_for_method(&ctx_clone, method_clone).await {
+                            warn!("Targeted pre-warming failed for {:?}: {}", method_clone, e);
+                        }
+                    });
+                }
             }
         }
     }
@@ -245,13 +250,15 @@ impl StrategyOrchestrator {
 
             debug!("Attempting strategy {:?} ({}/{})", method, i + 1, strategy_order.len());
 
+            // Create injection context - orchestrator doesn't support pre-warming yet
+            let context = crate::types::InjectionContext::default();
+
             // Execute injection with stage budget
             let stage_start = Instant::now();
             let result = match method {
                 InjectionMethod::AtspiInsert => {
                     if let Some(ref injector) = self.atspi_injector {
-                        // For now, we'll use the inject_text method directly
-                        tokio::time::timeout(stage_budget, injector.inject_text(text)).await
+                        tokio::time::timeout(stage_budget, injector.inject_text(text, Some(&context))).await
                             .map_err(|_| InjectionError::Timeout(stage_budget.as_millis() as u64))?
                     } else {
                         continue;
@@ -260,8 +267,7 @@ impl StrategyOrchestrator {
                 InjectionMethod::ClipboardPasteFallback => {
                     // For now, we'll use AT-SPI paste as a fallback
                     if let Some(ref injector) = self.atspi_injector {
-                        // For now, we'll use the inject_text method directly
-                        tokio::time::timeout(stage_budget, injector.inject_text(text)).await
+                        tokio::time::timeout(stage_budget, injector.inject_text(text, Some(&context))).await
                             .map_err(|_| InjectionError::Timeout(stage_budget.as_millis() as u64))?
                     } else {
                         continue;

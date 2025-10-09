@@ -1,5 +1,4 @@
 //! Quick verification that Enigo implementation is live and functional
-use coldvox_text_injection::{InjectionConfig, TextInjector};
 
 #[tokio::main]
 async fn main() {

@@ -153,29 +153,8 @@ impl InjectionProcessor {
     /// Check if injection should be performed and execute if needed
     pub async fn check_and_inject(&mut self) -> anyhow::Result<()> {
         if self.session.should_inject() {
-            // Determine if we'll use paste or keystroke based on configuration
-            let use_paste = match self.config.injection_mode.as_str() {
-                "paste" => true,
-                "keystroke" => false,
-                "auto" => {
-                    let buffer_text = self.session.buffer_preview();
-                    buffer_text.len() > self.config.paste_chunk_chars as usize
-                }
-                _ => {
-                    let buffer_text = self.session.buffer_preview();
-                    buffer_text.len() > self.config.paste_chunk_chars as usize
-                }
-            };
-
-            // Record the operation type
-            if let Ok(mut metrics) = self.injection_metrics.lock() {
-                if use_paste {
-                    metrics.record_paste();
-                } else {
-                    metrics.record_keystroke();
-                }
-            }
-
+            // Mode decision is now centralized in StrategyManager
+            // which receives the config and makes the paste vs keystroke decision
             self.perform_injection().await?;
         }
         Ok(())
@@ -184,29 +163,7 @@ impl InjectionProcessor {
     /// Force injection of current buffer (for manual triggers)
     pub async fn force_inject(&mut self) -> anyhow::Result<()> {
         if self.session.has_content() {
-            // Determine if we'll use paste or keystroke based on configuration
-            let use_paste = match self.config.injection_mode.as_str() {
-                "paste" => true,
-                "keystroke" => false,
-                "auto" => {
-                    let buffer_text = self.session.buffer_preview();
-                    buffer_text.len() > self.config.paste_chunk_chars as usize
-                }
-                _ => {
-                    let buffer_text = self.session.buffer_preview();
-                    buffer_text.len() > self.config.paste_chunk_chars as usize
-                }
-            };
-
-            // Record the operation type
-            if let Ok(mut metrics) = self.injection_metrics.lock() {
-                if use_paste {
-                    metrics.record_paste();
-                } else {
-                    metrics.record_keystroke();
-                }
-            }
-
+            // Mode decision is now centralized in StrategyManager
             self.session.force_inject();
             self.perform_injection().await?;
         }
