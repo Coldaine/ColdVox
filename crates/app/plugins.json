@@ -1,6 +1,8 @@
 {
-  "preferred_plugin": "vosk",
-  "fallback_plugins": [],
+  "preferred_plugin": "mock",
+  "fallback_plugins": [
+    "noop"
+  ],
   "require_local": false,
   "max_memory_mb": null,
   "required_language": "en",

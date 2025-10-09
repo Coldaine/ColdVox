@@ -11,9 +11,9 @@ mod tests {
         let mut manager = StrategyManager::new(config, metrics).await;
 
         // Simulate some successes and failures
-        manager.update_success_record("test_app", InjectionMethod::ClipboardPasteFallback, true);
-        manager.update_success_record("test_app", InjectionMethod::ClipboardPasteFallback, true);
-        manager.update_success_record("test_app", InjectionMethod::ClipboardPasteFallback, false);
+        manager.update_success_record("test_app", InjectionMethod::Clipboard, true);
+        manager.update_success_record("test_app", InjectionMethod::Clipboard, true);
+        manager.update_success_record("test_app", InjectionMethod::Clipboard, false);
 
         // Success rate should be approximately 66%
         let methods = manager.get_method_priority("test_app");
@@ -27,19 +27,16 @@ mod tests {
         let mut manager = StrategyManager::new(config, metrics).await;
 
         // Apply cooldown
-        manager.apply_cooldown(
-            "test_app",
-            InjectionMethod::ClipboardPasteFallback,
-            "Test error",
-        );
+        manager.apply_cooldown("test_app", InjectionMethod::YdoToolPaste, "Test error");
 
         // Method should be in cooldown
-        let _ = manager.is_in_cooldown(InjectionMethod::ClipboardPasteFallback);
+        let _ = manager.is_in_cooldown(InjectionMethod::YdoToolPaste);
     }
 
     #[tokio::test]
     async fn test_method_priority_ordering() {
         let config = InjectionConfig {
+            allow_ydotool: true,
             allow_enigo: false,
             ..Default::default()
         };
@@ -69,15 +66,11 @@ mod tests {
         let mut manager = StrategyManager::new(config, metrics).await;
 
         // Add initial success
-        manager.update_success_record("test_app", InjectionMethod::ClipboardPasteFallback, true);
+        manager.update_success_record("test_app", InjectionMethod::Clipboard, true);
 
         // Add multiple updates to trigger decay
         for _ in 0..5 {
-            manager.update_success_record(
-                "test_app",
-                InjectionMethod::ClipboardPasteFallback,
-                true,
-            );
+            manager.update_success_record("test_app", InjectionMethod::Clipboard, true);
         }
 
         // Success rate should still be high despite decay

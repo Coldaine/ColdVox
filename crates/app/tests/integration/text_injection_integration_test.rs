@@ -52,7 +52,7 @@ mod tests {
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
 
         // Create strategy manager
-        let mut manager = StrategyManager::new(config, metrics.clone()).await;
+        let mut manager = StrategyManager::new(config, metrics.clone());
 
         // Force a failure by setting very short budget
         manager.config.max_total_latency_ms = 1;
@@ -87,9 +87,10 @@ mod tests {
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
 
         // Create strategy manager
-        let mut manager = StrategyManager::new(config, metrics.clone()).await;
+        let mut manager = StrategyManager::new(config, metrics.clone());
 
         // Temporarily disable all methods to force fallback sequence
+        manager.config.allow_ydotool = false;
         manager.config.allow_kdotool = false;
         manager.config.allow_enigo = false;
 
@@ -102,8 +103,8 @@ mod tests {
         assert!(metrics_guard.attempts > 0, "Should attempt injection");
 
         // The specific number of attempts depends on available backends
-    // but should be at least the base methods (AtspiInsert, ClipboardPasteFallback)
-        assert!(metrics_guard.attempts >= 2, "Should try at least 2 methods");
+        // but should be at least the base methods (AtspiInsert, ClipboardAndPaste, Clipboard)
+        assert!(metrics_guard.attempts >= 3, "Should try at least 3 methods");
     }
 
     #[tokio::test]
@@ -116,7 +117,7 @@ mod tests {
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
 
         // Create strategy manager
-        let mut manager = StrategyManager::new(config, metrics.clone()).await;
+        let mut manager = StrategyManager::new(config, metrics.clone());
 
         // Force a failure
         manager.config.max_total_latency_ms = 1;
@@ -204,8 +205,8 @@ mod tests {
         use coldvox_text_injection::strategies::combo_clip_atspi::ComboClipAtspiStrategy;
         use coldvox_text_injection::types::InjectionContext;
 
-        // Note: clipboard restoration is automatic (always enabled)
         let config = InjectionConfig {
+            restore_clipboard: true,
             inject_on_unknown_focus: true,
             ..Default::default()
         };

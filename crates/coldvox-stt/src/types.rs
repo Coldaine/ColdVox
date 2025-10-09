@@ -1,28 +1,5 @@
 //! Core types for speech-to-text functionality
 
-use std::time::Instant;
-
-/// STT processor metrics
-#[derive(Debug, Clone, Default)]
-pub struct SttMetrics {
-    /// Total frames received
-    pub frames_in: u64,
-    /// Total frames processed
-    pub frames_out: u64,
-    /// Total frames dropped due to overflow
-    pub frames_dropped: u64,
-    /// Number of partial transcriptions
-    pub partial_count: u64,
-    /// Number of final transcriptions
-    pub final_count: u64,
-    /// Number of errors
-    pub error_count: u64,
-    /// Current queue depth
-    pub queue_depth: usize,
-    /// Time since last STT event
-    pub last_event_time: Option<Instant>,
-}
-
 /// Transcription event types
 #[derive(Debug, Clone, PartialEq)]
 pub enum TranscriptionEvent {

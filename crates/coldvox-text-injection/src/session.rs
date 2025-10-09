@@ -1,6 +1,6 @@
 use crate::types::InjectionMetrics;
 use std::time::{Duration, Instant};
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 /// Session state machine for buffered text injection
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -145,7 +145,7 @@ impl InjectionSession {
             SessionState::Idle => {
                 self.state = SessionState::Buffering;
                 self.buffering_start = Some(Instant::now());
-                debug!("Session started - first transcription buffered");
+                info!("Session started - first transcription buffered");
             }
             SessionState::Buffering => {
                 debug!(
@@ -177,7 +177,7 @@ impl InjectionSession {
         // Check if we should flush due to punctuation
         if ends_with_punctuation {
             self.state = SessionState::ReadyToInject;
-            debug!("Flushing buffer due to punctuation mark");
+            info!("Flushing buffer due to punctuation mark");
         }
     }
 
@@ -193,7 +193,7 @@ impl InjectionSession {
                 if let Some(time_since_last) = time_since_last_transcription {
                     if time_since_last >= self.buffer_pause_timeout {
                         self.state = SessionState::WaitingForSilence;
-                        debug!("Transitioned to WaitingForSilence state");
+                        info!("Transitioned to WaitingForSilence state");
                     }
                 }
             }
@@ -213,7 +213,7 @@ impl InjectionSession {
                     if last_time.elapsed() >= self.silence_timeout {
                         // Silence timeout reached, transition to ready to inject
                         self.state = SessionState::ReadyToInject;
-                        debug!(
+                        info!(
                             "Silence timeout reached, ready to inject {} transcriptions",
                             self.buffer.len()
                         );
@@ -283,7 +283,7 @@ impl InjectionSession {
     pub fn force_inject(&mut self) {
         if self.has_content() {
             self.state = SessionState::ReadyToInject;
-            debug!("Session forced to inject state");
+            info!("Session forced to inject state");
         }
     }
 
@@ -293,7 +293,7 @@ impl InjectionSession {
         self.last_transcription = None;
         self.buffering_start = None;
         self.state = SessionState::Idle;
-        debug!("Session cleared and reset to idle");
+        info!("Session cleared and reset to idle");
     }
 
     /// Get buffer preview without taking the buffer (for debugging/UI)

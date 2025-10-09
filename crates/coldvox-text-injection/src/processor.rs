@@ -71,7 +71,7 @@ impl InjectionProcessor {
         injection_metrics: Arc<Mutex<InjectionMetrics>>,
     ) -> Self {
         // Create session with shared metrics
-        let session_config = SessionConfig::default(); // TODO: Expose this if needed (config refinement)
+        let session_config = SessionConfig::default(); // TODO: Expose this if needed
         let session = InjectionSession::new(session_config, injection_metrics.clone());
 
         let injector = StrategyManager::new(config.clone(), injection_metrics.clone()).await;
@@ -97,7 +97,7 @@ impl InjectionProcessor {
         if self.session.should_inject() {
             let text = self.session.take_buffer();
             if !text.is_empty() {
-                debug!("Injecting {} characters from session", text.len());
+                info!("Injecting {} characters from session", text.len());
                 return Some(text);
             }
         }
@@ -331,7 +331,7 @@ impl AsyncInjectionProcessor {
 
     /// Run the injection processor loop
     pub async fn run(mut self) -> anyhow::Result<()> {
-        let check_interval = Duration::from_millis(100); // TODO: Make configurable (config refinement)
+        let check_interval = Duration::from_millis(100); // TODO: Make configurable
         let mut interval = time::interval(check_interval);
 
         info!("Injection processor started");
@@ -355,7 +355,6 @@ impl AsyncInjectionProcessor {
 
                     if let Some(text) = maybe_text {
                         // Perform the async injection outside the lock
-                        info!("Attempting injection of {} characters", text.len());
                         let result = self.injector.inject(&text).await;
                         let success = result.is_ok();
 
@@ -364,8 +363,6 @@ impl AsyncInjectionProcessor {
                         processor.record_injection_result(success);
                         if let Err(e) = result {
                             error!("Injection failed: {}", e);
-                        } else {
-                            info!("Injection completed successfully");
                         }
                     }
                 }

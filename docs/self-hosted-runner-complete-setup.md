@@ -249,14 +249,14 @@ jobs:
 
   # MSRV validation
   msrv-check:
-    name: MSRV Check (Rust 1.90)
+    name: MSRV Check (Rust 1.75)
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
-          toolchain: 1.90
+          toolchain: 1.75
 
       - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
 
@@ -521,44 +521,6 @@ jobs:
           echo "All CI jobs succeeded (ignoring skipped)"
 ```
 
-### Configuration Validation in CI Workflows
-
-With the centralized configuration system (using `config/default.toml` and `COLDVOX__` env var overrides), CI workflows now include validation to ensure config integrity before deployment.
-
-**Key Integration Points**:
-- **Setup Phase**: In `setup-vosk-model` or a new `setup-config` job, copy `config/default.toml` to the workspace and set mock env vars for testing (e.g., `COLDVOX_STT__PREFERRED=vosk` for CI).
-- **Build and Test Phase**: Extend `build_and_check` job:
-  - Add step for config parsing: `cargo run -- --print-config` (hypothetical; implement if needed) or run config-specific tests.
-  - Env vars in workflow: Set under `env:` for prod-like overrides, e.g.:
-    ```yaml
-    env:
-      COLDVOX_INJECTION__FAIL_FAST: true
-      COLDVOX_STT__MAX_MEM_MB: 1024
-    ```
-  - Test config-dependent features: Ensure `cargo test` covers VAD/STT/injection with loaded configs (e.g., `--features config-validation`).
-- **Validation Steps**:
-  1. Parse `default.toml`: Use a script like `scripts/validate-config.sh` to check TOML syntax and required fields.
-  2. Override Testing: Set CI-specific env vars and verify app startup: `RUST_LOG=debug cargo run -- --dry-run`.
-  3. Error Handling: Fail job if config errors (e.g., invalid nesting); log details for debugging.
-- **Rollback Safety**: If validation fails, workflows skip deployment; use git revert for config changes.
-- For full details on config handling, validation, and rollback, see [docs/deployment.md](docs/deployment.md).
-
-**Example Extension to ci.yml** (add to `build_and_check` steps):
-```yaml
-- name: Validate Configuration
-  run: |
-    # Copy config to workspace
-    cp config/default.toml ./
-    # Set test env vars
-    export COLDVOX_STT__LANGUAGE=en
-    # Run config test
-    cargo test --test config_loader -- --nocapture
-    # Verify parsing
-    RUST_LOG=info cargo run -- --help | grep "Config loaded successfully"
-```
-
-This ensures deployments are config-safe, integrating with the new TOML/env system.
-
 ### 2. Vosk Integration Tests Workflow
 
 **File**: `.github/workflows/vosk-integration.yml`
@@ -737,7 +699,6 @@ jobs:
           else
             echo "ERROR: Sudo requires a password or is not configured for this user."
             exit 1
-          fi
 ```
 
 ### 4. Setup ColdVox Action

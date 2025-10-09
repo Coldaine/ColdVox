@@ -21,30 +21,16 @@ pub struct VadMicCheck;
 
 impl VadMicCheck {
     pub async fn run(ctx: &TestContext) -> Result<LiveTestResult, TestError> {
-        // Device selection priority: env var > context > default detection
-        let device_name = std::env::var("COLDVOX_TEST_DEVICE")
-            .ok()
-            .or_else(|| ctx.device.clone())
-            .or_else(|| {
-                tracing::warn!("No device specified, using default detection");
-                None
-            });
+        let device_name = ctx.device.clone();
         let duration = ctx.duration;
-
-        if let Some(ref dev) = device_name {
-            tracing::info!("VAD Mic Test: Using device: {}", dev);
-        } else {
-            tracing::info!("VAD Mic Test: Using default device detection");
-        }
 
         let config = AudioConfig::default();
 
         // Prepare ring buffer and spawn capture thread
         let rb = AudioRingBuffer::new(16_384);
         let (audio_producer, audio_consumer) = rb.split();
-        let audio_producer = Arc::new(parking_lot::Mutex::new(audio_producer));
-        let (capture_thread, dev_cfg, device_cfg_rx, _device_event_rx) =
-            AudioCaptureThread::spawn(config, audio_producer, device_name, false).map_err(|e| {
+        let (capture_thread, dev_cfg, _config_rx, _device_event_rx) =
+            AudioCaptureThread::spawn(config, audio_producer, device_name).map_err(|e| {
                 TestError {
                     kind: TestErrorKind::Setup,
                     message: format!("Failed to create audio capture thread: {}", e),
@@ -56,10 +42,10 @@ impl VadMicCheck {
         // Create metrics for this test instance
         let metrics = Arc::new(PipelineMetrics::default());
 
-        // Periodic metrics logging every 2s (short tests)
+        // Periodic metrics logging every 30s
         let metrics_clone = metrics.clone();
         let log_handle = tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(2));
+            let mut interval = tokio::time::interval(Duration::from_secs(30));
             loop {
                 interval.tick().await;
                 let cap_fps = metrics_clone
@@ -103,18 +89,14 @@ impl VadMicCheck {
             Some(metrics.clone()),
         );
         let chunker = AudioChunker::new(frame_reader, audio_tx.clone(), chunker_cfg)
-            .with_metrics(metrics.clone())
-            .with_device_config(device_cfg_rx);
+            .with_metrics(metrics.clone());
         let chunker_handle = chunker.spawn();
 
         let vad_cfg = UnifiedVadConfig {
             mode: VadMode::Silero,
-            silero: coldvox_vad::config::SileroConfig {
-                threshold: 0.2,
-                ..Default::default()
-            },
             frame_size_samples: 512,
             sample_rate_hz: 16000, // Silero requires 16kHz - resampler will handle conversion
+            ..Default::default()
         };
 
         let vad_audio_rx = audio_tx.subscribe();
@@ -167,48 +149,19 @@ impl VadMicCheck {
         let elapsed = start_time.elapsed();
 
         // Calculate metrics
-        let mut result_metrics = HashMap::new();
-        result_metrics.insert("vad_events_count".to_string(), json!(vad_events.len()));
-        result_metrics.insert("speech_segments".to_string(), json!(speech_segments));
-        result_metrics.insert(
+        let mut metrics = HashMap::new();
+        metrics.insert("vad_events_count".to_string(), json!(vad_events.len()));
+        metrics.insert("speech_segments".to_string(), json!(speech_segments));
+        metrics.insert(
             "total_speech_duration_ms".to_string(),
             json!(total_speech_duration_ms),
         );
-        result_metrics.insert(
+        metrics.insert(
             "test_duration_secs".to_string(),
             json!(elapsed.as_secs_f64()),
         );
-        result_metrics.insert("device_sample_rate".to_string(), json!(dev_cfg.sample_rate));
-        result_metrics.insert("device_channels".to_string(), json!(dev_cfg.channels));
-        // Runtime FPS/buffer metrics snapshot
-        result_metrics.insert(
-            "capture_fps".to_string(),
-            json!(metrics
-                .capture_fps
-                .load(std::sync::atomic::Ordering::Relaxed)),
-        );
-        result_metrics.insert(
-            "chunker_fps".to_string(),
-            json!(metrics
-                .chunker_fps
-                .load(std::sync::atomic::Ordering::Relaxed)),
-        );
-        result_metrics.insert(
-            "vad_fps".to_string(),
-            json!(metrics.vad_fps.load(std::sync::atomic::Ordering::Relaxed)),
-        );
-        result_metrics.insert(
-            "capture_buffer_fill".to_string(),
-            json!(metrics
-                .capture_buffer_fill
-                .load(std::sync::atomic::Ordering::Relaxed)),
-        );
-        result_metrics.insert(
-            "chunker_buffer_fill".to_string(),
-            json!(metrics
-                .chunker_buffer_fill
-                .load(std::sync::atomic::Ordering::Relaxed)),
-        );
+        metrics.insert("device_sample_rate".to_string(), json!(dev_cfg.sample_rate));
+        metrics.insert("device_channels".to_string(), json!(dev_cfg.channels));
 
         // Calculate speech ratio
         let speech_ratio = if elapsed.as_millis() > 0 {
@@ -216,15 +169,15 @@ impl VadMicCheck {
         } else {
             0.0
         };
-        result_metrics.insert("speech_ratio".to_string(), json!(speech_ratio));
+        metrics.insert("speech_ratio".to_string(), json!(speech_ratio));
 
         // Evaluate results
-        let (pass, notes) = evaluate_vad_performance(&result_metrics, &vad_events);
+        let (pass, notes) = evaluate_vad_performance(&metrics, &vad_events);
 
         Ok(LiveTestResult {
             test: "vad_mic".to_string(),
             pass,
-            metrics: result_metrics,
+            metrics,
             notes: Some(notes),
             artifacts: vec![],
         })

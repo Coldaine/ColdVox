@@ -77,7 +77,6 @@ pub struct ResourceMetrics {
 /// Operational metrics for monitoring
 #[derive(Default)]
 pub struct OperationalMetrics {
-    /// TODO(#130): Rename to `total_requests` - this is a counter, not a rate
     /// Transcription requests per second
     pub requests_per_second: Arc<AtomicU64>,
     /// Error rate per component (per 1000 operations)
@@ -263,12 +262,6 @@ impl SttPerformanceMetrics {
     pub fn increment_requests(&self) {
         // This would be used with a rate calculator for requests per second
         // For now, just increment the operational counter
-        self.operational
-            .requests_per_second
-            .fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub fn increment_total_requests(&self) {
         self.operational
             .requests_per_second
             .fetch_add(1, Ordering::Relaxed);

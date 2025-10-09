@@ -12,7 +12,7 @@ async-trait = "0.1"
 thiserror = "2.0"
 dirs = "6.0"
 serde = { version = "1.0", features = ["derive"] }
-parakeet-onnx = "0.1.0" # or existing version
+parakeet-onnx = { version = "0.1.0", optional = true } # or existing version
 coldvox-telemetry = { path = "../coldvox-telemetry", optional = true }
 
 [features]
