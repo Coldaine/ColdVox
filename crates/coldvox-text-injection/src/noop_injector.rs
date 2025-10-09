@@ -17,7 +17,11 @@ impl NoOpInjector {
 
 #[async_trait]
 impl TextInjector for NoOpInjector {
-    async fn inject_text(&self, text: &str, _context: Option<&crate::types::InjectionContext>) -> InjectionResult<()> {
+    async fn inject_text(
+        &self,
+        text: &str,
+        _context: Option<&crate::types::InjectionContext>,
+    ) -> InjectionResult<()> {
         if text.is_empty() {
             return Ok(());
         }

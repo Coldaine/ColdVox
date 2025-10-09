@@ -4,10 +4,10 @@
 //! It maintains backward compatibility with legacy configuration formats and provides
 //! migration utilities for newer versions.
 
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use anyhow::Result;
 
 /// Legacy configuration format version 1
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -225,7 +225,12 @@ impl CompatibilityMemory {
     }
 
     /// Add a legacy configuration to the memory
-    pub fn add_legacy_config(&mut self, path: PathBuf, version: String, _config: &serde_json::Value) -> Result<()> {
+    pub fn add_legacy_config(
+        &mut self,
+        path: PathBuf,
+        version: String,
+        _config: &serde_json::Value,
+    ) -> Result<()> {
         let info = LegacyConfigInfo {
             path: path.clone(),
             version: version.clone(),
@@ -234,7 +239,8 @@ impl CompatibilityMemory {
             migration_errors: Vec::new(),
         };
 
-        self.legacy_configs.insert(path.to_string_lossy().to_string(), info);
+        self.legacy_configs
+            .insert(path.to_string_lossy().to_string(), info);
         Ok(())
     }
 
@@ -273,7 +279,8 @@ impl CompatibilityMemory {
                     return false;
                 }
                 // Simple pattern matching - in a real implementation, use regex
-                rule.source_version_pattern.contains(version) || version.contains(&rule.source_version_pattern)
+                rule.source_version_pattern.contains(version)
+                    || version.contains(&rule.source_version_pattern)
             })
             .collect()
     }
@@ -286,18 +293,18 @@ pub mod migration {
     /// Migrate from legacy V1 to current configuration
     pub fn migrate_v1_to_current(legacy: LegacyConfigV1) -> Result<CurrentConfig> {
         let mut injection_config = crate::types::InjectionConfig::default();
-        
+
         // Map enabled methods to current format
         injection_config.allow_kdotool = legacy.enabled_methods.contains(&"kdotool".to_string());
         injection_config.allow_enigo = legacy.enabled_methods.contains(&"enigo".to_string());
-        
+
         // Map timeout
         injection_config.max_total_latency_ms = legacy.timeout_ms;
         injection_config.per_method_timeout_ms = legacy.timeout_ms / 4; // Quarter of total timeout
-        
+
         // Map focus requirements
         injection_config.require_focus = legacy.require_focus;
-        
+
         // Map application filters
         injection_config.allowlist = legacy.allowlist;
         injection_config.blocklist = legacy.blocklist;
@@ -322,18 +329,18 @@ pub mod migration {
     /// Migrate from legacy V2 to current configuration
     pub fn migrate_v2_to_current(legacy: LegacyConfigV2) -> Result<CurrentConfig> {
         let mut injection_config = crate::types::InjectionConfig::default();
-        
+
         // Map global timeout
         injection_config.max_total_latency_ms = legacy.global_timeout_ms;
-        
+
         // Map focus configuration
         injection_config.require_focus = legacy.focus_config.require_focus;
         injection_config.inject_on_unknown_focus = legacy.focus_config.inject_on_unknown_focus;
-        
+
         // Map application filters
         injection_config.allowlist = legacy.app_filter.allowlist;
         injection_config.blocklist = legacy.app_filter.blocklist;
-        
+
         // Map performance settings
         injection_config.cooldown_initial_ms = legacy.performance.cooldown.initial_ms;
         injection_config.cooldown_max_ms = legacy.performance.cooldown.max_ms;
@@ -346,7 +353,7 @@ pub mod migration {
                 "enigo" => injection_config.allow_enigo = method_config.enabled,
                 _ => {} // Unknown method, skip
             }
-            
+
             // Apply method-specific timeout if available
             if let Some(timeout) = method_config.timeout_ms {
                 // In a real implementation, you might want to store this in a method-specific config
@@ -377,22 +384,23 @@ pub mod migration {
     /// Detect legacy configuration format version
     pub fn detect_config_version(config: &serde_json::Value) -> Result<String> {
         // Check for V1 format indicators
-        if config.get("enabled_methods").is_some() && 
-           config.get("timeout_ms").is_some() && 
-           config.get("require_focus").is_some() {
+        if config.get("enabled_methods").is_some()
+            && config.get("timeout_ms").is_some()
+            && config.get("require_focus").is_some()
+        {
             return Ok("1.0".to_string());
         }
 
         // Check for V2 format indicators
-        if config.get("methods").is_some() && 
-           config.get("global_timeout_ms").is_some() && 
-           config.get("focus_config").is_some() {
+        if config.get("methods").is_some()
+            && config.get("global_timeout_ms").is_some()
+            && config.get("focus_config").is_some()
+        {
             return Ok("2.0".to_string());
         }
 
         // Check for current format
-        if config.get("injection").is_some() || 
-           config.get("logging").is_some() {
+        if config.get("injection").is_some() || config.get("logging").is_some() {
             return Ok("3.0".to_string());
         }
 
@@ -402,7 +410,7 @@ pub mod migration {
     /// Auto-migrate a configuration to the current format
     pub fn auto_migrate(config: &serde_json::Value) -> Result<CurrentConfig> {
         let version = detect_config_version(config)?;
-        
+
         match version.as_str() {
             "1.0" => {
                 let legacy: LegacyConfigV1 = serde_json::from_value(config.clone())?;
@@ -416,7 +424,10 @@ pub mod migration {
                 let current: CurrentConfig = serde_json::from_value(config.clone())?;
                 Ok(current)
             }
-            _ => Err(anyhow::anyhow!("Unsupported configuration version: {}", version))
+            _ => Err(anyhow::anyhow!(
+                "Unsupported configuration version: {}",
+                version
+            )),
         }
     }
 }
@@ -436,7 +447,7 @@ mod tests {
         };
 
         let current = migration::migrate_v1_to_current(legacy).unwrap();
-        
+
         assert!(current.injection.allow_kdotool);
         assert!(current.injection.allow_enigo);
         assert_eq!(current.injection.max_total_latency_ms, 1000);
@@ -449,12 +460,15 @@ mod tests {
     #[test]
     fn test_legacy_v2_migration() {
         let mut methods = HashMap::new();
-        methods.insert("kdotool".to_string(), LegacyMethodConfig {
-            enabled: true,
-            timeout_ms: Some(500),
-            priority: 1,
-            params: HashMap::new(),
-        });
+        methods.insert(
+            "kdotool".to_string(),
+            LegacyMethodConfig {
+                enabled: true,
+                timeout_ms: Some(500),
+                priority: 1,
+                params: HashMap::new(),
+            },
+        );
 
         let legacy = LegacyConfigV2 {
             methods,
@@ -481,7 +495,7 @@ mod tests {
         };
 
         let current = migration::migrate_v2_to_current(legacy).unwrap();
-        
+
         assert!(current.injection.allow_kdotool);
         assert_eq!(current.injection.max_total_latency_ms, 2000);
         assert!(!current.injection.require_focus);
@@ -518,11 +532,13 @@ mod tests {
     fn test_compatibility_memory() {
         let mut memory = CompatibilityMemory::new();
         let path = PathBuf::from("/test/config.json");
-        
-        memory.add_legacy_config(path.clone(), "1.0".to_string(), &serde_json::json!({})).unwrap();
-        
+
+        memory
+            .add_legacy_config(path.clone(), "1.0".to_string(), &serde_json::json!({}))
+            .unwrap();
+
         assert!(!memory.is_migrated(&path));
-        
+
         let entry = MigrationEntry {
             timestamp: chrono::Utc::now(),
             source_path: path.clone(),
@@ -532,9 +548,9 @@ mod tests {
             status: MigrationStatus::Success,
             messages: vec!["Migration successful".to_string()],
         };
-        
+
         memory.record_migration(entry);
-        
+
         assert_eq!(memory.get_migration_history(&path).len(), 1);
     }
 }

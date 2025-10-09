@@ -89,8 +89,10 @@ impl VoskTranscriber {
                     directory_contents = %contents,
                     "Vosk library failed to load model - likely corrupted or incompatible model files"
                 );
-                return Err(format!("Failed to load Vosk model from: {} (exists: {}, is_dir: {}, contents: {})",
-                    model_path, path_exists, is_dir, contents));
+                return Err(format!(
+                    "Failed to load Vosk model from: {} (exists: {}, is_dir: {}, contents: {})",
+                    model_path, path_exists, is_dir, contents
+                ));
             }
         };
 

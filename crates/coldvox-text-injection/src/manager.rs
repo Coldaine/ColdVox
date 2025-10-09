@@ -3,16 +3,19 @@ use crate::focus::{FocusProvider, FocusStatus, FocusTracker};
 use crate::log_throttle::LogThrottle;
 use crate::prewarm::PrewarmController;
 use crate::session::{InjectionSession, SessionState};
-use crate::types::{InjectionConfig, InjectionContext, InjectionError, InjectionMethod, InjectionMetrics, InjectionMode};
+use crate::types::{
+    InjectionConfig, InjectionContext, InjectionError, InjectionMethod, InjectionMetrics,
+    InjectionMode,
+};
 use crate::TextInjector;
 
 // Import injectors
-#[cfg(feature = "atspi")]
-use crate::injectors::atspi::AtspiInjector;
 #[cfg(feature = "wl_clipboard")]
 use crate::clipboard_paste_injector::ClipboardPasteInjector;
 #[cfg(feature = "enigo")]
 use crate::enigo_injector::EnigoInjector;
+#[cfg(feature = "atspi")]
+use crate::injectors::atspi::AtspiInjector;
 #[cfg(feature = "kdotool")]
 use crate::kdotool_injector::KdotoolInjector;
 
@@ -1216,7 +1219,11 @@ mod tests {
             self.available
         }
 
-        async fn inject_text(&self, _text: &str, _context: Option<&crate::types::InjectionContext>) -> crate::types::InjectionResult<()> {
+        async fn inject_text(
+            &self,
+            _text: &str,
+            _context: Option<&crate::types::InjectionContext>,
+        ) -> crate::types::InjectionResult<()> {
             // Use deterministic behavior in CI/test environments
             let success = if cfg!(test) && std::env::var("CI").is_ok() {
                 // Deterministic success in CI

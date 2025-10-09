@@ -4,17 +4,23 @@
 //! and clipboard-based paste operations. It integrates with the existing AT-SPI infrastructure
 //! while providing the new TextInjector trait interface.
 
-use crate::confirm::{ConfirmationContext, create_confirmation_context};
+use crate::confirm::{create_confirmation_context, ConfirmationContext};
 use crate::log_throttle::log_atspi_connection_failure;
 use crate::logging::utils;
-use crate::types::{InjectionConfig, InjectionContext, InjectionError, InjectionResult, InjectionMethod, InjectionMode};
+use crate::types::{
+    InjectionConfig, InjectionContext, InjectionError, InjectionMethod, InjectionMode,
+    InjectionResult,
+};
 use crate::TextInjector;
 use async_trait::async_trait;
 use std::time::Instant;
 use tracing::{debug, trace, warn};
 
 // Re-export the old Context type for backwards compatibility
-#[deprecated(since = "0.1.0", note = "Use InjectionContext from types module instead")]
+#[deprecated(
+    since = "0.1.0",
+    note = "Use InjectionContext from types module instead"
+)]
 pub type Context = InjectionContext;
 
 /// AT-SPI Text Injector with support for both insert and paste operations
@@ -38,7 +44,7 @@ impl AtspiInjector {
     /// Insert text directly using AT-SPI EditableText interface
     pub async fn insert_text(&self, text: &str, context: &InjectionContext) -> InjectionResult<()> {
         let start_time = Instant::now();
-        
+
         trace!("AT-SPI insert_text starting for {} chars", text.len());
         // Fast-path: nothing to do for empty text. This keeps tests simple and
         // avoids attempting AT-SPI operations when callers simply want a no-op.
@@ -46,20 +52,18 @@ impl AtspiInjector {
             debug!("insert_text called with empty text; nothing to do");
             return Ok(());
         }
-        
+
         #[cfg(feature = "atspi")]
         {
             use atspi::{
-                connection::AccessibilityConnection, 
-                proxy::collection::CollectionProxy,
-                proxy::editable_text::EditableTextProxy, 
-                proxy::text::TextProxy, 
-                Interface, MatchType, ObjectMatchRule, SortOrder, State,
+                connection::AccessibilityConnection, proxy::collection::CollectionProxy,
+                proxy::editable_text::EditableTextProxy, proxy::text::TextProxy, Interface,
+                MatchType, ObjectMatchRule, SortOrder, State,
             };
             use tokio::time;
 
             let per_method_timeout = self.config.per_method_timeout();
-            
+
             // Connect to AT-SPI
             let conn = time::timeout(per_method_timeout, AccessibilityConnection::new())
                 .await
@@ -68,7 +72,7 @@ impl AtspiInjector {
                     log_atspi_connection_failure(&e.to_string());
                     InjectionError::Other(format!("AT-SPI connect failed: {e}"))
                 })?;
-            
+
             let zbus_conn = conn.connection();
             trace!("AT-SPI connection established for insert_text");
 
@@ -77,15 +81,21 @@ impl AtspiInjector {
                 // Find focused element
                 let collection_fut = CollectionProxy::builder(zbus_conn)
                     .destination("org.a11y.atspi.Registry")
-                    .map_err(|e| InjectionError::Other(format!("CollectionProxy destination failed: {e}")))?
+                    .map_err(|e| {
+                        InjectionError::Other(format!("CollectionProxy destination failed: {e}"))
+                    })?
                     .path("/org/a11y/atspi/accessible/root")
-                    .map_err(|e| InjectionError::Other(format!("CollectionProxy path failed: {e}")))?
+                    .map_err(|e| {
+                        InjectionError::Other(format!("CollectionProxy path failed: {e}"))
+                    })?
                     .build();
-                
+
                 let collection = time::timeout(per_method_timeout, collection_fut)
                     .await
                     .map_err(|_| InjectionError::Timeout(per_method_timeout.as_millis() as u64))?
-                    .map_err(|e| InjectionError::Other(format!("CollectionProxy build failed: {e}")))?;
+                    .map_err(|e| {
+                        InjectionError::Other(format!("CollectionProxy build failed: {e}"))
+                    })?;
 
                 let mut rule = ObjectMatchRule::default();
                 rule.states = State::Focused.into();
@@ -97,7 +107,9 @@ impl AtspiInjector {
                 let mut matches = time::timeout(per_method_timeout, get_matches)
                     .await
                     .map_err(|_| InjectionError::Timeout(per_method_timeout.as_millis() as u64))?
-                    .map_err(|e| InjectionError::Other(format!("Collection.get_matches failed: {e}")))?;
+                    .map_err(|e| {
+                        InjectionError::Other(format!("Collection.get_matches failed: {e}"))
+                    })?;
 
                 if matches.is_empty() {
                     debug!("No focused EditableText found for insert_text");
@@ -115,15 +127,19 @@ impl AtspiInjector {
             // Get EditableText proxy
             let editable_fut = EditableTextProxy::builder(zbus_conn)
                 .destination(obj_ref.name.clone())
-                .map_err(|e| InjectionError::Other(format!("EditableTextProxy destination failed: {e}")))?
+                .map_err(|e| {
+                    InjectionError::Other(format!("EditableTextProxy destination failed: {e}"))
+                })?
                 .path(obj_ref.path.clone())
                 .map_err(|e| InjectionError::Other(format!("EditableTextProxy path failed: {e}")))?
                 .build();
-            
+
             let editable = time::timeout(per_method_timeout, editable_fut)
                 .await
                 .map_err(|_| InjectionError::Timeout(per_method_timeout.as_millis() as u64))?
-                .map_err(|e| InjectionError::Other(format!("EditableTextProxy build failed: {e}")))?;
+                .map_err(|e| {
+                    InjectionError::Other(format!("EditableTextProxy build failed: {e}"))
+                })?;
 
             // Get Text proxy to determine caret position
             let text_iface_fut = TextProxy::builder(zbus_conn)
@@ -132,7 +148,7 @@ impl AtspiInjector {
                 .path(obj_ref.path.clone())
                 .map_err(|e| InjectionError::Other(format!("TextProxy path failed: {e}")))?
                 .build();
-            
+
             let text_iface = time::timeout(per_method_timeout, text_iface_fut)
                 .await
                 .map_err(|_| InjectionError::Timeout(per_method_timeout.as_millis() as u64))?
@@ -147,7 +163,7 @@ impl AtspiInjector {
                     warn!("Failed to get caret offset from {:?}: {}", obj_ref.path, e);
                     InjectionError::Other(format!("Text.caret_offset failed: {e}"))
                 })?;
-            
+
             trace!("Current caret position: {}", caret);
 
             // Insert text at caret position
@@ -164,13 +180,13 @@ impl AtspiInjector {
                 })?;
 
             let elapsed = start_time.elapsed();
-            
+
             // Log successful insertion
             utils::log_injection_success(
-                InjectionMethod::AtspiInsert, 
-                text, 
-                elapsed, 
-                self.config.redact_logs
+                InjectionMethod::AtspiInsert,
+                text,
+                elapsed,
+                self.config.redact_logs,
             );
 
             debug!(
@@ -183,7 +199,11 @@ impl AtspiInjector {
             // Confirm insertion if needed
             if let Some(ref target) = context.target_app {
                 let window = context.window_id.as_deref().unwrap_or("unknown");
-                if let Ok(result) = self.confirmation_context.confirm_injection(target, text, window).await {
+                if let Ok(result) = self
+                    .confirmation_context
+                    .confirm_injection(target, text, window)
+                    .await
+                {
                     match result {
                         crate::confirm::ConfirmationResult::Success => {
                             debug!("AT-SPI insertion confirmed via text change event");
@@ -210,26 +230,25 @@ impl AtspiInjector {
     /// Paste text using AT-SPI clipboard operations
     pub async fn paste_text(&self, text: &str, context: &InjectionContext) -> InjectionResult<()> {
         let start_time = Instant::now();
-        
+
         trace!("AT-SPI paste_text starting for {} chars", text.len());
         // Fast-path: nothing to do for empty text. Matches insert_text behavior.
         if text.is_empty() {
             debug!("paste_text called with empty text; nothing to do");
             return Ok(());
         }
-        
+
         #[cfg(feature = "atspi")]
         {
             use atspi::{
-                connection::AccessibilityConnection, 
-                proxy::collection::CollectionProxy,
-                proxy::action::ActionProxy,
-                Interface, MatchType, ObjectMatchRule, SortOrder, State,
+                connection::AccessibilityConnection, proxy::action::ActionProxy,
+                proxy::collection::CollectionProxy, Interface, MatchType, ObjectMatchRule,
+                SortOrder, State,
             };
             use tokio::time;
 
             let per_method_timeout = self.config.per_method_timeout();
-            
+
             // First, set the clipboard content
             self.set_clipboard_content(text).await?;
 
@@ -241,7 +260,7 @@ impl AtspiInjector {
                     log_atspi_connection_failure(&e.to_string());
                     InjectionError::Other(format!("AT-SPI connect failed: {e}"))
                 })?;
-            
+
             let zbus_conn = conn.connection();
             trace!("AT-SPI connection established for paste_text");
 
@@ -250,15 +269,21 @@ impl AtspiInjector {
                 // Find focused element
                 let collection_fut = CollectionProxy::builder(zbus_conn)
                     .destination("org.a11y.atspi.Registry")
-                    .map_err(|e| InjectionError::Other(format!("CollectionProxy destination failed: {e}")))?
+                    .map_err(|e| {
+                        InjectionError::Other(format!("CollectionProxy destination failed: {e}"))
+                    })?
                     .path("/org/a11y.atspi/accessible/root")
-                    .map_err(|e| InjectionError::Other(format!("CollectionProxy path failed: {e}")))?
+                    .map_err(|e| {
+                        InjectionError::Other(format!("CollectionProxy path failed: {e}"))
+                    })?
                     .build();
-                
+
                 let collection = time::timeout(per_method_timeout, collection_fut)
                     .await
                     .map_err(|_| InjectionError::Timeout(per_method_timeout.as_millis() as u64))?
-                    .map_err(|e| InjectionError::Other(format!("CollectionProxy build failed: {e}")))?;
+                    .map_err(|e| {
+                        InjectionError::Other(format!("CollectionProxy build failed: {e}"))
+                    })?;
 
                 let mut rule = ObjectMatchRule::default();
                 rule.states = State::Focused.into();
@@ -270,7 +295,9 @@ impl AtspiInjector {
                 let mut matches = time::timeout(per_method_timeout, get_matches)
                     .await
                     .map_err(|_| InjectionError::Timeout(per_method_timeout.as_millis() as u64))?
-                    .map_err(|e| InjectionError::Other(format!("Collection.get_matches failed: {e}")))?;
+                    .map_err(|e| {
+                        InjectionError::Other(format!("Collection.get_matches failed: {e}"))
+                    })?;
 
                 if matches.is_empty() {
                     debug!("No focused EditableText found for paste_text");
@@ -292,7 +319,7 @@ impl AtspiInjector {
                 .path(obj_ref.path.clone())
                 .map_err(|e| InjectionError::Other(format!("ActionProxy path failed: {e}")))?
                 .build();
-            
+
             let action = time::timeout(per_method_timeout, action_fut)
                 .await
                 .map_err(|_| InjectionError::Timeout(per_method_timeout.as_millis() as u64))?
@@ -318,7 +345,9 @@ impl AtspiInjector {
                     let do_action_fut = action.do_action(i as i32);
                     time::timeout(per_method_timeout, do_action_fut)
                         .await
-                        .map_err(|_| InjectionError::Timeout(per_method_timeout.as_millis() as u64))?
+                        .map_err(
+                            |_| InjectionError::Timeout(per_method_timeout.as_millis() as u64),
+                        )?
                         .map_err(|e| {
                             warn!("Failed to execute paste action {}: {}", i, e);
                             InjectionError::Other(format!("Action.do_action failed: {e}"))
@@ -335,13 +364,13 @@ impl AtspiInjector {
             }
 
             let elapsed = start_time.elapsed();
-            
+
             // Log successful paste
             utils::log_injection_success(
-                InjectionMethod::AtspiInsert, 
-                text, 
-                elapsed, 
-                self.config.redact_logs
+                InjectionMethod::AtspiInsert,
+                text,
+                elapsed,
+                self.config.redact_logs,
             );
 
             debug!(
@@ -354,7 +383,11 @@ impl AtspiInjector {
             // Confirm paste if needed
             if let Some(ref target) = context.target_app {
                 let window = context.window_id.as_deref().unwrap_or("unknown");
-                if let Ok(result) = self.confirmation_context.confirm_injection(target, text, window).await {
+                if let Ok(result) = self
+                    .confirmation_context
+                    .confirm_injection(target, text, window)
+                    .await
+                {
                     match result {
                         crate::confirm::ConfirmationResult::Success => {
                             debug!("AT-SPI paste confirmed via text change event");
@@ -383,34 +416,39 @@ impl AtspiInjector {
         #[cfg(feature = "wl_clipboard")]
         {
             use wl_clipboard_rs::copy::{MimeType, Options, Source};
-            
+
             let source = Source::Bytes(text.as_bytes().to_vec().into());
             let opts = Options::new();
-            
+
             opts.copy(source, MimeType::Text)
                 .map_err(|e| InjectionError::Clipboard(e.to_string()))?;
-            
-            debug!("Set clipboard content ({} chars) for AT-SPI paste", text.len());
+
+            debug!(
+                "Set clipboard content ({} chars) for AT-SPI paste",
+                text.len()
+            );
             Ok(())
         }
-        
+
         #[cfg(not(feature = "wl_clipboard"))]
         {
             // Fallback to system clipboard if wl_clipboard is not available
             use std::process::Command;
-            
-            let output = Command::new("wl-copy")
-                .arg(text)
-                .output()
-                .map_err(|e| InjectionError::Process(format!("Failed to execute wl-copy: {}", e)))?;
-            
+
+            let output = Command::new("wl-copy").arg(text).output().map_err(|e| {
+                InjectionError::Process(format!("Failed to execute wl-copy: {}", e))
+            })?;
+
             if !output.status.success() {
                 return Err(InjectionError::Process(
-                    "wl-copy command failed".to_string()
+                    "wl-copy command failed".to_string(),
                 ));
             }
-            
-            debug!("Set clipboard content via wl-copy ({} chars) for AT-SPI paste", text.len());
+
+            debug!(
+                "Set clipboard content via wl-copy ({} chars) for AT-SPI paste",
+                text.len()
+            );
             Ok(())
         }
     }
@@ -420,7 +458,7 @@ impl AtspiInjector {
         #[cfg(feature = "enigo")]
         {
             use enigo::{Direction, Enigo, Key, Keyboard, Settings};
-            
+
             let result = tokio::task::spawn_blocking(move || {
                 let mut enigo = Enigo::new(&Settings::default()).map_err(|e| {
                     InjectionError::MethodFailed(format!("Failed to create Enigo: {}", e))
@@ -430,9 +468,11 @@ impl AtspiInjector {
                 enigo.key(Key::Control, Direction::Press).map_err(|e| {
                     InjectionError::MethodFailed(format!("Failed to press Ctrl: {}", e))
                 })?;
-                enigo.key(Key::Unicode('v'), Direction::Click).map_err(|e| {
-                    InjectionError::MethodFailed(format!("Failed to type 'v': {}", e))
-                })?;
+                enigo
+                    .key(Key::Unicode('v'), Direction::Click)
+                    .map_err(|e| {
+                        InjectionError::MethodFailed(format!("Failed to type 'v': {}", e))
+                    })?;
                 enigo.key(Key::Control, Direction::Release).map_err(|e| {
                     InjectionError::MethodFailed(format!("Failed to release Ctrl: {}", e))
                 })?;
@@ -450,11 +490,11 @@ impl AtspiInjector {
                 Err(_) => Err(InjectionError::Timeout(0)), // Spawn failed
             }
         }
-        
+
         #[cfg(not(feature = "enigo"))]
         {
             Err(InjectionError::MethodUnavailable(
-                "No key event support available for paste fallback".to_string()
+                "No key event support available for paste fallback".to_string(),
             ))
         }
     }
@@ -548,7 +588,11 @@ impl TextInjector for AtspiInjector {
         }
     }
 
-    async fn inject_text(&self, text: &str, context: Option<&InjectionContext>) -> InjectionResult<()> {
+    async fn inject_text(
+        &self,
+        text: &str,
+        context: Option<&InjectionContext>,
+    ) -> InjectionResult<()> {
         // Use provided context or create default
         let default_context = InjectionContext::default();
         let ctx = context.unwrap_or(&default_context);
@@ -564,7 +608,7 @@ mod tests {
     async fn test_atspi_injector_creation() {
         let config = InjectionConfig::default();
         let injector = AtspiInjector::new(config);
-        
+
         assert_eq!(injector.backend_name(), "atspi-injector");
         assert_eq!(injector.method(), InjectionMethod::AtspiInsert);
     }
@@ -573,7 +617,7 @@ mod tests {
     async fn test_atspi_injector_availability() {
         let config = InjectionConfig::default();
         let injector = AtspiInjector::new(config);
-        
+
         // Just ensure the method doesn't panic
         let _available = injector.is_available().await;
     }
@@ -581,7 +625,7 @@ mod tests {
     #[tokio::test]
     async fn test_context_default() {
         let context = InjectionContext::default();
-        
+
         assert!(context.atspi_focused_node_path.is_none());
         assert!(context.target_app.is_none());
         assert!(context.window_id.is_none());
@@ -592,14 +636,14 @@ mod tests {
         let config = InjectionConfig::default();
         let injector = AtspiInjector::new(config);
         let context = InjectionContext::default();
-        
+
         // Empty text should succeed without error
         let result = injector.insert_text("", &context).await;
         assert!(result.is_ok());
-        
+
         let result = injector.paste_text("", &context).await;
         assert!(result.is_ok());
-        
+
         let result = injector.inject("", &context).await;
         assert!(result.is_ok());
     }
@@ -608,7 +652,7 @@ mod tests {
     async fn test_legacy_inject_text() {
         let config = InjectionConfig::default();
         let injector = AtspiInjector::new(config);
-        
+
         // Empty text should succeed without error
         let result = injector.inject_text("", None).await;
         assert!(result.is_ok());

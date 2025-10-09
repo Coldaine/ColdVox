@@ -51,8 +51,8 @@ pub mod injectors;
 pub mod orchestrator;
 
 // Re-export orchestrator types and injector module
-pub use orchestrator::{StrategyOrchestrator, DesktopEnvironment, AtspiContext};
-pub use injectors::{ClipboardBackup, ClipboardInjector, ClipboardContext};
+pub use injectors::{ClipboardBackup, ClipboardContext, ClipboardInjector};
+pub use orchestrator::{AtspiContext, DesktopEnvironment, StrategyOrchestrator};
 
 // Re-export modular AT-SPI injector for backward compatibility
 pub use injectors::atspi::AtspiInjector;
@@ -77,17 +77,24 @@ pub use focus::{FocusProvider, FocusStatus};
 pub use manager::StrategyManager;
 pub use processor::{AsyncInjectionProcessor, InjectionProcessor, ProcessorMetrics};
 pub use session::{InjectionSession, SessionConfig, SessionState};
-pub use types::{InjectionConfig, InjectionContext, InjectionError, InjectionMethod, InjectionMode, InjectionResult};
+pub use types::{
+    InjectionConfig, InjectionContext, InjectionError, InjectionMethod, InjectionMode,
+    InjectionResult,
+};
 
 /// Trait defining the core text injection interface
 #[async_trait::async_trait]
 pub trait TextInjector: Send + Sync {
     /// Inject text with optional context (pre-warmed data, focus info, mode override)
-    /// 
+    ///
     /// # Arguments
     /// * `text` - The text to inject
     /// * `context` - Optional injection context with pre-warmed data and overrides
-    async fn inject_text(&self, text: &str, context: Option<&InjectionContext>) -> InjectionResult<()>;
+    async fn inject_text(
+        &self,
+        text: &str,
+        context: Option<&InjectionContext>,
+    ) -> InjectionResult<()>;
 
     /// Check if the injector is available and functional
     async fn is_available(&self) -> bool;
@@ -101,10 +108,6 @@ pub trait TextInjector: Send + Sync {
 
 // Re-export confirmation module components
 pub use confirm::{
-    ConfirmationContext, ConfirmationResult, TextChangeListener,
-    create_confirmation_context, text_changed,
+    create_confirmation_context, text_changed, ConfirmationContext, ConfirmationResult,
+    TextChangeListener,
 };
-
-
-
-
