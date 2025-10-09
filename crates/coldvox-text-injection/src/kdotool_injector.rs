@@ -131,7 +131,11 @@ impl TextInjector for KdotoolInjector {
         self.is_available && self.config.allow_kdotool
     }
 
-    async fn inject_text(&self, _text: &str, _context: Option<&crate::types::InjectionContext>) -> InjectionResult<()> {
+    async fn inject_text(
+        &self,
+        _text: &str,
+        _context: Option<&crate::types::InjectionContext>,
+    ) -> InjectionResult<()> {
         // Kdotool is only used for window activation/focus assistance
         // It doesn't actually inject text, so this method should not be called
         // directly for text injection

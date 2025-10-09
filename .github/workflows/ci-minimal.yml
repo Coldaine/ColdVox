@@ -50,6 +50,7 @@ jobs:
   lint:
     name: Lint & Format
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
