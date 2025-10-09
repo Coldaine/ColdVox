@@ -61,75 +61,263 @@ impl std::error::Error for ModelError {}
 
 /// Locate the model directory.
 pub fn locate_model(config_path: Option<&str>) -> Result<ModelInfo, ModelError> {
+    // 1. Try environment variable first
+    // HOW YOU GET HERE: User/CI explicitly set VOSK_MODEL_PATH environment variable
     if let Ok(p) = env::var("VOSK_MODEL_PATH") {
+        tracing::debug!(
+            target: "coldvox::stt::vosk",
+            env_path = %p,
+            "Trying VOSK_MODEL_PATH environment variable - REASON: Env var is set and takes highest priority"
+        );
         let pb = PathBuf::from(&p);
         if pb.is_dir() {
+            // SUCCESS CASE: The env var points to a valid directory
+            // Most likely: CI runner set VOSK_MODEL_PATH correctly to cached model location
+            tracing::info!(
+                target: "coldvox::stt::vosk",
+                path = %pb.display(),
+                source = "environment",
+                "Vosk model found via VOSK_MODEL_PATH - SUCCESS: Path exists and is a valid directory"
+            );
             return Ok(ModelInfo {
                 path: pb,
                 source: ModelSource::Env,
             });
         } else {
+            // FAILURE CASE: Env var is set but points to invalid/missing location
+            // Most likely: CI script typo, model not extracted, or filesystem permission issue
+            tracing::warn!(
+                target: "coldvox::stt::vosk",
+                env_path = %p,
+                exists = pb.exists(),
+                is_dir = pb.is_dir(),
+                "VOSK_MODEL_PATH points to invalid location - REASON: Either file doesn't exist, is a file not directory, or unreadable"
+            );
             return Err(ModelError::ExplicitPathMissing(p));
         }
     }
 
+    // 2. Try config-provided path
+    // HOW YOU GET HERE: VOSK_MODEL_PATH was NOT set, AND a non-empty model_path was provided in TranscriptionConfig
     if let Some(cp) = config_path.filter(|s| !s.is_empty()) {
+        tracing::debug!(
+            target: "coldvox::stt::vosk",
+            config_path = %cp,
+            "Trying config-provided model path - REASON: No env var, but config.model_path is set"
+        );
         let pb = PathBuf::from(cp);
         if pb.is_dir() {
+            // SUCCESS CASE: Config path points to valid directory
+            // Most likely: User provided explicit --model-path CLI arg or set it in config file
+            tracing::info!(
+                target: "coldvox::stt::vosk",
+                path = %pb.display(),
+                source = "config",
+                "Vosk model found via config path - SUCCESS: Config-provided path is valid directory"
+            );
             return Ok(ModelInfo {
                 path: pb,
                 source: ModelSource::Config,
             });
         } else {
+            // FAILURE CASE: Config path set but invalid
+            // Most likely: User provided wrong path in config/CLI, or model was deleted
+            tracing::warn!(
+                target: "coldvox::stt::vosk",
+                config_path = %cp,
+                exists = pb.exists(),
+                is_dir = pb.is_dir(),
+                "Config-provided model path is invalid - REASON: Path in config is wrong, doesn't exist, or not a directory"
+            );
             return Err(ModelError::ExplicitPathMissing(cp.to_string()));
         }
     }
 
+    // 3. Try auto-discovery
+    // HOW YOU GET HERE: No VOSK_MODEL_PATH env var AND no config.model_path provided (or both failed)
+    // This is the NORMAL path for most users who just extract model to models/ directory
+    tracing::debug!(
+        target: "coldvox::stt::vosk",
+        "Starting auto-discovery for Vosk model - REASON: No explicit path provided, searching standard locations"
+    );
     let candidates = find_model_candidates();
     if !candidates.is_empty() {
+        // PARTIAL SUCCESS: Found one or more vosk-model-* directories
+        // Most likely: User extracted model to models/, or working from dev environment
         tracing::debug!(
+            target: "coldvox::stt::vosk",
             count = candidates.len(),
-            "Vosk model discovery candidates found"
+            candidates = ?candidates.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
+            "Vosk model discovery candidates found - REASON: Found vosk-model-* directories in scanned paths"
+        );
+    } else {
+        // FAILURE: No models found anywhere
+        // Most likely: Fresh clone/install, model never extracted, or running from wrong directory
+        tracing::debug!(
+            target: "coldvox::stt::vosk",
+            "No model candidates found during auto-discovery - REASON: No vosk-model-* directories exist in any scanned location"
         );
     }
+
     if let Some(best_candidate) = pick_best_candidate(candidates) {
+        // SUCCESS CASE: Found and selected best model from candidates
+        // Most likely: Normal operation, model in models/ directory, picked best (small en-us with highest version)
+        tracing::info!(
+            target: "coldvox::stt::vosk",
+            path = %best_candidate.display(),
+            source = "auto-discovery",
+            "Vosk model found via auto-discovery - SUCCESS: Selected best candidate from discovered models"
+        );
         return Ok(ModelInfo {
             path: best_candidate,
             source: ModelSource::ModelsDir,
         });
     }
 
-    Err(ModelError::NotFound {
-        checked: "standard locations".to_string(),
-        guidance: "No vosk-model-* directory found.".to_string(),
-    })
-}
+    // 4. Build detailed error message with what was tried
+    // HOW YOU GET HERE: ALL previous attempts failed - this is the FINAL FAILURE path
+    // Most likely scenarios:
+    //   - CI: Model setup script didn't run or failed silently
+    //   - Local dev: User forgot to extract model or is in wrong directory
+    //   - Production: Model directory was deleted or permissions changed
+    let mut checked_paths = Vec::new();
 
-fn find_model_candidates() -> Vec<PathBuf> {
-    let mut candidates = Vec::new();
-    if let Ok(current_dir) = env::current_dir() {
+    // Add environment variable attempt (if it was tried)
+    if let Ok(env_path) = env::var("VOSK_MODEL_PATH") {
+        checked_paths.push(format!("VOSK_MODEL_PATH={}", env_path));
+    }
+
+    // Add config path attempt (if it was provided)
+    if let Some(cp) = config_path.filter(|s| !s.is_empty()) {
+        checked_paths.push(format!("config_path={}", cp));
+    }
+
+    // Add auto-discovery attempts (always happens if we got here)
+    if let Ok(cwd) = env::current_dir() {
         for i in 0..=3 {
-            let mut path = current_dir.clone();
+            let mut path = cwd.clone();
             for _ in 0..i {
                 path.pop();
             }
             let models_path = path.join(MODELS_DIR);
-            if models_path.is_dir() {
-                if let Ok(entries) = std::fs::read_dir(models_path) {
+            checked_paths.push(format!("auto_discovery={}", models_path.display()));
+        }
+    }
+
+    let checked_str = checked_paths.join(", ");
+    tracing::error!(
+        target: "coldvox::stt::vosk",
+        checked_paths = %checked_str,
+        env_var_set = env::var("VOSK_MODEL_PATH").is_ok(),
+        config_path_provided = config_path.is_some(),
+        cwd = ?env::current_dir().ok(),
+        "Vosk model not found after exhaustive search - COMPLETE FAILURE: Model unavailable via any method"
+    );
+
+    // This error will propagate up through plugin initialization and cause STT to be unavailable
+    Err(ModelError::NotFound {
+        checked: checked_str,
+        guidance: "Set VOSK_MODEL_PATH environment variable, provide model_path in config, or place model in models/ directory. Run with --auto-extract-model to extract from ZIP files.".to_string(),
+    })
+}
+
+fn find_model_candidates() -> Vec<PathBuf> {
+    // Called during auto-discovery when no explicit path was provided
+    let mut candidates = Vec::new();
+    let cwd = match env::current_dir() {
+        Ok(cwd) => cwd,
+        Err(e) => {
+            // RARE: Only fails if process has no working directory (very unusual)
+            // Most likely: Running in restricted container, deleted directory, or permission issue
+            tracing::warn!(
+                target: "coldvox::stt::vosk",
+                error = %e,
+                "Failed to get current directory for model discovery - REASON: Process CWD is inaccessible or deleted"
+            );
+            return candidates;
+        }
+    };
+
+    tracing::debug!(
+        target: "coldvox::stt::vosk",
+        cwd = %cwd.display(),
+        "Starting model discovery from current directory - REASON: Scanning up to 3 ancestor levels for models/ directories"
+    );
+
+    for i in 0..=3 {
+        let mut path = cwd.clone();
+        for _ in 0..i {
+            path.pop();
+        }
+        let models_path = path.join(MODELS_DIR);
+        let models_path_str = models_path.display().to_string();
+
+        // Check each ancestor level (0=cwd, 1=parent, 2=grandparent, 3=great-grandparent)
+        tracing::trace!(
+            target: "coldvox::stt::vosk",
+            search_path = %models_path_str,
+            ancestor_level = i,
+            exists = models_path.exists(),
+            is_dir = models_path.is_dir(),
+            "Checking models directory - SCANNING: Looking for vosk-model-* subdirectories"
+        );
+
+        if models_path.is_dir() {
+            // HOW YOU GET HERE: Found a models/ directory at this ancestor level
+            // Most likely: In dev environment with models/ in project root
+            match std::fs::read_dir(models_path) {
+                Ok(entries) => {
+                    let mut found_candidates = 0;
                     for entry in entries.filter_map(Result::ok) {
-                        if entry.file_type().is_ok_and(|ft| ft.is_dir())
-                            && entry
-                                .file_name()
-                                .to_string_lossy()
-                                .starts_with("vosk-model-")
-                        {
-                            candidates.push(entry.path());
+                        if !entry.file_type().is_ok_and(|ft| ft.is_dir()) {
+                            continue;
+                        }
+
+                        let file_name = entry.file_name();
+                        let file_name_str = file_name.to_string_lossy();
+
+                        if file_name_str.starts_with("vosk-model-") {
+                            // FOUND: A directory matching vosk-model-* pattern
+                            // Most likely: User extracted model correctly, or CI setup worked
+                            let candidate_path = entry.path();
+                            tracing::debug!(
+                                target: "coldvox::stt::vosk",
+                                candidate = %candidate_path.display(),
+                                ancestor_level = i,
+                                "Found potential Vosk model directory - REASON: Directory name matches vosk-model-* pattern"
+                            );
+                            candidates.push(candidate_path);
+                            found_candidates += 1;
                         }
                     }
+                    tracing::debug!(
+                        target: "coldvox::stt::vosk",
+                        search_path = %models_path_str,
+                        candidates_found = found_candidates,
+                        "Completed scanning models directory - RESULT: Listed all vosk-model-* directories found"
+                    );
+                }
+                Err(e) => {
+                    // RARE: Directory exists but can't be read
+                    // Most likely: Permission denied, or filesystem error
+                    tracing::warn!(
+                        target: "coldvox::stt::vosk",
+                        search_path = %models_path_str,
+                        error = %e,
+                        "Failed to read models directory - REASON: Permission denied or filesystem error"
+                    );
                 }
             }
         }
+        // Note: If models_path.is_dir() is false, we silently skip (no directory at this level)
     }
+
+    tracing::debug!(
+        target: "coldvox::stt::vosk",
+        total_candidates = candidates.len(),
+        "Model discovery completed"
+    );
+
     candidates
 }
 
@@ -218,27 +406,82 @@ fn find_zip_candidates() -> Vec<PathBuf> {
 }
 
 pub fn ensure_model_available(auto_extract: bool) -> Result<Option<ModelInfo>, ModelError> {
+    tracing::debug!(
+        target: "coldvox::stt::vosk",
+        auto_extract_enabled = auto_extract,
+        "Checking if Vosk model is available"
+    );
+
     // If a model already exists, we're good.
     if let Ok(info) = locate_model(None) {
+        tracing::debug!(
+            target: "coldvox::stt::vosk",
+            model_path = %info.path.display(),
+            "Existing model found, no extraction needed"
+        );
         return Ok(Some(info));
     }
 
     if !auto_extract {
+        tracing::debug!(
+            target: "coldvox::stt::vosk",
+            "Auto-extraction disabled and no existing model found"
+        );
         return Ok(None);
     }
+
+    tracing::info!(
+        target: "coldvox::stt::vosk",
+        "No existing model found, attempting auto-extraction"
+    );
 
     let zip_candidates = find_zip_candidates();
     if !zip_candidates.is_empty() {
         tracing::debug!(
+            target: "coldvox::stt::vosk",
             count = zip_candidates.len(),
+            zips = ?zip_candidates.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
             "Vosk zip candidates found for auto-extract"
         );
-    }
-    if let Some(best_zip) = pick_best_candidate(zip_candidates) {
-        return extract_model(&best_zip).map(Some);
+    } else {
+        tracing::debug!(
+            target: "coldvox::stt::vosk",
+            "No zip files found for auto-extraction"
+        );
     }
 
-    Ok(None)
+    if let Some(best_zip) = pick_best_candidate(zip_candidates) {
+        tracing::info!(
+            target: "coldvox::stt::vosk",
+            zip_path = %best_zip.display(),
+            "Attempting to extract model from zip"
+        );
+        match extract_model(&best_zip) {
+            Ok(info) => {
+                tracing::info!(
+                    target: "coldvox::stt::vosk",
+                    extracted_path = %info.path.display(),
+                    "Successfully extracted model from zip"
+                );
+                Ok(Some(info))
+            }
+            Err(e) => {
+                tracing::error!(
+                    target: "coldvox::stt::vosk",
+                    zip_path = %best_zip.display(),
+                    error = %e,
+                    "Failed to extract model from zip"
+                );
+                Err(e)
+            }
+        }
+    } else {
+        tracing::warn!(
+            target: "coldvox::stt::vosk",
+            "No suitable zip file found for auto-extraction"
+        );
+        Ok(None)
+    }
 }
 
 fn extract_model(zip_path: &std::path::Path) -> Result<ModelInfo, ModelError> {
@@ -351,9 +594,13 @@ pub fn log_model_resolution(info: &ModelInfo) {
         ModelSource::Extracted => "auto-extracted",
     };
     tracing::info!(
-        "Vosk model resolved: path={} source={}",
-        info.path.display(),
-        source_desc
+        target: "coldvox::stt::vosk",
+        path = %info.path.display(),
+        source = source_desc,
+        canonical_path = ?info.path.canonicalize().ok(),
+        exists = info.path.exists(),
+        is_dir = info.path.is_dir(),
+        "Vosk model resolved successfully"
     );
 }
 

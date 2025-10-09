@@ -78,21 +78,97 @@ impl SttPlugin for VoskPlugin {
     }
 
     async fn initialize(&mut self, config: TranscriptionConfig) -> Result<(), SttPluginError> {
-        self.config = config.clone();
+        // HOW YOU GET HERE: Plugin manager selected Vosk as preferred plugin and is initializing it
+        // This is called from plugin_manager.initialize() which is called from runtime startup
+        tracing::debug!(
+            target: "coldvox::stt::vosk",
+            plugin_id = %self.info().id,
+            auto_extract = config.auto_extract_model,
+            config_model_path = %config.model_path,
+            sample_rate = self.sample_rate,
+            "Initializing Vosk STT plugin - START: Beginning model discovery and setup"
+        );
 
-        let model_info = model::ensure_model_available(config.auto_extract_model)
-            .map_err(|e| SttPluginError::InitializationFailed(e.to_string()))?;
+        let model_info = match model::ensure_model_available(config.auto_extract_model) {
+            Ok(info) => info,
+            Err(e) => {
+                // FAILURE: Model discovery/extraction completely failed
+                // Most likely scenarios:
+                //   - No model exists anywhere (fresh install)
+                //   - Model extraction failed (corrupt zip, disk full)
+                //   - All paths checked were invalid
+                tracing::error!(
+                    target: "coldvox::stt::vosk",
+                    plugin_id = %self.info().id,
+                    error = %e,
+                    auto_extract_enabled = config.auto_extract_model,
+                    env_var_set = std::env::var("VOSK_MODEL_PATH").is_ok(),
+                    cwd = ?std::env::current_dir().ok(),
+                    "Failed to locate or prepare Vosk model during plugin initialization - CRITICAL: Cannot proceed without model"
+                );
+                return Err(SttPluginError::InitializationFailed(e.to_string()));
+            }
+        };
 
         if let Some(info) = model_info {
+            // SUCCESS: Model was found (via env, config, or auto-discovery)
+            // Most likely: Normal startup with model properly installed
             self.resolved_model_path = Some(info.path.clone());
             model::log_model_resolution(&info);
+
             let mut config_with_model = config.clone();
             config_with_model.model_path = info.path.to_string_lossy().to_string();
-            let transcriber = VoskTranscriber::new(config_with_model, self.sample_rate)
-                .map_err(SttPluginError::InitializationFailed)?;
+
+            tracing::debug!(
+                target: "coldvox::stt::vosk",
+                plugin_id = %self.info().id,
+                model_path = %info.path.display(),
+                "Creating Vosk transcriber - NEXT: Loading model into memory and creating recognizer"
+            );
+
+            let transcriber = match VoskTranscriber::new(config_with_model, self.sample_rate) {
+                Ok(t) => t,
+                Err(e) => {
+                    // FAILURE: Model directory exists but Vosk library couldn't load it
+                    // Most likely scenarios:
+                    //   - Corrupted model files (incomplete download/extraction)
+                    //   - Wrong model format/version for Vosk library version
+                    //   - Missing critical files (am/, graph/, etc.)
+                    //   - Incompatible sample rate (though we warn about this)
+                    tracing::error!(
+                        target: "coldvox::stt::vosk",
+                        plugin_id = %self.info().id,
+                        model_path = %info.path.display(),
+                        error = %e,
+                        sample_rate = self.sample_rate,
+                        "Failed to create Vosk transcriber - REASON: Model exists but is corrupted, incompatible, or missing files"
+                    );
+                    return Err(SttPluginError::InitializationFailed(e));
+                }
+            };
+
             self.transcriber = Some(transcriber);
+            // COMPLETE SUCCESS: Ready to transcribe audio
+            tracing::info!(
+                target: "coldvox::stt::vosk",
+                plugin_id = %self.info().id,
+                model_path = %info.path.display(),
+                "Vosk STT plugin initialized successfully - READY: Plugin can now process audio"
+            );
             Ok(())
         } else {
+            // SOFT FAILURE: Model not found, but this might be intentional
+            // HOW YOU GET HERE: ensure_model_available() returned Ok(None)
+            // This happens when: locate_model failed AND auto_extract is disabled AND no zip exists
+            // Most likely: User wants to run without STT, or expects manual model installation
+            tracing::warn!(
+                target: "coldvox::stt::vosk",
+                plugin_id = %self.info().id,
+                auto_extract_disabled = !config.auto_extract_model,
+                env_var_set = std::env::var("VOSK_MODEL_PATH").is_ok(),
+                cwd = ?std::env::current_dir().ok(),
+                "Vosk model not available and auto-extraction disabled or failed - REASON: No model found and extraction not attempted/successful"
+            );
             Err(SttPluginError::NotAvailable {
                 reason: "Vosk model not found and auto-extraction failed or was disabled."
                     .to_string(),
