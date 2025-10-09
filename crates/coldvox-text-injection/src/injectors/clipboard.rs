@@ -6,7 +6,7 @@
 //! Optional Klipper cleanup is available behind a feature flag.
 
 use crate::logging::utils;
-use crate::types::{InjectionConfig, InjectionError, InjectionResult, InjectionMethod};
+use crate::types::{InjectionConfig, InjectionContext, InjectionError, InjectionResult, InjectionMethod};
 use crate::TextInjector;
 use async_trait::async_trait;
 use std::sync::Arc;
@@ -14,26 +14,9 @@ use std::time::{Duration, Instant};
 use tokio::process::Command;
 use tracing::{debug, trace, warn};
 
-/// Context for clipboard injection operations
-#[derive(Debug, Clone)]
-pub struct Context {
-    /// Pre-warmed clipboard data (backup)
-    pub clipboard_backup: Option<ClipboardBackup>,
-    /// Target application identifier
-    pub target_app: Option<String>,
-    /// Window identifier
-    pub window_id: Option<String>,
-}
-
-impl Default for Context {
-    fn default() -> Self {
-        Self {
-            clipboard_backup: None,
-            target_app: None,
-            window_id: None,
-        }
-    }
-}
+// Re-export the old Context type for backwards compatibility
+#[deprecated(since = "0.1.0", note = "Use InjectionContext from types module instead")]
+pub type Context = InjectionContext;
 
 /// Clipboard backup data with MIME type information
 #[derive(Debug, Clone)]
@@ -436,7 +419,7 @@ impl ClipboardInjector {
     }
 
     /// Main injection method
-    pub async fn inject(&self, text: &str, context: &Context) -> InjectionResult<()> {
+    pub async fn inject(&self, text: &str, context: &InjectionContext) -> InjectionResult<()> {
         if text.is_empty() {
             return Ok(());
         }
@@ -444,19 +427,9 @@ impl ClipboardInjector {
         let start_time = Instant::now();
         trace!("Clipboard injector starting for {} chars", text.len());
 
-        // Check if we need to create a backup or use the pre-warmed one
-        let backup = if let Some(ref prewarmed) = context.clipboard_backup {
-            if prewarmed.is_valid(Duration::from_secs(5)) {
-                debug!("Using pre-warmed clipboard backup");
-                prewarmed.clone()
-            } else {
-                trace!("Prewarmed backup expired, creating new backup");
-                self.read_clipboard().await?
-            }
-        } else {
-            trace!("No pre-warmed backup, creating new backup");
-            self.read_clipboard().await?
-        };
+        // Always read fresh clipboard for backup (no pre-warming support yet for clipboard content)
+        // Pre-warming would need to store ClipboardBackup in InjectionContext.clipboard_backup
+        let backup = self.read_clipboard().await?;
 
         // Seed clipboard with payload
         self.write_clipboard(text.as_bytes(), "text/plain").await?;
@@ -596,10 +569,11 @@ impl TextInjector for ClipboardInjector {
         is_available
     }
 
-    async fn inject_text(&self, text: &str) -> InjectionResult<()> {
-        // Create a default context for the legacy inject_text method
-        let context = Context::default();
-        self.inject(text, &context).await
+    async fn inject_text(&self, text: &str, context: Option<&InjectionContext>) -> InjectionResult<()> {
+        // Use provided context or create default
+        let default_context = InjectionContext::default();
+        let ctx = context.unwrap_or(&default_context);
+        self.inject(text, ctx).await
     }
 }
 
@@ -629,8 +603,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_context_default() {
-        let context = Context::default();
+        let context = InjectionContext::default();
         
+        assert!(context.atspi_focused_node_path.is_none());
         assert!(context.clipboard_backup.is_none());
         assert!(context.target_app.is_none());
         assert!(context.window_id.is_none());
@@ -656,7 +631,7 @@ mod tests {
     async fn test_empty_text_handling() {
         let config = InjectionConfig::default();
         let injector = ClipboardInjector::new(config);
-        let context = Context::default();
+        let context = InjectionContext::default();
         
         // Empty text should succeed without error
         let result = injector.inject("", &context).await;
@@ -669,7 +644,7 @@ mod tests {
         let injector = ClipboardInjector::new(config);
         
         // Empty text should succeed without error
-        let result = injector.inject_text("").await;
+        let result = injector.inject_text("", None).await;
         assert!(result.is_ok());
     }
 

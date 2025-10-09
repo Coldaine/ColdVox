@@ -878,7 +878,7 @@ async fn test_atspi_injection() {
     // crate::test_utils::init_test_infrastructure();
     #[cfg(feature = "text-injection")]
     {
-        use crate::text_injection::{atspi_injector::AtspiInjector, InjectionConfig, TextInjector};
+        use crate::text_injection::{injectors::atspi::AtspiInjector, InjectionConfig, TextInjector};
         use tokio::time::Duration;
 
         // Guard the whole test with a short timeout so CI doesn't hang if desktop isn't responsive
@@ -908,7 +908,7 @@ async fn test_atspi_injection() {
             let test_text = "AT-SPI injection test";
             // Note: timeout wrapper flattens the result, so we need to handle the inner result separately
             let timeout_result = crate::stt::tests::timeout_utils::with_injection_timeout(
-                injector.inject_text(test_text),
+                injector.inject_text(test_text, None),
                 "AT-SPI injection test",
             )
             .await;

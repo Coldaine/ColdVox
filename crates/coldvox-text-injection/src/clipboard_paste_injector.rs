@@ -60,7 +60,7 @@ impl TextInjector for ClipboardPasteInjector {
         self.is_available().await
     }
 
-    async fn inject_text(&self, text: &str) -> InjectionResult<()> {
+    async fn inject_text(&self, text: &str, _context: Option<&crate::types::InjectionContext>) -> InjectionResult<()> {
         if text.is_empty() {
             return Ok(());
         }
@@ -114,7 +114,7 @@ impl TextInjector for ClipboardPasteInjector {
 
         // Step 2: Set clipboard to new text (delegate to ClipboardInjector)
         let clipboard_start = Instant::now();
-        self.clipboard_injector.inject_text(text).await?;
+        self.clipboard_injector.inject_text(text, _context).await?;
         debug!(
             "Clipboard set with {} chars in {}ms",
             text.len(),

@@ -1,7 +1,9 @@
 use crate::backend::{Backend, BackendDetector};
 use crate::focus::{FocusProvider, FocusStatus, FocusTracker};
 use crate::log_throttle::LogThrottle;
-use crate::types::{InjectionConfig, InjectionError, InjectionMethod, InjectionMetrics};
+use crate::prewarm::PrewarmController;
+use crate::session::{InjectionSession, SessionState};
+use crate::types::{InjectionConfig, InjectionContext, InjectionError, InjectionMethod, InjectionMetrics, InjectionMode};
 use crate::TextInjector;
 
 // Import injectors
@@ -22,6 +24,7 @@ use std::io::Write;
 use std::process;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use tokio::sync::RwLock;
 use tracing::{debug, error, info, trace, warn};
 
 /// Key for identifying a specific app-method combination
@@ -163,7 +166,7 @@ pub struct StrategyManager {
     /// Registry of available injectors
     injectors: InjectorRegistry,
     /// Cached method ordering for the current app_id
-    cached_method_order: Option<(String, Vec<InjectionMethod>)>,
+    cached_method_order: Arc<RwLock<Option<(String, Vec<InjectionMethod>)>>>,
     /// Cached compiled allowlist regex patterns
     #[cfg(feature = "regex")]
     allowlist_regexes: Vec<regex::Regex>,
@@ -172,6 +175,10 @@ pub struct StrategyManager {
     blocklist_regexes: Vec<regex::Regex>,
     /// Log throttle to reduce backend selection noise
     log_throttle: Mutex<LogThrottle>,
+    /// Pre-warm controller for caching resources
+    prewarm_controller: Arc<PrewarmController>,
+    /// Session state for buffering (when available)
+    session: Option<Arc<RwLock<InjectionSession>>>,
 }
 
 impl StrategyManager {
@@ -261,12 +268,14 @@ impl StrategyManager {
             metrics,
             backend_detector,
             injectors,
-            cached_method_order: None,
+            cached_method_order: Arc::new(RwLock::new(None)),
             #[cfg(feature = "regex")]
             allowlist_regexes,
             #[cfg(feature = "regex")]
             blocklist_regexes,
             log_throttle,
+            prewarm_controller: Arc::new(PrewarmController::new(config)),
+            session: None, // Session management is optional for backward compatibility
         }
     }
 
@@ -558,6 +567,24 @@ impl StrategyManager {
         self.cooldowns.remove(&key);
     }
 
+    /// Trigger pre-warming when session enters Buffering state
+    async fn check_and_trigger_prewarm(&self) {
+        if let Some(ref session) = self.session {
+            let session_guard = session.read().await;
+            if session_guard.state() == SessionState::Buffering {
+                // Get current context for pre-warming
+                let context = self.prewarm_controller.get_atspi_context().await;
+                // Run pre-warming in the background (non-blocking)
+                let ctx_clone = context.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = crate::prewarm::run(&ctx_clone).await {
+                        warn!("Pre-warming failed: {}", e);
+                    }
+                });
+            }
+        }
+    }
+
     /// Get ordered list of methods to try based on backend availability and success rates.
     /// Includes NoOp as a final fallback so the list is never empty.
     pub(crate) fn _get_method_priority(&self, app_id: &str) -> Vec<InjectionMethod> {
@@ -705,18 +732,24 @@ impl StrategyManager {
     }
 
     /// Get the preferred method order based on current context and history (cached per app)
-    pub(crate) fn get_method_order_cached(&mut self, app_id: &str) -> Vec<InjectionMethod> {
+    pub(crate) async fn get_method_order_cached(&self, app_id: &str) -> Vec<InjectionMethod> {
         // Use cached order when app_id unchanged
-        if let Some((cached_app, cached_order)) = &self.cached_method_order {
-            if cached_app == app_id {
-                return cached_order.clone();
+        {
+            let cached_guard = self.cached_method_order.read().await;
+            if let Some((cached_app, cached_order)) = &*cached_guard {
+                if cached_app == app_id {
+                    return cached_order.clone();
+                }
             }
         }
 
         let base_order = self.compute_method_order(app_id);
 
         // Cache and return
-        self.cached_method_order = Some((app_id.to_string(), base_order.clone()));
+        {
+            let mut cached_guard = self.cached_method_order.write().await;
+            *cached_guard = Some((app_id.to_string(), base_order.clone()));
+        }
         base_order
     }
 
@@ -767,7 +800,7 @@ impl StrategyManager {
             }
 
             let chunk = &text[start..end];
-            injector.inject_text(chunk).await?;
+            injector.inject_text(chunk, None).await?;
 
             start = end;
 
@@ -817,7 +850,7 @@ impl StrategyManager {
             }
 
             let burst = &text[start..end];
-            injector.inject_text(burst).await?;
+            injector.inject_text(burst, None).await?;
 
             // Calculate delay based on burst size and rate
             let delay_ms = (burst.len() as f64 / rate_cps as f64 * 1000.0) as u64;
@@ -904,16 +937,40 @@ impl StrategyManager {
             )));
         }
 
+        // Check if we should trigger pre-warming
+        self.check_and_trigger_prewarm().await;
+
         // Determine injection method based on config
-        let use_paste = match self.config.injection_mode.as_str() {
-            "paste" => true,
-            "keystroke" => false,
-            "auto" => text.len() > self.config.paste_chunk_chars as usize,
-            _ => text.len() > self.config.paste_chunk_chars as usize, // Default to auto
+        let injection_mode = match self.config.injection_mode.as_str() {
+            "paste" => InjectionMode::Paste,
+            "keystroke" => InjectionMode::Keystroke,
+            "auto" => {
+                if text.len() > self.config.paste_chunk_chars as usize {
+                    InjectionMode::Paste
+                } else {
+                    InjectionMode::Keystroke
+                }
+            }
+            _ => {
+                if text.len() > self.config.paste_chunk_chars as usize {
+                    InjectionMode::Paste
+                } else {
+                    InjectionMode::Keystroke
+                }
+            }
+        };
+
+        // Create injection context with mode override
+        let context = InjectionContext {
+            target_app: Some(app_id.clone()),
+            window_id: None,
+            atspi_focused_node_path: None,
+            clipboard_backup: None,
+            mode_override: Some(injection_mode),
         };
 
         // Get ordered list of methods to try
-        let method_order = self.get_method_order_cached(&app_id);
+        let method_order = self.get_method_order_cached(&app_id).await;
         trace!(
             "Strategy selection for app '{}': {:?} ({} methods available)",
             app_id,
@@ -965,12 +1022,7 @@ impl StrategyManager {
             // Perform the injector call in a narrow scope to avoid borrowing self across updates
             let result = {
                 if let Some(injector) = self.injectors.get_mut(method) {
-                    if use_paste {
-                        // For now, perform a single paste operation; chunking is optional
-                        injector.inject_text(text).await
-                    } else {
-                        injector.inject_text(text).await
-                    }
+                    injector.inject_text(text, Some(&context)).await
                 } else {
                     continue;
                 }
@@ -985,11 +1037,15 @@ impl StrategyManager {
                     self.update_success_record(&app_id, method, true);
                     self.clear_cooldown(method);
                     let total_elapsed = total_start.elapsed();
+                    let mode_str = match injection_mode {
+                        InjectionMode::Paste => "paste",
+                        InjectionMode::Keystroke => "keystroke",
+                    };
                     info!(
                         "Successfully injected {} chars using {:?} (mode: {}, method time: {}ms, total: {}ms, attempt {} of {})",
                         text.len(),
                         method,
-                        if use_paste { "paste" } else { "keystroke" },
+                        mode_str,
                         duration,
                         total_elapsed.as_millis(),
                         attempts,
@@ -1160,7 +1216,7 @@ mod tests {
             self.available
         }
 
-        async fn inject_text(&self, _text: &str) -> crate::types::InjectionResult<()> {
+        async fn inject_text(&self, _text: &str, _context: Option<&crate::types::InjectionContext>) -> crate::types::InjectionResult<()> {
             // Use deterministic behavior in CI/test environments
             let success = if cfg!(test) && std::env::var("CI").is_ok() {
                 // Deterministic success in CI

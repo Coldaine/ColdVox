@@ -71,23 +71,23 @@ pub mod ydotool_injector;
 // NoOp fallback is always available
 pub mod noop_injector;
 
-// Tests temporarily moved to .tests_temp/ during refactor
-// #[cfg(test)]
-// mod tests;
-
 // Re-export key components for easy access
 pub use backend::Backend;
 pub use focus::{FocusProvider, FocusStatus};
 pub use manager::StrategyManager;
 pub use processor::{AsyncInjectionProcessor, InjectionProcessor, ProcessorMetrics};
 pub use session::{InjectionSession, SessionConfig, SessionState};
-pub use types::{InjectionConfig, InjectionError, InjectionMethod, InjectionResult};
+pub use types::{InjectionConfig, InjectionContext, InjectionError, InjectionMethod, InjectionMode, InjectionResult};
 
 /// Trait defining the core text injection interface
 #[async_trait::async_trait]
 pub trait TextInjector: Send + Sync {
-    /// Inject text into the currently focused application
-    async fn inject_text(&self, text: &str) -> InjectionResult<()>;
+    /// Inject text with optional context (pre-warmed data, focus info, mode override)
+    /// 
+    /// # Arguments
+    /// * `text` - The text to inject
+    /// * `context` - Optional injection context with pre-warmed data and overrides
+    async fn inject_text(&self, text: &str, context: Option<&InjectionContext>) -> InjectionResult<()>;
 
     /// Check if the injector is available and functional
     async fn is_available(&self) -> bool;
