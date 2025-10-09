@@ -596,7 +596,13 @@ impl SttPluginManager {
                     Ok(p)
                 }
                 Err(e) => {
-                    warn!("Preferred plugin '{}' not available: {}", preferred, e);
+                    warn!(
+                        target: "coldvox::stt",
+                        preferred_plugin = %preferred,
+                        error = %e,
+                        available_plugins = ?available.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
+                        "Preferred plugin not available, falling back to best available"
+                    );
                     if let Some(ref metrics) = self.metrics_sink {
                         metrics.stt_load_errors.fetch_add(1, Ordering::Relaxed);
                     }
@@ -612,6 +618,14 @@ impl SttPluginManager {
                             if let Some(ref metrics) = self.metrics_sink {
                                 metrics.stt_load_errors.fetch_add(1, Ordering::Relaxed);
                             }
+                            error!(
+                                target: "coldvox::stt",
+                                preferred_plugin = %preferred,
+                                preferred_error = %e,
+                                fallback_error = %e2,
+                                available_plugins = ?available.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
+                                "All STT plugin attempts failed"
+                            );
                             Err(e2)
                         }
                     }
@@ -630,6 +644,12 @@ impl SttPluginManager {
                     if let Some(ref metrics) = self.metrics_sink {
                         metrics.stt_load_errors.fetch_add(1, Ordering::Relaxed);
                     }
+                    error!(
+                        target: "coldvox::stt",
+                        error = %e,
+                        available_plugins = ?available.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(),
+                        "No STT plugin could be created"
+                    );
                     Err(e)
                 }
             }
@@ -656,8 +676,34 @@ impl SttPluginManager {
 
         let mut plugin = plugin;
         // Initialize the plugin with a default config. The processor can re-initialize with specific settings if needed.
-        plugin.initialize(TranscriptionConfig::default()).await?;
+        let init_result = plugin.initialize(TranscriptionConfig::default()).await;
         let plugin_id = plugin.info().id.clone();
+
+        match init_result {
+            Ok(()) => {
+                tracing::info!(
+                    target: "coldvox::stt",
+                    plugin_id = %plugin_id,
+                    init_duration_ms = init_start.elapsed().as_millis(),
+                    "STT plugin initialized successfully"
+                );
+            }
+            Err(e) => {
+                tracing::error!(
+                    target: "coldvox::stt",
+                    plugin_id = %plugin_id,
+                    init_duration_ms = init_start.elapsed().as_millis(),
+                    error = %e,
+                    plugin_name = %plugin.info().name,
+                    plugin_description = %plugin.info().description,
+                    "STT plugin initialization failed"
+                );
+                if let Some(ref metrics) = self.metrics_sink {
+                    metrics.stt_init_failures.fetch_add(1, Ordering::Relaxed);
+                }
+                return Err(e);
+            }
+        }
 
         // Store the selected plugin
         let mut current = self.current_plugin.write().await;
