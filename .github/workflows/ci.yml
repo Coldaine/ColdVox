@@ -44,7 +44,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v5.0.0
       - name: Validate with gh
         shell: bash
         run: |
@@ -89,7 +89,7 @@ jobs:
       model_path: ${{ steps.setup.outputs.model_path }}
       lib_path: ${{ steps.setup.outputs.lib_path }}
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v5.0.0
       - name: Setup Vosk Model and Library
         id: setup
         run: bash scripts/ci/setup-vosk-cache.sh
@@ -101,9 +101,9 @@ jobs:
     needs: [setup-vosk-dependencies]
     strategy:
       matrix:
-        rust-version: [stable, "1.75"] # MSRV is 1.75
+        rust-version: [stable, "1.90"] # MSRV is 1.90
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v5.0.0
 
       - name: Set up Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -186,11 +186,21 @@ jobs:
       RUST_TEST_TIME_UNIT: 10000
       RUST_TEST_TIME_INTEGRATION: 30000
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v5.0.0
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: stable
+      
+      # Get Rust version for cache key
+      - name: Get Rust version
+        id: rust-version
+        run: echo "version=$(rustc --version | cut -d' ' -f2)" >> $GITHUB_OUTPUT
+      
       - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
+        with:
+          # Include rustc version in cache key to prevent ABI mismatches on self-hosted runners
+          key: ${{ steps.rust-version.outputs.version }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Setup ColdVox
         uses: ./.github/actions/setup-coldvox
@@ -305,7 +315,7 @@ jobs:
       - text_injection_tests
     if: always()
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Generate CI Report
         run: |
           echo "## CI Report" > report.md

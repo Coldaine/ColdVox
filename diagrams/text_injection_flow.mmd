@@ -1,0 +1,143 @@
+%% Mermaid v11 flowchart describing the text injection domain
+%% All subgraph titles are quoted per v11.11 requirement
+%% Clipboard fallback renamed to ClipboardPaste with ydotool optional
+flowchart TB
+  %% ---------- Legend ----------
+  subgraph "Legend"
+    L1[Process]:::proc --> L2{Decision}:::decision
+    L3[[External / Feature]]:::ext
+    L4([Success]):::ok --> L5([Failure]):::err
+    L6[/System Call/]:::io
+  end
+
+  %% ---------- Text Injection Domain Entry ----------
+  subgraph "Domain"
+    direction TB
+    AP[AsyncInjectionProcessor.run]:::domain -->|Final transcription| SESS[InjectionSession buffers text]:::proc
+    SESS --> PREP[prepare_injection()]:::proc
+    PREP -->|Buffer ready| INJCALL["StrategyManager.inject(text)"]:::entry
+    PREP -->|Buffer empty| AP
+  end
+
+  %% ---------- Strategy Selection ----------
+  subgraph "Strategy Pipeline"
+    direction TB
+    APPID[get_current_app_id()]:::proc --> ALLOW{is_app_allowed?}:::decision
+    ALLOW -->|No| HALT([Abort: app blocked]):::err
+    ALLOW -->|Yes| FOCUS{Focus policy allows?}:::decision
+    FOCUS -->|Blocked| HALT
+    FOCUS --> ORDER[get_method_order_cached(app_id)]:::proc
+    ORDER --> LOOP{{For each method}}:::loop
+
+    LOOP --> COOLD{In cooldown?}:::decision
+    COOLD -->|Yes| SKIP1[Skip method]:::proc --> LOOP
+    COOLD -->|No| AVAIL{Injector registered?}:::decision
+    AVAIL -->|No| SKIP2[Skip method]:::proc --> LOOP
+    AVAIL -->|Yes| BUDGET{Within latency budget?}:::decision
+    BUDGET -->|No| RATE([Rate limited]):::err --> RETURN_ERR([Return: BudgetExhausted]):::err
+    BUDGET -->|Yes| CALL[/injector.inject_text(text)/]:::io
+
+    CALL -->|Ok| SUC([Record success, clear cooldown]):::ok --> RETURN_OK([Return Ok]):::ok
+    CALL -->|Err| FAIL([Record failure, apply cooldown]):::err --> LOOP
+
+    LOOP -->|All attempted| ALLFAIL([All methods failed]):::err --> RETURN_ERR2([Return: MethodFailed]):::err
+  end
+
+  HALT --> AP
+  RETURN_OK --> AP
+  RETURN_ERR --> AP
+  RETURN_ERR2 --> AP
+
+  %% ---------- Backend Detection & Registration ----------
+  subgraph "Backend Detector"
+    direction TB
+    FEAT[Compiled features]:::ext --- F_ATSPI[[atspi]]:::ext
+    FEAT --- F_WL[[wl_clipboard]]:::ext
+    FEAT --- F_YDO[[ydotool]]:::ext
+    FEAT --- F_ENIGO[[enigo]]:::ext
+    FEAT --- F_KDO[[kdotool]]:::ext
+
+    ENV[Runtime environment]:::ext --- E_WAY[[WAYLAND_DISPLAY or XDG_SESSION_TYPE=wayland]]:::ext
+    ENV --- E_X11[[DISPLAY or XDG_SESSION_TYPE=x11]]:::ext
+    ENV --- E_PORTAL[[xdg-desktop-portal virtual keyboard]]:::ext
+    ENV --- E_WLRVK[[wlr-virtual-keyboard]]:::ext
+    ENV --- E_YDOT[[ydotool binary + socket]]:::ext
+
+    REG[InjectorRegistry::build]:::proc
+    F_ATSPI --> REG
+    F_WL --> REG
+    F_YDO --> REG
+    F_ENIGO --> REG
+    F_KDO --> REG
+    E_WAY --> REG
+    E_X11 --> REG
+    E_PORTAL --> REG
+    E_WLRVK --> REG
+    E_YDOT --> REG
+
+    REG --> REG_ATSPI[Register AtspiInsert]:::reg
+    REG --> REG_CLIPPASTE[Register ClipboardPaste]:::reg
+  %% YdoTool is not registered standalone; it's a fallback inside ClipboardPaste
+    REG --> REG_ENIGO[Register EnigoText (opt-in)]:::reg
+    REG --> REG_KDO[Register KdoToolAssist (opt-in)]:::reg
+    REG --> REG_NOOP[Ensure NoOp fallback]:::reg
+  end
+
+  ORDER --- REG
+
+  %% ---------- Injector Behaviours ----------
+  subgraph "Injectors"
+    direction TB
+
+    subgraph "AtspiInsert"
+      AT1[/Connect to Accessibility bus/]:::io --> AT2[Find focused object with Action/EditableText]:::proc --> AT3[/Invoke paste action/]:::io --> ATOK([Ok]):::ok
+      AT3 -.-> ATERR([Error]):::err
+    end
+
+    subgraph "ClipboardPaste"
+      CL1{Restore clipboard?}:::decision -->|Yes| CL1A[/Read current clipboard/]:::io --> CL2[Set clipboard to injection text]:::proc
+      CL1 -->|No| CL2
+      CL2 --> CL3[/wl-clipboard copy/]:::io --> CL4[Wait 20ms]:::proc --> CL5{AT-SPI paste success?}:::decision
+      CL5 -->|Yes| CLREST[Schedule clipboard restore]:::proc --> CLOS([Ok]):::ok
+      CL5 -->|No| CLYDO[/ydotool ctrl+v (if available)/]:::io
+      CLYDO -->|Success| CLREST2[Schedule clipboard restore]:::proc --> CLYOK([Ok]):::ok
+      CLYDO -.-> CLERR([Error]):::err
+    end
+
+    %% YdoToolPaste removed as standalone; fallback is represented within ClipboardPaste
+
+    subgraph "EnigoText"
+      EN1{Mode?}:::decision -->|paste| ENP[/enigo paste/]:::io --> ENOK([Ok]):::ok
+      EN1 -->|keystroke| ENT[enigo type per CPS limit]:::proc --> ENOK2([Ok]):::ok
+      ENP -.-> ENERR([Error]):::err
+      ENT -.-> ENERR2([Error]):::err
+    end
+
+    subgraph "KdoToolAssist"
+      KD1[/kdotool focus assist/]:::io --> KD2[Retry injection via environment-specific path]:::proc --> KDOK([Ok]):::ok
+      KD2 -.-> KDERR([Error]):::err
+    end
+
+    subgraph "NoOp"
+      NO1[Return Ok without side effects]:::proc --> NOOK([Ok]):::ok
+    end
+  end
+
+  CALL -->|AtspiInsert| AT1
+  CALL -->|ClipboardPaste| CL1
+  %% YdoToolPaste not called directly; integrated into ClipboardPaste path
+  CALL -->|EnigoText| EN1
+  CALL -->|KdoToolAssist| KD1
+  CALL -->|NoOp| NO1
+
+  %% ---------- Styles ----------
+  classDef domain fill:#0b5fff,color:#ffffff,stroke:#0b5fff,stroke-width:1.5px
+  classDef entry fill:#4a2bdc,color:#ffffff,stroke:#4a2bdc,stroke-width:2px
+  classDef proc fill:#eaf2ff,stroke:#7aa2ff,stroke-width:1px,color:#001d4a
+  classDef decision fill:#fff8e1,stroke:#f0c36d,stroke-width:1px,color:#5d3b00
+  classDef ok fill:#e6ffed,stroke:#28a745,stroke-width:1px,color:#0a4d22
+  classDef err fill:#ffecec,stroke:#d73a49,stroke-width:1px,color:#6b1119
+  classDef ext fill:#f4f8ff,stroke:#92b4ff,stroke-width:1px,color:#002a5e,stroke-dasharray:4 2
+  classDef io fill:#f3f0ff,stroke:#8b6eff,stroke-width:1px,color:#301860,stroke-dasharray:3 2
+  classDef loop fill:#eef9ff,stroke:#1e88e5,stroke-width:1px,color:#0d47a1
+  classDef reg fill:#edf7ed,stroke:#34a853,stroke-width:1px,color:#0a3d1c

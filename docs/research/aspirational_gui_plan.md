@@ -1,5 +1,9 @@
 # Aspirational GUI Plan: The Aurora Oracle
 
+> ⚠️ **RESEARCH DOCUMENT - WORK IN PROGRESS**
+> Contains incomplete sections and future work markers.
+> Last updated: 2025-10-07
+
 ## 1.0 Vision
 
 This document outlines an ambitious, phased development plan to create the "Aurora Oracle," a sophisticated, audio-reactive visual interface for ColdVox. This GUI will serve as a visually stunning and highly functional overlay on the KDE Plasma desktop.

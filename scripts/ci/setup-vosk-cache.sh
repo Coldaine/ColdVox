@@ -13,12 +13,12 @@ VOSK_DIR="$VENDOR_DIR/vosk"
 MODEL_DIR="$VOSK_DIR/model"
 LIB_DIR="$VOSK_DIR/lib"
 
-# Vosk Model details
-MODEL_NAME="vosk-model-small-en-us-0.15"
+# Vosk Model details - using large production-quality model
+MODEL_NAME="vosk-model-en-us-0.22"
 MODEL_URL="https://alphacephei.com/vosk/models/$MODEL_NAME.zip"
 MODEL_ZIP="$MODEL_NAME.zip"
-MODEL_SHA256="57919d20a3f03582a7a5b754353b3467847478b7d4b3ed2a3495b545448a44b9"
-REPO_MODEL_DIR="models/$MODEL_NAME"
+# Large model (1.8GB) - production quality, better accuracy than small model
+MODEL_SHA256="47f9a81ebb039dbb0bd319175c36ac393c0893b796c2b6303e64cf58c27b69f6"
 
 # Vosk Library details
 LIB_VERSION="0.3.45"
@@ -29,7 +29,9 @@ LIB_SHA256="25c3c27c63b505a682833f44a1bde99a48b1088f682b3325789a454990a13b46"
 LIB_EXTRACT_PATH="vosk-linux-${LIB_ARCH}-${LIB_VERSION}"
 
 # Runner's cache directory (this path is specific to the self-hosted runner config)
-RUNNER_CACHE_DIR="/home/coldaine/ActionRunnerCache/vosk"
+# Try multiple possible cache locations (vosk-models is the actual location on this runner)
+RUNNER_CACHE_DIR="${RUNNER_CACHE_DIR:-/home/coldaine/ActionRunnerCache/vosk}"
+RUNNER_CACHE_DIR_ALT="/home/coldaine/ActionRunnerCache/vosk-models"
 
 # --- Execution ---
 
@@ -37,49 +39,43 @@ mkdir -p "$MODEL_DIR"
 
 # 1. Set up Vosk Model
 echo "--- Setting up Vosk Model: $MODEL_NAME ---"
+
+# Try primary cache location first, then fallback to alternate
 MODEL_CACHE_PATH="$RUNNER_CACHE_DIR/$MODEL_NAME"
+if [ ! -d "$MODEL_CACHE_PATH" ] && [ -d "$RUNNER_CACHE_DIR_ALT/$MODEL_NAME" ]; then
+    echo "ℹ️  Primary cache not found, using alternate: $RUNNER_CACHE_DIR_ALT"
+    MODEL_CACHE_PATH="$RUNNER_CACHE_DIR_ALT/$MODEL_NAME"
+fi
+
 MODEL_LINK_PATH="$MODEL_DIR/$MODEL_NAME"
-if [ -d "$REPO_MODEL_DIR/graph" ]; then
-    echo "✅ Found model in repo at '$REPO_MODEL_DIR'. Creating/refreshing symlink: $MODEL_LINK_PATH -> $REPO_MODEL_DIR"
-    if [ -e "$MODEL_LINK_PATH" ] && [ ! -L "$MODEL_LINK_PATH" ]; then
-        rm -rf "$MODEL_LINK_PATH"
-    fi
-    ln -sfn "$(pwd)/$REPO_MODEL_DIR" "$MODEL_LINK_PATH"
-elif [ -d "$MODEL_CACHE_PATH" ]; then
-    echo "✅ Found model in runner cache. Creating/refreshing symlink: $MODEL_LINK_PATH -> $MODEL_CACHE_PATH"
+if [ -d "$MODEL_CACHE_PATH" ]; then
+    echo "✅ Found model in runner cache: $MODEL_CACHE_PATH"
+    echo "   Creating/refreshing symlink: $MODEL_LINK_PATH -> $MODEL_CACHE_PATH"
     # Remove any previous non-symlink directory/file at link location
     if [ -e "$MODEL_LINK_PATH" ] && [ ! -L "$MODEL_LINK_PATH" ]; then
         rm -rf "$MODEL_LINK_PATH"
     fi
     ln -sfn "$MODEL_CACHE_PATH" "$MODEL_LINK_PATH"
 else
-    echo "📥 Model not found in repo or cache. Downloading from $MODEL_URL..."
-    # Robust download with retries
-    rm -f "$MODEL_ZIP"
-    if ! curl -fsSL --retry 3 --retry-delay 5 -o "$MODEL_ZIP" "$MODEL_URL"; then
-        echo "❌ Failed to download model zip from primary URL: $MODEL_URL" >&2
+    echo "📥 Model not found in cache. Downloading from $MODEL_URL..."
+    
+    # Use wget if available, otherwise fallback to curl
+    if command -v wget >/dev/null 2>&1; then
+        wget -q --show-progress -O "$MODEL_ZIP" "$MODEL_URL" || wget -O "$MODEL_ZIP" "$MODEL_URL"
+    elif command -v curl >/dev/null 2>&1; then
+        curl -L --progress-bar -o "$MODEL_ZIP" "$MODEL_URL"
+    else
+        echo "ERROR: Neither wget nor curl found. Cannot download model." >&2
         exit 1
     fi
 
     echo "Verifying checksum..."
     if ! echo "$MODEL_SHA256  $MODEL_ZIP" | sha256sum -c -; then
-        echo "⚠️ Checksum mismatch on first attempt. Showing diagnostics and retrying once..." >&2
-        echo "Computed sha256:" >&2
-        sha256sum "$MODEL_ZIP" >&2 || true
-        echo "File size (bytes):" >&2
-        stat -c%s "$MODEL_ZIP" >&2 || true
-        rm -f "$MODEL_ZIP"
-        if ! curl -fsSL --retry 3 --retry-delay 5 -o "$MODEL_ZIP" "$MODEL_URL"; then
-            echo "❌ Failed to re-download model zip." >&2
-            exit 1
-        fi
-        echo "Re-verifying checksum..."
-        echo "$MODEL_SHA256  $MODEL_ZIP" | sha256sum -c - || {
-            echo "❌ Checksum mismatch persists for $MODEL_ZIP. Aborting with diagnostics." >&2
-            sha256sum "$MODEL_ZIP" >&2 || true
-            stat -c%s "$MODEL_ZIP" >&2 || true
-            exit 1
-        }
+        echo "ERROR: Checksum verification failed!" >&2
+        echo "Expected: $MODEL_SHA256" >&2
+        echo "Got:      $(sha256sum "$MODEL_ZIP" | cut -d' ' -f1)" >&2
+        echo "This may indicate a corrupted download or upstream model change." >&2
+        exit 1
     fi
 
     echo "Extracting model..."
@@ -95,10 +91,27 @@ fi
 
 # 2. Set up Vosk Library
 echo "--- Setting up Vosk Library v$LIB_VERSION ---"
+
+# Try multiple cache locations for libvosk
 LIB_CACHE_FILE="$RUNNER_CACHE_DIR/lib/libvosk.so"
+if [ ! -f "$LIB_CACHE_FILE" ]; then
+    # Try alternate cache structure (libvosk-setup/vosk-linux-*/libvosk.so)
+    if [ -f "/home/coldaine/ActionRunnerCache/libvosk-setup/$LIB_EXTRACT_PATH/libvosk.so" ]; then
+        LIB_CACHE_FILE="/home/coldaine/ActionRunnerCache/libvosk-setup/$LIB_EXTRACT_PATH/libvosk.so"
+        echo "ℹ️  Using libvosk from alternate cache: $LIB_CACHE_FILE"
+    fi
+fi
+
+# Also check system-wide installation
+if [ ! -f "$LIB_CACHE_FILE" ] && [ -f "/usr/local/lib/libvosk.so" ]; then
+    echo "ℹ️  Using system-installed libvosk at /usr/local/lib/libvosk.so"
+    LIB_CACHE_FILE="/usr/local/lib/libvosk.so"
+fi
+
 LIB_TARGET_FILE="$LIB_DIR/libvosk.so"
 if [ -f "$LIB_CACHE_FILE" ]; then
-    echo "✅ Found libvosk.so in runner cache. Creating/refreshing symlink: $LIB_TARGET_FILE -> $LIB_CACHE_FILE"
+    echo "✅ Found libvosk.so: $LIB_CACHE_FILE"
+    echo "   Creating/refreshing symlink: $LIB_TARGET_FILE -> $LIB_CACHE_FILE"
     mkdir -p "$LIB_DIR"
     if [ -e "$LIB_TARGET_FILE" ] && [ ! -L "$LIB_TARGET_FILE" ]; then
         rm -f "$LIB_TARGET_FILE"
@@ -106,27 +119,24 @@ if [ -f "$LIB_CACHE_FILE" ]; then
     ln -sfn "$LIB_CACHE_FILE" "$LIB_TARGET_FILE"
 else
     mkdir -p "$LIB_DIR"
-    echo "📥 Library not found in cache. Downloading from $LIB_URL..."
-    rm -f "$LIB_ZIP"
-    if ! curl -fsSL --retry 3 --retry-delay 5 -o "$LIB_ZIP" "$LIB_URL"; then
-        echo "❌ Failed to download library zip from $LIB_URL" >&2
+    echo "📥 Library not found in cache or system. Downloading from $LIB_URL..."
+    
+    # Use wget if available, otherwise fallback to curl
+    if command -v wget >/dev/null 2>&1; then
+        wget -q --show-progress -O "$LIB_ZIP" "$LIB_URL" || wget -O "$LIB_ZIP" "$LIB_URL"
+    elif command -v curl >/dev/null 2>&1; then
+        curl -L --progress-bar -o "$LIB_ZIP" "$LIB_URL"
+    else
+        echo "ERROR: Neither wget nor curl found. Cannot download library." >&2
         exit 1
     fi
 
     echo "Verifying checksum..."
     if ! echo "$LIB_SHA256  $LIB_ZIP" | sha256sum -c -; then
-        echo "⚠️ Library checksum mismatch on first attempt; retrying once..." >&2
-        rm -f "$LIB_ZIP"
-        if ! curl -fsSL --retry 3 --retry-delay 5 -o "$LIB_ZIP" "$LIB_URL"; then
-            echo "❌ Failed to re-download library zip." >&2
-            exit 1
-        fi
-        echo "$LIB_SHA256  $LIB_ZIP" | sha256sum -c - || {
-            echo "❌ Library checksum mismatch persists for $LIB_ZIP." >&2
-            sha256sum "$LIB_ZIP" >&2 || true
-            stat -c%s "$LIB_ZIP" >&2 || true
-            exit 1
-        }
+        echo "ERROR: Checksum verification failed!" >&2
+        echo "Expected: $LIB_SHA256" >&2
+        echo "Got:      $(sha256sum "$LIB_ZIP" | cut -d' ' -f1)" >&2
+        exit 1
     fi
 
     echo "Extracting library..."
@@ -154,7 +164,10 @@ LIB_PATH_ABS="$(pwd)/$LIB_DIR"
 echo "Model Path: $MODEL_PATH_ABS"
 echo "Library Path: $LIB_PATH_ABS"
 
-echo "model_path=$MODEL_PATH_ABS" >> "$GITHUB_OUTPUT"
-echo "lib_path=$LIB_PATH_ABS" >> "$GITHUB_OUTPUT"
+# Output for GitHub Actions (only if running in CI)
+if [ -n "${GITHUB_OUTPUT:-}" ]; then
+    echo "model_path=$MODEL_PATH_ABS" >> "$GITHUB_OUTPUT"
+    echo "lib_path=$LIB_PATH_ABS" >> "$GITHUB_OUTPUT"
+fi
 
 echo "✅ Vosk setup complete."

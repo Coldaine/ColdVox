@@ -78,6 +78,7 @@ pub async fn handle_plugin_error<E: std::error::Error + Send + Sync>(
 pub struct AudioBufferManager {
     buffer: Vec<i16>,
     frames_buffered: u64,
+    #[allow(dead_code)]
     started_at: Instant,
 }
 
@@ -117,7 +118,7 @@ impl AudioBufferManager {
     }
 
     /// Get chunks of the buffer
-    pub fn chunks(&self, chunk_size: usize) -> std::slice::Chunks<i16> {
+    pub fn chunks(&self, chunk_size: usize) -> std::slice::Chunks<'_, i16> {
         self.buffer.chunks(chunk_size)
     }
 

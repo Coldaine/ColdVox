@@ -55,7 +55,7 @@ impl StateManager {
             )));
         }
 
-        tracing::info!("State transition: {:?} -> {:?}", *current, new_state);
+        tracing::debug!("State transition: {:?} -> {:?}", *current, new_state);
         *current = new_state.clone();
         let _ = self.state_tx.send(new_state);
         Ok(())

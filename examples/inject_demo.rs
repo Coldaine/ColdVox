@@ -41,11 +41,10 @@ async fn run_processor_demo() -> Result<(), Box<dyn std::error::Error>> {
     info!("This demo simulates the full injection pipeline with session management");
 
     // Create injection configuration
+    // Note: clipboard restoration is automatic (always enabled)
     let config = InjectionConfig {
-        allow_ydotool: true,
         allow_kdotool: false,
         allow_enigo: false,
-        restore_clipboard: true,
         inject_on_unknown_focus: false,
         max_total_latency_ms: 5000,
         per_method_timeout_ms: 2000,
@@ -133,11 +132,10 @@ async fn run_direct_injection_demo() -> Result<(), Box<dyn std::error::Error>> {
     info!("This demo shows direct usage of the StrategyManager");
 
     // Create injection configuration
+    // Note: clipboard restoration is automatic (always enabled)
     let config = InjectionConfig {
-        allow_ydotool: true,
         allow_kdotool: false,
         allow_enigo: false,
-        restore_clipboard: true,
         inject_on_unknown_focus: false,
         max_total_latency_ms: 5000,
         per_method_timeout_ms: 2000,

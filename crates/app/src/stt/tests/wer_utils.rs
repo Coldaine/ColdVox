@@ -1,12 +1,6 @@
 /// Word Error Rate (WER) calculation utilities for STT testing.
 ///
 /// Centralized implementation to avoid code duplication between test files.
-
-/// Calculate Word Error Rate (WER) between reference and hypothesis strings.
-///
-/// WER = (insertions + deletions + substitutions) / reference_word_count
-///
-/// Uses word-level Levenshtein distance algorithm for accurate error counting.
 pub fn calculate_wer(reference: &str, hypothesis: &str) -> f64 {
     let ref_words: Vec<&str> = reference.split_whitespace().collect();
     let hyp_words: Vec<&str> = hypothesis.split_whitespace().collect();
@@ -22,8 +16,8 @@ pub fn calculate_wer(reference: &str, hypothesis: &str) -> f64 {
     let mut dp = vec![vec![0; hyp_len + 1]; ref_len + 1];
 
     // Initialize base cases
-    for i in 0..=ref_len {
-        dp[i][0] = i; // deletions
+    for (i, row) in dp.iter_mut().enumerate().take(ref_len + 1) {
+        row[0] = i; // deletions
     }
 
     for j in 0..=hyp_len {
