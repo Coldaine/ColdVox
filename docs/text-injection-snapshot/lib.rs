@@ -12,6 +12,7 @@
 //! | Enigo        | Cross    | Input simulation   | Beta   |
 //! | KDotool      | Linux    | X11 automation     | Beta   |
 //! | YDotool      | Linux    | uinput automation  | Beta   |
+
 //!
 //! ## Features
 //!
@@ -20,42 +21,26 @@
 //! - `enigo`: Cross-platform input simulation
 //! - `ydotool`: Linux uinput automation fallback for paste
 //! - `kdotool`: KDE/X11 window activation assistance
-//!
+
 //! - `regex`: Precompile allow/block list patterns
 //! - `all-backends`: Enable all available backends
 //! - `linux-desktop`: Enable recommended Linux desktop backends
 
 pub mod backend;
-pub mod compat;
 pub mod focus;
 pub mod log_throttle;
-pub mod logging;
 pub mod manager;
 pub mod processor;
 pub mod session;
 pub mod types;
-
-// NOTE: window_manager intentionally violates the "no-sprawl" principle.
-// Platform-specific fallbacks for app_id detection require this complexity budget.
-// This is the ONLY allowed exception to keep lean architecture elsewhere.
 pub mod window_manager;
 
-// AT-SPI event confirmation module
-pub mod confirm;
+// Individual injector modules with feature gates
+#[cfg(feature = "atspi")]
+pub mod atspi_injector;
 
-// Pre-warming module for injection components
-pub mod prewarm;
-
-// New modular injector organization
-pub mod injectors;
-pub mod orchestrator;
-
-// Re-export orchestrator types and injector module
-pub use orchestrator::{StrategyOrchestrator, DesktopEnvironment, AtspiContext};
-pub use injectors::{ClipboardBackup, ClipboardInjector, ClipboardContext};
-
-// Re-export modular AT-SPI injector for backward compatibility
-pub use injectors::atspi::AtspiInjector;
+#[cfg(feature = "wl_clipboard")]
+pub mod clipboard_injector;
 
 #[cfg(feature = "wl_clipboard")]
 pub mod clipboard_paste_injector;
@@ -71,9 +56,8 @@ pub mod ydotool_injector;
 // NoOp fallback is always available
 pub mod noop_injector;
 
-// Tests temporarily moved to .tests_temp/ during refactor
-// #[cfg(test)]
-// mod tests;
+#[cfg(test)]
+mod tests;
 
 // Re-export key components for easy access
 pub use backend::Backend;
@@ -99,12 +83,41 @@ pub trait TextInjector: Send + Sync {
     fn backend_info(&self) -> Vec<(&'static str, String)>;
 }
 
-// Re-export confirmation module components
-pub use confirm::{
-    ConfirmationContext, ConfirmationResult, TextChangeListener,
-    create_confirmation_context, text_changed,
-};
+/// Trait defining text injection session management
+#[async_trait::async_trait]
+pub trait TextInjectionSession: Send + Sync {
+    type Config;
+    type Error;
 
+    /// Start a new injection session
+    async fn start(&mut self, config: Self::Config) -> Result<(), Self::Error>;
 
+    /// Stop the current injection session
+    async fn stop(&mut self) -> Result<(), Self::Error>;
 
+    /// Check if session is currently active
+    fn is_active(&self) -> bool;
 
+    /// Get session statistics
+    fn get_stats(&self) -> SessionStats;
+}
+
+/// Statistics for text injection sessions
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SessionStats {
+    pub injections_count: u64,
+    pub total_characters: u64,
+    pub session_duration: std::time::Duration,
+    pub last_injection: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl Default for SessionStats {
+    fn default() -> Self {
+        Self {
+            injections_count: 0,
+            total_characters: 0,
+            session_duration: std::time::Duration::ZERO,
+            last_injection: None,
+        }
+    }
+}
