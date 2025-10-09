@@ -5,7 +5,7 @@
 //! and fast-fail execution with strict budgets.
 
 use crate::confirm::{text_changed, ConfirmationResult};
-use crate::atspi_injector::AtspiInjector;
+use crate::injectors::atspi::AtspiInjector;
 use crate::prewarm::{PrewarmController, run};
 use crate::session::{InjectionSession, SessionState};
 use crate::types::{InjectionConfig, InjectionError, InjectionMethod, InjectionResult};
@@ -14,7 +14,7 @@ use std::env;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, warn};
 
 /// Context for AT-SPI injection operations
 #[derive(Debug, Clone)]
@@ -209,7 +209,6 @@ impl StrategyOrchestrator {
             let context = self.last_context.read().await;
             if let Some(ref ctx) = *context {
                 // Run pre-warming in the background (non-blocking)
-                let prewarm = self.prewarm_controller.clone();
                 let ctx_clone = ctx.clone();
                 tokio::spawn(async move {
                     if let Err(e) = run(&ctx_clone).await {

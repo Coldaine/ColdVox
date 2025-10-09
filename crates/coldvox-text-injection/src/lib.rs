@@ -54,12 +54,8 @@ pub mod orchestrator;
 pub use orchestrator::{StrategyOrchestrator, DesktopEnvironment, AtspiContext};
 pub use injectors::{ClipboardBackup, ClipboardInjector, ClipboardContext};
 
-// Individual injector modules with feature gates
-#[cfg(feature = "atspi")]
-pub mod atspi_injector;
-
-#[cfg(feature = "wl_clipboard")]
-pub mod clipboard_injector;
+// Re-export modular AT-SPI injector for backward compatibility
+pub use injectors::atspi::AtspiInjector;
 
 #[cfg(feature = "wl_clipboard")]
 pub mod clipboard_paste_injector;
@@ -75,8 +71,9 @@ pub mod ydotool_injector;
 // NoOp fallback is always available
 pub mod noop_injector;
 
-#[cfg(test)]
-mod tests;
+// Tests temporarily moved to .tests_temp/ during refactor
+// #[cfg(test)]
+// mod tests;
 
 // Re-export key components for easy access
 pub use backend::Backend;

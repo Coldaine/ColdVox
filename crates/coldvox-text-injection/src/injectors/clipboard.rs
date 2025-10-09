@@ -12,8 +12,7 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::process::Command;
-use tokio::time::timeout;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, trace, warn};
 
 /// Context for clipboard injection operations
 #[derive(Debug, Clone)]
@@ -141,49 +140,17 @@ impl ClipboardInjector {
 
     /// Read clipboard content using Wayland
     async fn read_wayland_clipboard(&self) -> InjectionResult<ClipboardBackup> {
-        #[cfg(feature = "wl_clipboard")]
-        {
-            use wl_clipboard_rs::paste::{get_contents, ClipboardType, MimeType, Seat};
+        // Use wl-paste command to read clipboard (simple and reliable fallback)
+        let output = Command::new("wl-paste")
+            .args(&["--type", "text/plain"])
+            .output()
+            .await
+            .map_err(|e| InjectionError::Process(format!("Failed to execute wl-paste: {}", e)))?;
 
-            let read_future = tokio::task::spawn_blocking(|| {
-                get_contents(ClipboardType::Regular, Seat::Unspecified, MimeType::Text)
-                    .map_err(|e| InjectionError::Clipboard(format!("Wayland clipboard read failed: {}", e)))
-                    .and_then(|(mut pipe, mime)| {
-                        let mut buf = Vec::new();
-                        use std::io::Read;
-                        pipe.read_to_end(&mut buf)
-                            .map_err(|e| InjectionError::Clipboard(format!("Failed to read clipboard data: {}", e)))
-                            .map(|_| (buf, mime))
-                    })
-            });
-
-            match timeout(Duration::from_millis(500), read_future).await {
-                Ok(Ok((content, mime))) => {
-                    let mime_string = match mime {
-                        MimeType::Text => "text/plain".to_string(),
-                        _ => "unknown".to_string(),
-                    };
-                    Ok(ClipboardBackup::new(content, mime_string))
-                }
-                Ok(Err(e)) => Err(e),
-                Err(_) => Err(InjectionError::Timeout(500)),
-            }
-        }
-
-        #[cfg(not(feature = "wl_clipboard"))]
-        {
-            // Fallback to wl-paste command
-            let output = Command::new("wl-paste")
-                .args(&["--type", "text/plain"])
-                .output()
-                .await
-                .map_err(|e| InjectionError::Process(format!("Failed to execute wl-paste: {}", e)))?;
-
-            if output.status.success() {
-                Ok(ClipboardBackup::new(output.stdout, "text/plain".to_string()))
-            } else {
-                Err(InjectionError::Process("wl-paste command failed".to_string()))
-            }
+        if output.status.success() {
+            Ok(ClipboardBackup::new(output.stdout, "text/plain".to_string()))
+        } else {
+            Err(InjectionError::Process("wl-paste command failed".to_string()))
         }
     }
 
@@ -229,59 +196,28 @@ impl ClipboardInjector {
     }
 
     /// Write content to Wayland clipboard
-    async fn write_wayland_clipboard(&self, content: &[u8], mime_type: &str) -> InjectionResult<()> {
-        #[cfg(feature = "wl_clipboard")]
-        {
-            use wl_clipboard_rs::copy::{MimeType, Options, Source};
+    async fn write_wayland_clipboard(&self, content: &[u8], _mime_type: &str) -> InjectionResult<()> {
+        // Use wl-copy command as a simple fallback implementation
+        let _content_str = String::from_utf8_lossy(content);
+        let output = Command::new("wl-copy")
+            .arg(_content_str.as_ref())
+            .output()
+            .await
+            .map_err(|e| InjectionError::Process(format!("Failed to execute wl-copy: {}", e)))?;
 
-            let write_future = tokio::task::spawn_blocking({
-                let content = content.to_vec();
-                let mime_type = mime_type.to_string();
-                move || {
-                    let source = Source::Bytes(content.into());
-                    let opts = Options::new();
-
-                    let mime_enum = match mime_type.as_str() {
-                        "text/plain" => MimeType::Text,
-                        _ => MimeType::Other(mime_type),
-                    };
-
-                    opts.copy(source, mime_enum)
-                        .map_err(|e| InjectionError::Clipboard(format!("Wayland clipboard write failed: {}", e)))
-                }
-            });
-
-            match timeout(Duration::from_millis(500), write_future).await {
-                Ok(Ok(())) => Ok(()),
-                Ok(Err(e)) => Err(e),
-                Err(_) => Err(InjectionError::Timeout(500)),
-            }
-        }
-
-        #[cfg(not(feature = "wl_clipboard"))]
-        {
-            // Fallback to wl-copy command
-            let content_str = String::from_utf8_lossy(content);
-            let output = Command::new("wl-copy")
-                .arg(&*content_str)
-                .output()
-                .await
-                .map_err(|e| InjectionError::Process(format!("Failed to execute wl-copy: {}", e)))?;
-
-            if output.status.success() {
-                Ok(())
-            } else {
-                Err(InjectionError::Process("wl-copy command failed".to_string()))
-            }
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(InjectionError::Process("wl-copy command failed".to_string()))
         }
     }
 
     /// Write content to X11 clipboard
     async fn write_x11_clipboard(&self, content: &[u8]) -> InjectionResult<()> {
-        let content_str = String::from_utf8_lossy(content);
+    let _content_str = String::from_utf8_lossy(content);
         let output = Command::new("xclip")
             .args(&["-selection", "clipboard"])
-            .input(content_str.as_bytes())
+            .stdin(std::process::Stdio::piped())
             .output()
             .await
             .map_err(|e| InjectionError::Process(format!("Failed to execute xclip: {}", e)))?;
@@ -373,9 +309,14 @@ impl ClipboardInjector {
             .map_err(|e| InjectionError::Other(format!("Collection.get_matches failed: {e}")))?;
 
         if matches.is_empty() {
-            rule.ifaces = Interface::EditableText.into();
+            let mut rule2 = ObjectMatchRule::default();
+            rule2.states = State::Focused.into();
+            rule2.states_mt = MatchType::All;
+            rule2.ifaces = Interface::EditableText.into();
+            rule2.ifaces_mt = MatchType::Any;
+
             matches = collection
-                .get_matches(rule, SortOrder::Canonical, 1, false)
+                .get_matches(rule2, SortOrder::Canonical, 1, false)
                 .await
                 .map_err(|e| {
                     InjectionError::Other(format!(
@@ -468,7 +409,7 @@ impl ClipboardInjector {
     }
 
     /// Clear Klipper history (optional, behind feature flag)
-    #[cfg(feature = "klipper")]
+    #[cfg(feature = "kdotool")]
     async fn clear_klipper_history(&self) -> InjectionResult<()> {
         trace!("Clearing Klipper history");
 
@@ -536,7 +477,7 @@ impl ClipboardInjector {
         }
 
         // Optional Klipper cleanup if enabled
-        #[cfg(feature = "klipper")]
+    #[cfg(feature = "kdotool")]
         {
             if self.config.allow_kdotool {
                 // Use allow_kdotool as a proxy for enabling Klipper cleanup
@@ -701,9 +642,10 @@ mod tests {
         let mime_type = "text/plain";
         
         // Test the wrapper function
-        let result = with_seed_restore(payload, mime_type, None, async {
+        let result = with_seed_restore(payload, mime_type, None, || async {
             Ok(())
-        }).await;
+        })
+        .await;
         
         // The result may fail due to clipboard unavailability in test environment
         // but we're testing the wrapper structure

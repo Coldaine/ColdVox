@@ -10,14 +10,14 @@ use crate::logging::utils;
 use crate::types::{InjectionConfig, InjectionError, InjectionResult, InjectionMethod};
 use crate::TextInjector;
 use async_trait::async_trait;
-use std::time::{Duration, Instant};
-use tracing::{debug, error, info, trace, warn};
+use std::time::Instant;
+use tracing::{debug, trace, warn};
 
 /// Context for AT-SPI injection operations
 #[derive(Debug, Clone)]
 pub struct Context {
-    /// Pre-warmed AT-SPI connection data
-    pub focused_node: Option<atspi::Accessible>,
+    /// Pre-warmed AT-SPI connection data (stored as path string for portability)
+    pub focused_node_path: Option<String>,
     /// Target application identifier
     pub target_app: Option<String>,
     /// Window identifier
@@ -27,7 +27,7 @@ pub struct Context {
 impl Default for Context {
     fn default() -> Self {
         Self {
-            focused_node: None,
+            focused_node_path: None,
             target_app: None,
             window_id: None,
         }
@@ -57,6 +57,12 @@ impl AtspiInjector {
         let start_time = Instant::now();
         
         trace!("AT-SPI insert_text starting for {} chars", text.len());
+        // Fast-path: nothing to do for empty text. This keeps tests simple and
+        // avoids attempting AT-SPI operations when callers simply want a no-op.
+        if text.is_empty() {
+            debug!("insert_text called with empty text; nothing to do");
+            return Ok(());
+        }
         
         #[cfg(feature = "atspi")]
         {
@@ -83,14 +89,8 @@ impl AtspiInjector {
             let zbus_conn = conn.connection();
             trace!("AT-SPI connection established for insert_text");
 
-            // Use pre-warmed focused node if available, otherwise find it
-            let obj_ref = if let Some(ref node) = context.focused_node {
-                // Use the pre-warmed node
-                atspi::ObjectRef {
-                    name: node.name.clone(),
-                    path: node.path.clone(),
-                }
-            } else {
+            // Find focused element (pre-warming not currently implemented for AT-SPI objects)
+            let obj_ref = {
                 // Find focused element
                 let collection_fut = CollectionProxy::builder(zbus_conn)
                     .destination("org.a11y.atspi.Registry")
@@ -229,6 +229,11 @@ impl AtspiInjector {
         let start_time = Instant::now();
         
         trace!("AT-SPI paste_text starting for {} chars", text.len());
+        // Fast-path: nothing to do for empty text. Matches insert_text behavior.
+        if text.is_empty() {
+            debug!("paste_text called with empty text; nothing to do");
+            return Ok(());
+        }
         
         #[cfg(feature = "atspi")]
         {
@@ -257,14 +262,8 @@ impl AtspiInjector {
             let zbus_conn = conn.connection();
             trace!("AT-SPI connection established for paste_text");
 
-            // Use pre-warmed focused node if available, otherwise find it
-            let obj_ref = if let Some(ref node) = context.focused_node {
-                // Use the pre-warmed node
-                atspi::ObjectRef {
-                    name: node.name.clone(),
-                    path: node.path.clone(),
-                }
-            } else {
+            // Find focused element (pre-warming not currently implemented for AT-SPI objects)
+            let obj_ref = {
                 // Find focused element
                 let collection_fut = CollectionProxy::builder(zbus_conn)
                     .destination("org.a11y.atspi.Registry")
@@ -328,7 +327,9 @@ impl AtspiInjector {
 
             // Look for a paste action
             let mut paste_found = false;
-            for (i, action_name) in actions.iter().enumerate() {
+            for (i, action_obj) in actions.iter().enumerate() {
+                // AT-SPI Action objects have a name field that contains the action name
+                let action_name = &action_obj.name;
                 if action_name.to_lowercase().contains("paste") {
                     debug!("Found paste action: {} at index {}", action_name, i);
                     let do_action_fut = action.do_action(i as i32);
@@ -588,7 +589,7 @@ mod tests {
     async fn test_context_default() {
         let context = Context::default();
         
-        assert!(context.focused_node.is_none());
+        assert!(context.focused_node_path.is_none());
         assert!(context.target_app.is_none());
         assert!(context.window_id.is_none());
     }

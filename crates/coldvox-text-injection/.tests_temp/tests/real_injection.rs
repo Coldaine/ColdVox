@@ -7,9 +7,9 @@
 //! To run these tests, use the following command:
 //! `cargo test -p coldvox-text-injection --features real-injection-tests`
 
-// NOTE: Struct name is AtspiInjector (lowercase 's'); previous version used AtSpiInjector causing build failure.
+// NOTE: Using modular injectors from the injectors module
 #[cfg(feature = "atspi")]
-use crate::atspi_injector::AtspiInjector;
+use crate::injectors::atspi::AtspiInjector;
 #[cfg(feature = "wl_clipboard")]
 use crate::clipboard_paste_injector::ClipboardPasteInjector;
 #[cfg(feature = "enigo")]

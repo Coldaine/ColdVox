@@ -6,11 +6,10 @@
 
 use crate::orchestrator::AtspiContext;
 use crate::types::{InjectionConfig, InjectionResult};
-use crate::logging::utils;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, RwLock};
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, info, trace, warn};
 
 /// TTL for cached pre-warmed data (3 seconds)
 const CACHE_TTL: Duration = Duration::from_secs(3);
@@ -167,8 +166,7 @@ impl PrewarmController {
             use atspi::{
                 connection::AccessibilityConnection,
                 proxy::collection::CollectionProxy,
-                proxy::text::TextProxy,
-                Interface, MatchType, ObjectMatchRule, SortOrder, State,
+                MatchType, ObjectMatchRule, SortOrder, State,
             };
             use tokio::time;
 
@@ -251,7 +249,7 @@ impl PrewarmController {
 
         #[cfg(feature = "atspi")]
         {
-            use crate::confirm::{ConfirmationContext, create_confirmation_context};
+            use crate::confirm::create_confirmation_context;
             
             // Create confirmation context to arm the listener
             let _confirmation_context = create_confirmation_context(self.config.clone());
@@ -523,7 +521,7 @@ impl PrewarmController {
 
 /// Run pre-warming for the given context
 /// This function should be called as soon as the buffer isn't idle
-pub async fn run(ctx: &AtspiContext) -> InjectionResult<()> {
+pub async fn run(_ctx: &AtspiContext) -> InjectionResult<()> {
     // Create a default config for now - in a real implementation this would come from the context
     let config = InjectionConfig::default();
     let controller = PrewarmController::new(config);

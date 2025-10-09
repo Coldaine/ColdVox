@@ -7,7 +7,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use anyhow::{Context, Result};
+use anyhow::Result;
 
 /// Legacy configuration format version 1
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,7 +97,7 @@ pub struct LegacyCooldownConfig {
 }
 
 /// Current configuration format
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CurrentConfig {
     /// Injection configuration
     pub injection: crate::types::InjectionConfig,
@@ -225,7 +225,7 @@ impl CompatibilityMemory {
     }
 
     /// Add a legacy configuration to the memory
-    pub fn add_legacy_config(&mut self, path: PathBuf, version: String, config: &serde_json::Value) -> Result<()> {
+    pub fn add_legacy_config(&mut self, path: PathBuf, version: String, _config: &serde_json::Value) -> Result<()> {
         let info = LegacyConfigInfo {
             path: path.clone(),
             version: version.clone(),

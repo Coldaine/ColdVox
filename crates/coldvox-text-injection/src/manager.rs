@@ -6,7 +6,7 @@ use crate::TextInjector;
 
 // Import injectors
 #[cfg(feature = "atspi")]
-use crate::atspi_injector::AtspiInjector;
+use crate::injectors::atspi::AtspiInjector;
 #[cfg(feature = "wl_clipboard")]
 use crate::clipboard_paste_injector::ClipboardPasteInjector;
 #[cfg(feature = "enigo")]
@@ -1112,7 +1112,22 @@ impl StrategyManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::test_util::util::skip_if_headless_ci;
+    // Local helper to decide whether to skip GUI-dependent tests in CI environments.
+    // We keep this lightweight to avoid depending on internal test helpers during unit tests.
+    fn skip_if_headless_ci() -> bool {
+        let is_ci = std::env::var("CI").is_ok()
+            || std::env::var("GITHUB_ACTIONS").is_ok()
+            || std::env::var("GITLAB_CI").is_ok();
+
+        if is_ci {
+            // If no display environment variables are present, skip
+            if std::env::var("DISPLAY").is_err() && std::env::var("WAYLAND_DISPLAY").is_err() {
+                return true;
+            }
+        }
+
+        false
+    }
     use async_trait::async_trait;
     use std::time::Duration;
 

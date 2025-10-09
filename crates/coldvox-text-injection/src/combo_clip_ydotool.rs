@@ -1,4 +1,4 @@
-use crate::clipboard_injector::ClipboardInjector;
+use crate::injectors::clipboard::ClipboardInjector;
 use crate::types::{InjectionConfig, InjectionResult};
 use crate::TextInjector;
 use async_trait::async_trait;

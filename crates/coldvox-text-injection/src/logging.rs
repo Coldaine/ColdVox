@@ -4,13 +4,13 @@
 
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use tracing::{debug, error, info, warn, Level};
+use tracing::{debug, info, warn, Level};
 
 /// Initialize tracing with appropriate configuration for the text injection system
 pub fn init_tracing() {
     // Note: tracing_subscriber is a dev dependency, so this function is only available
     // when the feature is enabled. In production, use the application's tracing setup.
-    #[cfg(feature = "tracing-subscriber")]
+    #[cfg(feature = "all-backends")]
     {
         let subscriber = tracing_subscriber::fmt()
             .with_max_level(Level::INFO)
@@ -25,7 +25,7 @@ pub fn init_tracing() {
             .expect("Failed to set tracing subscriber");
     }
     
-    #[cfg(not(feature = "tracing-subscriber"))]
+    #[cfg(not(feature = "all-backends"))]
     {
         // No-op when tracing-subscriber is not available
         tracing::info!("Tracing initialization skipped (tracing-subscriber feature not enabled)");
@@ -34,10 +34,10 @@ pub fn init_tracing() {
 
 /// Initialize tracing with custom configuration
 pub fn init_tracing_with_config(config: LoggingConfig) {
-    #[cfg(feature = "tracing-subscriber")]
+    #[cfg(feature = "all-backends")]
     {
         let subscriber = tracing_subscriber::fmt()
-            .with_max_level(config.level)
+            .with_max_level(config.tracing_level())
             .with_target(config.include_target)
             .with_thread_ids(config.include_thread_id)
             .with_file(config.include_file)
@@ -49,17 +49,18 @@ pub fn init_tracing_with_config(config: LoggingConfig) {
             .expect("Failed to set tracing subscriber");
     }
     
-    #[cfg(not(feature = "tracing-subscriber"))]
+    #[cfg(not(feature = "all-backends"))]
     {
-        tracing::info!("Tracing initialization skipped (tracing-subscriber feature not enabled)");
+        // Use the config in a simple message so it's not unused in builds without the feature
+        tracing::info!("Tracing initialization skipped (tracing subscriber not enabled). config={:?}", config);
     }
 }
 
 /// Configuration for logging behavior
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoggingConfig {
-    /// Maximum log level to emit
-    pub level: Level,
+    /// Maximum log level to emit (string form, e.g. "INFO")
+    pub level: String,
     /// Whether to include the target module in logs
     pub include_target: bool,
     /// Whether to include thread IDs in logs
@@ -75,13 +76,20 @@ pub struct LoggingConfig {
 impl Default for LoggingConfig {
     fn default() -> Self {
         Self {
-            level: Level::INFO,
+            level: "INFO".to_string(),
             include_target: false,
             include_thread_id: true,
             include_file: true,
             include_line_number: true,
             redact_text: true,
         }
+    }
+}
+
+impl LoggingConfig {
+    /// Parse configured level into a tracing::Level, defaulting to INFO on parse errors
+    pub fn tracing_level(&self) -> Level {
+        self.level.parse().unwrap_or(Level::INFO)
     }
 }
 
@@ -302,7 +310,7 @@ mod tests {
     #[test]
     fn test_logging_config_default() {
         let config = LoggingConfig::default();
-        assert_eq!(config.level, Level::INFO);
+        assert_eq!(config.level, "INFO".to_string());
         assert!(!config.include_target);
         assert!(config.include_thread_id);
         assert!(config.include_file);
