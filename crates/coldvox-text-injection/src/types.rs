@@ -312,6 +312,9 @@ pub enum InjectionError {
 
     #[error("Other error: {0}")]
     Other(String),
+
+    #[error("AT-SPI error: {0}")]
+    Atspi(#[from] atspi::AtspiError),
 }
 
 /// Metrics and telemetry data for injection attempts

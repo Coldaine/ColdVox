@@ -93,4 +93,41 @@ mod tests {
         assert_ne!(FocusStatus::EditableText, FocusStatus::NonEditable);
         assert_ne!(FocusStatus::Unknown, FocusStatus::EditableText);
     }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_focus_is_not_unknown() {
+        if skip_if_headless_ci() {
+            eprintln!("Skipping test_focus_is_not_unknown: headless CI environment detected");
+            return;
+        }
+
+        init_test_tracing();
+        info!("Starting test_focus_is_not_unknown");
+        let config = InjectionConfig::default();
+        let mut tracker = FocusTracker::new(config);
+        debug!("FocusTracker created successfully");
+
+        // Test focus detection with timeout protection
+        info!("Attempting to get focus status...");
+        let status_result =
+            tokio::time::timeout(Duration::from_secs(5), tracker.get_focus_status()).await;
+
+        match status_result {
+            Ok(Ok(status)) => {
+                debug!("get_focus_status completed, result: {:?}", status);
+                // This is the core assertion: the bug caused this to be always Unknown.
+                // In any graphical environment, we expect some kind of focus,
+                // so it should be either Editable or NonEditable.
+                assert_ne!(status, FocusStatus::Unknown);
+            }
+            Ok(Err(e)) => {
+                panic!("get_focus_status returned an error: {:?}", e);
+            }
+            Err(_) => {
+                debug!("get_focus_status timed out, skipping test in slow environment");
+                // Can't assert in a timeout case.
+            }
+        }
+    }
 }

@@ -111,25 +111,27 @@ pub mod util {
 
         if is_ci {
             eprintln!("CI environment detected, checking GUI availability...");
+        }
 
-            // First check: ensure D-Bus session is available
-            if std::env::var("DBUS_SESSION_BUS_ADDRESS").is_err() {
-                eprintln!("Skipping: No D-Bus session bus available in CI");
-                return true;
-            }
+        // First check: ensure D-Bus session is available
+        if std::env::var("DBUS_SESSION_BUS_ADDRESS").is_err() {
+            eprintln!("Skipping: No D-Bus session bus available");
+            return true;
+        }
 
-            // Second check: ensure display is available
-            if std::env::var("DISPLAY").is_err() && std::env::var("WAYLAND_DISPLAY").is_err() {
-                eprintln!("Skipping: No display server available in CI");
-                return true;
-            }
+        // Second check: ensure display is available
+        if std::env::var("DISPLAY").is_err() && std::env::var("WAYLAND_DISPLAY").is_err() {
+            eprintln!("Skipping: No display server available");
+            return true;
+        }
 
-            // Third check: verify AT-SPI is actually responding
-            if !is_atspi_responsive() {
-                eprintln!("Skipping: AT-SPI service not responsive in CI environment");
-                return true;
-            }
+        // Third check: verify AT-SPI is actually responding
+        if !is_atspi_responsive() {
+            eprintln!("Skipping: AT-SPI service not responsive");
+            return true;
+        }
 
+        if is_ci {
             eprintln!("CI environment has GUI support, proceeding with test");
         }
         false

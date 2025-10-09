@@ -48,66 +48,53 @@ impl FocusTracker {
 
     #[allow(clippy::unused_async)] // Keep async because cfg(feature = "atspi") block contains await calls
     async fn check_focus_status(&self) -> Result<FocusStatus, InjectionError> {
-        // Temporarily disabled due to AT-SPI API changes
-        // TODO(#38): Update to work with current atspi crate API
-        Ok(FocusStatus::Unknown)
-    }
-
-    #[cfg(feature = "atspi")]
-    #[allow(dead_code)]
-    async fn get_atspi_focus_status(&mut self) -> Result<FocusStatus, InjectionError> {
-        // Temporarily disabled due to AT-SPI API changes
-        // TODO(#38): Update to work with current atspi crate API
-        /*
-        use atspi::{
-            connection::AccessibilityConnection, proxy::component::ComponentProxy,
-            Interface, State,
-        };
-        use tokio::time::timeout;
-
-        // Connect to accessibility bus
-        let conn = match AccessibilityConnection::new().await {
-            Ok(conn) => conn,
-            Err(_) => return Ok(FocusStatus::Unknown),
-        };
-
-        let zbus_conn = conn.connection();
-        let desktop = conn.desktop();
-
-        // Get the active window
-        let active_window = match timeout(std::time::Duration::from_millis(100), desktop.active_window()).await {
-            Ok(window) => window,
-            Err(_) => return Ok(FocusStatus::Unknown),
-        };
-
-        if active_window.is_none() {
-            return Ok(FocusStatus::Unknown);
-        }
-
-        let active_window = active_window.unwrap();
-        let active_window_proxy = match ComponentProxy::builder(zbus_conn)
-            .destination(active_window.name.clone())?
-            .path(active_window.path.clone())?
-            .build()
-            .await
+        #[cfg(feature = "atspi")]
         {
-            Ok(proxy) => proxy,
-            Err(_) => return Ok(FocusStatus::Unknown),
-        };
+            use atspi::{
+                connection::AccessibilityConnection,
+                object_ref::ObjectRef,
+                proxy::accessible::AccessibleProxy,
+                State, AtspiError,
+            };
+            use std::ops::Deref;
 
-        // Check if the active window has focus
-        let states = active_window_proxy.get_state().await.unwrap_or_default();
-        if states.contains(State::Focused) {
-            return Ok(FocusStatus::NonEditable);
+            let conn = AccessibilityConnection::new().await?;
+
+            let registry_proxy = conn.deref();
+            let zbus_proxy = registry_proxy.inner();
+
+            let msg = zbus_proxy.call_method("GetFocus", &())
+                .await
+                .map_err(AtspiError::from)?;
+
+            let (focused,): (ObjectRef,) = msg.body().deserialize()
+                .map_err(AtspiError::from)?;
+
+            if focused.path.as_str() == "/org/a11y/atspi/null" {
+                return Ok(FocusStatus::NonEditable);
+            }
+
+            let proxy = AccessibleProxy::builder(conn.connection())
+                .destination(focused.name.clone())
+                .map_err(AtspiError::from)?
+                .path(focused.path.clone())
+                .map_err(AtspiError::from)?
+                .build()
+                .await
+                .map_err(AtspiError::from)?;
+
+            let states = proxy.get_state().await.map_err(AtspiError::from)?;
+            if states.contains(State::Editable) {
+                Ok(FocusStatus::EditableText)
+            } else {
+                Ok(FocusStatus::NonEditable)
+            }
         }
-
-        // Check if the active window has editable text
-        if states.contains(State::Editable) {
-            return Ok(FocusStatus::EditableText);
+        #[cfg(not(feature = "atspi"))]
+        {
+            // Fallback for when AT-SPI is not enabled
+            Ok(FocusStatus::Unknown)
         }
-        */
-
-        Ok(FocusStatus::Unknown)
     }
 }
 
