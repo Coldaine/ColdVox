@@ -32,7 +32,7 @@ runs:
 
         # Install missing command-line tools
         missing_tools=()
-        for cmd in xdotool wget unzip gcc g++ make Xvfb openbox dbus-launch wl-paste xclip ydotool xprop wmctrl pkg-config pulseaudio; do
+        for cmd in xdotool wget unzip gcc g++ make Xvfb openbox dbus-launch wl-paste xclip ydotool xprop wmctrl pkg-config; do
           if ! command -v "$cmd" &> /dev/null; then
             echo "Missing: $cmd"
             case "$cmd" in
@@ -44,6 +44,19 @@ runs:
             esac
           fi
         done
+
+        # Special handling for pulseaudio/pipewire
+        # Modern systems use pipewire-pulseaudio which provides PA compatibility
+        if ! command -v pulseaudio &> /dev/null && ! command -v pactl &> /dev/null; then
+          echo "Missing: audio system (pulseaudio or pipewire-pulse)"
+          if [ "$PKG_MANAGER" = "dnf" ]; then
+            missing_tools+=("pipewire-pulseaudio")
+          else
+            missing_tools+=("pipewire-pulse")
+          fi
+        else
+          echo "✓ Audio system present (pulseaudio or pipewire)"
+        fi
 
         # Install missing development libraries
         missing_libs=()
