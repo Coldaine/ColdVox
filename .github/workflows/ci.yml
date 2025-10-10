@@ -120,6 +120,7 @@ jobs:
       # Only run formatting and linting on stable
       - name: Check formatting (advisory)
         if: matrix.rust-version == 'stable'
+        shell: bash
         run: |
           set +e
           cargo fmt --all -- --check
