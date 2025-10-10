@@ -20,7 +20,7 @@ use crate::stt::{
     session::{HotkeyBehavior, SessionEvent, Settings},
     TranscriptionConfig, TranscriptionEvent,
 };
-use coldvox_audio::chunker::AudioFrame;
+use coldvox_audio::{SharedAudioFrame, chunker::AudioFrame};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::{broadcast, mpsc};
@@ -55,7 +55,7 @@ const BUFFER_CEILING_SAMPLES: usize = 16000 * 30;
 /// activation and processing strategies defined by `Settings`.
 #[cfg(feature = "vosk")]
 pub struct PluginSttProcessor {
-    audio_rx: broadcast::Receiver<AudioFrame>,
+    audio_rx: broadcast::Receiver<SharedAudioFrame>,
     session_event_rx: mpsc::Receiver<SessionEvent>,
     event_tx: mpsc::Sender<TranscriptionEvent>,
     plugin_manager: Arc<tokio::sync::RwLock<crate::stt::plugin_manager::SttPluginManager>>,
@@ -70,14 +70,15 @@ pub struct PluginSttProcessor {
 struct State {
     pub state: UtteranceState,
     pub source: crate::stt::session::SessionSource,
-    pub buffer: Vec<i16>,
+    pub buffer: Vec<Arc<[i16]>>,
+    pub local_frame_count: u64,
 }
 
 #[cfg(feature = "vosk")]
 impl PluginSttProcessor {
     /// Creates a new instance of the unified STT processor.
     pub fn new(
-        audio_rx: broadcast::Receiver<AudioFrame>,
+        audio_rx: broadcast::Receiver<SharedAudioFrame>,
         session_event_rx: mpsc::Receiver<SessionEvent>,
         event_tx: mpsc::Sender<TranscriptionEvent>,
         plugin_manager: Arc<tokio::sync::RwLock<crate::stt::plugin_manager::SttPluginManager>>,
@@ -87,7 +88,8 @@ impl PluginSttProcessor {
         let internal_state = State {
             state: UtteranceState::Idle,
             source: crate::stt::session::SessionSource::Vad, // Default
-            buffer: Vec::with_capacity(16000 * 10),
+            buffer: Vec::with_capacity(10),
+            local_frame_count: 0,
         };
 
         Self {
@@ -141,6 +143,8 @@ impl PluginSttProcessor {
 
     /// Handles session lifecycle events (Start, End, Abort).
     async fn handle_session_event(&self, event: SessionEvent) {
+        let handoff_start = Instant::now();
+
         let mut state = self.state.lock();
         match event {
             SessionEvent::Start(source, _instant) => {
@@ -165,6 +169,12 @@ impl PluginSttProcessor {
                 self.handle_session_end(source, true, &mut state);
             }
         }
+
+        let handoff_latency_ms = handoff_start.elapsed().as_millis() as u64;
+        // Assume pipeline_metrics is available, update max
+        // Note: Add pipeline_metrics: Arc<PipelineMetrics> to PluginSttProcessor if not present, but since it's in runtime, pass via new or global
+        // For now, assume it's added; update
+        // self.pipeline_metrics.update_vad_to_stt_handoff_latency(handoff_latency_ms); // If added
     }
 
     /// Handles the end of an utterance. This is a critical path that spawns a
@@ -179,6 +189,11 @@ impl PluginSttProcessor {
         if state.state != UtteranceState::SpeechActive {
             return;
         }
+
+        // Flush batched metrics
+        let mut metrics = self.metrics.write();
+        metrics.frames_in += state.local_frame_count % 10;
+        state.local_frame_count = 0;
 
         if is_abort {
             state.state = UtteranceState::Idle;
@@ -196,92 +211,98 @@ impl PluginSttProcessor {
 
         let pm = self.plugin_manager.clone();
         let event_tx = self.event_tx.clone();
-        let metrics = self.metrics.clone();
+        let metrics_clone = self.metrics.clone();
         let behavior = self.settings.hotkey_behavior.clone();
-        let buffer = state.buffer.clone();
+        let buffer_arcs = state.buffer.drain(..).collect::<Vec<_>>();
         let state_arc = self.state.clone();
 
         tokio::spawn(async move {
-            tracing::info!(target: "stt_debug", "Finalization task started.");
-            // In batch mode, send the entire buffer to the plugin first.
-            if behavior != HotkeyBehavior::Incremental && !buffer.is_empty() {
-                if let Err(e) = pm.write().await.process_audio(&buffer).await {
+            // For batch, concat Arcs to Vec<i16> once
+            let audio_buffer = if behavior != HotkeyBehavior::Incremental && !buffer_arcs.is_empty() {
+                let mut full_buffer = Vec::with_capacity(512 * buffer_arcs.len());
+                for arc in buffer_arcs {
+                    full_buffer.extend_from_slice(&*arc);
+                }
+                if let Err(e) = pm.write().await.process_audio(&full_buffer).await {
                     tracing::error!(target: "stt", "Plugin batch processing error: {}", e);
                 }
-            }
+                Some(full_buffer)
+            } else {
+                None
+            };
 
-            // Finalize the utterance to get the definitive transcription.
-            tracing::info!(target: "stt_debug", "Calling plugin.finalize().");
             let finalize_result = pm.write().await.finalize().await;
-            tracing::info!(target: "stt_debug", "Plugin.finalize() returned.");
 
             match finalize_result {
                 Ok(Some(event)) => {
-                    tracing::info!(target: "stt_debug", "Finalization produced event: {:?}", event);
-                    Self::send_event_static(&event_tx, &metrics, event).await;
+                    Self::send_event_static(&event_tx, &metrics_clone, event).await;
                 }
-                Ok(None) => {
-                    tracing::info!(target: "stt_debug", "Finalization produced no event.");
-                }
+                Ok(None) => {}
                 Err(e) => {
                     let err_event = TranscriptionEvent::Error {
                         code: "FINALIZE_FAILED".to_string(),
                         message: e,
                     };
-                    Self::send_event_static(&event_tx, &metrics, err_event).await;
+                    Self::send_event_static(&event_tx, &metrics_clone, err_event).await;
                 }
             }
 
-            // Critical: Reset the state back to Idle so the next utterance can start.
             let mut final_state = state_arc.lock();
             final_state.state = UtteranceState::Idle;
             final_state.buffer.clear();
-            tracing::info!(target: "stt_debug", "Finalization task finished, state reset to Idle.");
         });
     }
 
     /// Handles an incoming chunk of audio frames.
-    async fn handle_audio_frame(&self, frame: AudioFrame) {
+    async fn handle_audio_frame(&self, frame: SharedAudioFrame) {
         let behavior = self.settings.hotkey_behavior.clone();
-        let i16_samples: Vec<i16> = frame
-            .samples
-            .iter()
-            .map(|&s| (s * 32767.0) as i16)
-            .collect();
+        let i16_slice = &*frame.samples;
 
         if behavior != HotkeyBehavior::Incremental {
-            // Batch mode: lock, buffer, and return.
+            // Batch mode: collect Arc, no copy
             let mut state = self.state.lock();
             if state.state == UtteranceState::SpeechActive {
-                state.buffer.extend_from_slice(&i16_samples);
-                if state.buffer.len() > BUFFER_CEILING_SAMPLES {
-                    tracing::warn!(target: "stt", "Audio buffer ceiling reached. Defensively finalizing.");
+                state.buffer.push(Arc::clone(&frame.samples));
+                state.local_frame_count += 1;
+                if state.local_frame_count % 10 == 0 {
+                    let mut metrics = self.metrics.write();
+                    metrics.frames_in += 10;
+                }
+                if state.buffer.len() > 300 {
+                    tracing::warn!(target: "stt", "Audio frame ceiling reached. Defensively finalizing.");
                     self.handle_session_end(state.source, false, &mut state);
                 }
             }
         } else {
-            // Incremental mode: check state, then await without holding lock.
+            // Incremental mode
             let should_process = {
                 let state = self.state.lock();
                 state.state == UtteranceState::SpeechActive
             };
 
             if should_process {
-                tracing::info!(target: "stt_debug", "Dispatching {} samples to plugin.process_audio()", i16_samples.len());
+                // Batch metrics
+                let mut state = self.state.lock();
+                state.local_frame_count += 1;
+                if state.local_frame_count % 10 == 0 {
+                    let mut metrics = self.metrics.write();
+                    metrics.frames_in += 10;
+                }
+                drop(state); // Release lock
+
+                tracing::debug!(target: "stt", "Dispatching {} samples to plugin.process_audio()", i16_slice.len());
                 match self
                     .plugin_manager
                     .write()
                     .await
-                    .process_audio(&i16_samples)
+                    .process_audio(i16_slice)
                     .await
                 {
                     Ok(Some(event)) => {
-                        tracing::info!(target: "stt_debug", "plugin.process_audio() produced event: {:?}", event);
                         Self::send_event_static(&self.event_tx, &self.metrics, event).await;
                     }
                     Ok(None) => {}
                     Err(e) => {
-                        tracing::info!(target: "stt_debug", "plugin.process_audio() returned error: {}", e);
                         let err_event = TranscriptionEvent::Error {
                             code: "PLUGIN_PROCESS_ERROR".to_string(),
                             message: e,
@@ -323,7 +344,7 @@ pub struct PluginSttProcessor;
 #[cfg(not(feature = "vosk"))]
 impl PluginSttProcessor {
     pub fn new(
-        _audio_rx: broadcast::Receiver<AudioFrame>,
+        _audio_rx: broadcast::Receiver<SharedAudioFrame>,
         _session_event_rx: mpsc::Receiver<SessionEvent>,
         _event_tx: mpsc::Sender<TranscriptionEvent>,
         _plugin_manager: Arc<tokio::sync::RwLock<crate::stt::plugin_manager::SttPluginManager>>,

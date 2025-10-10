@@ -461,14 +461,15 @@ pub async fn test_wav_pipeline<P: AsRef<Path>>(
     }
 
     let stt_audio_rx = audio_tx.subscribe();
-    // Set up Plugin Manager with Mock preferred for testing
+    // Set up Plugin Manager and require Vosk in E2E
     let mut plugin_manager = SttPluginManager::new();
-    let mut selection_cfg = PluginSelectionConfig::default();
-    selection_cfg.preferred_plugin = Some("mock".to_string());
-    selection_cfg.fallback_plugins = vec!["noop".to_string()];
-    plugin_manager.set_selection_config(selection_cfg).await;
-    let plugin_id = plugin_manager.initialize().await.unwrap();
-    info!("Initialized plugin manager with plugin: {}", plugin_id);
+    let selected_plugin = plugin_manager.initialize().await.unwrap();
+    assert_eq!(
+        selected_plugin.as_str(),
+        "vosk",
+        "Expected 'vosk' STT plugin; got '{}'",
+        selected_plugin
+    );
     let plugin_manager = Arc::new(tokio::sync::RwLock::new(plugin_manager));
 
     // Set up SessionEvent channel and translator

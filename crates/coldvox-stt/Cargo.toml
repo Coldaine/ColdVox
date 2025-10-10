@@ -10,14 +10,18 @@ tracing = "0.1"
 parking_lot = "0.12"
 async-trait = "0.1"
 thiserror = "2.0"
-dirs = "5.0"
+dirs = "6.0"
 serde = { version = "1.0", features = ["derive"] }
+coldvox-telemetry = { path = "../coldvox-telemetry", optional = true }
 
 [features]
-default = []
-vosk = []
+default = ["telemetry", "parakeet"]
+telemetry = ["dep:coldvox-telemetry"]
 parakeet = []
 whisper = []
-coqui = []
-leopard = []
-silero-stt = []
+
+[dev-dependencies]
+tokio = { version = "1.35", features = ["rt", "macros"] }
+tracing-test = "0.2"
+anyhow = "1.0"
+futures = "0.3"
