@@ -274,3 +274,27 @@ However, **CI cannot pass** until the self-hosted runner is provisioned with req
 ---
 *Session completed: 2025-10-10*  
 *Next action: Provision self-hosted runner with missing dependencies*
+
+---
+
+## Update: Proper Fix Applied (Later Same Day)
+
+After pushback on the "verify-only" philosophy, the approach was changed to auto-install:
+
+**Root Cause Re-Analysis**:
+- Runner has `pipewire-pulseaudio` package installed (provides PipeWire with PulseAudio compatibility)
+- Commands available: `pactl`, `pipewire-pulse` 
+- Command NOT available: `pulseaudio` (conflicts with pipewire-pulseaudio package)
+- PipeWire audio system already running system-wide
+
+**Changes Made**:
+1. `.github/actions/setup-coldvox/action.yml`: Changed from verify-only to auto-install missing packages
+2. `scripts/start-headless.sh`: Fixed to check if audio daemon already running (PipeWire case) before trying to start PulseAudio
+
+**Key Realization**: The runner environment is perfectly fine. PipeWire IS the audio system on modern Fedora. The script was trying to start a daemon that (a) doesn't exist as a command, and (b) isn't needed because PipeWire is already running.
+
+**Proper Solution**: Don't try to start audio that's already running. Check `pgrep` first.
+
+**Status**: New CI run triggered with correct fixes.
+
+*Updated: 2025-10-10 18:40 UTC*
