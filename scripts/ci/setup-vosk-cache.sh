@@ -47,15 +47,12 @@ if [ ! -d "$MODEL_CACHE_PATH" ] && [ -d "$RUNNER_CACHE_DIR_ALT/$MODEL_NAME" ]; t
     MODEL_CACHE_PATH="$RUNNER_CACHE_DIR_ALT/$MODEL_NAME"
 fi
 
-MODEL_LINK_PATH="$MODEL_DIR/$MODEL_NAME"
+# Check if model exists in cache
 if [ -d "$MODEL_CACHE_PATH" ]; then
     echo "✅ Found model in runner cache: $MODEL_CACHE_PATH"
-    echo "   Creating/refreshing symlink: $MODEL_LINK_PATH -> $MODEL_CACHE_PATH"
-    # Remove any previous non-symlink directory/file at link location
-    if [ -e "$MODEL_LINK_PATH" ] && [ ! -L "$MODEL_LINK_PATH" ]; then
-        rm -rf "$MODEL_LINK_PATH"
-    fi
-    ln -sfn "$MODEL_CACHE_PATH" "$MODEL_LINK_PATH"
+    echo "   Using cache path directly (no workspace symlink needed)"
+    # Store the cache path for output
+    MODEL_PATH_ABS="$MODEL_CACHE_PATH"
 else
     echo "📥 Model not found in cache. Downloading from $MODEL_URL..."
     
@@ -80,13 +77,16 @@ else
 
     echo "Extracting model..."
     unzip -q "$MODEL_ZIP"
-    # Ensure a clean target if something stale is present
-    if [ -e "$MODEL_LINK_PATH" ]; then
-        rm -rf "$MODEL_LINK_PATH"
+    # Move to cache directory instead of workspace
+    mkdir -p "$RUNNER_CACHE_DIR_ALT"
+    if [ -d "$RUNNER_CACHE_DIR_ALT/$MODEL_NAME" ]; then
+        echo "⚠️  Removing existing cached model"
+        rm -rf "$RUNNER_CACHE_DIR_ALT/$MODEL_NAME"
     fi
-    mv "$MODEL_NAME" "$MODEL_DIR/"
+    mv "$MODEL_NAME" "$RUNNER_CACHE_DIR_ALT/"
     rm "$MODEL_ZIP"
-    echo "✅ Model downloaded and installed locally at $MODEL_LINK_PATH."
+    MODEL_PATH_ABS="$RUNNER_CACHE_DIR_ALT/$MODEL_NAME"
+    echo "✅ Model downloaded and cached at $MODEL_PATH_ABS"
 fi
 
 # 2. Set up Vosk Library
@@ -108,15 +108,12 @@ if [ ! -f "$LIB_CACHE_FILE" ] && [ -f "/usr/local/lib/libvosk.so" ]; then
     LIB_CACHE_FILE="/usr/local/lib/libvosk.so"
 fi
 
-LIB_TARGET_FILE="$LIB_DIR/libvosk.so"
+# Check if library exists in cache
 if [ -f "$LIB_CACHE_FILE" ]; then
     echo "✅ Found libvosk.so: $LIB_CACHE_FILE"
-    echo "   Creating/refreshing symlink: $LIB_TARGET_FILE -> $LIB_CACHE_FILE"
-    mkdir -p "$LIB_DIR"
-    if [ -e "$LIB_TARGET_FILE" ] && [ ! -L "$LIB_TARGET_FILE" ]; then
-        rm -f "$LIB_TARGET_FILE"
-    fi
-    ln -sfn "$LIB_CACHE_FILE" "$LIB_TARGET_FILE"
+    echo "   Using cache path directly (no workspace symlink needed)"
+    # Store the directory containing the lib for LD_LIBRARY_PATH
+    LIB_PATH_ABS="$(dirname "$LIB_CACHE_FILE")"
 else
     mkdir -p "$LIB_DIR"
     echo "📥 Library not found in cache or system. Downloading from $LIB_URL..."
@@ -141,28 +138,26 @@ else
 
     echo "Extracting library..."
     unzip -q "$LIB_ZIP"
-    # Ensure no stale file
-    if [ -e "$LIB_TARGET_FILE" ]; then
-        rm -f "$LIB_TARGET_FILE"
+    # Move to cache directory instead of workspace
+    mkdir -p "$RUNNER_CACHE_DIR/lib"
+    if [ -f "$RUNNER_CACHE_DIR/lib/libvosk.so" ]; then
+        rm -f "$RUNNER_CACHE_DIR/lib/libvosk.so"
     fi
-    mv "$LIB_EXTRACT_PATH/libvosk.so" "$LIB_DIR/"
+    mv "$LIB_EXTRACT_PATH/libvosk.so" "$RUNNER_CACHE_DIR/lib/"
     # Cleanup extracted folder and zip
     rm -r "$LIB_EXTRACT_PATH"
     rm "$LIB_ZIP"
-    echo "✅ Library downloaded and installed locally at $LIB_TARGET_FILE."
+    LIB_PATH_ABS="$RUNNER_CACHE_DIR/lib"
+    echo "✅ Library downloaded and cached at $LIB_PATH_ABS/libvosk.so"
 fi
 
 # --- Output for GitHub Actions ---
 echo "--- Outputs ---"
-echo "Final directory structure:"
-ls -R "$VENDOR_DIR"
-
-# Output paths for subsequent jobs
-MODEL_PATH_ABS="$(pwd)/$MODEL_DIR/$MODEL_NAME"
-LIB_PATH_ABS="$(pwd)/$LIB_DIR"
-
 echo "Model Path: $MODEL_PATH_ABS"
 echo "Library Path: $LIB_PATH_ABS"
+echo "Verifying paths exist:"
+[ -d "$MODEL_PATH_ABS" ] && echo "✅ Model path verified" || echo "❌ Model path not found"
+[ -d "$LIB_PATH_ABS" ] && echo "✅ Library path verified" || echo "❌ Library path not found"
 
 # Output for GitHub Actions (only if running in CI)
 if [ -n "${GITHUB_OUTPUT:-}" ]; then
