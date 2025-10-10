@@ -178,10 +178,8 @@ mod tests {
     fn test_plan_deduplication() {
         let config = InjectionConfig::default();
         // Simulate a scenario where detection might hypothetically return duplicates
-        let detector = MockDetector::new(vec![
-            Backend::WaylandXdgDesktopPortal,
-            Backend::X11Native,
-        ]);
+        let detector =
+            MockDetector::new(vec![Backend::WaylandXdgDesktopPortal, Backend::X11Native]);
         let plan = plan_backends(&config, &detector);
 
         // The core desktop methods should only appear once.

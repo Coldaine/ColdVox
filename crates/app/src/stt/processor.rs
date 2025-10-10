@@ -20,7 +20,7 @@ use crate::stt::{
     session::{HotkeyBehavior, SessionEvent, Settings},
     TranscriptionConfig, TranscriptionEvent,
 };
-use coldvox_audio::{SharedAudioFrame, chunker::AudioFrame};
+use coldvox_audio::{chunker::AudioFrame, SharedAudioFrame};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::{broadcast, mpsc};
@@ -218,7 +218,8 @@ impl PluginSttProcessor {
 
         tokio::spawn(async move {
             // For batch, concat Arcs to Vec<i16> once
-            let audio_buffer = if behavior != HotkeyBehavior::Incremental && !buffer_arcs.is_empty() {
+            let audio_buffer = if behavior != HotkeyBehavior::Incremental && !buffer_arcs.is_empty()
+            {
                 let mut full_buffer = Vec::with_capacity(512 * buffer_arcs.len());
                 for arc in buffer_arcs {
                     full_buffer.extend_from_slice(&*arc);

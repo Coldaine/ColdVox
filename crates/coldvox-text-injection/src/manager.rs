@@ -70,10 +70,7 @@ struct InjectorRegistry {
 
 impl InjectorRegistry {
     /// Builds a registry of injectors that are available and requested by the method plan.
-    async fn build(
-        config: &InjectionConfig,
-        method_plan: &[InjectionMethod],
-    ) -> Self {
+    async fn build(config: &InjectionConfig, method_plan: &[InjectionMethod]) -> Self {
         let mut injectors: HashMap<InjectionMethod, Box<dyn TextInjector>> = HashMap::new();
 
         for &method in method_plan {
@@ -573,10 +570,7 @@ impl StrategyManager {
 
         warn!(
             "Applied cooldown for {}/{:?}: {:?} (level {})",
-            app_id,
-            method,
-            cooldown_duration,
-            cooldown.backoff_level
+            app_id, method, cooldown_duration, cooldown.backoff_level
         );
     }
 
@@ -593,7 +587,6 @@ impl StrategyManager {
         let key = (app_id.to_string(), method);
         self.cooldowns.remove(&key);
     }
-
 
     /// Get the preferred method order based on current context and history (cached per app)
     pub(crate) fn get_method_order_cached(&mut self, app_id: &str) -> Vec<InjectionMethod> {
