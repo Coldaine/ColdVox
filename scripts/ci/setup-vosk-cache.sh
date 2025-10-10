@@ -29,7 +29,9 @@ LIB_SHA256="bbdc8ed85c43979f6443142889770ea95cbfbc56cffb5c5dcd73afa875c5fbb2"
 LIB_EXTRACT_PATH="vosk-linux-${LIB_ARCH}-${LIB_VERSION}"
 
 # Runner's cache directory (this path is specific to the self-hosted runner config)
-RUNNER_CACHE_DIR="/home/coldaine/ActionRunnerCache/vosk"
+# Try multiple possible cache locations
+RUNNER_CACHE_DIR="${RUNNER_CACHE_DIR:-/home/coldaine/ActionRunnerCache/vosk}"
+RUNNER_CACHE_DIR_ALT="/home/coldaine/ActionRunnerCache/vosk-models"
 
 # --- Execution ---
 
@@ -37,21 +39,23 @@ mkdir -p "$MODEL_DIR"
 
 # 1. Set up Vosk Model
 echo "--- Setting up Vosk Model: $MODEL_NAME ---"
+
+# Try primary cache location first, then fallback to alternate
 MODEL_CACHE_PATH="$RUNNER_CACHE_DIR/$MODEL_NAME"
-MODEL_LINK_PATH="$MODEL_DIR/$MODEL_NAME"
+if [ ! -d "$MODEL_CACHE_PATH" ] && [ -d "$RUNNER_CACHE_DIR_ALT/$MODEL_NAME" ]; then
+    echo "ℹ️  Primary cache not found, using alternate: $RUNNER_CACHE_DIR_ALT"
+    MODEL_CACHE_PATH="$RUNNER_CACHE_DIR_ALT/$MODEL_NAME"
+fi
+
+# Check if model exists in repo first (for local development)
 if [ -d "$REPO_MODEL_DIR/graph" ]; then
-    echo "✅ Found model in repo at '$REPO_MODEL_DIR'. Creating/refreshing symlink: $MODEL_LINK_PATH -> $REPO_MODEL_DIR"
-    if [ -e "$MODEL_LINK_PATH" ] && [ ! -L "$MODEL_LINK_PATH" ]; then
-        rm -rf "$MODEL_LINK_PATH"
-    fi
-    ln -sfn "$(pwd)/$REPO_MODEL_DIR" "$MODEL_LINK_PATH"
+    echo "✅ Found model in repo at '$REPO_MODEL_DIR'"
+    MODEL_PATH_ABS="$(pwd)/$REPO_MODEL_DIR"
 elif [ -d "$MODEL_CACHE_PATH" ]; then
-    echo "✅ Found model in runner cache. Creating/refreshing symlink: $MODEL_LINK_PATH -> $MODEL_CACHE_PATH"
-    # Remove any previous non-symlink directory/file at link location
-    if [ -e "$MODEL_LINK_PATH" ] && [ ! -L "$MODEL_LINK_PATH" ]; then
-        rm -rf "$MODEL_LINK_PATH"
-    fi
-    ln -sfn "$MODEL_CACHE_PATH" "$MODEL_LINK_PATH"
+    echo "✅ Found model in runner cache: $MODEL_CACHE_PATH"
+    echo "   Using cache path directly (no workspace symlink needed)"
+    # Store the cache path for output - this persists across job boundaries
+    MODEL_PATH_ABS="$MODEL_CACHE_PATH"
 else
     echo "📥 Model not found in repo or cache. Downloading from $MODEL_URL..."
     # Robust download with retries
@@ -84,26 +88,34 @@ else
 
     echo "Extracting model..."
     unzip -q "$MODEL_ZIP"
-    # Ensure a clean target if something stale is present
-    if [ -e "$MODEL_LINK_PATH" ]; then
-        rm -rf "$MODEL_LINK_PATH"
+    # Move to cache directory instead of workspace (persists across jobs)
+    mkdir -p "$RUNNER_CACHE_DIR_ALT"
+    if [ -d "$RUNNER_CACHE_DIR_ALT/$MODEL_NAME" ]; then
+        echo "⚠️  Removing existing cached model"
+        rm -rf "$RUNNER_CACHE_DIR_ALT/$MODEL_NAME"
     fi
-    mv "$MODEL_NAME" "$MODEL_DIR/"
+    mv "$MODEL_NAME" "$RUNNER_CACHE_DIR_ALT/"
     rm "$MODEL_ZIP"
-    echo "✅ Model downloaded and installed locally at $MODEL_LINK_PATH."
+    MODEL_PATH_ABS="$RUNNER_CACHE_DIR_ALT/$MODEL_NAME"
+    echo "✅ Model downloaded and cached at $MODEL_PATH_ABS"
 fi
 
 # 2. Set up Vosk Library
 echo "--- Setting up Vosk Library v$LIB_VERSION ---"
+
+# Try primary cache location first, then fallback to alternate
 LIB_CACHE_FILE="$RUNNER_CACHE_DIR/lib/libvosk.so"
-LIB_TARGET_FILE="$LIB_DIR/libvosk.so"
+LIB_CACHE_FILE_ALT="$RUNNER_CACHE_DIR_ALT/lib/libvosk.so"
+if [ ! -f "$LIB_CACHE_FILE" ] && [ -f "$LIB_CACHE_FILE_ALT" ]; then
+    echo "ℹ️  Primary cache not found, using alternate: $LIB_CACHE_FILE_ALT"
+    LIB_CACHE_FILE="$LIB_CACHE_FILE_ALT"
+fi
+
 if [ -f "$LIB_CACHE_FILE" ]; then
-    echo "✅ Found libvosk.so in runner cache. Creating/refreshing symlink: $LIB_TARGET_FILE -> $LIB_CACHE_FILE"
-    mkdir -p "$LIB_DIR"
-    if [ -e "$LIB_TARGET_FILE" ] && [ ! -L "$LIB_TARGET_FILE" ]; then
-        rm -f "$LIB_TARGET_FILE"
-    fi
-    ln -sfn "$LIB_CACHE_FILE" "$LIB_TARGET_FILE"
+    echo "✅ Found libvosk.so in runner cache: $LIB_CACHE_FILE"
+    echo "   Using cache path directly (no workspace symlink needed)"
+    # Store the cache directory for output - this persists across job boundaries
+    LIB_PATH_ABS="$(dirname "$LIB_CACHE_FILE")"
 else
     mkdir -p "$LIB_DIR"
     echo "📥 Library not found in cache. Downloading from $LIB_URL..."
@@ -131,29 +143,44 @@ else
 
     echo "Extracting library..."
     unzip -q "$LIB_ZIP"
-    # Ensure no stale file
-    if [ -e "$LIB_TARGET_FILE" ]; then
-        rm -f "$LIB_TARGET_FILE"
+    # Move to cache directory instead of workspace (persists across jobs)
+    mkdir -p "$RUNNER_CACHE_DIR_ALT/lib"
+    if [ -f "$RUNNER_CACHE_DIR_ALT/lib/libvosk.so" ]; then
+        echo "⚠️  Removing existing cached library"
+        rm -f "$RUNNER_CACHE_DIR_ALT/lib/libvosk.so"
     fi
-    mv "$LIB_EXTRACT_PATH/libvosk.so" "$LIB_DIR/"
+    mv "$LIB_EXTRACT_PATH/libvosk.so" "$RUNNER_CACHE_DIR_ALT/lib/"
     # Cleanup extracted folder and zip
     rm -r "$LIB_EXTRACT_PATH"
     rm "$LIB_ZIP"
-    echo "✅ Library downloaded and installed locally at $LIB_TARGET_FILE."
+    LIB_PATH_ABS="$RUNNER_CACHE_DIR_ALT/lib"
+    echo "✅ Library downloaded and cached at $LIB_PATH_ABS/libvosk.so"
 fi
 
 # --- Output for GitHub Actions ---
 echo "--- Outputs ---"
-echo "Final directory structure:"
-ls -R "$VENDOR_DIR"
 
-# Output paths for subsequent jobs
-MODEL_PATH_ABS="$(pwd)/$MODEL_DIR/$MODEL_NAME"
-LIB_PATH_ABS="$(pwd)/$LIB_DIR"
+# Verify paths exist and are accessible
+echo "Verifying paths..."
+if [ ! -d "$MODEL_PATH_ABS" ]; then
+    echo "❌ ERROR: Model path does not exist: $MODEL_PATH_ABS" >&2
+    exit 1
+fi
+if [ ! -d "$LIB_PATH_ABS" ]; then
+    echo "❌ ERROR: Library path does not exist: $LIB_PATH_ABS" >&2
+    exit 1
+fi
+if [ ! -f "$LIB_PATH_ABS/libvosk.so" ]; then
+    echo "❌ ERROR: libvosk.so not found in: $LIB_PATH_ABS" >&2
+    exit 1
+fi
 
+echo "✅ All paths verified"
 echo "Model Path: $MODEL_PATH_ABS"
 echo "Library Path: $LIB_PATH_ABS"
 
+# Output cache paths (not workspace paths) for subsequent jobs
+# These paths persist across job boundaries on self-hosted runners
 echo "model_path=$MODEL_PATH_ABS" >> "$GITHUB_OUTPUT"
 echo "lib_path=$LIB_PATH_ABS" >> "$GITHUB_OUTPUT"
 
