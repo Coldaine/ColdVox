@@ -47,15 +47,6 @@ The test suite:
 3.  Verifies injection by reading content from temporary files
 4.  Automatically cleans up processes and temporary files
 
-## Clipboard Behavior Tests
-
-Because clipboard-based injection modifies system clipboard contents during injection, the crate implements an automatic restore mechanism: clipboard injectors save the prior clipboard contents and restore them after a configurable delay (default 500ms). Tests that validate clipboard-based injection should:
-
-- Verify that the injected text appears in the target application.
-- Verify that the system clipboard is returned to its prior value after the configured delay (use `clipboard_restore_delay_ms` to shorten delays in CI).
-
-When running tests in CI, prefer a short `clipboard_restore_delay_ms` to reduce timing-related flakiness.
-
 ## Pre-commit Hook
 
 This repository includes a pre-commit hook to ensure text injection functionality remains sound.

@@ -19,7 +19,7 @@ use tracing::{info, info_span};
 #[cfg(feature = "atspi")]
 use crate::atspi_injector::AtspiInjector;
 #[cfg(feature = "wl_clipboard")]
-use crate::clipboard_paste_injector::ClipboardPasteInjector;
+use crate::clipboard_injector::ClipboardInjector;
 #[cfg(feature = "enigo")]
 use crate::enigo_injector::EnigoInjector;
 #[cfg(feature = "ydotool")]
@@ -209,7 +209,7 @@ async fn real_injection_smoke() {
             BackendInvoker::Clipboard => {
                 #[cfg(feature = "wl_clipboard")]
                 {
-                    let inj = ClipboardPasteInjector::new(InjectionConfig::default());
+                    let inj = ClipboardInjector::new(InjectionConfig::default());
                     with_timeout(inject_timeout, inj.inject_text(text))
                         .await
                         .map(|_| ())

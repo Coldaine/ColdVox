@@ -11,7 +11,7 @@
 #[cfg(feature = "atspi")]
 use crate::atspi_injector::AtspiInjector;
 #[cfg(feature = "wl_clipboard")]
-use crate::clipboard_paste_injector::ClipboardPasteInjector;
+use crate::clipboard_injector::ClipboardInjector;
 #[cfg(feature = "enigo")]
 use crate::enigo_injector::EnigoInjector;
 #[cfg(feature = "ydotool")]
@@ -243,25 +243,36 @@ async fn run_clipboard_paste_test(test_text: &str) {
     // We use ClipboardInjector (Wayland) and Enigo (cross-platform paste).
     #[cfg(all(feature = "wl_clipboard", feature = "enigo"))]
     {
-        // Use ClipboardPasteInjector which sets clipboard and attempts a paste (via AT-SPI/ydotool).
-        let clipboard_paste = ClipboardPasteInjector::new(Default::default());
-        if !clipboard_paste.is_available().await {
+        let clipboard_injector = ClipboardInjector::new(Default::default());
+        if !clipboard_injector.is_available().await {
             println!("Skipping clipboard test: backend is not available (not on Wayland?).");
             return;
         }
 
-        // Launch the app to paste into.
+        let enigo_injector = EnigoInjector::new(Default::default());
+        if !enigo_injector.is_available().await {
+            println!("Skipping clipboard test: Enigo backend for pasting is not available.");
+            return;
+        }
+
+        // 1. Set clipboard content using the ClipboardInjector.
+        clipboard_injector
+            .inject_text(test_text)
+            .await
+            .expect("Setting clipboard failed.");
+
+        // 2. Launch the app to paste into.
         let app = TestAppManager::launch_gtk_app().expect("Failed to launch GTK app.");
         tokio::time::sleep(Duration::from_millis(500)).await;
         wait_for_app_ready(&app).await;
 
-        // Perform clipboard+paste using the combined injector (it will try AT-SPI first then ydotool).
-        clipboard_paste
-            .inject_text(test_text)
+        // 3. Trigger a paste action. We can use enigo for this.
+        enigo_injector
+            .inject_text("")
             .await
-            .expect("Clipboard+paste injection failed.");
+            .expect("Enigo paste action failed.");
 
-        // Verify the result.
+        // 4. Verify the result.
         verify_injection(&app.output_file, test_text)
             .await
             .unwrap_or_else(|e| {
@@ -353,4 +364,4 @@ async fn test_enigo_typing_special_chars() {
     run_enigo_typing_test("Enigo types\nnew lines and\ttabs.").await;
 }
 
-// TODO(#40): Add tests for kdotool, combo injectors etc.
+// TODO: Add tests for kdotool, combo injectors etc.

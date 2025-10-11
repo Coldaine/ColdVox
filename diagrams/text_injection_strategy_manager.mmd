@@ -40,8 +40,10 @@ classDiagram
 
     class InjectionConfig {
         <<interface>>
+        +allow_ydotool: bool
         +allow_kdotool: bool
         +allow_enigo: bool
+        +restore_clipboard: bool
         +inject_on_unknown_focus: bool
         +max_total_latency_ms: Option<u64>
         +per_method_timeout_ms: Option<u64>
@@ -77,7 +79,7 @@ classDiagram
         -atspi: AtspiInjector
     }
 
-    class ClipboardPasteStrategy {
+    class ClipboardStrategy {
         <<component>>
         +inject(context: InjectionContext) async -> Result<(), InjectionError>
         +is_available() async -> bool

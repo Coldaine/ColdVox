@@ -1,20 +1,17 @@
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
-/// Behavior when all injection methods fail. Used for debugging/CI to cause
-/// immediate termination or panic when injection cannot succeed.
-fn default_fail_fast() -> bool {
-    false
-}
-
 /// Enumeration of all available text injection methods
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum InjectionMethod {
     /// Insert text directly using AT-SPI2 EditableText interface
     AtspiInsert,
-    /// Set clipboard then trigger paste; requires paste success.
-    /// Implementation tries AT-SPI paste first, then ydotool fallback.
-    ClipboardPasteFallback,
+    /// Set the Wayland clipboard with text
+    Clipboard,
+    /// Set clipboard then trigger paste (AT-SPI Action when available, else ydotool)
+    ClipboardAndPaste,
+    /// Use ydotool to simulate Ctrl+V paste (opt-in)
+    YdoToolPaste,
     /// Use kdotool for window activation/focus assistance (opt-in)
     KdoToolAssist,
     /// Use enigo library for synthetic text/paste (opt-in)
@@ -25,8 +22,12 @@ pub enum InjectionMethod {
 }
 
 /// Configuration for text injection system
+/// Configuration for text injection system
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InjectionConfig {
+    /// Whether to allow ydotool usage (requires external binary and uinput permissions)
+    #[serde(default = "default_false")]
+    pub allow_ydotool: bool,
     /// Whether to allow kdotool usage (external CLI for KDE window activation)
     #[serde(default = "default_false")]
     pub allow_kdotool: bool,
@@ -35,7 +36,8 @@ pub struct InjectionConfig {
     pub allow_enigo: bool,
 
     /// Whether to restore the clipboard content after injection
-    // Clipboard restoration is unconditional now; removal of runtime toggle.
+    #[serde(default = "default_false")]
+    pub restore_clipboard: bool,
     /// Whether to allow injection when focus state is unknown
     #[serde(default = "default_inject_on_unknown_focus")]
     pub inject_on_unknown_focus: bool,
@@ -120,10 +122,6 @@ pub struct InjectionConfig {
     /// Blocklist of application patterns (regex) to block injection
     #[serde(default)]
     pub blocklist: Vec<String>,
-
-    /// If true, exit the process immediately if all injection methods fail.
-    #[serde(default = "default_fail_fast")]
-    pub fail_fast: bool,
 }
 
 fn default_false() -> bool {
@@ -225,10 +223,11 @@ fn default_discovery_timeout_ms() -> u64 {
 impl Default for InjectionConfig {
     fn default() -> Self {
         Self {
+            allow_ydotool: default_false(),
             allow_kdotool: default_false(),
             allow_enigo: default_false(),
 
-            // restore_clipboard removed - restoration is always performed by clipboard injectors
+            restore_clipboard: default_false(),
             inject_on_unknown_focus: default_inject_on_unknown_focus(),
             require_focus: default_require_focus(),
             pause_hotkey: default_pause_hotkey(),
@@ -252,7 +251,6 @@ impl Default for InjectionConfig {
             discovery_timeout_ms: default_discovery_timeout_ms(),
             allowlist: default_allowlist(),
             blocklist: default_blocklist(),
-            fail_fast: default_fail_fast(),
         }
     }
 }

@@ -1,6 +1,7 @@
 use std::sync::Arc;
+use std::time::Instant;
 
-use coldvox_audio::AudioFrame;
+use coldvox_audio::SharedAudioFrame;
 use coldvox_telemetry::{FpsTracker, PipelineMetrics};
 use coldvox_vad::{UnifiedVadConfig, VadEvent};
 use tokio::sync::broadcast;
@@ -12,7 +13,7 @@ use super::vad_adapter::VadAdapter;
 
 pub struct VadProcessor {
     adapter: VadAdapter,
-    audio_rx: broadcast::Receiver<AudioFrame>,
+    audio_rx: broadcast::Receiver<SharedAudioFrame>,
     event_tx: Sender<VadEvent>,
     metrics: Option<Arc<PipelineMetrics>>,
     fps_tracker: FpsTracker,
@@ -23,7 +24,7 @@ pub struct VadProcessor {
 impl VadProcessor {
     pub fn new(
         config: UnifiedVadConfig,
-        audio_rx: broadcast::Receiver<AudioFrame>,
+        audio_rx: broadcast::Receiver<SharedAudioFrame>,
         event_tx: Sender<VadEvent>,
         metrics: Option<Arc<PipelineMetrics>>,
     ) -> Result<Self, String> {
@@ -54,7 +55,7 @@ impl VadProcessor {
         );
     }
 
-    async fn process_frame(&mut self, frame: AudioFrame) {
+    async fn process_frame(&mut self, frame: SharedAudioFrame) {
         trace!(
             "VAD: Processing frame {:?} with {} samples",
             frame.timestamp,
@@ -67,17 +68,18 @@ impl VadProcessor {
             }
         }
 
-        // Convert f32 samples back to i16
-        let i16_data: Vec<i16> = frame
-            .samples
-            .iter()
-            .map(|&s| (s * i16::MAX as f32) as i16)
-            .collect();
+        let vad_start = Instant::now();
+        let i16_slice = &*frame.samples; // Zero-copy deref
 
-        trace!("VAD: Converted {} f32 samples to i16", i16_data.len());
+        trace!("VAD: Using {} i16 samples directly", i16_slice.len());
 
-        match self.adapter.process(&i16_data) {
+        match self.adapter.process(i16_slice) {
             Ok(Some(event)) => {
+                let vad_latency_ms = vad_start.elapsed().as_millis() as u64;
+                if let Some(metrics) = &self.metrics {
+                    metrics.update_vad_detection_latency(vad_latency_ms);
+                }
+
                 self.events_generated += 1;
 
                 // Log the specific VAD event
@@ -86,7 +88,7 @@ impl VadProcessor {
                         timestamp_ms,
                         energy_db,
                     } => {
-                        debug!(
+                        info!(
                             "VAD: Speech started at {}ms (energy: {:.2} dB)",
                             timestamp_ms, energy_db
                         );
@@ -96,7 +98,7 @@ impl VadProcessor {
                         duration_ms,
                         energy_db,
                     } => {
-                        debug!(
+                        info!(
                             "VAD: Speech ended at {}ms (duration: {}ms, energy: {:.2} dB)",
                             timestamp_ms, duration_ms, energy_db
                         );
@@ -126,14 +128,14 @@ impl VadProcessor {
 
         self.frames_processed += 1;
 
-        if self.frames_processed.is_multiple_of(100) {
+        if self.frames_processed % 100 == 0 {
             tracing::debug!(
                 "VAD: Received {} frames, processing active",
                 self.frames_processed
             );
         }
 
-        if self.frames_processed.is_multiple_of(1000) {
+        if self.frames_processed % 1000 == 0 {
             debug!(
                 "VAD processor: {} frames processed, {} events generated, current state: {:?}",
                 self.frames_processed,
@@ -145,7 +147,7 @@ impl VadProcessor {
 
     pub fn spawn(
         config: UnifiedVadConfig,
-        audio_rx: broadcast::Receiver<AudioFrame>,
+        audio_rx: broadcast::Receiver<SharedAudioFrame>,
         event_tx: Sender<VadEvent>,
         metrics: Option<Arc<PipelineMetrics>>,
     ) -> Result<JoinHandle<()>, String> {

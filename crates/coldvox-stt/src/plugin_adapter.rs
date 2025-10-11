@@ -10,6 +10,7 @@ use tokio::sync::RwLock;
 use crate::plugin::{SttPlugin, SttPluginError};
 use crate::types::TranscriptionEvent;
 use crate::{next_utterance_id, StreamingStt, TranscriptionConfig};
+use crate::helpers::*;
 
 /// Adapter that wraps an SttPlugin and implements StreamingStt
 pub struct PluginAdapter {
@@ -45,38 +46,8 @@ impl StreamingStt for PluginAdapter {
     async fn on_speech_frame(&mut self, samples: &[i16]) -> Option<TranscriptionEvent> {
         let mut plugin = self.plugin.write().await;
         match plugin.process_audio(samples).await {
-            Ok(event) => event.map(|e| match e {
-                TranscriptionEvent::Partial {
-                    utterance_id: _,
-                    text,
-                    t0,
-                    t1,
-                } => TranscriptionEvent::Partial {
-                    utterance_id: self.current_utterance_id,
-                    text,
-                    t0,
-                    t1,
-                },
-                TranscriptionEvent::Final {
-                    utterance_id: _,
-                    text,
-                    words,
-                } => TranscriptionEvent::Final {
-                    utterance_id: self.current_utterance_id,
-                    text,
-                    words,
-                },
-                TranscriptionEvent::Error { code, message } => {
-                    TranscriptionEvent::Error { code, message }
-                }
-            }),
-            Err(e) => {
-                tracing::error!(target: "stt", "STT plugin error during frame processing: {}", e);
-                Some(TranscriptionEvent::Error {
-                    code: "PLUGIN_PROCESS_ERROR".to_string(),
-                    message: e.to_string(),
-                })
-            }
+            Ok(event) => map_utterance_id(event, self.current_utterance_id),
+            Err(e) => handle_plugin_error(e, "frame processing").await,
         }
     }
 
@@ -85,44 +56,14 @@ impl StreamingStt for PluginAdapter {
         let mut plugin = self.plugin.write().await;
         match plugin.finalize().await {
             Ok(event) => {
-                let mapped = event.map(|e| match e {
-                    TranscriptionEvent::Partial {
-                        utterance_id: _,
-                        text,
-                        t0,
-                        t1,
-                    } => TranscriptionEvent::Partial {
-                        utterance_id: self.current_utterance_id,
-                        text,
-                        t0,
-                        t1,
-                    },
-                    TranscriptionEvent::Final {
-                        utterance_id: _,
-                        text,
-                        words,
-                    } => TranscriptionEvent::Final {
-                        utterance_id: self.current_utterance_id,
-                        text,
-                        words,
-                    },
-                    TranscriptionEvent::Error { code, message } => {
-                        TranscriptionEvent::Error { code, message }
-                    }
-                });
+                let mapped = map_utterance_id(event, self.current_utterance_id);
                 if mapped.is_some() {
                     // Start new utterance for next speech segment
                     self.current_utterance_id = next_utterance_id();
                 }
                 mapped
             }
-            Err(e) => {
-                tracing::error!(target: "stt", "STT plugin error during finalization: {}", e);
-                Some(TranscriptionEvent::Error {
-                    code: "PLUGIN_FINALIZE_ERROR".to_string(),
-                    message: e.to_string(),
-                })
-            }
+            Err(e) => handle_plugin_error(e, "finalization").await,
         }
     }
 

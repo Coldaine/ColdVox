@@ -1,30 +1,7 @@
 //! Core types for speech-to-text functionality
 
-use std::time::Instant;
-
-/// STT processor metrics
-#[derive(Debug, Clone, Default)]
-pub struct SttMetrics {
-    /// Total frames received
-    pub frames_in: u64,
-    /// Total frames processed
-    pub frames_out: u64,
-    /// Total frames dropped due to overflow
-    pub frames_dropped: u64,
-    /// Number of partial transcriptions
-    pub partial_count: u64,
-    /// Number of final transcriptions
-    pub final_count: u64,
-    /// Number of errors
-    pub error_count: u64,
-    /// Current queue depth
-    pub queue_depth: usize,
-    /// Time since last STT event
-    pub last_event_time: Option<Instant>,
-}
-
 /// Transcription event types
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TranscriptionEvent {
     /// Partial transcription result (ongoing speech)
     Partial {
@@ -47,7 +24,7 @@ pub enum TranscriptionEvent {
 }
 
 /// Word-level timing and confidence information
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct WordInfo {
     /// Start time in seconds
     pub start: f32,
@@ -92,7 +69,7 @@ impl Default for TranscriptionConfig {
             partial_results: true,
             max_alternatives: 1,
             include_words: false,
-            buffer_size_ms: 512,
+            buffer_size_ms: crate::constants::FRAME_SIZE_SAMPLES,
             streaming: false, // Default to batch mode for backward compatibility
             auto_extract_model: true,
         }

@@ -29,15 +29,8 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-      
-      - name: Get Rust version
-        id: rust-version
-        run: echo "version=$(rustc --version | cut -d' ' -f2)" >> $GITHUB_OUTPUT
-      
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
-        with:
-          key: ${{ steps.rust-version.outputs.version }}
       - name: Install release-plz
         run: cargo install release-plz --locked
       - name: Run release-plz

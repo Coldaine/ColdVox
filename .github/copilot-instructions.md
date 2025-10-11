@@ -12,12 +12,6 @@ Key defaults right now:
 
 **Platform Detection**: Build system automatically detects platform/desktop at compile time (`crates/app/build.rs`) and enables appropriate text injection backends.
 
-## Documentation
-
-**Version History**: See [CHANGELOG.md](../CHANGELOG.md) for all notable changes, version history, and upgrade notes.
-
-**Architecture**: See [docs/architecture.md](../docs/architecture.md) for TUI architecture and robustness details.
-
 ## Architecture (Multi-crate Workspace)
 
 - `crates/coldvox-foundation/` — Core app scaffolding and foundation types

@@ -109,7 +109,6 @@ impl SttMetricsManager {
             .record_engine_processing_time(engine_processing_time);
         self.metrics.record_transcription_success();
         self.metrics.record_final_transcription();
-        self.metrics.increment_total_requests();
 
         if let Some(confidence) = confidence_score {
             self.metrics.record_confidence_score(confidence);
@@ -120,7 +119,6 @@ impl SttMetricsManager {
     pub fn record_failed_transcription(&self, error_latency: Option<Duration>) {
         self.metrics.record_transcription_failure();
         self.metrics.record_error();
-        self.metrics.increment_total_requests();
 
         if let Some(latency) = error_latency {
             self.metrics.record_end_to_end_latency(latency);

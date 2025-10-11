@@ -8,7 +8,7 @@
 //! | Backend      | Platform | Features           | Status |
 //! |--------------|----------|--------------------|--------|
 //! | AT-SPI       | Linux    | Accessibility API  | Stable |
-//! | Clipboard Paste | Linux | wl-clipboard-rs + fallbacks | Stable |
+//! | Clipboard    | Linux    | wl-clipboard-rs    | Stable |
 //! | Enigo        | Cross    | Input simulation   | Beta   |
 //! | KDotool      | Linux    | X11 automation     | Beta   |
 //! | YDotool      | Linux    | uinput automation  | Beta   |
@@ -19,7 +19,7 @@
 //! - `atspi`: Linux AT-SPI accessibility backend
 //! - `wl_clipboard`: Clipboard-based injection via wl-clipboard-rs
 //! - `enigo`: Cross-platform input simulation
-//! - `ydotool`: Linux uinput automation fallback for paste
+//! - `ydotool`: Linux uinput automation
 //! - `kdotool`: KDE/X11 window activation assistance
 
 //! - `regex`: Precompile allow/block list patterns
@@ -42,8 +42,8 @@ pub mod atspi_injector;
 #[cfg(feature = "wl_clipboard")]
 pub mod clipboard_injector;
 
-#[cfg(feature = "wl_clipboard")]
-pub mod clipboard_paste_injector;
+#[cfg(all(feature = "wl_clipboard", feature = "ydotool"))]
+pub mod combo_clip_ydotool;
 
 #[cfg(feature = "enigo")]
 pub mod enigo_injector;

@@ -23,18 +23,10 @@ impl SilenceDetector {
         let sum: i64 = samples.iter().map(|&s| s as i64 * s as i64).sum();
         let rms = ((sum / samples.len() as i64) as f64).sqrt() as i16;
 
-        // Log RMS every time to see actual audio levels (use trace level to avoid spam)
-        tracing::trace!(
-            "SilenceDetector: RMS={}, threshold={}, samples={}",
-            rms,
-            self.threshold,
-            samples.len()
-        );
-
         if rms < self.threshold {
             if self.silence_start.is_none() {
                 self.silence_start = Some(Instant::now());
-                tracing::info!(
+                tracing::debug!(
                     "SilenceDetector: Silence started (RMS {} < threshold {})",
                     rms,
                     self.threshold
@@ -44,7 +36,7 @@ impl SilenceDetector {
         } else {
             if self.silence_start.is_some() {
                 let duration = self.silence_duration();
-                tracing::info!(
+                tracing::debug!(
                     "SilenceDetector: Silence ended after {:?} (RMS {} >= threshold {})",
                     duration,
                     rms,

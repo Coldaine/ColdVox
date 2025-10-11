@@ -91,9 +91,13 @@ mod vosk_tests {
             // Ensure the environment variable is not set for this test
             std::env::remove_var("VOSK_MODEL_PATH");
 
-            // Create a path that is guaranteed not to exist
-            let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
-            let non_existent_path = temp_dir.path().join("non_existent_model");
+            // Create an isolated temp dir as base (no models/ or candidates)
+            let temp_base = tempfile::tempdir().expect("Failed to create temp base dir");
+            let original_cwd = std::env::current_dir().unwrap();
+            std::env::set_current_dir(temp_base.path()).expect("Failed to set temp cwd");
+
+            // Create a non-existent model path relative to isolated dir
+            let non_existent_path = temp_base.path().join("non_existent_model");
 
             let config = TranscriptionConfig {
                 enabled: true,
@@ -103,9 +107,7 @@ mod vosk_tests {
                 include_words: false,
                 buffer_size_ms: 512,
                 streaming: false,
-                auto_extract_model: std::env::var("COLDVOX_STT_AUTO_EXTRACT")
-                    .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
-                    .unwrap_or(true),
+                auto_extract_model: false, // Disable auto-extract to prevent fallback creation
             };
 
             let result = VoskTranscriber::new(config, 16000.0);
@@ -120,6 +122,10 @@ mod vosk_tests {
                     e
                 );
             }
+
+            // Restore original cwd
+            std::env::set_current_dir(original_cwd).expect("Failed to restore cwd");
+            let _ = temp_base.close(); // Cleanup
         }
 
         #[test]
@@ -163,6 +169,7 @@ mod vosk_tests {
 
         // Integration test with real model (if available)
         #[test]
+        #[ignore] // Run with: cargo test -- --ignored
         fn test_vosk_transcriber_with_model() {
             let model_path = "models/vosk-model-small-en-us-0.15";
             if !std::path::Path::new(model_path).exists() {

@@ -1,5 +1,5 @@
 {
-  "preferred_plugin": "vosk",
+  "preferred_plugin": "mock",
   "fallback_plugins": [
     "noop"
   ],

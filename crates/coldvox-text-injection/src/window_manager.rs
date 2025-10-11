@@ -1,9 +1,33 @@
-use crate::types::InjectionError;
 use std::process::Command;
+
+use serde_json;
 use tracing::debug;
 
-// Get KDE window class synchronously
-fn get_kde_window_class() -> Result<String, InjectionError> {
+use crate::types::InjectionError;
+
+/// Get the currently active window class name
+pub async fn get_active_window_class() -> Result<String, InjectionError> {
+    // Try KDE-specific method first
+    if let Ok(class) = get_kde_window_class().await {
+        return Ok(class);
+    }
+
+    // Try generic X11 method
+    if let Ok(class) = get_x11_window_class().await {
+        return Ok(class);
+    }
+
+    // Try Wayland method
+    if let Ok(class) = get_wayland_window_class().await {
+        return Ok(class);
+    }
+
+    Err(InjectionError::Other(
+        "Could not determine active window".to_string(),
+    ))
+}
+
+async fn get_kde_window_class() -> Result<String, InjectionError> {
     // Use KWin DBus interface
     let output = Command::new("qdbus")
         .args(["org.kde.KWin", "/KWin", "org.kde.KWin.activeClient"])
@@ -35,8 +59,7 @@ fn get_kde_window_class() -> Result<String, InjectionError> {
     ))
 }
 
-// Get X11 window class synchronously
-fn get_x11_window_class() -> Result<String, InjectionError> {
+async fn get_x11_window_class() -> Result<String, InjectionError> {
     // Use xprop to get active window class
     let output = Command::new("xprop")
         .args(["-root", "_NET_ACTIVE_WINDOW"])
@@ -69,8 +92,7 @@ fn get_x11_window_class() -> Result<String, InjectionError> {
     ))
 }
 
-// Get Wayland window class synchronously
-fn get_wayland_window_class() -> Result<String, InjectionError> {
+async fn get_wayland_window_class() -> Result<String, InjectionError> {
     // Try using wlr-foreign-toplevel-management protocol if available
     // This requires compositor support (e.g., Sway, some KWin versions)
 
@@ -130,33 +152,13 @@ fn get_wayland_window_class() -> Result<String, InjectionError> {
     ))
 }
 
-/// Get active window class using multiple methods
-pub fn get_active_window_class() -> Result<String, InjectionError> {
-    // Try KDE first
-    if let Ok(class) = get_kde_window_class() {
-        return Ok(class);
-    }
-
-    // Try X11
-    if let Ok(class) = get_x11_window_class() {
-        return Ok(class);
-    }
-
-    // Try Wayland
-    if let Ok(class) = get_wayland_window_class() {
-        return Ok(class);
-    }
-
-    Err(InjectionError::Other(
-        "Could not determine active window class".to_string(),
-    ))
-}
-
 /// Get window information using multiple methods
-pub fn get_window_info() -> WindowInfo {
-    let class = get_active_window_class().unwrap_or_else(|_| "unknown".to_string());
-    let title = get_window_title().unwrap_or_default();
-    let pid = get_window_pid().unwrap_or(0);
+pub async fn get_window_info() -> WindowInfo {
+    let class = get_active_window_class()
+        .await
+        .unwrap_or_else(|_| "unknown".to_string());
+    let title = get_window_title().await.unwrap_or_default();
+    let pid = get_window_pid().await.unwrap_or(0);
 
     WindowInfo { class, title, pid }
 }
@@ -170,7 +172,7 @@ pub struct WindowInfo {
 }
 
 /// Get the title of the active window
-fn get_window_title() -> Result<String, InjectionError> {
+async fn get_window_title() -> Result<String, InjectionError> {
     // Try X11 method
     let output = Command::new("xprop")
         .args(["-root", "_NET_ACTIVE_WINDOW"])
@@ -207,7 +209,7 @@ fn get_window_title() -> Result<String, InjectionError> {
 }
 
 /// Get the PID of the active window
-fn get_window_pid() -> Result<u32, InjectionError> {
+async fn get_window_pid() -> Result<u32, InjectionError> {
     // Try X11 method
     let output = Command::new("xprop")
         .args(["-root", "_NET_ACTIVE_WINDOW"])
@@ -248,15 +250,27 @@ mod tests {
 
     #[tokio::test]
     async fn test_window_detection() {
-        let info = get_window_info(); // Removed .await
-        println!("Window info: {:?}", info);
-        // Test passes as long as no panic occurs
+        // This test will only work in a graphical environment
+        if std::env::var("DISPLAY").is_ok() || std::env::var("WAYLAND_DISPLAY").is_ok() {
+            let result = get_active_window_class().await;
+            // We can't assert success since it depends on the environment
+            // but we can check that it doesn't panic
+            match result {
+                Ok(class) => {
+                    debug!("Detected window class: {}", class);
+                    assert!(!class.is_empty());
+                }
+                Err(e) => {
+                    debug!("Window detection failed (expected in CI): {}", e);
+                }
+            }
+        }
     }
 
     #[tokio::test]
     async fn test_window_info() {
-        let info = get_window_info(); // Removed .await
+        let info = get_window_info().await;
+        // Basic sanity check
         assert!(!info.class.is_empty());
-        // Note: title and pid may be empty depending on environment
     }
 }

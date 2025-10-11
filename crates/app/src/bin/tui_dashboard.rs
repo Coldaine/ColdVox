@@ -433,7 +433,6 @@ async fn run_app(
                                     activation_mode: state.activation_mode,
                                     resampler_quality: state.resampler_quality,
                                     stt_selection: Some(coldvox_stt::plugin::PluginSelectionConfig::default()),
-                                    enable_device_monitor: false,
                                     #[cfg(feature = "text-injection")]
                                     injection: None,
                                 };
@@ -505,10 +504,11 @@ async fn run_app(
                                                             loop {
                                                                 match audio_rx.recv().await {
                                                                     Ok(frame) => {
-                                                                        // Write i16 samples as little-endian PCM
+                                                                        // Convert f32 [-1,1] to i16 LE and write
                                                                         let mut buf = Vec::with_capacity(frame.samples.len() * 2);
                                                                         for &s in frame.samples.iter() {
-                                                                            let b = s.to_le_bytes();
+                                                                            let i = (s.clamp(-1.0, 1.0) * 32767.0) as i16;
+                                                                            let b = i.to_le_bytes();
                                                                             buf.push(b[0]);
                                                                             buf.push(b[1]);
                                                                         }
@@ -557,14 +557,16 @@ async fn run_app(
                                                             let _ = ui_tx3.send(AppEvent::Log(LogLevel::Info, format!("Audio dump enabled: {} ({} Hz)", path.display(), first_frame.sample_rate))).await;
                                                             // Write first frame
                                                             for &s in first_frame.samples.iter() {
-                                                                if wav.write_sample(s).is_err() { break; }
+                                                                let i = (s.clamp(-1.0, 1.0) * 32767.0) as i16;
+                                                                if wav.write_sample(i).is_err() { break; }
                                                             }
                                                             // Remaining frames
                                                             loop {
                                                                 match audio_rx.recv().await {
                                                                     Ok(frame) => {
                                                                         for &s in frame.samples.iter() {
-                                                                            if let Err(e) = wav.write_sample(s) {
+                                                                            let i = (s.clamp(-1.0, 1.0) * 32767.0) as i16;
+                                                                            if let Err(e) = wav.write_sample(i) {
                                                                                 let _ = ui_tx3.send(AppEvent::Log(LogLevel::Error, format!("WAV write error: {}", e))).await;
                                                                                 break;
                                                                             }
@@ -1121,7 +1123,7 @@ fn draw_logs(f: &mut Frame, area: Rect, state: &DashboardState) {
     f.render_widget(paragraph, inner);
 }
 
-fn draw_plugins(f: &mut Frame, area: Rect, #[allow(unused_variables)] state: &DashboardState) {
+fn draw_plugins(f: &mut Frame, area: Rect, state: &DashboardState) {
     let block = Block::default()
         .title("Available Plugins")
         .borders(Borders::ALL);
@@ -1166,11 +1168,7 @@ fn draw_plugins(f: &mut Frame, area: Rect, #[allow(unused_variables)] state: &Da
     f.render_widget(paragraph, inner);
 }
 
-fn draw_plugin_status(
-    f: &mut Frame,
-    area: Rect,
-    #[allow(unused_variables)] state: &DashboardState,
-) {
+fn draw_plugin_status(f: &mut Frame, area: Rect, state: &DashboardState) {
     let block = Block::default()
         .title("Plugin Status")
         .borders(Borders::ALL);
