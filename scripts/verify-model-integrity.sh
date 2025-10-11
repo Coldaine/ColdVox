@@ -4,56 +4,22 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# shellcheck source=common_utils.sh
+source "${SCRIPT_DIR}/common_utils.sh"
+# shellcheck source=config.env
+source "${SCRIPT_DIR}/config.env"
+
 # Configuration
-MODEL_DIR="${1:-models/vosk-model-small-en-us-0.15}"
+MODEL_DIR="${1:-${VOSK_MODEL_REPO_DIR}}"
 CHECKSUMS_FILE="${2:-models/SHA256SUMS}"
 VERBOSE="${COLDVOX_VERIFY_VERBOSE:-0}"
-
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
-# Logging functions
-log_info() {
-    echo -e "${BLUE}[INFO]${NC} $*"
-}
-
-log_warn() {
-    echo -e "${YELLOW}[WARN]${NC} $*" >&2
-}
-
-log_error() {
-    echo -e "${RED}[ERROR]${NC} $*" >&2
-}
-
-log_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $*"
-}
-
-log_verbose() {
-    if [[ "${VERBOSE}" == "1" ]]; then
-        echo -e "${BLUE}[VERBOSE]${NC} $*"
-    fi
-}
+COLDVOX_LOG_VERBOSE="${VERBOSE}"
 
 # Function to check if required tools are available
 check_dependencies() {
-    local missing_tools=()
-
-    for tool in sha256sum find; do
-        if ! command -v "$tool" >/dev/null 2>&1; then
-            missing_tools+=("$tool")
-        fi
-    done
-
-    if [[ ${#missing_tools[@]} -gt 0 ]]; then
-        log_error "Missing required tools: ${missing_tools[*]}"
-        log_error "Please install: ${missing_tools[*]}"
-        exit 1
-    fi
+    require_command sha256sum find
 }
 
 # Function to verify model directory structure
@@ -68,7 +34,7 @@ verify_model_structure() {
     fi
 
     # Check for required subdirectories
-    local required_dirs=("am" "conf" "ivector")
+    read -r -a required_dirs <<< "${VOSK_MODEL_REQUIRED_SUBDIRS}"
     for dir in "${required_dirs[@]}"; do
         if [[ ! -d "$model_dir/$dir" ]]; then
             log_error "Required model subdirectory missing: $model_dir/$dir"
@@ -78,11 +44,7 @@ verify_model_structure() {
     done
 
     # Check for critical files
-    local critical_files=(
-        "am/final.mdl"
-        "conf/mfcc.conf"
-        "ivector/final.ie"
-    )
+    read -r -a critical_files <<< "${VOSK_MODEL_CRITICAL_FILES}"
 
     for file in "${critical_files[@]}"; do
         if [[ ! -f "$model_dir/$file" ]]; then
