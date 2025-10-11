@@ -61,6 +61,8 @@ pub struct AppRuntimeOptions {
     pub injection: Option<InjectionOptions>,
     /// Whether to poll for device hotplug events (ALSA/CPAL enumeration)
     pub enable_device_monitor: bool,
+    /// Capture ring buffer capacity in samples
+    pub capture_buffer_samples: usize,
     #[cfg(test)]
     pub test_device_config: Option<coldvox_audio::DeviceConfig>,
     #[cfg(test)]
@@ -77,6 +79,7 @@ impl Default for AppRuntimeOptions {
             #[cfg(feature = "text-injection")]
             injection: None,
             enable_device_monitor: false,
+            capture_buffer_samples: 65_536,
             #[cfg(test)]
             test_device_config: None,
             #[cfg(test)]
@@ -290,8 +293,11 @@ pub async fn start(
     info!("Starting ColdVox runtime with unified STT architecture");
 
     // 1) Audio capture
-    let audio_config = AudioConfig::default();
-    let ring_buffer = AudioRingBuffer::new(16384 * 4);
+    let audio_config = AudioConfig {
+        silence_threshold: 100,
+        capture_buffer_samples: opts.capture_buffer_samples,
+    };
+    let ring_buffer = AudioRingBuffer::new(audio_config.capture_buffer_samples);
     let (audio_producer, audio_consumer) = ring_buffer.split();
     let audio_producer = Arc::new(Mutex::new(audio_producer));
 
@@ -299,7 +305,7 @@ pub async fn start(
     #[cfg(test)]
     let (audio_capture, device_cfg, device_config_rx, _device_event_rx) = {
         if opts.test_capture_to_dummy {
-            let dummy_rb = AudioRingBuffer::new(16384 * 4);
+            let dummy_rb = AudioRingBuffer::new(audio_config.capture_buffer_samples);
             let (dummy_prod, _dummy_cons) = dummy_rb.split();
             let dummy_prod = Arc::new(Mutex::new(dummy_prod));
             AudioCaptureThread::spawn(
@@ -332,7 +338,7 @@ pub async fn start(
         audio_consumer,
         device_cfg.sample_rate,
         device_cfg.channels,
-        16384 * 4,
+        audio_config.capture_buffer_samples,
         Some(metrics.clone()),
     );
     let chunker_cfg = ChunkerConfig {
@@ -708,6 +714,7 @@ mod tests {
             #[cfg(feature = "text-injection")]
             injection: None,
             enable_device_monitor: false,
+            capture_buffer_samples: 65_536,
             #[cfg(test)]
             test_device_config: None,
             #[cfg(test)]
