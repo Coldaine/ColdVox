@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
+# Enhanced error handling for runner health checks (2025-10-11)
+# Added proper status checks and error reporting per refactoring recommendations
 set -euo pipefail
 
-# Runner health / provisioning contract verification.
+# Runner health / provisioning contract verification.</search>
+</search_and_replace>
 # Fails fast if required cached assets or system libs are missing.
 
 CACHE_DIR="${CACHE_DIR:-/home/coldaine/ActionRunnerCache/vosk-models}"
@@ -32,8 +35,18 @@ else
   echo "ℹ️  Optional large model not present (ok)"
 fi
 
-# libvosk
-"$(dirname "$0")/verify_libvosk.sh"
+# libvosk with enhanced error checking
+VERIFY_LIBVOSK_SCRIPT="$(dirname "$0")/verify_libvosk.sh"
+if [[ ! -f "$VERIFY_LIBVOSK_SCRIPT" ]]; then
+    echo "❌ Required script missing: $VERIFY_LIBVOSK_SCRIPT" >&2
+    exit 1
+fi
+if [[ ! -x "$VERIFY_LIBVOSK_SCRIPT" ]]; then
+    echo "❌ Script not executable: $VERIFY_LIBVOSK_SCRIPT" >&2
+    exit 1
+fi
+"$VERIFY_LIBVOSK_SCRIPT"</search>
+</search_and_replace>
 
 # Resource snapshot
 echo "--- System Resources ---"

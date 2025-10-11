@@ -42,7 +42,7 @@ repos:
     hooks:
       - id: verify-vosk-model
         name: Verify Vosk Model Structure
-        entry: scripts/verify_vosk_model.sh
+        entry: scripts/verify-model-integrity.sh
         language: script
         stages: [pre-commit]
         pass_filenames: false
