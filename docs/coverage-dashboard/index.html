@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ColdVox Coverage Dashboard</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js" integrity="sha512-vf8WnDl8CZZFzbxyAo2xOykGNRXLbkYfzxJkEY29XQzP12pqGg+5JWYFh3Zt5AqJeTKGn/+ZCo8BPij2pzFQ1Q==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.1/mermaid.min.js" integrity="sha512-ARJcwQvvYybv/sCIoaMOqfyw2DsFhE6ItaCLuWdcAdTzvG+3Uf7cd7Bf8GM7qx5UahOG8v47ip7wwnY3DgTGiQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" integrity="sha512-/Pp1Jv0zzakDx4zY/boYYGr2susx6bwyZhH4qzM0gc3KJ2YMBX1IzBgE4c3OJbGdv8ImZ/Sc7VcJr+Wve4WQ2Q==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js" integrity="sha512-fQ8wRvDDDeWGPAHDq6cN+xr3aMcMBXNIN1qNbfXDnpa9eKJeNEqXWiwxupCSvJzpuG1HsfrN7kYMva9n32Cu7A==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" integrity="sha384-VnBCrtyVJG0PNoUPE5ZKiCnOOTph6p5gXmoQpRQub7bjb6DB1+Qnar6Yvr17VDZl" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0"></script>
+</head>
+<body>
+  <div id="app" class="app">
+    <header class="app__header" role="banner">
+      <div class="header__left">
+        <h1>ColdVox Coverage Dashboard</h1>
+        <nav class="header__tabs" aria-label="Primary">
+          <button class="tab-button" data-tab="architecture" aria-selected="false">Architecture</button>
+          <button class="tab-button" data-tab="details" aria-selected="false">Details</button>
+          <button class="tab-button" data-tab="dashboard" aria-selected="true">Dashboard</button>
+          <button class="tab-button" data-tab="analytics" aria-selected="false">Analytics</button>
+        </nav>
+      </div>
+      <div class="header__right">
+        <input type="search" id="global-search" placeholder="Search (press /)" aria-label="Global search" />
+        <button id="demo-data-btn" class="secondary">Demo Data</button>
+      </div>
+    </header>
+
+    <div class="app__body">
+      <aside class="app__sidebar" aria-label="Filters">
+        <section class="sidebar__summary" aria-live="polite">
+          <h2>Summary</h2>
+          <p id="summary-overall"></p>
+          <p id="summary-latency"></p>
+        </section>
+        <section class="sidebar__filters">
+          <h2>Filters</h2>
+          <label>Priority
+            <select id="filter-priority" multiple aria-label="Filter by priority"></select>
+          </label>
+          <label>Status
+            <select id="filter-status" multiple aria-label="Filter by status"></select>
+          </label>
+          <label>Test Type
+            <select id="filter-type" multiple aria-label="Filter by test type"></select>
+          </label>
+          <button id="clear-filters" class="secondary">Clear Filters</button>
+        </section>
+        <section class="sidebar__saved-views">
+          <h2>Saved Views</h2>
+          <div id="saved-views-list"></div>
+          <button id="save-current-view" class="secondary">Save Current View</button>
+        </section>
+      </aside>
+
+      <main class="app__main" id="tab-content" tabindex="0">
+        <section id="architecture" class="tab-panel" hidden>
+          <div class="panel__group">
+            <div class="card">
+              <h3>Workspace Hierarchy</h3>
+              <div id="hierarchy-chart" class="chart-container" role="img" aria-label="ColdVox hierarchy"></div>
+            </div>
+            <div class="card">
+              <h3>Pipeline Flow</h3>
+              <div id="mermaid-container" class="mermaid-container" aria-live="polite"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="details" class="tab-panel" hidden>
+          <div id="details-accordions" class="accordions" role="list"></div>
+        </section>
+
+        <section id="dashboard" class="tab-panel">
+          <div class="toolbar">
+            <button id="new-test-btn" class="primary">New Test</button>
+            <div class="bulk-actions">
+              <label><input type="checkbox" id="select-all" /> Select All</label>
+              <div class="status-buttons" role="group" aria-label="Bulk status update">
+                <button class="status-pill" data-status="pending">Pending</button>
+                <button class="status-pill" data-status="in_progress">In Progress</button>
+                <button class="status-pill" data-status="passed">Passed</button>
+                <button class="status-pill" data-status="failed">Failed</button>
+                <button class="status-pill" data-status="blocked">Blocked</button>
+                <button class="status-pill" data-status="flaky">Flaky</button>
+              </div>
+            </div>
+          </div>
+          <div class="drag-targets" role="group" aria-label="Drag target statuses">
+            <div class="drag-target" data-status="pending">Pending</div>
+            <div class="drag-target" data-status="in_progress">In Progress</div>
+            <div class="drag-target" data-status="passed">Passed</div>
+            <div class="drag-target" data-status="failed">Failed</div>
+            <div class="drag-target" data-status="blocked">Blocked</div>
+            <div class="drag-target" data-status="flaky">Flaky</div>
+          </div>
+          <div class="table-wrapper" role="region" aria-live="polite">
+            <table id="tests-table" role="grid" aria-describedby="summary-overall">
+              <thead>
+                <tr>
+                  <th scope="col" data-sort="id">ID</th>
+                  <th scope="col" data-sort="name">Name</th>
+                  <th scope="col" data-sort="type">Type</th>
+                  <th scope="col" data-sort="status">Status</th>
+                  <th scope="col" data-sort="priority">Priority</th>
+                  <th scope="col" data-sort="component">Component</th>
+                  <th scope="col" data-sort="latency">Latency (s)</th>
+                  <th scope="col" data-sort="last_updated">Last Updated</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="pagination" aria-label="Pagination controls">
+            <button id="prev-page" class="secondary">Prev</button>
+            <span id="pagination-info"></span>
+            <button id="next-page" class="secondary">Next</button>
+          </div>
+        </section>
+
+        <section id="analytics" class="tab-panel" hidden>
+          <div class="panel__group">
+            <div class="card">
+              <h3>Status Distribution</h3>
+              <canvas id="status-pie" aria-label="Status distribution"></canvas>
+            </div>
+            <div class="card">
+              <h3>Progress by Component</h3>
+              <canvas id="component-bar" aria-label="Progress by component"></canvas>
+            </div>
+          </div>
+          <div class="panel__group">
+            <div class="card">
+              <h3>Trend Over Time</h3>
+              <canvas id="status-line" aria-label="Trend over time"></canvas>
+            </div>
+            <div class="card">
+              <h3>Latency Gauge</h3>
+              <canvas id="latency-gauge" aria-label="Latency gauge"></canvas>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Coverage Heatmap</h3>
+            <div id="heatmap" class="chart-container" role="img" aria-label="Coverage heatmap"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <footer class="app__footer" role="contentinfo">
+      <div class="export-buttons">
+        <button id="export-pdf" class="secondary">Export PDF</button>
+        <button id="export-csv" class="secondary">Export CSV</button>
+        <button id="export-json" class="secondary">Export JSON</button>
+        <input type="file" id="import-json" accept="application/json" hidden />
+        <button id="import-json-btn" class="secondary">Import JSON</button>
+      </div>
+      <p id="footer-progress"></p>
+    </footer>
+  </div>
+
+  <dialog id="test-dialog">
+    <form method="dialog" id="test-form">
+      <h2 id="dialog-title">New Test</h2>
+      <label for="test-id">ID</label>
+      <input id="test-id" name="testId" pattern="cvx_\\d{3}" required />
+      <label for="test-name">Name</label>
+      <input id="test-name" name="name" required />
+      <label for="test-description">Description</label>
+      <textarea id="test-description" name="description" rows="3" required></textarea>
+      <label for="test-type">Type</label>
+      <select id="test-type" name="type" required>
+        <option value="unit">Unit</option>
+        <option value="integration">Integration</option>
+        <option value="performance">Performance</option>
+        <option value="edge_case">Edge Case</option>
+        <option value="accuracy">Accuracy</option>
+      </select>
+      <label for="test-status">Status</label>
+      <select id="test-status" name="status" required></select>
+      <label for="test-priority">Priority</label>
+      <select id="test-priority" name="priority" required></select>
+      <label for="test-latency">Actual Latency (s)</label>
+      <input id="test-latency" name="latency" type="number" min="0" step="0.01" required />
+      <label for="test-link">Reference Link</label>
+      <input id="test-link" name="link" type="url" placeholder="https://" />
+      <label for="test-coverage">Coverage Actual (%)</label>
+      <input id="test-coverage" name="coverage" type="number" min="0" max="100" step="1" value="0" />
+      <label for="test-component">Component</label>
+      <select id="test-component" name="component" required></select>
+      <label for="test-notes">Notes</label>
+      <textarea id="test-notes" name="notes" rows="3"></textarea>
+      <menu>
+        <button value="cancel" class="secondary">Cancel</button>
+        <button value="confirm" class="primary">Save</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <template id="test-row-template">
+    <tr draggable="true">
+      <td data-field="id"></td>
+      <td data-field="name"></td>
+      <td data-field="type"></td>
+      <td data-field="status"></td>
+      <td data-field="priority"></td>
+      <td data-field="component"></td>
+      <td data-field="latency"></td>
+      <td data-field="last_updated"></td>
+    </tr>
+  </template>
+
+  <script src="app.js" type="module"></script>
+</body>
+</html>
