@@ -1,19 +1,13 @@
 # ColdVox
 > ⚠️ **Internal Alpha** - This project is in early development and not ready for production use.
 ## Development
- - Install Rust (stable) and required system dependencies for your platform.
- - Use the provided scripts in `scripts/` to help with local environment setup.
 
-### Developer Git Hooks (optional but recommended)
+See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed development setup, code quality guidelines, and contribution workflow.
 
-To reduce the chance of CI failures from formatting, this repository includes a small pre-commit hook that runs `cargo fmt --all` before each commit and blocks the commit if `rustfmt` makes changes. To enable it for your local clone:
-
-```bash
-cd <repo-root>
-./scripts/install-githooks.sh
-```
-
-This copies the hooks from `.githooks/` into `.git/hooks/` and makes them executable. You can remove or modify the hook if you want a different behavior.
+**Quick Start:**
+- Install Rust (stable) and required system dependencies for your platform
+- Install pre-commit hooks: `./scripts/install-githooks.sh` (recommended)
+- Run local CI checks: `./scripts/local_ci.sh`
 
 # ColdVox
 
