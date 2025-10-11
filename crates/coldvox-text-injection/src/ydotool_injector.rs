@@ -117,6 +117,11 @@ impl YdotoolInjector {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn check_binary_for_tests(binary_name: &str) -> Result<(), InjectionError> {
+        Self::check_binary_permissions(binary_name)
+    }
+
     /// Trigger paste action using ydotool (Ctrl+V)
     async fn trigger_paste(&self) -> Result<(), InjectionError> {
         let _start = std::time::Instant::now();
