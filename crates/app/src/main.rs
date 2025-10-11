@@ -200,14 +200,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         _ => RuntimeMode::Vad,
     };
 
+    #[cfg(feature = "text-injection")]
     let mut opts = AppRuntimeOptions {
         device,
         resampler_quality,
         activation_mode,
         stt_selection,
         enable_device_monitor: settings.enable_device_monitor,
+        capture_buffer_samples: settings.audio.capture_buffer_samples,
         ..Default::default()
     };
+    
+    #[cfg(not(feature = "text-injection"))]
+    let opts = AppRuntimeOptions {
+        device,
+        resampler_quality,
+        activation_mode,
+        stt_selection,
+        enable_device_monitor: settings.enable_device_monitor,
+        capture_buffer_samples: settings.audio.capture_buffer_samples,
+        ..Default::default()
+    };
+    
     #[cfg(feature = "text-injection")]
     {
         opts.injection = if cfg!(feature = "text-injection") {

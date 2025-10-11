@@ -117,12 +117,18 @@ impl AppError {
 #[derive(Debug, Clone, Copy)]
 pub struct AudioConfig {
     pub silence_threshold: i16,
+    /// Ring buffer capacity in samples. At 16kHz mono, 65536 samples ≈ 4.1 seconds.
+    /// Larger buffers provide more headroom for downstream processing spikes but increase
+    /// worst-case latency. The default (65536) is sized to prevent overflows during
+    /// typical STT/VAD/text-injection processing.
+    pub capture_buffer_samples: usize,
 }
 
 impl Default for AudioConfig {
     fn default() -> Self {
         Self {
             silence_threshold: 100,
+            capture_buffer_samples: 65_536, // 16_384 * 4, ~4.1s at 16kHz
         }
     }
 }

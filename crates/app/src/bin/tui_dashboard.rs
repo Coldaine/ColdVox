@@ -428,15 +428,32 @@ async fn run_app(
                             if !state.is_running {
                                 state.log(LogLevel::Info, "Starting audio pipeline...".to_string());
                                 // Build runtime options
+                                #[cfg(feature = "text-injection")]
+                                let mut opts = app_runtime::AppRuntimeOptions {
+                                    device: if state.selected_device == "default" || state.selected_device.is_empty() { None } else { Some(state.selected_device.clone()) },
+                                    activation_mode: state.activation_mode,
+                                    resampler_quality: state.resampler_quality,
+                                    stt_selection: Some(coldvox_stt::plugin::PluginSelectionConfig::default()),
+                                    enable_device_monitor: false,
+                                    capture_buffer_samples: 65_536,
+                                    ..Default::default()
+                                };
+                                
+                                #[cfg(not(feature = "text-injection"))]
                                 let opts = app_runtime::AppRuntimeOptions {
                                     device: if state.selected_device == "default" || state.selected_device.is_empty() { None } else { Some(state.selected_device.clone()) },
                                     activation_mode: state.activation_mode,
                                     resampler_quality: state.resampler_quality,
                                     stt_selection: Some(coldvox_stt::plugin::PluginSelectionConfig::default()),
                                     enable_device_monitor: false,
-                                    #[cfg(feature = "text-injection")]
-                                    injection: None,
+                                    capture_buffer_samples: 65_536,
+                                    ..Default::default()
                                 };
+                                
+                                #[cfg(feature = "text-injection")]
+                                {
+                                    opts.injection = None;
+                                }
 
                                 let ui_tx = tx.clone();
                                 // Start runtime synchronously and then wire up event forwarders
