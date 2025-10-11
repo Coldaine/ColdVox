@@ -1,0 +1,294 @@
+:root {
+    --bg-dark: #1f2937;
+    --bg-light: #374151;
+    --bg-lighter: #4b5563;
+    --text: #e5e7eb;
+    --text-muted: #9ca3af;
+    --border-color: #4b5563;
+    --accent-green: #22c55e;
+    --accent-yellow: #f59e0b;
+    --accent-red: #ef4444;
+    --accent-blue: #3b82f6;
+    --accent-purple: #8b5cf6;
+
+    --status-passed: var(--accent-green);
+    --status-failed: var(--accent-red);
+    --status-blocked: var(--accent-yellow);
+    --status-in_progress: var(--accent-blue);
+    --status-pending: var(--text-muted);
+    --status-flaky: var(--accent-purple);
+
+    --priority-critical: #dc2626;
+    --priority-high: #f97316;
+    --priority-medium: #f59e0b;
+    --priority-low: #6b7280;
+
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color-scheme: dark;
+}
+
+body {
+    background-color: var(--bg-dark);
+    color: var(--text);
+    margin: 0;
+    font-size: 16px;
+    line-height: 1.5;
+}
+
+#app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+.app-header {
+    display: flex;
+    align-items: center;
+    padding: 0 1rem;
+    background-color: var(--bg-light);
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+.app-header h1 {
+    font-size: 1.25rem;
+    margin-right: 2rem;
+}
+
+.app-header nav {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.tab-button {
+    padding: 0.75rem 1rem;
+    border: none;
+    background: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 1rem;
+    border-bottom: 2px solid transparent;
+}
+
+.tab-button.active {
+    color: var(--text);
+    border-bottom-color: var(--accent-blue);
+}
+
+.header-controls {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+#global-search {
+    background-color: var(--bg-dark);
+    color: var(--text);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 0.5rem;
+}
+
+button {
+    background-color: var(--accent-blue);
+    color: var(--text);
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+button:hover {
+    filter: brightness(1.1);
+}
+
+.app-body {
+    display: flex;
+    flex-grow: 1;
+    overflow: hidden;
+}
+
+.sidebar {
+    width: 250px;
+    flex-shrink: 0;
+    background-color: var(--bg-light);
+    padding: 1rem;
+    border-right: 1px solid var(--border-color);
+    overflow-y: auto;
+}
+
+.filters h3, .live-summary h3 {
+    margin-top: 0;
+    font-size: 1.1rem;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.filter-group {
+    margin-bottom: 1rem;
+}
+
+.filter-group label {
+    display: block;
+    margin-bottom: 0.5rem;
+    color: var(--text-muted);
+}
+
+.filter-group select {
+    width: 100%;
+    padding: 0.5rem;
+    background-color: var(--bg-dark);
+    color: var(--text);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+}
+
+.main-content {
+    flex-grow: 1;
+    padding: 1.5rem;
+    overflow-y: auto;
+}
+
+.view {
+    display: none;
+}
+.view.active {
+    display: block;
+}
+
+.app-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 1rem;
+    background-color: var(--bg-light);
+    border-top: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+.footer-controls {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.chart-container {
+    background-color: var(--bg-light);
+    padding: 1rem;
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+}
+
+.analytics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+    gap: 1.5rem;
+}
+
+/* Accessibility */
+*:focus-visible {
+    outline: 2px solid var(--accent-blue);
+    outline-offset: 2px;
+}
+
+/* More specific styles will be added in app.js or here as needed */
+#d3-hierarchy svg, #d3-heatmap svg {
+    width: 100%;
+    height: auto;
+}
+
+#details-accordions .accordion {
+    background-color: var(--bg-light);
+    margin-bottom: 1rem;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+}
+#details-accordions .accordion-header {
+    background-color: var(--bg-lighter);
+    padding: 1rem;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+#details-accordions .accordion-content {
+    padding: 1rem;
+    display: none;
+}
+#details-accordions .accordion-content.active {
+    display: block;
+}
+
+#dashboard-table-container table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+#dashboard-table-container th, #dashboard-table-container td {
+    padding: 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+}
+
+#dashboard-table-container th {
+    cursor: pointer;
+}
+#dashboard-table-container tbody tr:hover {
+    background-color: var(--bg-lighter);
+}
+
+.status-badge {
+    padding: 0.2em 0.6em;
+    border-radius: 1em;
+    font-size: 0.8rem;
+    color: var(--bg-dark);
+}
+
+.status-passed { background-color: var(--status-passed); }
+.status-failed { background-color: var(--status-failed); }
+.status-blocked { background-color: var(--status-blocked); }
+.status-in_progress { background-color: var(--status-in_progress); }
+.status-pending { background-color: var(--status-pending); color: var(--text); }
+.status-flaky { background-color: var(--status-flaky); }
+
+.pagination {
+    display: flex;
+    justify-content: center;
+    padding-top: 1rem;
+    gap: 0.5rem;
+}
+.page-btn.active {
+    background-color: var(--accent-blue);
+    filter: brightness(1.2);
+}
+
+/* --- Responsiveness --- */
+@media (max-width: 768px) {
+    .app-body {
+        flex-direction: column;
+    }
+    .sidebar {
+        width: 100%;
+        border-right: none;
+        border-bottom: 1px solid var(--border-color);
+        max-height: 200px; /* prevent sidebar from taking too much space */
+    }
+    .app-header {
+        flex-direction: column;
+        align-items: flex-start;
+        padding: 0.5rem;
+    }
+    .app-header nav {
+        margin-top: 0.5rem;
+    }
+    .header-controls {
+        width: 100%;
+        margin-top: 0.5rem;
+    }
+    .analytics-grid {
+        grid-template-columns: 1fr;
+    }
+}

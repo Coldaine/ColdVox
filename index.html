@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ColdVox Coverage Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎙️</text></svg>">
+</head>
+<body>
+    <div id="app">
+        <header class="app-header">
+            <h1>ColdVox Coverage Dashboard</h1>
+            <nav id="tabs">
+                <button class="tab-button active" data-tab="architecture">Architecture</button>
+                <button class="tab-button" data-tab="details">Details</button>
+                <button class="tab-button" data-tab="dashboard">Dashboard</button>
+                <button class="tab-button" data-tab="analytics">Analytics</button>
+            </nav>
+            <div class="header-controls">
+                <input type="search" id="global-search" placeholder="Search tests...">
+                <button id="demo-data-toggle">Demo Data</button>
+            </div>
+        </header>
+
+        <div class="app-body">
+            <aside class="sidebar">
+                <div class="filters">
+                    <h3>Filters</h3>
+                    <div class="filter-group">
+                        <label for="filter-priority">Priority</label>
+                        <select id="filter-priority">
+                            <option value="all">All</option>
+                            <option value="critical">Critical</option>
+                            <option value="high">High</option>
+                            <option value="medium">Medium</option>
+                            <option value="low">Low</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label for="filter-status">Status</label>
+                        <select id="filter-status">
+                            <option value="all">All</option>
+                            <option value="pending">Pending</option>
+                            <option value="in_progress">In Progress</option>
+                            <option value="passed">Passed</option>
+                            <option value="failed">Failed</option>
+                            <option value="blocked">Blocked</option>
+                            <option value="flaky">Flaky</option>
+                        </select>
+                    </div>
+                     <div class="filter-group">
+                        <label for="filter-type">Type</label>
+                        <select id="filter-type">
+                            <option value="all">All</option>
+                            <option value="unit">Unit</option>
+                            <option value="integration">Integration</option>
+                            <option value="performance">Performance</option>
+                            <option value="edge_case">Edge Case</option>
+                             <option value="accuracy">Accuracy</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="live-summary" class="live-summary" aria-live="polite">
+                    <h3>Summary</h3>
+                    <p>Overall Coverage: <span id="summary-coverage">0/0</span></p>
+                    <p>Avg. Latency: <span id="summary-latency">0s</span></p>
+                </div>
+            </aside>
+
+            <main id="main-content" class="main-content">
+                <div id="architecture-view" class="view active">
+                    <h2>Architecture</h2>
+                    <div class="chart-container" id="mermaid-pipeline" role="img" aria-label="ColdVox Pipeline Flowchart"></div>
+                    <div class="chart-container" id="d3-hierarchy" role="img" aria-label="Component Hierarchy Diagram"></div>
+                </div>
+                <div id="details-view" class="view" style="display: none;">
+                    <h2>Details</h2>
+                    <div id="details-accordions"></div>
+                </div>
+                <div id="dashboard-view" class="view" style="display: none;">
+                    <h2>Dashboard</h2>
+                    <div id="dashboard-table-container" role="grid" aria-label="Test Dashboard"></div>
+                </div>
+                <div id="analytics-view" class="view" style="display: none;">
+                    <h2>Analytics</h2>
+                     <div class="analytics-grid">
+                        <div class="chart-container"><canvas id="status-pie-chart"></canvas></div>
+                        <div class="chart-container"><canvas id="progress-bar-chart"></canvas></div>
+                        <div class="chart-container"><canvas id="trend-line-chart"></canvas></div>
+                        <div class="chart-container" id="d3-heatmap"></div>
+                        <div class="chart-container"><canvas id="latency-gauge-chart"></canvas></div>
+                    </div>
+                </div>
+            </main>
+        </div>
+
+        <footer class="app-footer">
+            <div id="progress-summary"></div>
+            <div class="footer-controls">
+                <button id="import-json">Import JSON</button>
+                <input type="file" id="import-file-input" style="display: none;" accept=".json">
+                <button id="export-json">Export JSON</button>
+                <button id="export-csv">Export CSV</button>
+                <button id="export-pdf">Export PDF</button>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Libraries -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.2/papaparse.min.js"></script>
+
+    <!-- App Logic -->
+    <script src="app.js"></script>
+</body>
+</html>
