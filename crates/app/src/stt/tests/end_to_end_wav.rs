@@ -403,6 +403,11 @@ async fn test_end_to_end_with_real_injection() {
                 let raw = std::fs::read_to_string(transcript_path).unwrap_or_default();
                 raw.trim().to_lowercase()
             };
+            eprintln!(
+                "WER fallback comparison:\n  expected: {}\n  transcribed: {}",
+                expected_ref,
+                combined.to_lowercase()
+            );
             // Use centralized WER utility for consistent calculation
             use crate::stt::tests::wer_utils::calculate_wer;
             let wer = calculate_wer(&expected_ref, &combined.to_lowercase());

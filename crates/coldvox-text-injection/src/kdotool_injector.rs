@@ -33,6 +33,19 @@ impl KdotoolInjector {
             .unwrap_or(false)
     }
 
+    fn binary_available(binary: &str) -> bool {
+        Command::new("which")
+            .arg(binary)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn binary_available_for_tests(binary: &str) -> bool {
+        Self::binary_available(binary)
+    }
+
     /// Get the currently active window ID
     async fn get_active_window(&self) -> Result<String, InjectionError> {
         let output = timeout(
