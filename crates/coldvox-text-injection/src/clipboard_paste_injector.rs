@@ -43,9 +43,12 @@ impl ClipboardPasteInjector {
 
     /// Non-blocking detection of ydotool for optional fallback behaviour.
     async fn ydotool_available() -> bool {
-        match Command::new("which").arg("ydotool").output().await {
-            Ok(o) => o.status.success(),
-            Err(_) => false,
+        let timeout_duration = Duration::from_millis(1000); // 1 second timeout
+        let output_future = Command::new("which").arg("ydotool").output();
+        
+        match tokio::time::timeout(timeout_duration, output_future).await {
+            Ok(Ok(o)) => o.status.success(),
+            Ok(Err(_)) | Err(_) => false,
         }
     }
 }

@@ -42,9 +42,12 @@ impl ComboClipboardYdotool {
 
     /// Check if ydotool is available in PATH (non-blocking)
     async fn check_ydotool() -> bool {
-        match Command::new("which").arg("ydotool").output().await {
-            Ok(o) => o.status.success(),
-            Err(_) => false,
+        let timeout_duration = Duration::from_millis(1000); // 1 second timeout
+        let output_future = Command::new("which").arg("ydotool").output();
+        
+        match tokio::time::timeout(timeout_duration, output_future).await {
+            Ok(Ok(o)) => o.status.success(),
+            Ok(Err(_)) | Err(_) => false,
         }
     }
 }

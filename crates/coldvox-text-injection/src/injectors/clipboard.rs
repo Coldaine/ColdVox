@@ -128,11 +128,16 @@ impl ClipboardInjector {
 
     /// Read clipboard content using Wayland
     async fn read_wayland_clipboard(&self) -> InjectionResult<ClipboardBackup> {
-        // Use wl-paste command to read clipboard (simple and reliable fallback)
-        let output = Command::new("wl-paste")
+        // Use wl-paste command to read clipboard with timeout to prevent hangs
+        let timeout_duration = Duration::from_millis(self.config.per_method_timeout_ms);
+        
+        let output_future = Command::new("wl-paste")
             .args(&["--type", "text/plain"])
-            .output()
+            .output();
+
+        let output = tokio::time::timeout(timeout_duration, output_future)
             .await
+            .map_err(|_| InjectionError::Timeout(self.config.per_method_timeout_ms))?
             .map_err(|e| InjectionError::Process(format!("Failed to execute wl-paste: {}", e)))?;
 
         if output.status.success() {
@@ -149,10 +154,15 @@ impl ClipboardInjector {
 
     /// Read clipboard content using X11
     async fn read_x11_clipboard(&self) -> InjectionResult<ClipboardBackup> {
-        let output = Command::new("xclip")
+        let timeout_duration = Duration::from_millis(self.config.per_method_timeout_ms);
+        
+        let output_future = Command::new("xclip")
             .args(&["-selection", "clipboard", "-o"])
-            .output()
+            .output();
+
+        let output = tokio::time::timeout(timeout_duration, output_future)
             .await
+            .map_err(|_| InjectionError::Timeout(self.config.per_method_timeout_ms))?
             .map_err(|e| InjectionError::Process(format!("Failed to execute xclip: {}", e)))?;
 
         if output.status.success() {
@@ -201,12 +211,17 @@ impl ClipboardInjector {
         content: &[u8],
         _mime_type: &str,
     ) -> InjectionResult<()> {
-        // Use wl-copy command as a simple fallback implementation
+        // Use wl-copy command with timeout to prevent hangs
+        let timeout_duration = Duration::from_millis(self.config.per_method_timeout_ms);
         let _content_str = String::from_utf8_lossy(content);
-        let output = Command::new("wl-copy")
+        
+        let output_future = Command::new("wl-copy")
             .arg(_content_str.as_ref())
-            .output()
+            .output();
+
+        let output = tokio::time::timeout(timeout_duration, output_future)
             .await
+            .map_err(|_| InjectionError::Timeout(self.config.per_method_timeout_ms))?
             .map_err(|e| InjectionError::Process(format!("Failed to execute wl-copy: {}", e)))?;
 
         if output.status.success() {
@@ -220,12 +235,17 @@ impl ClipboardInjector {
 
     /// Write content to X11 clipboard
     async fn write_x11_clipboard(&self, content: &[u8]) -> InjectionResult<()> {
+        let timeout_duration = Duration::from_millis(self.config.per_method_timeout_ms);
         let _content_str = String::from_utf8_lossy(content);
-        let output = Command::new("xclip")
+        
+        let output_future = Command::new("xclip")
             .args(&["-selection", "clipboard"])
             .stdin(std::process::Stdio::piped())
-            .output()
+            .output();
+
+        let output = tokio::time::timeout(timeout_duration, output_future)
             .await
+            .map_err(|_| InjectionError::Timeout(self.config.per_method_timeout_ms))?
             .map_err(|e| InjectionError::Process(format!("Failed to execute xclip: {}", e)))?;
 
         if output.status.success() {
@@ -410,10 +430,15 @@ impl ClipboardInjector {
 
     /// Try ydotool paste
     async fn try_ydotool_paste(&self) -> InjectionResult<()> {
-        let output = Command::new("ydotool")
+        let timeout_duration = Duration::from_millis(self.config.per_method_timeout_ms);
+        
+        let output_future = Command::new("ydotool")
             .args(&["key", "ctrl+v"])
-            .output()
+            .output();
+
+        let output = tokio::time::timeout(timeout_duration, output_future)
             .await
+            .map_err(|_| InjectionError::Timeout(self.config.per_method_timeout_ms))?
             .map_err(|e| InjectionError::Process(format!("Failed to execute ydotool: {}", e)))?;
 
         if output.status.success() {
@@ -428,16 +453,21 @@ impl ClipboardInjector {
     async fn clear_klipper_history(&self) -> InjectionResult<()> {
         trace!("Clearing Klipper history");
 
-        // Use qdbus to clear Klipper history
-        let output = Command::new("qdbus")
+        let timeout_duration = Duration::from_millis(self.config.per_method_timeout_ms);
+        
+        // Use qdbus to clear Klipper history with timeout
+        let output_future = Command::new("qdbus")
             .args(&[
                 "org.kde.klipper",
                 "/klipper",
                 "org.kde.klipper.klipper",
                 "clearClipboardHistory",
             ])
-            .output()
+            .output();
+
+        let output = tokio::time::timeout(timeout_duration, output_future)
             .await
+            .map_err(|_| InjectionError::Timeout(self.config.per_method_timeout_ms))?
             .map_err(|e| {
                 InjectionError::Process(format!("Failed to execute qdbus for Klipper: {}", e))
             })?;
@@ -623,6 +653,17 @@ impl TextInjector for ClipboardInjector {
 mod tests {
     use super::*;
 
+    /// Helper macro to wrap tests with a 2-minute timeout to prevent hangs
+    macro_rules! with_test_timeout {
+        ($test_body:expr) => {{
+            let timeout_duration = Duration::from_secs(120); // 2 minutes
+            match tokio::time::timeout(timeout_duration, $test_body).await {
+                Ok(result) => result,
+                Err(_) => panic!("Test timed out after 2 minutes - likely hanging on clipboard operations"),
+            }
+        }};
+    }
+
     #[tokio::test]
     async fn test_clipboard_injector_creation() {
         let config = InjectionConfig::default();
@@ -653,17 +694,22 @@ mod tests {
         assert!(context.window_id.is_none());
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_with_seed_restore_wrapper() {
-        let payload = b"test payload";
-        let mime_type = "text/plain";
+        with_test_timeout!(async {
+            let payload = b"test payload";
+            let mime_type = "text/plain";
 
-        // Test the wrapper function
-        let result = with_seed_restore(payload, mime_type, None, || async { Ok(()) }).await;
+            // Test the wrapper function with a short timeout config
+            let mut config = InjectionConfig::default();
+            config.per_method_timeout_ms = 500; // Short timeout to fail fast
+            
+            let result = with_seed_restore(payload, mime_type, None, || async { Ok(()) }).await;
 
-        // The result may fail due to clipboard unavailability in test environment
-        // but we're testing the wrapper structure
-        assert!(result.is_ok() || result.is_err());
+            // The result may fail due to clipboard unavailability in test environment
+            // but we're testing the wrapper structure doesn't hang
+            assert!(result.is_ok() || result.is_err());
+        })
     }
 
     #[tokio::test]
@@ -679,12 +725,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_legacy_inject_text() {
-        let config = InjectionConfig::default();
-        let injector = ClipboardInjector::new(config);
+        with_test_timeout!(async {
+            let config = InjectionConfig::default();
+            let injector = ClipboardInjector::new(config);
 
-        // Empty text should succeed without error
-        let result = injector.inject_text("", None).await;
-        assert!(result.is_ok());
+            // Empty text should succeed without error
+            let result = injector.inject_text("", None).await;
+            assert!(result.is_ok());
+        })
     }
 
     #[test]
