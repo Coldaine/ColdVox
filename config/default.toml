@@ -5,6 +5,14 @@ activation_mode = "vad"              # "vad", "hotkey"
 enable_device_monitor = true
 # device =  "Device Name"            # Optional: specific device (omit for default)
 
+[audio]
+# Capture ring buffer size in samples. At 16kHz mono:
+#   16_384 samples  ≈ 1.0 second
+#   65_536 samples  ≈ 4.1 seconds (default)
+# Larger buffers prevent overflow during processing spikes (model warm-up, GC)
+# but increase worst-case end-to-end latency. The default provides ~4s of headroom.
+capture_buffer_samples = 65536
+
 [injection]
 # Core behavior
 fail_fast = false                # Exit immediately if all injection methods fail

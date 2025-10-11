@@ -102,11 +102,25 @@ impl Default for SttSettings {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct AudioSettings {
+    pub capture_buffer_samples: usize,
+}
+
+impl Default for AudioSettings {
+    fn default() -> Self {
+        Self {
+            capture_buffer_samples: 65_536,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
 pub struct Settings {
     pub device: Option<String>,
     pub resampler_quality: String,
     pub enable_device_monitor: bool,
     pub activation_mode: String,
+    pub audio: AudioSettings,
     pub injection: InjectionSettings,
     pub stt: SttSettings,
 }
@@ -118,6 +132,7 @@ impl Default for Settings {
             resampler_quality: "balanced".to_string(),
             enable_device_monitor: true,
             activation_mode: "vad".to_string(),
+            audio: AudioSettings::default(),
             injection: InjectionSettings::default(),
             stt: SttSettings::default(),
         }
@@ -130,6 +145,8 @@ impl Settings {
             .set_default("resampler_quality", "balanced")?
             .set_default("activation_mode", "vad")?
             .set_default("enable_device_monitor", true)?
+            // Audio settings defaults
+            .set_default("audio.capture_buffer_samples", 65_536)?
             // Injection settings defaults
             .set_default("injection.fail_fast", false)?
             .set_default("injection.allow_kdotool", false)?
