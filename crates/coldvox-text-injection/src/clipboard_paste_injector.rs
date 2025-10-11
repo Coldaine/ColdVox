@@ -43,10 +43,21 @@ impl ClipboardPasteInjector {
 
     /// Non-blocking detection of ydotool for optional fallback behaviour.
     async fn ydotool_available() -> bool {
-        match Command::new("which").arg("ydotool").output().await {
-            Ok(o) => o.status.success(),
-            Err(_) => false,
+        #[cfg(feature = "ydotool")]
+        {
+            crate::ydotool_injector::ydotool_runtime_available()
         }
+        #[cfg(not(feature = "ydotool"))]
+        {
+            false
+        }
+    }
+
+    fn new_ydotool_command() -> Command {
+        let mut command = Command::new("ydotool");
+        #[cfg(feature = "ydotool")]
+        crate::ydotool_injector::apply_socket_env(&mut command);
+        command
     }
 }
 
@@ -200,9 +211,11 @@ impl ClipboardPasteInjector {
         // Try ydotool fallback (only if available)
         if Self::ydotool_available().await {
             use tokio::time::timeout;
+            let mut command = Self::new_ydotool_command();
+            command.args(["key", "ctrl+v"]);
             let out = timeout(
                 self.config.paste_action_timeout(),
-                Command::new("ydotool").args(["key", "ctrl+v"]).output(),
+                command.output(),
             )
             .await
             .map_err(|_| InjectionError::Timeout(self.config.paste_action_timeout_ms))?

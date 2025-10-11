@@ -40,12 +40,24 @@ impl ComboClipboardYdotool {
         self.clipboard_injector.is_available().await && Self::check_ydotool().await
     }
 
-    /// Check if ydotool is available in PATH (non-blocking)
+    /// Check if ydotool is available (non-blocking)
     async fn check_ydotool() -> bool {
-        match Command::new("which").arg("ydotool").output().await {
-            Ok(o) => o.status.success(),
-            Err(_) => false,
+        #[cfg(feature = "ydotool")]
+        {
+            crate::ydotool_injector::ydotool_runtime_available()
         }
+
+        #[cfg(not(feature = "ydotool"))]
+        {
+            false
+        }
+    }
+
+    fn new_ydotool_command() -> Command {
+        let mut command = Command::new("ydotool");
+        #[cfg(feature = "ydotool")]
+        crate::ydotool_injector::apply_socket_env(&mut command);
+        command
     }
 }
 
@@ -142,10 +154,13 @@ impl TextInjector for ComboClipboardYdotool {
 
         // Step 4: Trigger paste action via ydotool (fallback)
         let paste_start = Instant::now();
-        let output = timeout(
-            Duration::from_millis(self._config.paste_action_timeout_ms),
-            Command::new("ydotool").args(["key", "ctrl+v"]).output(),
-        )
+        let mut command = Self::new_ydotool_command();
+        command.args(["key", "ctrl+v"]);
+        let output =
+            timeout(
+                Duration::from_millis(self._config.paste_action_timeout_ms),
+                command.output(),
+            )
         .await
         .map_err(|_| crate::types::InjectionError::Timeout(self._config.paste_action_timeout_ms))?
         .map_err(|e| crate::types::InjectionError::Process(format!("ydotool failed: {}", e)))?;

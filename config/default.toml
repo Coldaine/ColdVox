@@ -24,9 +24,9 @@ pause_hotkey = ""                # Hotkey to pause/resume injection (e.g., "Ctrl
 redact_logs = true               # Redact text in logs for privacy
 
 # Timing and latency
-max_total_latency_ms = 800       # Max latency for a single injection call (ms)
+max_total_latency_ms = 600       # Max latency for a single injection call (ms)
 per_method_timeout_ms = 250      # Timeout for each method attempt (ms)
-paste_action_timeout_ms = 200    # Timeout for paste actions (ms)
+paste_action_timeout_ms = 350    # Timeout for paste actions (ms)
 
 # Cooldown/backoff
 cooldown_initial_ms = 10000      # Initial cooldown after failure (ms)
