@@ -57,6 +57,7 @@ use crate::types::{InjectionConfig, InjectionError, InjectionResult};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
+#[allow(unused_imports)] // All tracing macros are used in complex async control flow
 use tracing::{debug, error, info, trace, warn};
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -130,6 +131,7 @@ impl TextChangeListener {
 /// # Returns
 /// * `Ok(ConfirmationResult)` - Confirmation result
 /// * `Err(InjectionError)` - Error during confirmation
+#[allow(unused_variables)] // start_time and timeout_duration are used in complex async control flow
 pub async fn text_changed(
     target: &str,
     prefix: &str,

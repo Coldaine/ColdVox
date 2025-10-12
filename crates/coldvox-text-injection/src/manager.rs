@@ -28,6 +28,9 @@ use std::process;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
+
+/// Type alias for cached method ordering to reduce type complexity
+type CachedMethodOrder = Arc<RwLock<Option<(String, Vec<InjectionMethod>)>>>;
 use tracing::{debug, error, info, trace, warn};
 
 /// Key for identifying a specific app-method combination
@@ -169,7 +172,7 @@ pub struct StrategyManager {
     /// Registry of available injectors
     injectors: InjectorRegistry,
     /// Cached method ordering for the current app_id
-    cached_method_order: Arc<RwLock<Option<(String, Vec<InjectionMethod>)>>>,
+    cached_method_order: CachedMethodOrder,
     /// Cached compiled allowlist regex patterns
     #[cfg(feature = "regex")]
     allowlist_regexes: Vec<regex::Regex>,

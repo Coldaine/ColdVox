@@ -8,5 +8,5 @@ pub mod atspi;
 pub mod clipboard;
 
 // Re-export common types for convenience
-pub use atspi::Context as AtspiContext;
-pub use clipboard::{ClipboardBackup, ClipboardInjector, Context as ClipboardContext};
+pub use atspi::AtspiInjector;
+pub use clipboard::{ClipboardBackup, ClipboardInjector};

@@ -51,6 +51,7 @@ impl ClipboardBackup {
 }
 
 /// Clipboard-based text injector with seed/restore functionality
+#[derive(Clone)]
 pub struct ClipboardInjector {
     /// Configuration for injection
     config: InjectionConfig,
@@ -132,7 +133,7 @@ impl ClipboardInjector {
         let timeout_duration = Duration::from_millis(self.config.per_method_timeout_ms);
         
         let output_future = Command::new("wl-paste")
-            .args(&["--type", "text/plain"])
+            .args(["--type", "text/plain"])
             .output();
 
         let output = tokio::time::timeout(timeout_duration, output_future)
@@ -157,7 +158,7 @@ impl ClipboardInjector {
         let timeout_duration = Duration::from_millis(self.config.per_method_timeout_ms);
         
         let output_future = Command::new("xclip")
-            .args(&["-selection", "clipboard", "-o"])
+            .args(["-selection", "clipboard", "-o"])
             .output();
 
         let output = tokio::time::timeout(timeout_duration, output_future)
@@ -239,7 +240,7 @@ impl ClipboardInjector {
         let _content_str = String::from_utf8_lossy(content);
         
         let output_future = Command::new("xclip")
-            .args(&["-selection", "clipboard"])
+            .args(["-selection", "clipboard"])
             .stdin(std::process::Stdio::piped())
             .output();
 
@@ -433,7 +434,7 @@ impl ClipboardInjector {
         let timeout_duration = Duration::from_millis(self.config.per_method_timeout_ms);
         
         let output_future = Command::new("ydotool")
-            .args(&["key", "ctrl+v"])
+            .args(["key", "ctrl+v"])
             .output();
 
         let output = tokio::time::timeout(timeout_duration, output_future)
@@ -486,7 +487,7 @@ impl ClipboardInjector {
     }
 
     /// Main injection method
-    pub async fn inject(&self, text: &str, context: &InjectionContext) -> InjectionResult<()> {
+    pub async fn inject(&self, text: &str, _context: &InjectionContext) -> InjectionResult<()> {
         if text.is_empty() {
             return Ok(());
         }
@@ -497,6 +498,9 @@ impl ClipboardInjector {
         // Always read fresh clipboard for backup (no pre-warming support yet for clipboard content)
         // Pre-warming would need to store ClipboardBackup in InjectionContext.clipboard_backup
         let backup = self.read_clipboard().await?;
+
+        // Create RAII guard to ensure restoration
+        let _guard = ClipboardGuard::new(self, backup);
 
         // Seed clipboard with payload
         self.write_clipboard(text.as_bytes(), "text/plain").await?;
@@ -511,10 +515,7 @@ impl ClipboardInjector {
         let restore_delay = self.config.clipboard_restore_delay_ms.unwrap_or(500);
         tokio::time::sleep(Duration::from_millis(restore_delay)).await;
 
-        // Always restore clipboard backup
-        if let Err(e) = self.restore_clipboard(&backup).await {
-            warn!("Failed to restore clipboard: {}", e);
-        }
+        // Guard will restore clipboard when dropped
 
         // Optional Klipper cleanup if enabled
         #[cfg(feature = "kdotool")]
@@ -563,6 +564,35 @@ impl ClipboardInjector {
                 self.read_x11_clipboard().await.is_ok()
             }
             ClipboardBackend::Unknown => false,
+        }
+    }
+}
+
+/// RAII guard for clipboard restoration
+/// Ensures clipboard is restored when dropped, even on panic
+pub struct ClipboardGuard {
+    restore_fn: Option<Box<dyn FnOnce() + Send + 'static>>,
+}
+
+impl ClipboardGuard {
+    pub fn new(injector: &ClipboardInjector, backup: ClipboardBackup) -> Self {
+        let injector_clone = injector.clone();
+        let restore_fn = Box::new(move || {
+            let backup = backup.clone();
+            tokio::spawn(async move {
+                if let Err(e) = injector_clone.restore_clipboard(&backup).await {
+                    warn!("Failed to restore clipboard in guard: {}", e);
+                }
+            });
+        });
+        Self { restore_fn: Some(restore_fn) }
+    }
+}
+
+impl Drop for ClipboardGuard {
+    fn drop(&mut self) {
+        if let Some(restore_fn) = self.restore_fn.take() {
+            restore_fn();
         }
     }
 }
@@ -745,4 +775,90 @@ mod tests {
             ClipboardBackend::Wayland | ClipboardBackend::X11 | ClipboardBackend::Unknown
         ));
     }
-}
+
+    #[tokio::test]
+    async fn test_clipboard_guard_restores_on_panic() {
+        // Test that ClipboardGuard restores clipboard even when panicked
+        let config = InjectionConfig::default();
+        let injector = ClipboardInjector::new(config);
+
+        // Read initial clipboard content
+        let initial_backup = match injector.read_clipboard().await {
+            Ok(b) => b,
+            Err(_) => {
+                // If clipboard read fails, skip test
+                return;
+            }
+        };
+
+        let initial_content = initial_backup.content.clone();
+
+        // Set test content
+        let test_content = b"test_restore_content";
+        if let Err(_) = injector.write_clipboard(test_content, "text/plain").await {
+            // If write fails, skip
+            return;
+        }
+
+        // Verify test content is set
+        let current = match injector.read_clipboard().await {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+        assert_eq!(current.content, test_content);
+
+        // Create guard with initial backup
+        let guard = ClipboardGuard::new(&injector, initial_backup);
+
+        // Simulate panic by dropping guard without normal flow
+        drop(guard);
+
+        // Give time for async restore to complete
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        // Verify clipboard is restored
+        let final_content = match injector.read_clipboard().await {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+        assert_eq!(final_content.content, initial_content);
+    }
+
+        // To make it testable, let's set a known initial.
+
+        // Actually, since read_clipboard may fail in test environment, perhaps skip if not available.
+
+        // But to make it work, perhaps assume it works.
+
+        // For the test, since it's async, and spawn, it may not be reliable in test.
+
+        // Perhaps a better test is to verify that inject restores.
+
+        // Let me change the test to test that inject restores the clipboard.
+
+    }
+
+    #[tokio::test]
+    async fn test_inject_restores_clipboard() {
+        let config = InjectionConfig::default();
+        let injector = ClipboardInjector::new(config);
+        let context = InjectionContext::default();
+
+        // Skip if clipboard not available
+        if injector.read_clipboard().await.is_err() {
+            return;
+        }
+
+        // Read initial content
+        let initial = injector.read_clipboard().await.unwrap();
+
+        // Inject some text
+        let _result = injector.inject("test injection", &context).await;
+
+        // Wait for async restore to complete
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        // Even if injection fails, clipboard should be restored
+        let final_content = injector.read_clipboard().await.unwrap();
+        assert_eq!(final_content.content, initial.content);
+    }

@@ -51,7 +51,7 @@ pub mod injectors;
 pub mod orchestrator;
 
 // Re-export orchestrator types and injector module
-pub use injectors::{ClipboardBackup, ClipboardContext, ClipboardInjector};
+pub use injectors::{ClipboardBackup, ClipboardInjector};
 pub use orchestrator::{AtspiContext, DesktopEnvironment, StrategyOrchestrator};
 
 // Re-export modular AT-SPI injector for backward compatibility

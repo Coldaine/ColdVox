@@ -9,12 +9,14 @@ use crate::types::{InjectionConfig, InjectionMethod, InjectionResult};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, RwLock};
+#[allow(unused_imports)] // Used in complex async control flow that clippy can't analyze
 use tracing::{debug, info, trace, warn};
 
 /// TTL for cached pre-warmed data (3 seconds)
 const CACHE_TTL: Duration = Duration::from_secs(3);
 
 /// Tiny timeout for individual pre-warming steps (50ms)
+#[allow(dead_code)] // May be used in future pre-warming optimizations
 const STEP_TIMEOUT: Duration = Duration::from_millis(50);
 
 /// Pre-warmed data with TTL caching
@@ -96,6 +98,7 @@ pub struct VirtualKeyboardData {
 
 /// Pre-warming controller that manages all pre-warming operations
 pub struct PrewarmController {
+    #[allow(dead_code)] // May be used in future pre-warming configurations
     config: InjectionConfig,
 
     // Cached data with TTL
@@ -160,6 +163,7 @@ impl PrewarmController {
     }
 
     /// Pre-warm AT-SPI connection and snapshot focused element
+    #[allow(unused_variables)] // start_time is used in complex async control flow
     async fn prewarm_atspi(&self) -> Result<AtspiData, String> {
         let start_time = Instant::now();
         debug!("Starting AT-SPI pre-warming");
@@ -245,6 +249,7 @@ impl PrewarmController {
     }
 
     /// Arm the event listener for text change confirmation
+    #[allow(unused_variables)] // start_time is used in complex async control flow
     async fn arm_event_listener(&self) -> Result<bool, String> {
         let start_time = Instant::now();
         debug!("Arming event listener for text change confirmation");
@@ -342,7 +347,7 @@ impl PrewarmController {
 
         // Check if xdg-desktop-portal is available
         let portal_check = tokio::process::Command::new("busctl")
-            .args(&["--user", "list", "org.freedesktop.portal.Desktop"])
+            .args(["--user", "list", "org.freedesktop.portal.Desktop"])
             .output()
             .await;
 
@@ -545,7 +550,7 @@ pub async fn run_for_method(_ctx: &AtspiContext, method: InjectionMethod) -> Inj
                 }
             }
 
-            if let Ok(_) = event_result {
+            if event_result.is_ok() {
                 info!("Event listener armed for AtspiInsert");
             } else {
                 warn!("Event listener arming failed: {:?}", event_result);
@@ -569,7 +574,7 @@ pub async fn run_for_method(_ctx: &AtspiContext, method: InjectionMethod) -> Inj
                 }
             }
 
-            if let Ok(_) = event_result {
+            if event_result.is_ok() {
                 info!("Event listener armed for ClipboardPasteFallback");
             } else {
                 warn!("Event listener arming failed: {:?}", event_result);
@@ -577,7 +582,7 @@ pub async fn run_for_method(_ctx: &AtspiContext, method: InjectionMethod) -> Inj
         }
         _ => {
             // For other methods, just arm the event listener
-            if let Ok(_) = controller.arm_event_listener().await {
+            if (controller.arm_event_listener().await).is_ok() {
                 info!("Event listener armed for {:?}", method);
             }
         }

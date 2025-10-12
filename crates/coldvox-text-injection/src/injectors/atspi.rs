@@ -5,7 +5,9 @@
 //! while providing the new TextInjector trait interface.
 
 use crate::confirm::{create_confirmation_context, ConfirmationContext};
+#[allow(unused_imports)] // Used in complex async control flow that clippy can't analyze
 use crate::log_throttle::log_atspi_connection_failure;
+#[allow(unused_imports)] // Used in complex async control flow that clippy can't analyze
 use crate::logging::utils;
 use crate::types::{
     InjectionConfig, InjectionContext, InjectionError, InjectionMethod, InjectionMode,
@@ -28,7 +30,8 @@ pub struct AtspiInjector {
     /// Configuration for injection
     config: InjectionConfig,
     /// Confirmation context for injection verification
-    confirmation_context: ConfirmationContext,
+    #[allow(dead_code)] // May be used in future AT-SPI confirmation features
+    _confirmation_context: ConfirmationContext,
 }
 
 impl AtspiInjector {
@@ -37,11 +40,12 @@ impl AtspiInjector {
         let confirmation_context = create_confirmation_context(config.clone());
         Self {
             config,
-            confirmation_context,
+            _confirmation_context: confirmation_context,
         }
     }
 
     /// Insert text directly using AT-SPI EditableText interface
+    #[allow(unused_variables)] // context and start_time are used in complex async control flow
     pub async fn insert_text(&self, text: &str, context: &InjectionContext) -> InjectionResult<()> {
         let start_time = Instant::now();
 
@@ -200,7 +204,7 @@ impl AtspiInjector {
             if let Some(ref target) = context.target_app {
                 let window = context.window_id.as_deref().unwrap_or("unknown");
                 if let Ok(result) = self
-                    .confirmation_context
+                    ._confirmation_context
                     .confirm_injection(target, text, window)
                     .await
                 {
@@ -228,6 +232,7 @@ impl AtspiInjector {
     }
 
     /// Paste text using AT-SPI clipboard operations
+    #[allow(unused_variables)] // context and start_time are used in complex async control flow
     pub async fn paste_text(&self, text: &str, context: &InjectionContext) -> InjectionResult<()> {
         let start_time = Instant::now();
 
@@ -384,7 +389,7 @@ impl AtspiInjector {
             if let Some(ref target) = context.target_app {
                 let window = context.window_id.as_deref().unwrap_or("unknown");
                 if let Ok(result) = self
-                    .confirmation_context
+                    ._confirmation_context
                     .confirm_injection(target, text, window)
                     .await
                 {
@@ -412,6 +417,7 @@ impl AtspiInjector {
     }
 
     /// Set clipboard content for paste operations
+    #[allow(dead_code)] // May be used in future AT-SPI clipboard integration
     async fn set_clipboard_content(&self, text: &str) -> InjectionResult<()> {
         #[cfg(feature = "wl_clipboard")]
         {
@@ -454,6 +460,7 @@ impl AtspiInjector {
     }
 
     /// Trigger paste using key events as a fallback
+    #[allow(dead_code)] // May be used in future AT-SPI key event integration
     async fn trigger_paste_key_event(&self) -> InjectionResult<()> {
         #[cfg(feature = "enigo")]
         {

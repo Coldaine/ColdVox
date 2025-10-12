@@ -54,7 +54,7 @@ pub struct InjectionProcessor {
     /// Text injector for performing the actual injection
     injector: StrategyManager,
     /// Configuration
-    config: InjectionConfig,
+    _config: InjectionConfig,
     /// Metrics for telemetry
     metrics: Arc<Mutex<ProcessorMetrics>>,
     /// Shared injection metrics for all components
@@ -84,7 +84,7 @@ impl InjectionProcessor {
         Self {
             session,
             injector,
-            config,
+            _config: config,
             metrics,
             injection_metrics,
             _pipeline_metrics: pipeline_metrics,

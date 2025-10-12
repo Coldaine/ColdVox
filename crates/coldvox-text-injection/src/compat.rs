@@ -7,7 +7,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Legacy configuration format version 1
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -263,7 +263,7 @@ impl CompatibilityMemory {
     }
 
     /// Check if a configuration has been migrated
-    pub fn is_migrated(&self, path: &PathBuf) -> bool {
+    pub fn is_migrated(&self, path: &Path) -> bool {
         self.legacy_configs
             .get(&path.to_string_lossy().to_string())
             .map(|info| info.migrated)
