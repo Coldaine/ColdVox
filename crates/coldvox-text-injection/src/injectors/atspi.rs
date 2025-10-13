@@ -272,7 +272,7 @@ impl AtspiInjector {
                     .map_err(|e| {
                         InjectionError::Other(format!("CollectionProxy destination failed: {e}"))
                     })?
-                    .path("/org/a11y.atspi/accessible/root")
+                    .path("/org/a11y/atspi/accessible/root")
                     .map_err(|e| {
                         InjectionError::Other(format!("CollectionProxy path failed: {e}"))
                     })?

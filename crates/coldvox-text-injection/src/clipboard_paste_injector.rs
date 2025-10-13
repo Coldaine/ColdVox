@@ -217,13 +217,10 @@ impl ClipboardPasteInjector {
             use tokio::time::timeout;
             let mut command = Self::new_ydotool_command();
             command.args(["key", "ctrl+v"]);
-            let out = timeout(
-                self.config.paste_action_timeout(),
-                command.output(),
-            )
-            .await
-            .map_err(|_| InjectionError::Timeout(self.config.paste_action_timeout_ms))?
-            .map_err(|e| InjectionError::Process(format!("ydotool failed: {}", e)))?;
+            let out = timeout(self.config.paste_action_timeout(), command.output())
+                .await
+                .map_err(|_| InjectionError::Timeout(self.config.paste_action_timeout_ms))?
+                .map_err(|e| InjectionError::Process(format!("ydotool failed: {}", e)))?;
 
             if out.status.success() {
                 return Ok("ydotool");

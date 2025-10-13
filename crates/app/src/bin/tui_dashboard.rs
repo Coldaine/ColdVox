@@ -438,7 +438,7 @@ async fn run_app(
                                     capture_buffer_samples: 65_536,
                                     ..Default::default()
                                 };
-                                
+
                                 #[cfg(not(feature = "text-injection"))]
                                 let opts = app_runtime::AppRuntimeOptions {
                                     device: if state.selected_device == "default" || state.selected_device.is_empty() { None } else { Some(state.selected_device.clone()) },
@@ -449,7 +449,7 @@ async fn run_app(
                                     capture_buffer_samples: 65_536,
                                     ..Default::default()
                                 };
-                                
+
                                 #[cfg(feature = "text-injection")]
                                 {
                                     opts.injection = None;

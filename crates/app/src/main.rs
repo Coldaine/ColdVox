@@ -210,7 +210,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         capture_buffer_samples: settings.audio.capture_buffer_samples,
         ..Default::default()
     };
-    
+
     #[cfg(not(feature = "text-injection"))]
     let opts = AppRuntimeOptions {
         device,
@@ -221,7 +221,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         capture_buffer_samples: settings.audio.capture_buffer_samples,
         ..Default::default()
     };
-    
+
     #[cfg(feature = "text-injection")]
     {
         opts.injection = if cfg!(feature = "text-injection") {

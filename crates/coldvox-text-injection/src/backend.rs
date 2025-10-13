@@ -1,7 +1,7 @@
 use crate::types::InjectionConfig;
+use std::env;
 #[cfg(feature = "ydotool")]
 use tracing::debug;
-use std::env;
 
 /// Available text injection backends
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,7 +44,9 @@ impl BackendDetector {
             if self.has_ydotool() {
                 debug!("ydotool runtime detected; clipboard fallback can use Ctrl+V automation");
             } else {
-                debug!("ydotool runtime not detected; clipboard fallback limited to AT-SPI actions");
+                debug!(
+                    "ydotool runtime not detected; clipboard fallback limited to AT-SPI actions"
+                );
             }
         }
 

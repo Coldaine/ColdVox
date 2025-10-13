@@ -185,7 +185,7 @@ impl PrewarmController {
             let collection_fut = CollectionProxy::builder(zbus_conn)
                 .destination("org.a11y.atspi.Registry")
                 .map_err(|e| format!("CollectionProxy destination failed: {e}"))?
-                .path("/org/a11y.atspi/accessible/root")
+                .path("/org/a11y/atspi/accessible/root")
                 .map_err(|e| format!("CollectionProxy path failed: {e}"))?
                 .build();
 

@@ -28,7 +28,10 @@ fn candidate_socket_paths() -> Vec<PathBuf> {
     }
 
     if let Some(home) = env::var_os("HOME") {
-        push_unique(&mut paths, PathBuf::from(home).join(".ydotool").join("socket"));
+        push_unique(
+            &mut paths,
+            PathBuf::from(home).join(".ydotool").join("socket"),
+        );
     }
 
     if let Some(runtime_dir) = env::var_os("XDG_RUNTIME_DIR") {

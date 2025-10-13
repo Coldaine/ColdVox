@@ -67,13 +67,13 @@ struct CooldownState {
 
 /// Registry of available text injectors
 struct InjectorRegistry {
-    injectors: HashMap<InjectionMethod, Box<dyn TextInjector>>,
+    injectors: HashMap<InjectionMethod, Arc<dyn TextInjector>>,
 }
 
 #[allow(clippy::unused_async)] // Function contains await calls in feature-gated blocks
 impl InjectorRegistry {
     async fn build(config: &InjectionConfig, backend_detector: &BackendDetector) -> Self {
-        let mut injectors: HashMap<InjectionMethod, Box<dyn TextInjector>> = HashMap::new();
+        let mut injectors: HashMap<InjectionMethod, Arc<dyn TextInjector>> = HashMap::new();
 
         // Check backend availability
         let backends = backend_detector.detect_available_backends();
@@ -92,7 +92,7 @@ impl InjectorRegistry {
         {
             let injector = AtspiInjector::new(config.clone());
             if injector.is_available().await {
-                injectors.insert(InjectionMethod::AtspiInsert, Box::new(injector));
+                injectors.insert(InjectionMethod::AtspiInsert, Arc::new(injector));
             }
         }
 
@@ -104,7 +104,7 @@ impl InjectorRegistry {
                 if paste_injector.is_available().await {
                     injectors.insert(
                         InjectionMethod::ClipboardPasteFallback,
-                        Box::new(paste_injector),
+                        Arc::new(paste_injector),
                     );
                 }
             }
@@ -117,7 +117,7 @@ impl InjectorRegistry {
         if config.allow_enigo {
             let enigo = EnigoInjector::new(config.clone());
             if enigo.is_available().await {
-                injectors.insert(InjectionMethod::EnigoText, Box::new(enigo));
+                injectors.insert(InjectionMethod::EnigoText, Arc::new(enigo));
             }
         }
 
@@ -125,7 +125,7 @@ impl InjectorRegistry {
         if config.allow_kdotool {
             let kdotool = KdotoolInjector::new(config.clone());
             if kdotool.is_available().await {
-                injectors.insert(InjectionMethod::KdoToolAssist, Box::new(kdotool));
+                injectors.insert(InjectionMethod::KdoToolAssist, Arc::new(kdotool));
             }
         }
 
@@ -133,15 +133,15 @@ impl InjectorRegistry {
         if injectors.is_empty() {
             injectors.insert(
                 InjectionMethod::NoOp,
-                Box::new(NoOpInjector::new(config.clone())),
+                Arc::new(NoOpInjector::new(config.clone())),
             );
         }
 
         Self { injectors }
     }
 
-    fn get_mut(&mut self, method: InjectionMethod) -> Option<&mut Box<dyn TextInjector>> {
-        self.injectors.get_mut(&method)
+    fn get(&self, method: InjectionMethod) -> Option<&Arc<dyn TextInjector>> {
+        self.injectors.get(&method)
     }
 
     fn contains(&self, method: InjectionMethod) -> bool {
@@ -156,18 +156,18 @@ pub struct StrategyManager {
     /// Focus provider abstraction for determining target context
     focus_provider: Box<dyn FocusProvider>,
     /// Cache of success records per app-method combination
-    success_cache: HashMap<AppMethodKey, SuccessRecord>,
+    success_cache: Arc<Mutex<HashMap<AppMethodKey, SuccessRecord>>>,
     /// Cooldown states per app-method combination
-    cooldowns: HashMap<AppMethodKey, CooldownState>,
+    cooldowns: Arc<Mutex<HashMap<AppMethodKey, CooldownState>>>,
     /// Global start time for budget tracking
-    global_start: Option<Instant>,
+    global_start: Arc<Mutex<Option<Instant>>>,
     /// Metrics for the strategy manager
     metrics: Arc<Mutex<InjectionMetrics>>,
     /// Backend detector for platform-specific capabilities
     #[cfg_attr(not(test), allow(dead_code))]
     backend_detector: BackendDetector,
     /// Registry of available injectors
-    injectors: InjectorRegistry,
+    injectors: Arc<InjectorRegistry>,
     /// Cached method ordering for the current app_id
     cached_method_order: Arc<RwLock<Option<(String, Vec<InjectionMethod>)>>>,
     /// Cached compiled allowlist regex patterns
@@ -265,12 +265,12 @@ impl StrategyManager {
         Self {
             config: config.clone(),
             focus_provider,
-            success_cache: HashMap::new(),
-            cooldowns: HashMap::new(),
-            global_start: None,
+            success_cache: Arc::new(Mutex::new(HashMap::new())),
+            cooldowns: Arc::new(Mutex::new(HashMap::new())),
+            global_start: Arc::new(Mutex::new(None)),
             metrics,
             backend_detector,
-            injectors,
+            injectors: Arc::new(injectors),
             cached_method_order: Arc::new(RwLock::new(None)),
             #[cfg(feature = "regex")]
             allowlist_regexes,
@@ -467,22 +467,23 @@ impl StrategyManager {
     /// Check if a method is in cooldown for the current app
     pub(crate) fn is_in_cooldown(&self, method: InjectionMethod) -> bool {
         let now = Instant::now();
-        self.cooldowns
+        let cooldowns = self.cooldowns.lock().unwrap();
+        cooldowns
             .iter()
             .any(|((_, m), cd)| *m == method && now < cd.until)
     }
 
     /// Update success record with time-based decay for old records
     pub(crate) fn update_success_record(
-        &mut self,
+        &self,
         app_id: &str,
         method: InjectionMethod,
         success: bool,
     ) {
         let key = (app_id.to_string(), method);
 
-        let record = self
-            .success_cache
+        let mut success_cache = self.success_cache.lock().unwrap();
+        let record = success_cache
             .entry(key.clone())
             .or_insert_with(|| SuccessRecord {
                 success_count: 0,
@@ -507,8 +508,6 @@ impl StrategyManager {
         let total = record.success_count + record.fail_count;
         if total > 0 {
             record.success_rate = record.success_count as f64 / total as f64;
-        } else {
-            record.success_rate = 0.5; // Default to 50%
         }
 
         // Apply cooldown for repeated failures
@@ -529,10 +528,11 @@ impl StrategyManager {
     }
 
     /// Apply exponential backoff cooldown for a failed method
-    pub(crate) fn apply_cooldown(&mut self, app_id: &str, method: InjectionMethod, error: &str) {
+    pub(crate) fn apply_cooldown(&self, app_id: &str, method: InjectionMethod, error: &str) {
         let key = (app_id.to_string(), method);
 
-        let cooldown = self.cooldowns.entry(key).or_insert_with(|| CooldownState {
+        let mut cooldowns = self.cooldowns.lock().unwrap();
+        let cooldown = cooldowns.entry(key).or_insert_with(|| CooldownState {
             until: Instant::now(),
             backoff_level: 0,
             last_error: String::new(),
@@ -557,17 +557,18 @@ impl StrategyManager {
     }
 
     /// Update cooldown state for a failed method (legacy method for compatibility)
-    fn update_cooldown(&mut self, method: InjectionMethod, error: &str) {
+    fn update_cooldown(&self, method: InjectionMethod, error: &str) {
         // TODO(#38): This should use actual app_id from get_current_app_id()
         let app_id = "unknown_app";
         self.apply_cooldown(app_id, method, error);
     }
 
     /// Clear cooldown for a method (e.g., after successful use)
-    fn clear_cooldown(&mut self, method: InjectionMethod) {
+    fn clear_cooldown(&self, method: InjectionMethod) {
         let app_id = "unknown_app"; // Placeholder - would be from get_current_app_id
         let key = (app_id.to_string(), method);
-        self.cooldowns.remove(&key);
+        let mut cooldowns = self.cooldowns.lock().unwrap();
+        cooldowns.remove(&key);
     }
 
     /// Trigger pre-warming when session enters Buffering state
@@ -631,6 +632,8 @@ impl StrategyManager {
 
         // Sort primarily by base order; use historical success rate only as a tiebreaker
         let base_order_copy = base_order.clone();
+        let success_cache = self.success_cache.lock().unwrap();
+
         base_order.sort_by(|a, b| {
             let pos_a = base_order_copy
                 .iter()
@@ -643,13 +646,11 @@ impl StrategyManager {
             pos_a.cmp(&pos_b).then_with(|| {
                 let key_a = (app_id.to_string(), *a);
                 let key_b = (app_id.to_string(), *b);
-                let rate_a = self
-                    .success_cache
+                let rate_a = success_cache
                     .get(&key_a)
                     .map(|r| r.success_rate)
                     .unwrap_or(0.5);
-                let rate_b = self
-                    .success_cache
+                let rate_b = success_cache
                     .get(&key_b)
                     .map(|r| r.success_rate)
                     .unwrap_or(0.5);
@@ -658,6 +659,8 @@ impl StrategyManager {
                     .unwrap_or(std::cmp::Ordering::Equal)
             })
         });
+
+        drop(success_cache);
 
         // Always include NoOp at the end as a last resort
         base_order.push(InjectionMethod::NoOp);
@@ -701,6 +704,8 @@ impl StrategyManager {
 
         // Sort primarily by base order; use success rate as tiebreaker
         let base_order_copy = base_order.clone();
+        let success_cache = self.success_cache.lock().unwrap();
+
         base_order.sort_by(|a, b| {
             let pos_a = base_order_copy
                 .iter()
@@ -713,13 +718,11 @@ impl StrategyManager {
             pos_a.cmp(&pos_b).then_with(|| {
                 let key_a = (app_id.to_string(), *a);
                 let key_b = (app_id.to_string(), *b);
-                let success_a = self
-                    .success_cache
+                let success_a = success_cache
                     .get(&key_a)
                     .map(|r| r.success_rate)
                     .unwrap_or(0.5);
-                let success_b = self
-                    .success_cache
+                let success_b = success_cache
                     .get(&key_b)
                     .map(|r| r.success_rate)
                     .unwrap_or(0.5);
@@ -728,6 +731,8 @@ impl StrategyManager {
                     .unwrap_or(std::cmp::Ordering::Equal)
             })
         });
+
+        drop(success_cache);
 
         // Ensure NoOp is always available as a last resort
         base_order.push(InjectionMethod::NoOp);
@@ -764,10 +769,9 @@ impl StrategyManager {
 
     /// Check if we've exceeded the global time budget
     fn has_budget_remaining(&self) -> bool {
-        if let Some(start) = self.global_start {
-            let elapsed = start.elapsed();
-            let budget = self.config.max_total_latency();
-            elapsed < budget
+        let guard = self.global_start.lock().unwrap();
+        if let Some(start) = *guard {
+            start.elapsed() < self.config.max_total_latency()
         } else {
             true
         }
@@ -893,7 +897,7 @@ impl StrategyManager {
         }
 
         // Start global timer
-        self.global_start = Some(Instant::now());
+        *self.global_start.lock().unwrap() = Some(Instant::now());
         if self.config.max_total_latency_ms <= 1 {
             if let Ok(mut metrics) = self.metrics.lock() {
                 metrics.record_rate_limited();
@@ -1023,12 +1027,11 @@ impl StrategyManager {
             // Try injection with the real injector
             let start = Instant::now();
             // Perform the injector call in a narrow scope to avoid borrowing self across updates
-            let result = {
-                if let Some(injector) = self.injectors.get_mut(method) {
-                    injector.inject_text(text, Some(&context)).await
-                } else {
-                    continue;
-                }
+            let result = if let Some(injector) = self.injectors.get(method) {
+                let injector = Arc::clone(injector);
+                injector.inject_text(text, Some(&context)).await
+            } else {
+                continue;
             };
 
             match result {
@@ -1065,9 +1068,9 @@ impl StrategyManager {
                     let error_string = e.to_string();
                     let backend_name = self
                         .injectors
-                        .get_mut(method)
-                        .map(|inj| inj.backend_name())
-                        .unwrap_or("unknown");
+                        .get(method)
+                        .map(|inj| inj.backend_name().to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
                     error!(
                         "Injection method {:?} (backend: {}) failed after {}ms (attempt {} of {}): {}",
                         method,
@@ -1128,9 +1131,9 @@ impl StrategyManager {
     #[allow(dead_code)]
     pub(crate) fn override_injectors_for_tests(
         &mut self,
-        map: std::collections::HashMap<InjectionMethod, Box<dyn TextInjector>>,
+        map: std::collections::HashMap<InjectionMethod, Arc<dyn TextInjector>>,
     ) {
-        self.injectors = InjectorRegistry { injectors: map };
+        self.injectors = Arc::new(InjectorRegistry { injectors: map });
     }
 
     /// Clean up old log throttle entries to prevent memory growth
@@ -1333,19 +1336,23 @@ mod tests {
     async fn test_success_record_update() {
         let config = InjectionConfig::default();
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
-        let mut manager = StrategyManager::new(config.clone(), metrics).await;
+        let manager = StrategyManager::new(config.clone(), metrics).await;
 
         // Test success
         manager.update_success_record("unknown_app", InjectionMethod::AtspiInsert, true);
         let key = ("unknown_app".to_string(), InjectionMethod::AtspiInsert);
-        let record = manager.success_cache.get(&key).unwrap();
-        assert_eq!(record.success_count, 1);
-        assert_eq!(record.fail_count, 0);
-        assert!(record.success_rate > 0.4);
+        {
+            let cache = manager.success_cache.lock().unwrap();
+            let record = cache.get(&key).unwrap();
+            assert_eq!(record.success_count, 1);
+            assert_eq!(record.fail_count, 0);
+            assert!(record.success_rate > 0.4);
+        }
 
         // Test failure
         manager.update_success_record("unknown_app", InjectionMethod::AtspiInsert, false);
-        let record = manager.success_cache.get(&key).unwrap();
+        let cache = manager.success_cache.lock().unwrap();
+        let record = cache.get(&key).unwrap();
         assert_eq!(record.success_count, 1);
         assert_eq!(record.fail_count, 1);
         assert!(record.success_rate > 0.3 && record.success_rate < 0.8);
@@ -1356,17 +1363,21 @@ mod tests {
     async fn test_cooldown_update() {
         let config = InjectionConfig::default();
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
-        let mut manager = StrategyManager::new(config.clone(), metrics).await;
+        let manager = StrategyManager::new(config.clone(), metrics).await;
 
         // First failure
         manager.update_cooldown(InjectionMethod::AtspiInsert, "test error");
         let key = ("unknown_app".to_string(), InjectionMethod::AtspiInsert);
-        let cooldown = manager.cooldowns.get(&key).unwrap();
-        assert_eq!(cooldown.backoff_level, 1);
+        {
+            let cooldowns = manager.cooldowns.lock().unwrap();
+            let cooldown = cooldowns.get(&key).unwrap();
+            assert_eq!(cooldown.backoff_level, 1);
+        }
 
         // Second failure - backoff level should increase
         manager.update_cooldown(InjectionMethod::AtspiInsert, "test error");
-        let cooldown = manager.cooldowns.get(&key).unwrap();
+        let cooldowns = manager.cooldowns.lock().unwrap();
+        let cooldown = cooldowns.get(&key).unwrap();
         assert_eq!(cooldown.backoff_level, 2);
 
         // Duration should be longer
@@ -1386,17 +1397,23 @@ mod tests {
         };
 
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
-        let mut manager = StrategyManager::new(config, metrics).await;
+        let manager = StrategyManager::new(config, metrics).await;
 
         // No start time - budget should be available
         assert!(manager.has_budget_remaining());
 
         // Set start time
-        manager.global_start = Some(Instant::now() - Duration::from_millis(50));
+        {
+            let mut guard = manager.global_start.lock().unwrap();
+            *guard = Some(Instant::now() - Duration::from_millis(50));
+        }
         assert!(manager.has_budget_remaining());
 
         // Exceed budget
-        manager.global_start = Some(Instant::now() - Duration::from_millis(150));
+        {
+            let mut guard = manager.global_start.lock().unwrap();
+            *guard = Some(Instant::now() - Duration::from_millis(150));
+        }
         assert!(!manager.has_budget_remaining());
     }
 
