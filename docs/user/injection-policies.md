@@ -38,7 +38,7 @@ blocklist = ["^(org\.gnome\.Terminal|gnome-shell)$", "^com\.discordapp\.Discord$
 | --- | --- | --- |
 | Clipboard never restores | Ensure `clipboard_restore_delay_ms` is >= 100 ms and wl-clipboard is installed. | Increase delay or disable clipboard method in policy for sensitive apps. |
 | Focus reported as `Unknown` | Focus detection currently defaults to `Unknown` for safety. | Keep `inject_on_unknown_focus=false` for sensitive apps; rely on clipboard-only path otherwise. |
-| ydotool not available | Enable the user service (`systemctl --user enable --now ydotool.service`) and confirm `~/.ydotool/socket` exists. | Install `ydotool`, rerun `scripts/setup_text_injection.sh`, or remove the backend from `allow_methods`. |
+| ydotool not available | Enable the user service (`systemctl --user enable --now ydotool.service`) and confirm `~/.ydotool/socket` exists. | Run `scripts/setup_ydotool.sh` to reinstall the daemon, or remove the backend from `allow_methods`. |
 
 Store team-specific policies under `config/policies/` and document their intent so that CI and local profiles share the same
 expectations.</content>

@@ -37,7 +37,7 @@ This runs both mock-based unit tests AND real injection tests with actual deskto
 *   Full desktop environment for comprehensive testing
 
 **ydotool daemon setup (Wayland clipboard fallback):**
-- Install `ydotool` and run `./scripts/setup_text_injection.sh` to generate the user service unit
+- Run `./scripts/setup_ydotool.sh` to install binaries, create the user service, and export the socket path
 - Ensure the `ydotoold` user service is enabled (`systemctl --user status ydotool.service`)
 - Confirm the environment exports `YDOTOOL_SOCKET=$HOME/.ydotool/socket`
 - Verify that the socket (`~/.ydotool/socket`) exists before running real injection tests

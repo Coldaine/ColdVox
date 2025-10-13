@@ -4,6 +4,8 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 echo "======================================"
 echo "ColdVox Text Injection Setup"
 echo "For KDE Plasma Wayland"
@@ -67,16 +69,25 @@ echo
 echo "Step 2: Configuring uinput permissions..."
 
 UDEV_RULE="/etc/udev/rules.d/99-uinput.rules"
+UDEV_CONTENT='KERNEL=="uinput", SUBSYSTEM=="misc", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"'
 if [ ! -f "$UDEV_RULE" ]; then
     echo "Creating udev rule for uinput access..."
-    echo 'KERNEL=="uinput", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"' | sudo tee "$UDEV_RULE" > /dev/null
+    echo "$UDEV_CONTENT" | sudo tee "$UDEV_RULE" > /dev/null
 
     # Reload udev rules
     sudo udevadm control --reload-rules
     sudo udevadm trigger
     echo "✓ udev rule created"
 else
-    echo "✓ udev rule already exists"
+    if grep -q 'SUBSYSTEM=="misc"' "$UDEV_RULE" && grep -q 'static_node=uinput' "$UDEV_RULE"; then
+        echo "✓ udev rule already exists"
+    else
+        echo "Updating existing udev rule to modern permissions..."
+        echo "$UDEV_CONTENT" | sudo tee "$UDEV_RULE" > /dev/null
+        sudo udevadm control --reload-rules
+        sudo udevadm trigger
+        echo "✓ udev rule updated"
+    fi
 fi
 
 echo
@@ -99,27 +110,14 @@ echo
 
 # 4. Configure ydotool service
 echo "Step 4: Configuring ydotool service..."
-
-# Check if systemd service exists
-if systemctl list-unit-files | grep -q "ydotool.service"; then
-    # Try user service first
-    if systemctl --user is-enabled ydotool.service &> /dev/null; then
-        echo "✓ ydotool user service already enabled"
-    elif systemctl is-enabled ydotool.service &> /dev/null; then
-        echo "✓ ydotool system service already enabled"
+if [ -x "$SCRIPT_DIR/setup_ydotool.sh" ]; then
+    if "$SCRIPT_DIR/setup_ydotool.sh"; then
+        echo "✓ ydotool helper completed"
     else
-        echo "Enabling ydotool service..."
-        # Try system service (Fedora/Nobara style)
-        if sudo systemctl enable --now ydotool.service &> /dev/null; then
-            echo "✓ ydotool system service enabled"
-        else
-            # Try user service
-            systemctl --user enable --now ydotool.service
-            echo "✓ ydotool user service enabled"
-        fi
+        echo "⚠ ydotool helper reported issues (see output above)"
     fi
 else
-    echo "⚠ ydotool service not found. You may need to run ydotool manually."
+    echo "⚠ setup_ydotool.sh not found; please run ydotool daemon setup manually"
 fi
 
 echo
