@@ -139,6 +139,8 @@ For text injection integration tests:
 ```bash
 # Install dependencies
 ./scripts/setup_text_injection.sh
+# Configure the ydotool daemon/socket
+./scripts/setup_ydotool.sh
 
 # Ensure proper permissions for uinput devices
 sudo usermod -a -G input $USER
