@@ -61,6 +61,12 @@ impl std::error::Error for ModelError {}
 
 /// Locate the model directory.
 pub fn locate_model(config_path: Option<&str>) -> Result<ModelInfo, ModelError> {
+    tracing::debug!(
+        env_var = %std::env::var("VOSK_MODEL_PATH").unwrap_or_else(|_| "unset".to_string()),
+        config_path = ?config_path,
+        "locate_model called"
+    );
+
     // 1. Try environment variable first
     // HOW YOU GET HERE: User/CI explicitly set VOSK_MODEL_PATH environment variable
     if let Ok(p) = env::var("VOSK_MODEL_PATH") {
@@ -70,6 +76,7 @@ pub fn locate_model(config_path: Option<&str>) -> Result<ModelInfo, ModelError> 
             "Trying VOSK_MODEL_PATH environment variable - REASON: Env var is set and takes highest priority"
         );
         let pb = PathBuf::from(&p);
+        tracing::debug!(path = %pb.display(), exists = pb.exists(), is_dir = pb.is_dir(), "Checking VOSK_MODEL_PATH");
         if pb.is_dir() {
             // SUCCESS CASE: The env var points to a valid directory
             // Most likely: CI runner set VOSK_MODEL_PATH correctly to cached model location
@@ -106,6 +113,7 @@ pub fn locate_model(config_path: Option<&str>) -> Result<ModelInfo, ModelError> 
             "Trying config-provided model path - REASON: No env var, but config.model_path is set"
         );
         let pb = PathBuf::from(cp);
+        tracing::debug!(path = %pb.display(), exists = pb.exists(), is_dir = pb.is_dir(), "Checking config_path");
         if pb.is_dir() {
             // SUCCESS CASE: Config path points to valid directory
             // Most likely: User provided explicit --model-path CLI arg or set it in config file
@@ -617,7 +625,7 @@ mod tests {
     #[test]
     fn pick_best_prefers_small_en_and_version() {
         let base = std::env::temp_dir().join(format!("cvx-test-{}", Uuid::new_v4()));
-        let _ = std::fs::create_dir_all(base.join("models"));
+        std::fs::create_dir_all(base.join("models")).expect("Failed to create models dir");
 
         let dirs = vec![
             "vosk-model-en-us-0.15",
@@ -626,14 +634,15 @@ mod tests {
             "vosk-model-small-de-0.30",
         ];
         for d in &dirs {
-            let _ = std::fs::create_dir_all(base.join("models").join(d));
+            std::fs::create_dir_all(base.join("models").join(d))
+                .expect("Failed to create test dir");
         }
 
-        let cwd = std::env::current_dir().unwrap();
-        std::env::set_current_dir(&base).unwrap();
+        let cwd = std::env::current_dir().expect("Failed to get current dir");
+        std::env::set_current_dir(&base).expect("Failed to set test cwd");
         let found = super::find_model_candidates();
         let best = super::pick_best_candidate(found).expect("a best candidate");
-        std::env::set_current_dir(cwd).unwrap();
+        std::env::set_current_dir(cwd).expect("Failed to restore cwd");
 
         assert!(best
             .file_name()

@@ -36,7 +36,7 @@ mod ffi {
     unsafe extern "RustQt" {
         // Re-export the AppState enum to be visible to Qt
         #[qenum]
-        type GuiAppState = super::AppState;
+        type AppState = super::AppState;
 
         // Define a QObject that will be accessible from QML
         // The #[qobject] attribute tells CXX-Qt to generate Qt Meta-Object Compiler (MOC) data

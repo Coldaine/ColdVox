@@ -1,9 +1,5 @@
 # Project Integration Plan: Parakeet ONNX STT Plugin
 
-> ⚠️ **RESEARCH DOCUMENT - WORK IN PROGRESS**
-> Contains incomplete sections and future work markers.
-> Last updated: 2025-10-07
-
 This plan outlines the steps to create a new STT plugin for ColdVox that uses a GPU-accelerated Parakeet ASR model via the ONNX Runtime.
 
 #### 1. Create a New Crate for the Plugin

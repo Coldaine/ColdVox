@@ -8,20 +8,41 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Confirm runner provisioning expectations
+    - name: Verify provisioned system dependencies
       shell: bash
       run: |
         set -euo pipefail
-        echo "--- Runner Provisioning Assumptions ---"
-        echo "The ColdVox runner action now assumes the self-hosted runner is pre-provisioned"
-        echo "with the desktop automation and multimedia dependencies documented in"
-        echo "docs/dev/runnerAgent/RunnerAgent.md. Direct command/library verification has"
-        echo "been removed to avoid failing fast on partially provisioned systems; downstream"
-        echo "tests will surface any missing tools in a more actionable context."
-        echo ""
-        echo "If you encounter missing dependency errors during later workflow steps, refer to"
-        echo "docs/dev/runnerAgent/RunnerAgent.md#interactive-dependency-management for the"
-        echo "recommended package list."
+        echo "--- Verifying Provisioned System Dependencies ---"
+
+        # List of essential commands the runner MUST have
+        # This replaces the sudo dnf/apt install commands
+        required_commands="xdotool wget unzip gcc g++ make Xvfb openbox dbus-launch wl-paste xclip ydotool xprop wmctrl pkg-config pulseaudio"
+
+        failed=0
+        echo "Checking for required commands..."
+        for cmd in $required_commands; do
+          if ! command -v "$cmd" &> /dev/null; then
+            echo "::error::Required command '$cmd' not found on runner. Please provision the runner with this dependency."
+            failed=1
+          fi
+        done
+
+        # Check for pkg-config dependencies (for -devel packages)
+        required_pkgs="alsa gtk+-3.0 at-spi-2.0 xtst"
+        echo "Checking for required libraries via pkg-config..."
+        for pkg in $required_pkgs; do
+            if ! pkg-config --exists "$pkg"; then
+                echo "::error::Required library '$pkg' not found by pkg-config. Please install the corresponding -devel package on the runner."
+                failed=1
+            fi
+        done
+
+        if [[ $failed -ne 0 ]]; then
+          echo "::error::One or more system dependencies are missing. Please provision the runner correctly."
+          exit 1
+        fi
+
+        echo "--- All system dependencies are correctly provisioned. ---"
 
     - name: Setup Rust toolchain
       if: inputs.skip-toolchain != 'true'

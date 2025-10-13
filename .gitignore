@@ -76,6 +76,3 @@ docs/config.md
 docs/install.md
 docs/reference.md
 docs/usage.md
-
-# Vendor directory (symlinks to runner cache)
-vendor/
