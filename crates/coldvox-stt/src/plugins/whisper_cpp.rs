@@ -9,8 +9,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::info;
 
-use crate::helpers::not_yet_implemented;
-
 use crate::plugin::*;
 use crate::plugin_types::*;
 use crate::types::{TranscriptionConfig, TranscriptionEvent};
@@ -267,7 +265,9 @@ impl SttPlugin for WhisperCppPlugin {
         &mut self,
         _samples: &[i16],
     ) -> Result<Option<TranscriptionEvent>, SttPluginError> {
-        not_yet_implemented("Whisper.cpp")
+        Err(SttPluginError::NotAvailable {
+            reason: "Whisper.cpp plugin not yet implemented".to_string(),
+        })
     }
 
     async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, SttPluginError> {

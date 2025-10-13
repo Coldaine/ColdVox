@@ -5,6 +5,18 @@ use coldvox_app::probes::{
 };
 use std::path::PathBuf;
 use std::time::Duration;
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+
+fn init_logging() -> Result<(), Box<dyn std::error::Error>> {
+    let log_level = std::env::var("RUST_LOG").unwrap_or_else(|_| "debug".to_string());
+    let env_filter = EnvFilter::try_new(log_level).unwrap_or_else(|_| EnvFilter::new("debug"));
+
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(fmt::layer().with_writer(std::io::stderr))
+        .init();
+    Ok(())
+}
 
 #[derive(Parser)]
 #[command(name = "mic-probe")]
@@ -49,6 +61,7 @@ enum Commands {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
+    init_logging()?;
 
     match cli.command {
         Commands::MicCapture => run_single_test(&cli, TestType::MicCapture).await,

@@ -21,18 +21,20 @@ impl MicCaptureCheck {
         let config = AudioConfig::default();
 
         // Prepare ring buffer and spawn capture thread
-        let rb = AudioRingBuffer::new(16_384);
+        // Use the same buffer size as the main runtime for consistency
+        let rb = AudioRingBuffer::new(config.capture_buffer_samples);
         let (audio_producer, audio_consumer) = rb.split();
+        let audio_producer = Arc::new(parking_lot::Mutex::new(audio_producer));
         let (capture_thread, dev_cfg, _config_rx, _device_event_rx) =
-            AudioCaptureThread::spawn(config, audio_producer, device_name).map_err(|e| {
-                TestError {
+            AudioCaptureThread::spawn(config.clone(), audio_producer, device_name, false).map_err(
+                |e| TestError {
                     kind: match e {
                         AudioError::DeviceNotFound { .. } => TestErrorKind::Device,
                         _ => TestErrorKind::Setup,
                     },
                     message: format!("Failed to create audio capture thread: {}", e),
-                }
-            })?;
+                },
+            )?;
 
         tokio::time::sleep(Duration::from_millis(200)).await; // Give the thread time to start
 
@@ -66,7 +68,7 @@ impl MicCaptureCheck {
             audio_consumer,
             dev_cfg.sample_rate,
             dev_cfg.channels,
-            16_384,
+            config.capture_buffer_samples,
             Some(metrics.clone()),
         );
 

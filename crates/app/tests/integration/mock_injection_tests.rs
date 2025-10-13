@@ -110,11 +110,10 @@ mod mock_injection_tests {
         }
 
         // Create injection configuration that allows injection on unknown focus for testing
+        // Note: clipboard restoration is automatic (always enabled)
         let config = InjectionConfig {
-            allow_ydotool: true,
             allow_kdotool: false,
             allow_enigo: false,
-            restore_clipboard: true,
             inject_on_unknown_focus: true, // Allow injection for testing
             max_total_latency_ms: 5000,
             per_method_timeout_ms: 2000,
@@ -171,11 +170,10 @@ mod mock_injection_tests {
         let _ = mock_app.focus().await;
 
         // Create injection configuration
+        // Note: clipboard restoration is automatic (always enabled)
         let config = InjectionConfig {
-            allow_ydotool: true,
             allow_kdotool: false,
             allow_enigo: false,
-            restore_clipboard: true,
             inject_on_unknown_focus: true,
             max_total_latency_ms: 5000,
             per_method_timeout_ms: 2000,
@@ -236,11 +234,10 @@ mod mock_injection_tests {
         // This test verifies the AT-SPI -> ydotool fallback behavior
         // We don't need a real app since we're testing the strategy selection
 
+        // Note: clipboard restoration is automatic (always enabled)
         let config = InjectionConfig {
-            allow_ydotool: true,
             allow_kdotool: false,
             allow_enigo: false,
-            restore_clipboard: true,
             inject_on_unknown_focus: true,
             max_total_latency_ms: 5000,
             per_method_timeout_ms: 2000,
@@ -254,18 +251,20 @@ mod mock_injection_tests {
         // Get the method order to verify AT-SPI is tried first
         let methods = manager.get_method_order_uncached();
 
-        // Should include AT-SPI methods when available
-        let has_atspi = methods.iter().any(|m| {
-            matches!(m, coldvox_text_injection::types::InjectionMethod::AtspiInsert |
-                        coldvox_text_injection::types::InjectionMethod::AtspiPaste)
-        });
+        // Should include AT-SPI insert and the single ClipboardPasteFallback method
+        let has_atspi = methods
+            .iter()
+            .any(|m| matches!(m, coldvox_text_injection::types::InjectionMethod::AtspiInsert));
 
-        let has_ydotool = methods.iter().any(|m| {
-            matches!(m, coldvox_text_injection::types::InjectionMethod::Ydotool)
+        let has_clipboard_paste = methods.iter().any(|m| {
+            matches!(
+                m,
+                coldvox_text_injection::types::InjectionMethod::ClipboardPasteFallback
+            )
         });
 
         println!("Available methods: {:?}", methods);
-        assert!(has_ydotool, "Should include ydotool method");
+    assert!(has_clipboard_paste, "Should include ClipboardPasteFallback method");
 
         // AT-SPI might not be available in test environment, but ydotool should be
         if has_atspi {
@@ -274,16 +273,15 @@ mod mock_injection_tests {
             println!("⚠️  AT-SPI not available (expected in headless environment)");
         }
 
-        assert!(has_ydotool, "Should have ydotool as fallback method");
+    assert!(has_clipboard_paste, "Should have ClipboardPasteFallback as fallback method");
     }
 
     #[tokio::test]
     async fn test_injection_timeout_handling() {
+        // Note: clipboard restoration is automatic (always enabled)
         let config = InjectionConfig {
-            allow_ydotool: true,
             allow_kdotool: false,
             allow_enigo: false,
-            restore_clipboard: true,
             inject_on_unknown_focus: true,
             max_total_latency_ms: 100, // Very short timeout
             per_method_timeout_ms: 50,  // Very short per-method timeout

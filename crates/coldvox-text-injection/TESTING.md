@@ -36,6 +36,12 @@ This runs both mock-based unit tests AND real injection tests with actual deskto
 *   Runtime dependencies: `at-spi2-core`, `ydotool` (with daemon), etc.
 *   Full desktop environment for comprehensive testing
 
+**ydotool daemon setup (Wayland clipboard fallback):**
+- Install `ydotool` and run `./scripts/setup_text_injection.sh` to generate the user service unit
+- Ensure the `ydotoold` user service is enabled (`systemctl --user status ydotool.service`)
+- Confirm the environment exports `YDOTOOL_SOCKET=$HOME/.ydotool/socket`
+- Verify that the socket (`~/.ydotool/socket`) exists before running real injection tests
+
 **Test Execution Process:**
 The `build.rs` script automatically:
 1.  Compiles minimal GTK3 test applications

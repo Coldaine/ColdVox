@@ -3,8 +3,6 @@
 //! Leopard is Picovoice's on-device speech-to-text engine optimized for
 //! resource-constrained environments with excellent accuracy.
 
-use crate::common::noop_finalize;
-use crate::helpers::not_yet_implemented;
 use async_trait::async_trait;
 use parking_lot::RwLock;
 use std::path::PathBuf;
@@ -170,11 +168,13 @@ impl SttPlugin for LeopardPlugin {
         &mut self,
         _samples: &[i16],
     ) -> Result<Option<TranscriptionEvent>, SttPluginError> {
-        not_yet_implemented("Leopard")
+        Err(SttPluginError::NotAvailable {
+            reason: "Leopard plugin not yet implemented".to_string(),
+        })
     }
 
     async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, SttPluginError> {
-        noop_finalize().await
+        Ok(None)
     }
 
     async fn reset(&mut self) -> Result<(), SttPluginError> {

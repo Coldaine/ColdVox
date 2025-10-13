@@ -2,7 +2,10 @@
 name = "coldvox-app"
 version = "0.1.0"
 edition = "2021"
-default-run = "coldvox"
+
+[lib]
+name = "coldvox_app"
+path = "src/lib.rs"
 
 [[bin]]
 name = "coldvox"
@@ -16,45 +19,6 @@ path = "src/bin/tui_dashboard.rs"
 name = "mic_probe"
 path = "src/bin/mic_probe.rs"
 
-[[example]]
-name = "foundation_probe"
-path = "../../examples/foundation_probe.rs"
-required-features = ["examples"]
-
-[[example]]
-name = "record_10s"
-path = "../../examples/record_10s.rs"
-required-features = ["examples"]
-
-[[example]]
-name = "vosk_test"
-path = "../../examples/vosk_test.rs"
-required-features = ["vosk", "examples"]
-
-[[example]]
-name = "inject_demo"
-path = "../../examples/inject_demo.rs"
-required-features = ["text-injection"]
-
-[[example]]
-name = "test_hotkey_backend"
-path = "../../examples/test_hotkey_backend.rs"
-required-features = ["examples"]
-
-[[example]]
-name = "test_kglobalaccel_hotkey"
-path = "../../examples/test_kglobalaccel_hotkey.rs"
-required-features = ["examples"]
-
-[[example]]
-name = "test_silero_wav"
-path = "../../examples/test_silero_wav.rs"
-required-features = ["examples"]
-
-[[example]]
-name = "device_hotplug_demo"
-path = "../../examples/device_hotplug_demo.rs"
-required-features = ["examples"]
 
 [dependencies]
 zbus = { version = "5.11.0" }
@@ -88,6 +52,7 @@ coldvox-vad-silero = { path = "../coldvox-vad-silero", features = ["silero"] }
 coldvox-stt = { path = "../coldvox-stt", features = ["parakeet", "whisper"] }
 csv = "1.3"
 cpal = "0.16.0"
+config = { version = "0.14", features = ["toml"] }
 coldvox-stt-vosk = { path = "../coldvox-stt-vosk", optional = true }
 
 [dev-dependencies]
@@ -97,11 +62,12 @@ tokio-test = "0.4"
 ctrlc = "3.5"
 proptest = "1.4"
 rand = "0.8"
+serial_test = "3.0"
 
 [features]
 default = ["silero", "text-injection", "vosk"]
 live-hardware-tests = []
-vosk = ["dep:coldvox-stt-vosk", "coldvox-stt-vosk/vosk"]
+vosk = ["dep:coldvox-stt-vosk", "coldvox-stt-vosk/vosk", "coldvox-stt/vosk"]
 parakeet = []
 whisper = []
 no-stt = []

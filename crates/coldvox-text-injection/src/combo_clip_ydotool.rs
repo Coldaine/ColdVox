@@ -1,4 +1,4 @@
-use crate::clipboard_injector::ClipboardInjector;
+use crate::injectors::clipboard::ClipboardInjector;
 use crate::types::{InjectionConfig, InjectionResult};
 use crate::TextInjector;
 use async_trait::async_trait;
@@ -40,12 +40,24 @@ impl ComboClipboardYdotool {
         self.clipboard_injector.is_available().await && Self::check_ydotool().await
     }
 
-    /// Check if ydotool is available in PATH (non-blocking)
+    /// Check if ydotool is available (non-blocking)
     async fn check_ydotool() -> bool {
-        match Command::new("which").arg("ydotool").output().await {
-            Ok(o) => o.status.success(),
-            Err(_) => false,
+        #[cfg(feature = "ydotool")]
+        {
+            crate::ydotool_injector::ydotool_runtime_available()
         }
+
+        #[cfg(not(feature = "ydotool"))]
+        {
+            false
+        }
+    }
+
+    fn new_ydotool_command() -> Command {
+        let mut command = Command::new("ydotool");
+        #[cfg(feature = "ydotool")]
+        crate::ydotool_injector::apply_socket_env(&mut command);
+        command
     }
 }
 
@@ -69,11 +81,11 @@ impl TextInjector for ComboClipboardYdotool {
             text.len()
         );
 
-        // Optional: save current clipboard for restoration
+        // Save current clipboard for restoration (now unconditional)
         #[allow(unused_mut)]
         let mut saved_clipboard: Option<String> = None;
         #[cfg(feature = "wl_clipboard")]
-        if self._config.restore_clipboard {
+        {
             use std::io::Read;
             match get_contents(ClipboardType::Regular, Seat::Unspecified, PasteMime::Text) {
                 Ok((mut pipe, _mime)) => {
@@ -110,21 +122,19 @@ impl TextInjector for ComboClipboardYdotool {
             .await
             {
                 Ok(Ok(())) => {
-                    // Schedule clipboard restore if configured
+                    // Schedule clipboard restore (now unconditional)
                     #[cfg(feature = "wl_clipboard")]
-                    if self._config.restore_clipboard {
-                        if let Some(content) = saved_clipboard.clone() {
-                            let delay_ms = self._config.clipboard_restore_delay_ms.unwrap_or(500);
-                            tokio::spawn(async move {
-                                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
-                                let _ = tokio::task::spawn_blocking(move || {
-                                    let src = CopySource::Bytes(content.into_bytes().into());
-                                    let opts = CopyOptions::new();
-                                    let _ = opts.copy(src, CopyMime::Text);
-                                })
-                                .await;
-                            });
-                        }
+                    if let Some(content) = saved_clipboard.clone() {
+                        let delay_ms = self._config.clipboard_restore_delay_ms.unwrap_or(500);
+                        tokio::spawn(async move {
+                            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                            let _ = tokio::task::spawn_blocking(move || {
+                                let src = CopySource::Bytes(content.into_bytes().into());
+                                let opts = CopyOptions::new();
+                                let _ = opts.copy(src, CopyMime::Text);
+                            })
+                            .await;
+                        });
                     }
                     let elapsed = start.elapsed();
                     debug!(
@@ -144,10 +154,13 @@ impl TextInjector for ComboClipboardYdotool {
 
         // Step 4: Trigger paste action via ydotool (fallback)
         let paste_start = Instant::now();
-        let output = timeout(
-            Duration::from_millis(self._config.paste_action_timeout_ms),
-            Command::new("ydotool").args(["key", "ctrl+v"]).output(),
-        )
+        let mut command = Self::new_ydotool_command();
+        command.args(["key", "ctrl+v"]);
+        let output =
+            timeout(
+                Duration::from_millis(self._config.paste_action_timeout_ms),
+                command.output(),
+            )
         .await
         .map_err(|_| crate::types::InjectionError::Timeout(self._config.paste_action_timeout_ms))?
         .map_err(|e| crate::types::InjectionError::Process(format!("ydotool failed: {}", e)))?;
@@ -165,21 +178,19 @@ impl TextInjector for ComboClipboardYdotool {
             paste_start.elapsed().as_millis()
         );
 
-        // Schedule clipboard restore if configured
+        // Schedule clipboard restore (now unconditional)
         #[cfg(feature = "wl_clipboard")]
-        if self._config.restore_clipboard {
-            if let Some(content) = saved_clipboard {
-                let delay_ms = self._config.clipboard_restore_delay_ms.unwrap_or(500);
-                tokio::spawn(async move {
-                    tokio::time::sleep(Duration::from_millis(delay_ms)).await;
-                    let _ = tokio::task::spawn_blocking(move || {
-                        let src = CopySource::Bytes(content.into_bytes().into());
-                        let opts = CopyOptions::new();
-                        let _ = opts.copy(src, CopyMime::Text);
-                    })
-                    .await;
-                });
-            }
+        if let Some(content) = saved_clipboard {
+            let delay_ms = self._config.clipboard_restore_delay_ms.unwrap_or(500);
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                let _ = tokio::task::spawn_blocking(move || {
+                    let src = CopySource::Bytes(content.into_bytes().into());
+                    let opts = CopyOptions::new();
+                    let _ = opts.copy(src, CopyMime::Text);
+                })
+                .await;
+            });
         }
 
         let elapsed = start.elapsed();

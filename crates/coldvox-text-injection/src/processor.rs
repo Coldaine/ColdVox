@@ -71,7 +71,7 @@ impl InjectionProcessor {
         injection_metrics: Arc<Mutex<InjectionMetrics>>,
     ) -> Self {
         // Create session with shared metrics
-        let session_config = SessionConfig::default(); // TODO: Expose this if needed
+        let session_config = SessionConfig::default(); // TODO: Expose this if needed (config refinement)
         let session = InjectionSession::new(session_config, injection_metrics.clone());
 
         let injector = StrategyManager::new(config.clone(), injection_metrics.clone()).await;
@@ -97,7 +97,7 @@ impl InjectionProcessor {
         if self.session.should_inject() {
             let text = self.session.take_buffer();
             if !text.is_empty() {
-                info!("Injecting {} characters from session", text.len());
+                debug!("Injecting {} characters from session", text.len());
                 return Some(text);
             }
         }
@@ -153,29 +153,8 @@ impl InjectionProcessor {
     /// Check if injection should be performed and execute if needed
     pub async fn check_and_inject(&mut self) -> anyhow::Result<()> {
         if self.session.should_inject() {
-            // Determine if we'll use paste or keystroke based on configuration
-            let use_paste = match self.config.injection_mode.as_str() {
-                "paste" => true,
-                "keystroke" => false,
-                "auto" => {
-                    let buffer_text = self.session.buffer_preview();
-                    buffer_text.len() > self.config.paste_chunk_chars as usize
-                }
-                _ => {
-                    let buffer_text = self.session.buffer_preview();
-                    buffer_text.len() > self.config.paste_chunk_chars as usize
-                }
-            };
-
-            // Record the operation type
-            if let Ok(mut metrics) = self.injection_metrics.lock() {
-                if use_paste {
-                    metrics.record_paste();
-                } else {
-                    metrics.record_keystroke();
-                }
-            }
-
+            // Mode decision is now centralized in StrategyManager
+            // which receives the config and makes the paste vs keystroke decision
             self.perform_injection().await?;
         }
         Ok(())
@@ -184,29 +163,7 @@ impl InjectionProcessor {
     /// Force injection of current buffer (for manual triggers)
     pub async fn force_inject(&mut self) -> anyhow::Result<()> {
         if self.session.has_content() {
-            // Determine if we'll use paste or keystroke based on configuration
-            let use_paste = match self.config.injection_mode.as_str() {
-                "paste" => true,
-                "keystroke" => false,
-                "auto" => {
-                    let buffer_text = self.session.buffer_preview();
-                    buffer_text.len() > self.config.paste_chunk_chars as usize
-                }
-                _ => {
-                    let buffer_text = self.session.buffer_preview();
-                    buffer_text.len() > self.config.paste_chunk_chars as usize
-                }
-            };
-
-            // Record the operation type
-            if let Ok(mut metrics) = self.injection_metrics.lock() {
-                if use_paste {
-                    metrics.record_paste();
-                } else {
-                    metrics.record_keystroke();
-                }
-            }
-
+            // Mode decision is now centralized in StrategyManager
             self.session.force_inject();
             self.perform_injection().await?;
         }
@@ -331,7 +288,7 @@ impl AsyncInjectionProcessor {
 
     /// Run the injection processor loop
     pub async fn run(mut self) -> anyhow::Result<()> {
-        let check_interval = Duration::from_millis(100); // TODO: Make configurable
+        let check_interval = Duration::from_millis(100); // TODO: Make configurable (config refinement)
         let mut interval = time::interval(check_interval);
 
         info!("Injection processor started");
@@ -355,6 +312,7 @@ impl AsyncInjectionProcessor {
 
                     if let Some(text) = maybe_text {
                         // Perform the async injection outside the lock
+                        info!("Attempting injection of {} characters", text.len());
                         let result = self.injector.inject(&text).await;
                         let success = result.is_ok();
 
@@ -363,6 +321,8 @@ impl AsyncInjectionProcessor {
                         processor.record_injection_result(success);
                         if let Err(e) = result {
                             error!("Injection failed: {}", e);
+                        } else {
+                            info!("Injection completed successfully");
                         }
                     }
                 }

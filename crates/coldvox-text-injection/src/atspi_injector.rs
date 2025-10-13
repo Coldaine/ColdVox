@@ -1,41 +1,42 @@
-use crate::log_throttle::log_atspi_connection_failure;
-use crate::types::{InjectionConfig, InjectionResult};
-use crate::TextInjector;
-use async_trait::async_trait;
-use std::time::Instant;
-use tracing::{debug, trace, warn};
+// Real implementation when the `atspi` feature is enabled.
+#[cfg(feature = "atspi")]
+mod real {
+    use crate::log_throttle::log_atspi_connection_failure;
+    use crate::types::{InjectionConfig, InjectionResult};
+    use crate::TextInjector;
+    use async_trait::async_trait;
+    use std::time::Instant;
+    use tracing::{debug, trace, warn};
 
-pub struct AtspiInjector {
-    _config: InjectionConfig,
-}
-
-impl AtspiInjector {
-    pub fn new(config: InjectionConfig) -> Self {
-        Self { _config: config }
-    }
-}
-
-#[async_trait]
-impl TextInjector for AtspiInjector {
-    fn backend_name(&self) -> &'static str {
-        "atspi-insert"
+    pub struct AtspiInjector {
+        _config: InjectionConfig,
     }
 
-    fn backend_info(&self) -> Vec<(&'static str, String)> {
-        vec![
-            ("type", "AT-SPI accessibility".to_string()),
-            (
-                "description",
-                "Injects text directly into focused editable text fields using AT-SPI".to_string(),
-            ),
-            ("platform", "Linux".to_string()),
-            ("requires", "AT-SPI accessibility service".to_string()),
-        ]
+    impl AtspiInjector {
+        pub fn new(config: InjectionConfig) -> Self {
+            Self { _config: config }
+        }
     }
 
-    async fn is_available(&self) -> bool {
-        #[cfg(feature = "atspi")]
-        {
+    #[async_trait]
+    impl TextInjector for AtspiInjector {
+        fn backend_name(&self) -> &'static str {
+            "atspi-insert"
+        }
+
+        fn backend_info(&self) -> Vec<(&'static str, String)> {
+            vec![
+                ("type", "AT-SPI accessibility".to_string()),
+                (
+                    "description",
+                    "Injects text directly into focused editable text fields using AT-SPI".to_string(),
+                ),
+                ("platform", "Linux".to_string()),
+                ("requires", "AT-SPI accessibility service".to_string()),
+            ]
+        }
+
+        async fn is_available(&self) -> bool {
             use atspi::connection::AccessibilityConnection;
             use tokio::time;
 
@@ -54,16 +55,8 @@ impl TextInjector for AtspiInjector {
                 }
             }
         }
-        #[cfg(not(feature = "atspi"))]
-        {
-            warn!("AT-SPI feature disabled; injector unavailable");
-            false
-        }
-    }
 
-    async fn inject_text(&self, text: &str) -> InjectionResult<()> {
-        #[cfg(feature = "atspi")]
-        {
+        async fn inject_text(&self, text: &str) -> InjectionResult<()> {
             use crate::types::InjectionError;
             use atspi::{
                 connection::AccessibilityConnection, proxy::collection::CollectionProxy,
@@ -106,8 +99,6 @@ impl TextInjector for AtspiInjector {
             rule.ifaces = Interface::EditableText.into();
             rule.ifaces_mt = MatchType::All;
 
-            // Try to find focused element, with one quick retry if needed
-            // Focus can be transient during window switches or UI updates
             let get_matches = collection.get_matches(rule.clone(), SortOrder::Canonical, 1, false);
             let mut matches = time::timeout(per_method_timeout, get_matches)
                 .await
@@ -116,7 +107,6 @@ impl TextInjector for AtspiInjector {
                     InjectionError::Other(format!("Collection.get_matches failed: {e}"))
                 })?;
 
-            // If no match found, retry once after brief delay (focus can be transient)
             if matches.is_empty() {
                 debug!("No focused EditableText found, retrying once after 30ms");
                 tokio::time::sleep(std::time::Duration::from_millis(30)).await;
@@ -201,13 +191,54 @@ impl TextInjector for AtspiInjector {
 
             Ok(())
         }
+    }
+}
 
-        #[cfg(not(feature = "atspi"))]
-        {
-            warn!("AT-SPI injector compiled without 'atspi' feature");
-            Err(crate::types::InjectionError::Other(
-                "AT-SPI feature is disabled at compile time".to_string(),
-            ))
+// Lightweight stub implementation when `atspi` feature is disabled. This
+// preserves the public type so other modules can compile without cfg
+// branches. The stub reports unavailability and returns an error for inject.
+#[cfg(not(feature = "atspi"))]
+mod stub {
+    use crate::types::{InjectionConfig, InjectionError, InjectionResult};
+    use crate::TextInjector;
+    use async_trait::async_trait;
+    use tracing::warn;
+
+    pub struct AtspiInjector {
+        _config: InjectionConfig,
+    }
+
+    impl AtspiInjector {
+        pub fn new(config: InjectionConfig) -> Self {
+            Self { _config: config }
+        }
+    }
+
+    #[async_trait]
+    impl TextInjector for AtspiInjector {
+        fn backend_name(&self) -> &'static str {
+            "atspi-insert-stub"
+        }
+
+        fn backend_info(&self) -> Vec<(&'static str, String)> {
+            vec![("type", "AT-SPI stub".to_string())]
+        }
+
+        async fn is_available(&self) -> bool {
+            warn!("AT-SPI feature disabled; AtspiInjector stub is not available");
+            false
+        }
+
+        async fn inject_text(&self, _text: &str) -> InjectionResult<()> {
+            Err(InjectionError::Other("AT-SPI feature not enabled".to_string()))
         }
     }
 }
+
+// Re-export the appropriate implementation at module root so the rest of the
+// crate can refer to `atspi_injector::AtspiInjector` uniformly.
+#[cfg(feature = "atspi")]
+pub use real::AtspiInjector;
+
+#[cfg(not(feature = "atspi"))]
+pub use stub::AtspiInjector;

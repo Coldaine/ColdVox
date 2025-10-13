@@ -1,0 +1,69 @@
+# ColdVox default configuration file
+# Root-level app settings
+resampler_quality = "balanced"       # "fast", "balanced", "quality"
+activation_mode = "vad"              # "vad", "hotkey"
+enable_device_monitor = true
+# device =  "Device Name"            # Optional: specific device (omit for default)
+
+[audio]
+# Capture ring buffer size in samples. At 16kHz mono:
+#   16_384 samples  ≈ 1.0 second
+#   65_536 samples  ≈ 4.1 seconds (default)
+# Larger buffers prevent overflow during processing spikes (model warm-up, GC)
+# but increase worst-case end-to-end latency. The default provides ~4s of headroom.
+capture_buffer_samples = 65536
+
+[injection]
+# Core behavior
+fail_fast = false                # Exit immediately if all injection methods fail
+allow_kdotool = false            # Enable kdotool fallback (KDE/X11)
+allow_enigo = false              # Enable enigo fallback (input simulation)
+inject_on_unknown_focus = true   # Allow injection when focus is unknown
+require_focus = false            # Require editable focus for injection
+pause_hotkey = ""                # Hotkey to pause/resume injection (e.g., "Ctrl+Alt+P")
+redact_logs = true               # Redact text in logs for privacy
+
+# Timing and latency
+max_total_latency_ms = 600       # Max latency for a single injection call (ms)
+per_method_timeout_ms = 250      # Timeout for each method attempt (ms)
+paste_action_timeout_ms = 350    # Timeout for paste actions (ms)
+
+# Cooldown/backoff
+cooldown_initial_ms = 10000      # Initial cooldown after failure (ms)
+cooldown_backoff_factor = 2.0    # Exponential backoff factor
+cooldown_max_ms = 300000         # Max cooldown period (ms)
+
+# Injection behavior
+injection_mode = "auto"          # "keystroke", "paste", or "auto"
+keystroke_rate_cps = 20          # Keystroke rate (chars/sec)
+max_burst_chars = 50             # Max chars per burst
+paste_chunk_chars = 500          # Chunk size for paste ops
+chunk_delay_ms = 30              # Delay between paste chunks (ms)
+
+# Focus/window management
+focus_cache_duration_ms = 200    # Cache duration for focus status (ms)
+enable_window_detection = true   # Enable window manager integration
+clipboard_restore_delay_ms = 500 # Delay before restoring clipboard (ms)
+discovery_timeout_ms = 1000      # Timeout for window discovery (ms)
+
+# App allow/block lists
+allowlist = []                   # List of allowed app patterns (regex)
+blocklist = []                   # List of blocked app patterns (regex)
+
+# Success rate tuning
+min_success_rate = 0.3           # Minimum success rate before fallback
+min_sample_size = 5              # Samples before trusting success rate
+
+[stt]
+# preferred = "vosk"              # Preferred STT engine (omit for auto-select)
+fallbacks = []
+require_local = false
+# max_mem_mb = 1024               # Memory limit in MB (omit for no limit)
+# language = "en-US"              # Language code (omit for default)
+failover_threshold = 5
+failover_cooldown_secs = 10
+model_ttl_secs = 300
+disable_gc = false
+metrics_log_interval_secs = 30
+debug_dump_events = false
+auto_extract = true

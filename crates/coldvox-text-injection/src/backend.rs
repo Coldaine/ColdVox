@@ -1,5 +1,7 @@
 use crate::types::InjectionConfig;
 use std::env;
+#[cfg(feature = "ydotool")]
+use tracing::debug;
 
 /// Available text injection backends
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,6 +38,17 @@ impl BackendDetector {
     /// Detect available backends on the current system
     pub fn detect_available_backends(&self) -> Vec<Backend> {
         let mut available = Vec::new();
+
+        #[cfg(feature = "ydotool")]
+        {
+            if self.has_ydotool() {
+                debug!("ydotool runtime detected; clipboard fallback can use Ctrl+V automation");
+            } else {
+                debug!(
+                    "ydotool runtime not detected; clipboard fallback limited to AT-SPI actions"
+                );
+            }
+        }
 
         // Detect Wayland backends
         if self.is_wayland() {
@@ -156,6 +169,16 @@ impl BackendDetector {
             .output()
             .map(|o| o.status.success())
             .unwrap_or(false)
+    }
+
+    #[cfg(feature = "ydotool")]
+    pub fn has_ydotool(&self) -> bool {
+        crate::ydotool_injector::ydotool_runtime_available()
+    }
+
+    #[cfg(not(feature = "ydotool"))]
+    pub fn has_ydotool(&self) -> bool {
+        false
     }
 }
 

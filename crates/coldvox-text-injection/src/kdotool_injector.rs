@@ -33,6 +33,19 @@ impl KdotoolInjector {
             .unwrap_or(false)
     }
 
+    fn binary_available(binary: &str) -> bool {
+        Command::new("which")
+            .arg(binary)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn binary_available_for_tests(binary: &str) -> bool {
+        Self::binary_available(binary)
+    }
+
     /// Get the currently active window ID
     async fn get_active_window(&self) -> Result<String, InjectionError> {
         let output = timeout(
@@ -118,7 +131,11 @@ impl TextInjector for KdotoolInjector {
         self.is_available && self.config.allow_kdotool
     }
 
-    async fn inject_text(&self, _text: &str) -> InjectionResult<()> {
+    async fn inject_text(
+        &self,
+        _text: &str,
+        _context: Option<&crate::types::InjectionContext>,
+    ) -> InjectionResult<()> {
         // Kdotool is only used for window activation/focus assistance
         // It doesn't actually inject text, so this method should not be called
         // directly for text injection

@@ -2,21 +2,55 @@ use coldvox_foundation::AudioError;
 use cpal::traits::{DeviceTrait, HostTrait};
 use cpal::{Device, Host, StreamConfig};
 use std::process::Command;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
+#[cfg(unix)]
+use crate::stderr_suppressor::StderrSuppressor;
+
+const DEVICE_CACHE_TTL: Duration = Duration::from_secs(5);
+
+/// Helper to suppress stderr on Unix, no-op on other platforms
+#[cfg(unix)]
+fn with_stderr_suppressed<F, R>(f: F) -> R
+where
+    F: FnOnce() -> R,
+{
+    StderrSuppressor::with_suppressed(f)
+}
+
+#[cfg(not(unix))]
+fn with_stderr_suppressed<F, R>(f: F) -> R
+where
+    F: FnOnce() -> R,
+{
+    f()
+}
+
+struct DeviceCache {
+    devices: Vec<DeviceInfo>,
+    last_updated: Option<Instant>,
+}
 
 pub struct DeviceManager {
     host: Host,
     #[allow(dead_code)]
     preferred_device: Option<String>,
     current_device: Option<Device>,
+    cached_devices: Mutex<DeviceCache>,
 }
 
 impl DeviceManager {
     pub fn new() -> Result<Self, AudioError> {
-        let host = cpal::default_host();
+        let host = with_stderr_suppressed(cpal::default_host);
         Ok(Self {
             host,
             preferred_device: None,
             current_device: None,
+            cached_devices: Mutex::new(DeviceCache {
+                devices: Vec::new(),
+                last_updated: None,
+            }),
         })
     }
 
@@ -57,10 +91,36 @@ impl DeviceManager {
     }
 
     pub fn enumerate_devices(&self) -> Vec<DeviceInfo> {
+        {
+            let cache = self.cached_devices.lock().unwrap();
+            if let Some(last) = cache.last_updated {
+                if last.elapsed() < DEVICE_CACHE_TTL {
+                    return cache.devices.clone();
+                }
+            }
+        }
+
+        let devices = self.enumerate_devices_uncached();
+        let mut cache = self.cached_devices.lock().unwrap();
+        cache.devices = devices.clone();
+        cache.last_updated = Some(Instant::now());
+        devices
+    }
+
+    pub fn refresh_devices(&self) -> Vec<DeviceInfo> {
+        let devices = self.enumerate_devices_uncached();
+        let mut cache = self.cached_devices.lock().unwrap();
+        cache.devices = devices.clone();
+        cache.last_updated = Some(Instant::now());
+        devices
+    }
+
+    fn enumerate_devices_uncached(&self) -> Vec<DeviceInfo> {
         let mut devices = Vec::new();
 
-        // Input devices
-        if let Ok(inputs) = self.host.input_devices() {
+        // Input devices - suppress ALSA stderr spam about missing PCM plugins
+        let inputs = with_stderr_suppressed(|| self.host.input_devices());
+        if let Ok(inputs) = inputs {
             for device in inputs {
                 if let Ok(name) = device.name() {
                     let configs = self.get_supported_configs(&device);
@@ -75,8 +135,9 @@ impl DeviceManager {
             }
         }
 
-        // Mark default
-        if let Some(default) = self.host.default_input_device() {
+        // Mark default - suppress ALSA stderr spam
+        let default_device = with_stderr_suppressed(|| self.host.default_input_device());
+        if let Some(default) = default_device {
             if let Ok(default_name) = default.name() {
                 for device in &mut devices {
                     if device.name == default_name {
@@ -90,7 +151,7 @@ impl DeviceManager {
     }
 
     pub fn default_input_device_name(&self) -> Option<String> {
-        self.host.default_input_device().and_then(|d| d.name().ok())
+        with_stderr_suppressed(|| self.host.default_input_device().and_then(|d| d.name().ok()))
     }
 
     /// Return candidate device names in a priority order suitable for Linux ALSA/PipeWire setups.
@@ -110,7 +171,12 @@ impl DeviceManager {
         }
 
         // 3) OS default input name if not already added
-        if let Some(def) = self.default_input_device_name() {
+        if let Some(def) = all
+            .iter()
+            .find(|d| d.is_default)
+            .map(|d| d.name.clone())
+            .or_else(|| self.default_input_device_name())
+        {
             if !out.iter().any(|n| n == &def) {
                 out.push(def);
             }
@@ -446,7 +512,7 @@ mod tests {
                 *first == "default"
                     || manager
                         .default_input_device_name()
-                        .map_or(false, |d| first == &d),
+                        .is_some_and(|d| first == &d),
                 "First should be 'default' or OS default"
             );
         }

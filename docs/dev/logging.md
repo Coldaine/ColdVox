@@ -373,9 +373,10 @@ The system uses the `tracing` crate for structured, leveled logging (info, debug
 - **Before (Working)**: Guard returned from init_logging, held in run_tui scope (logs to file throughout).
 - **After Regression**: Forget drops guard; file writer halts. TUI only has internal state.log() for display, no tracing output.
 
-**Proposed Fix** (Diff for tui.rs lines 289-312):
-```
-<<<<<<< SEARCH
+**Proposed Fix** (tui.rs lines 289-312):
+
+```rust
+// Before
 fn init_logging(cli_level: &str) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all("logs")?;
     let file_appender = RollingFileAppender::new(Rotation::DAILY, "logs", "coldvox.log");
@@ -399,8 +400,11 @@ fn init_logging(cli_level: &str) -> Result<(), Box<dyn std::error::Error>> {
     std::mem::forget(_guard);  // BUG: Breaks file logging
     Ok(())
 }
-=======
-fn init_logging(cli_level: &str) -> Result<tracing_appender::non_blocking::WorkerGuard, Box<dyn std::error::Error>> {
+
+// After
+fn init_logging(
+    cli_level: &str,
+) -> Result<tracing_appender::non_blocking::WorkerGuard, Box<dyn std::error::Error>> {
     std::fs::create_dir_all("logs")?;
     let file_appender = RollingFileAppender::new(Rotation::DAILY, "logs", "coldvox.log");
     let (non_blocking_file, guard) = tracing_appender::non_blocking(file_appender);
@@ -422,12 +426,12 @@ fn init_logging(cli_level: &str) -> Result<tracing_appender::non_blocking::Worke
         .init();
     Ok(guard)  // Return guard to keep alive
 }
->>>>>>> REPLACE
 ```
 
-Update `run_tui` to hold guard:
-```
-let _log_guard = init_logging("info,stt=debug,coldvox_audio=debug,coldvox_app=debug,coldvox_vad=debug")?;  // Hold guard
+Update `run_tui` to hold the guard:
+
+```rust
+let _log_guard = init_logging("info,stt=debug,coldvox_audio=debug,coldvox_app=debug,coldvox_vad=debug")?;
 ```
 
 ### Other Minor Issues
@@ -441,47 +445,39 @@ To address missing transcribed text, add targeted tracing logs at critical point
 
 ### 1. Runtime Pipeline (VAD/STT Flow) - `crates/app/src/runtime.rs`
 - **Rationale**: Log VAD detection to confirm audio input; STT forwarding to verify event propagation. Addresses cause #1 (no VAD).
-- **New Logs** (Diff for lines 443-457):
-  ```
-  <<<<<< SEARCH
-  let vad_fanout_handle = tokio::spawn(async move {
-      let mut rx = raw_vad_rx;
-      while let Some(ev) = rx.recv().await {
-          let _ = vad_bcast_tx_clone.send(ev.clone());
-          match ev {
-              VadEvent::SpeechStart { timestamp_ms, .. } => {
-                  let stream_ev = StreamingVadEvent::SpeechStart { timestamp_ms };
-                  let _ = stream_vad_tx_clone.send(stream_ev).await;
-              }
-              VadEvent::SpeechEnd { timestamp_ms, duration_ms, .. } => {
-                  let stream_ev = StreamingVadEvent::SpeechEnd { timestamp_ms, duration_ms };
-                  let _ = stream_vad_tx_clone.send(stream_ev).await;
-              }
-          }
-      }
-  });
-  =======
-  let vad_fanout_handle = tokio::spawn(async move {
-      let mut rx = raw_vad_rx;
-      while let Some(ev) = rx.recv().await {
-          tracing::debug!(target: "coldvox::runtime", vad_event = ?ev, "Fanout: Received VAD event");
-          let _ = vad_bcast_tx_clone.send(ev.clone());
-          match &ev {
-              VadEvent::SpeechStart { timestamp_ms, energy_db } => {
-                  tracing::info!(target: "coldvox::runtime", timestamp_ms, energy_db, "VAD: SpeechStart - triggering STT");
-                  let stream_ev = StreamingVadEvent::SpeechStart { timestamp_ms: *timestamp_ms };
-                  let _ = stream_vad_tx_clone.send(stream_ev).await;
-              }
-              VadEvent::SpeechEnd { timestamp_ms, duration_ms, energy_db } => {
-                  tracing::info!(target: "coldvox::runtime", timestamp_ms, duration_ms, energy_db, "VAD: SpeechEnd - finalizing STT");
-                  let stream_ev = StreamingVadEvent::SpeechEnd { timestamp_ms: *timestamp_ms, duration_ms: *duration_ms };
-                  let _ = stream_vad_tx_clone.send(stream_ev).await;
-              }
-          }
-          tracing::debug!(target: "coldvox::runtime", "Fanout: Forwarded to broadcast and STT");
-      }
-  });
-  >>>>>> REPLACE
+- **New Logs** (lines 443-457):
+
+  ```diff
+   let vad_fanout_handle = tokio::spawn(async move {
+       let mut rx = raw_vad_rx;
+       while let Some(ev) = rx.recv().await {
++          tracing::debug!(target: "coldvox::runtime", vad_event = ?ev, "Fanout: Received VAD event");
+           let _ = vad_bcast_tx_clone.send(ev.clone());
+-          match ev {
+-              VadEvent::SpeechStart { timestamp_ms, .. } => {
+-                  let stream_ev = StreamingVadEvent::SpeechStart { timestamp_ms };
+-                  let _ = stream_vad_tx_clone.send(stream_ev).await;
+-              }
+-              VadEvent::SpeechEnd { timestamp_ms, duration_ms, .. } => {
+-                  let stream_ev = StreamingVadEvent::SpeechEnd { timestamp_ms, duration_ms };
+-                  let _ = stream_vad_tx_clone.send(stream_ev).await;
+-              }
+-          }
++          match &ev {
++              VadEvent::SpeechStart { timestamp_ms, energy_db } => {
++                  tracing::info!(target: "coldvox::runtime", timestamp_ms, energy_db, "VAD: SpeechStart - triggering STT");
++                  let stream_ev = StreamingVadEvent::SpeechStart { timestamp_ms: *timestamp_ms };
++                  let _ = stream_vad_tx_clone.send(stream_ev).await;
++              }
++              VadEvent::SpeechEnd { timestamp_ms, duration_ms, energy_db } => {
++                  tracing::info!(target: "coldvox::runtime", timestamp_ms, duration_ms, energy_db, "VAD: SpeechEnd - finalizing STT");
++                  let stream_ev = StreamingVadEvent::SpeechEnd { timestamp_ms: *timestamp_ms, duration_ms: *duration_ms };
++                  let _ = stream_vad_tx_clone.send(stream_ev).await;
++              }
++          }
++          tracing::debug!(target: "coldvox::runtime", "Fanout: Forwarded to broadcast and STT");
+       }
+   });
   ```
 - **Expected Output**: "VAD: SpeechStart - triggering STT" when speaking; confirms audio flow.
 
@@ -493,55 +489,39 @@ To address missing transcribed text, add targeted tracing logs at critical point
   - At NoOp fallback (line 672): `error!(target: "coldvox::stt", "All STT plugins failed - using NoOp (no transcription)");`
 
 ### 3. TUI Event Handling - `crates/app/src/tui.rs`
-- **Rationale**: Log all TranscriptionEvent receipt, even empty, to see NoOp output. Add tracing for UI updates.
-- **New Logs** (Diff for lines 435-452):
-  ```
-  <<<<<< SEARCH
-  AppEvent::Transcription(tevent) => {
-      match tevent.clone() {
-          TranscriptionEvent::Partial { utterance_id, text, .. } => {
-              if !text.trim().is_empty() {
-                  state.log(LogLevel::Info, format!("[STT partial:{}] {}", utterance_id, text));
-              }
-          }
-          TranscriptionEvent::Final { utterance_id, text, .. } => {
-              if !text.trim().is_empty() {
-                  state.log(LogLevel::Success, format!("[STT final:{}] {}", utterance_id, text));
-                  state.last_transcript = Some(text);
-              }
-          }
-          TranscriptionEvent::Error { code, message } => {
-              state.log(LogLevel::Error, format!("[STT error:{}] {}", code, message));
-          }
-      }
-  }
-  =======
-  AppEvent::Transcription(tevent) => {
-      tracing::debug!(target: "coldvox::tui", transcription_event = ?tevent, "Received TranscriptionEvent");
-      match tevent.clone() {
-          TranscriptionEvent::Partial { utterance_id, text, .. } => {
-              if !text.trim().is_empty() {
-                  state.log(LogLevel::Info, format!("[STT partial:{}] {}", utterance_id, text));
-              } else {
-                  tracing::debug!(target: "coldvox::tui", utterance_id, "Partial transcript empty - likely NoOp plugin");
-              }
-          }
-          TranscriptionEvent::Final { utterance_id, text, .. } => {
-              if !text.trim().is_empty() {
-                  state.log(LogLevel::Success, format!("[STT final:{}] {}", utterance_id, text));
-                  state.last_transcript = Some(text.clone());
-                  tracing::info!(target: "coldvox::tui", utterance_id, text_len = text.len(), "Final transcript displayed in Status tab");
-              } else {
-                  tracing::warn!(target: "coldvox::tui", utterance_id, "Final transcript empty - check STT plugin");
-              }
-          }
-          TranscriptionEvent::Error { code, message } => {
-              state.log(LogLevel::Error, format!("[STT error:{}] {}", code, message));
-              tracing::error!(target: "coldvox::tui", code, message, "STT error in TUI");
-          }
-      }
-  }
-  >>>>>> REPLACE
+- **Rationale**: Log all `TranscriptionEvent` receipts, even empty strings, to diagnose NoOp output. Add tracing for UI updates.
+- **New Logs** (lines 435-452):
+
+  ```diff
+   AppEvent::Transcription(tevent) => {
+-      match tevent.clone() {
++      tracing::debug!(target: "coldvox::tui", transcription_event = ?tevent, "Received TranscriptionEvent");
++      match tevent.clone() {
+           TranscriptionEvent::Partial { utterance_id, text, .. } => {
+               if !text.trim().is_empty() {
+                   state.log(LogLevel::Info, format!("[STT partial:{}] {}", utterance_id, text));
+-              }
++              } else {
++                  tracing::debug!(target: "coldvox::tui", utterance_id, "Partial transcript empty - likely NoOp plugin");
++              }
+           }
+           TranscriptionEvent::Final { utterance_id, text, .. } => {
+               if !text.trim().is_empty() {
+                   state.log(LogLevel::Success, format!("[STT final:{}] {}", utterance_id, text));
+-                  state.last_transcript = Some(text);
+-              }
++                  state.last_transcript = Some(text.clone());
++                  tracing::info!(target: "coldvox::tui", utterance_id, text_len = text.len(), "Final transcript displayed in Status tab");
++              } else {
++                  tracing::warn!(target: "coldvox::tui", utterance_id, "Final transcript empty - check STT plugin");
++              }
+           }
+           TranscriptionEvent::Error { code, message } => {
+               state.log(LogLevel::Error, format!("[STT error:{}] {}", code, message));
++              tracing::error!(target: "coldvox::tui", code, message, "STT error in TUI");
+           }
+       }
+   }
   ```
 
 ### Validation

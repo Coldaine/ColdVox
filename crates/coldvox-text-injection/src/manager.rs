@@ -1,29 +1,33 @@
 use crate::backend::{Backend, BackendDetector};
 use crate::focus::{FocusProvider, FocusStatus, FocusTracker};
 use crate::log_throttle::LogThrottle;
-use crate::types::{InjectionConfig, InjectionError, InjectionMethod, InjectionMetrics};
+use crate::prewarm::PrewarmController;
+use crate::session::{InjectionSession, SessionState};
+use crate::types::{
+    InjectionConfig, InjectionContext, InjectionError, InjectionMethod, InjectionMetrics,
+    InjectionMode,
+};
 use crate::TextInjector;
 
 // Import injectors
-#[cfg(feature = "atspi")]
-use crate::atspi_injector::AtspiInjector;
 #[cfg(feature = "wl_clipboard")]
-use crate::clipboard_injector::ClipboardInjector;
-#[cfg(all(feature = "wl_clipboard", feature = "ydotool"))]
-use crate::combo_clip_ydotool::ComboClipboardYdotool;
+use crate::clipboard_paste_injector::ClipboardPasteInjector;
 #[cfg(feature = "enigo")]
 use crate::enigo_injector::EnigoInjector;
+#[cfg(feature = "atspi")]
+use crate::injectors::atspi::AtspiInjector;
 #[cfg(feature = "kdotool")]
 use crate::kdotool_injector::KdotoolInjector;
 
 use crate::noop_injector::NoOpInjector;
-#[cfg(feature = "ydotool")]
-use crate::ydotool_injector::YdotoolInjector;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::io::Write;
+use std::process;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use tokio::sync::RwLock;
 use tracing::{debug, error, info, trace, warn};
 
 /// Key for identifying a specific app-method combination
@@ -63,12 +67,13 @@ struct CooldownState {
 
 /// Registry of available text injectors
 struct InjectorRegistry {
-    injectors: HashMap<InjectionMethod, Box<dyn TextInjector>>,
+    injectors: HashMap<InjectionMethod, Arc<dyn TextInjector>>,
 }
 
+#[allow(clippy::unused_async)] // Function contains await calls in feature-gated blocks
 impl InjectorRegistry {
     async fn build(config: &InjectionConfig, backend_detector: &BackendDetector) -> Self {
-        let mut injectors: HashMap<InjectionMethod, Box<dyn TextInjector>> = HashMap::new();
+        let mut injectors: HashMap<InjectionMethod, Arc<dyn TextInjector>> = HashMap::new();
 
         // Check backend availability
         let backends = backend_detector.detect_available_backends();
@@ -87,45 +92,32 @@ impl InjectorRegistry {
         {
             let injector = AtspiInjector::new(config.clone());
             if injector.is_available().await {
-                injectors.insert(InjectionMethod::AtspiInsert, Box::new(injector));
+                injectors.insert(InjectionMethod::AtspiInsert, Arc::new(injector));
             }
         }
 
-        // Add clipboard injectors if available
+        // Add clipboard paste injector if available
         #[cfg(feature = "wl_clipboard")]
         {
             if _has_wayland || _has_x11 {
-                let clipboard_injector = ClipboardInjector::new(config.clone());
-                if clipboard_injector.is_available().await {
-                    injectors.insert(InjectionMethod::Clipboard, Box::new(clipboard_injector));
-                }
-
-                // Add combo clipboard+paste if wl_clipboard + ydotool features are enabled
-                #[cfg(all(feature = "wl_clipboard", feature = "ydotool"))]
-                {
-                    let combo_injector = ComboClipboardYdotool::new(config.clone());
-                    if combo_injector.is_available().await {
-                        injectors
-                            .insert(InjectionMethod::ClipboardAndPaste, Box::new(combo_injector));
-                    }
+                let paste_injector = ClipboardPasteInjector::new(config.clone());
+                if paste_injector.is_available().await {
+                    injectors.insert(
+                        InjectionMethod::ClipboardPasteFallback,
+                        Arc::new(paste_injector),
+                    );
                 }
             }
         }
 
-        // Add optional injectors based on config
-        #[cfg(feature = "ydotool")]
-        if config.allow_ydotool {
-            let ydotool = YdotoolInjector::new(config.clone());
-            if ydotool.is_available().await {
-                injectors.insert(InjectionMethod::YdoToolPaste, Box::new(ydotool));
-            }
-        }
+        // Do not register YdoTool as a standalone method: ClipboardPaste already falls back to ydotool.
+        // This keeps a single paste path in the strategy manager.
 
         #[cfg(feature = "enigo")]
         if config.allow_enigo {
             let enigo = EnigoInjector::new(config.clone());
             if enigo.is_available().await {
-                injectors.insert(InjectionMethod::EnigoText, Box::new(enigo));
+                injectors.insert(InjectionMethod::EnigoText, Arc::new(enigo));
             }
         }
 
@@ -133,7 +125,7 @@ impl InjectorRegistry {
         if config.allow_kdotool {
             let kdotool = KdotoolInjector::new(config.clone());
             if kdotool.is_available().await {
-                injectors.insert(InjectionMethod::KdoToolAssist, Box::new(kdotool));
+                injectors.insert(InjectionMethod::KdoToolAssist, Arc::new(kdotool));
             }
         }
 
@@ -141,15 +133,15 @@ impl InjectorRegistry {
         if injectors.is_empty() {
             injectors.insert(
                 InjectionMethod::NoOp,
-                Box::new(NoOpInjector::new(config.clone())),
+                Arc::new(NoOpInjector::new(config.clone())),
             );
         }
 
         Self { injectors }
     }
 
-    fn get_mut(&mut self, method: InjectionMethod) -> Option<&mut Box<dyn TextInjector>> {
-        self.injectors.get_mut(&method)
+    fn get(&self, method: InjectionMethod) -> Option<&Arc<dyn TextInjector>> {
+        self.injectors.get(&method)
     }
 
     fn contains(&self, method: InjectionMethod) -> bool {
@@ -164,19 +156,20 @@ pub struct StrategyManager {
     /// Focus provider abstraction for determining target context
     focus_provider: Box<dyn FocusProvider>,
     /// Cache of success records per app-method combination
-    success_cache: HashMap<AppMethodKey, SuccessRecord>,
+    success_cache: Arc<Mutex<HashMap<AppMethodKey, SuccessRecord>>>,
     /// Cooldown states per app-method combination
-    cooldowns: HashMap<AppMethodKey, CooldownState>,
+    cooldowns: Arc<Mutex<HashMap<AppMethodKey, CooldownState>>>,
     /// Global start time for budget tracking
-    global_start: Option<Instant>,
+    global_start: Arc<Mutex<Option<Instant>>>,
     /// Metrics for the strategy manager
     metrics: Arc<Mutex<InjectionMetrics>>,
     /// Backend detector for platform-specific capabilities
+    #[cfg_attr(not(test), allow(dead_code))]
     backend_detector: BackendDetector,
     /// Registry of available injectors
-    injectors: InjectorRegistry,
+    injectors: Arc<InjectorRegistry>,
     /// Cached method ordering for the current app_id
-    cached_method_order: Option<(String, Vec<InjectionMethod>)>,
+    cached_method_order: Arc<RwLock<Option<(String, Vec<InjectionMethod>)>>>,
     /// Cached compiled allowlist regex patterns
     #[cfg(feature = "regex")]
     allowlist_regexes: Vec<regex::Regex>,
@@ -185,6 +178,10 @@ pub struct StrategyManager {
     blocklist_regexes: Vec<regex::Regex>,
     /// Log throttle to reduce backend selection noise
     log_throttle: Mutex<LogThrottle>,
+    /// Pre-warm controller for caching resources
+    prewarm_controller: Arc<PrewarmController>,
+    /// Session state for buffering (when available)
+    session: Option<Arc<RwLock<InjectionSession>>>,
 }
 
 impl StrategyManager {
@@ -268,18 +265,20 @@ impl StrategyManager {
         Self {
             config: config.clone(),
             focus_provider,
-            success_cache: HashMap::new(),
-            cooldowns: HashMap::new(),
-            global_start: None,
+            success_cache: Arc::new(Mutex::new(HashMap::new())),
+            cooldowns: Arc::new(Mutex::new(HashMap::new())),
+            global_start: Arc::new(Mutex::new(None)),
             metrics,
             backend_detector,
-            injectors,
-            cached_method_order: None,
+            injectors: Arc::new(injectors),
+            cached_method_order: Arc::new(RwLock::new(None)),
             #[cfg(feature = "regex")]
             allowlist_regexes,
             #[cfg(feature = "regex")]
             blocklist_regexes,
             log_throttle,
+            prewarm_controller: Arc::new(PrewarmController::new(config)),
+            session: None, // Session management is optional for backward compatibility
         }
     }
 
@@ -341,6 +340,7 @@ impl StrategyManager {
 
     /// Get active window class via window manager
     #[cfg(target_os = "linux")]
+    #[allow(clippy::unused_async)] // Function needs to be async to match trait/interface expectations
     async fn get_active_window_class(&self) -> Result<String, InjectionError> {
         use std::process::Command;
 
@@ -361,7 +361,7 @@ impl StrategyManager {
                     {
                         if class_output.status.success() {
                             let class_str = String::from_utf8_lossy(&class_output.stdout);
-                            // Parse WM_CLASS string (format: WM_CLASS(STRING) = "instance", "class")
+                            // Parse WM_CLASS string
                             if let Some(class_part) = class_str.split('"').nth(3) {
                                 return Ok(class_part.to_string());
                             }
@@ -371,8 +371,40 @@ impl StrategyManager {
             }
         }
 
+        // Try swaymsg for Wayland
+        if let Ok(output) = Command::new("swaymsg").args(["-t", "get_tree"]).output() {
+            if output.status.success() {
+                let tree = String::from_utf8_lossy(&output.stdout);
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&tree) {
+                    // Find focused window
+                    fn find_focused_window(node: &serde_json::Value) -> Option<String> {
+                        if node.get("focused").and_then(|v| v.as_bool()) == Some(true) {
+                            if let Some(app_id) = node.get("app_id").and_then(|v| v.as_str()) {
+                                return Some(app_id.to_string());
+                            }
+                        }
+
+                        // Check children
+                        if let Some(nodes) = node.get("nodes").and_then(|v| v.as_array()) {
+                            for n in nodes {
+                                if let Some(found) = find_focused_window(n) {
+                                    return Some(found);
+                                }
+                            }
+                        }
+
+                        None
+                    }
+
+                    if let Some(app_id) = find_focused_window(&json) {
+                        return Ok(app_id);
+                    }
+                }
+            }
+        }
+
         Err(InjectionError::Other(
-            "Could not determine active window".to_string(),
+            "Could not determine active window class".to_string(),
         ))
     }
 
@@ -435,22 +467,23 @@ impl StrategyManager {
     /// Check if a method is in cooldown for the current app
     pub(crate) fn is_in_cooldown(&self, method: InjectionMethod) -> bool {
         let now = Instant::now();
-        self.cooldowns
+        let cooldowns = self.cooldowns.lock().unwrap();
+        cooldowns
             .iter()
             .any(|((_, m), cd)| *m == method && now < cd.until)
     }
 
     /// Update success record with time-based decay for old records
     pub(crate) fn update_success_record(
-        &mut self,
+        &self,
         app_id: &str,
         method: InjectionMethod,
         success: bool,
     ) {
         let key = (app_id.to_string(), method);
 
-        let record = self
-            .success_cache
+        let mut success_cache = self.success_cache.lock().unwrap();
+        let record = success_cache
             .entry(key.clone())
             .or_insert_with(|| SuccessRecord {
                 success_count: 0,
@@ -475,8 +508,6 @@ impl StrategyManager {
         let total = record.success_count + record.fail_count;
         if total > 0 {
             record.success_rate = record.success_count as f64 / total as f64;
-        } else {
-            record.success_rate = 0.5; // Default to 50%
         }
 
         // Apply cooldown for repeated failures
@@ -497,10 +528,11 @@ impl StrategyManager {
     }
 
     /// Apply exponential backoff cooldown for a failed method
-    pub(crate) fn apply_cooldown(&mut self, app_id: &str, method: InjectionMethod, error: &str) {
+    pub(crate) fn apply_cooldown(&self, app_id: &str, method: InjectionMethod, error: &str) {
         let key = (app_id.to_string(), method);
 
-        let cooldown = self.cooldowns.entry(key).or_insert_with(|| CooldownState {
+        let mut cooldowns = self.cooldowns.lock().unwrap();
+        let cooldown = cooldowns.entry(key).or_insert_with(|| CooldownState {
             until: Instant::now(),
             backoff_level: 0,
             last_error: String::new(),
@@ -525,46 +557,61 @@ impl StrategyManager {
     }
 
     /// Update cooldown state for a failed method (legacy method for compatibility)
-    fn update_cooldown(&mut self, method: InjectionMethod, error: &str) {
-        // TODO: This should use actual app_id from get_current_app_id()
+    fn update_cooldown(&self, method: InjectionMethod, error: &str) {
+        // TODO(#38): This should use actual app_id from get_current_app_id()
         let app_id = "unknown_app";
         self.apply_cooldown(app_id, method, error);
     }
 
     /// Clear cooldown for a method (e.g., after successful use)
-    fn clear_cooldown(&mut self, method: InjectionMethod) {
+    fn clear_cooldown(&self, method: InjectionMethod) {
         let app_id = "unknown_app"; // Placeholder - would be from get_current_app_id
         let key = (app_id.to_string(), method);
-        self.cooldowns.remove(&key);
+        let mut cooldowns = self.cooldowns.lock().unwrap();
+        cooldowns.remove(&key);
+    }
+
+    /// Trigger pre-warming when session enters Buffering state
+    async fn check_and_trigger_prewarm(&self) {
+        if let Some(ref session) = self.session {
+            let session_guard = session.read().await;
+            if session_guard.state() == SessionState::Buffering {
+                // Get current context for pre-warming
+                let context = self.prewarm_controller.get_atspi_context().await;
+                // Run pre-warming in the background (non-blocking)
+                let ctx_clone = context.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = crate::prewarm::run(&ctx_clone).await {
+                        warn!("Pre-warming failed: {}", e);
+                    }
+                });
+            }
+        }
     }
 
     /// Get ordered list of methods to try based on backend availability and success rates.
     /// Includes NoOp as a final fallback so the list is never empty.
     pub(crate) fn _get_method_priority(&self, app_id: &str) -> Vec<InjectionMethod> {
-        // Base order derived from detected backends (mirrors get_method_order_cached)
-        let available_backends = self.backend_detector.detect_available_backends();
+        // Base order derived from environment first (robust when portals/VK are unavailable)
+        use std::env;
+        let on_wayland = env::var("XDG_SESSION_TYPE")
+            .map(|s| s == "wayland")
+            .unwrap_or(false)
+            || env::var("WAYLAND_DISPLAY").is_ok();
+        let on_x11 = env::var("XDG_SESSION_TYPE")
+            .map(|s| s == "x11")
+            .unwrap_or(false)
+            || env::var("DISPLAY").is_ok();
+
         let mut base_order: Vec<InjectionMethod> = Vec::new();
 
-        for backend in available_backends {
-            match backend {
-                Backend::WaylandXdgDesktopPortal | Backend::WaylandVirtualKeyboard => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::X11Xdotool | Backend::X11Native => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::MacCgEvent | Backend::WindowsSendInput => {
-                    // 2025-09-04: Currently not targeting Windows builds
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                _ => {}
-            }
+        if on_wayland {
+            // Prefer AT-SPI direct insert first on Wayland when available; delay clipboard paste to last.
+            base_order.push(InjectionMethod::AtspiInsert);
+        }
+
+        if on_x11 {
+            base_order.push(InjectionMethod::AtspiInsert);
         }
 
         // Optional, opt-in fallbacks
@@ -575,41 +622,45 @@ impl StrategyManager {
             base_order.push(InjectionMethod::EnigoText);
         }
 
-        if self.config.allow_ydotool {
-            base_order.push(InjectionMethod::YdoToolPaste);
-        }
+        // Clipboard paste (with fallback) is intentionally last to avoid clipboard disruption unless needed
+        base_order.push(InjectionMethod::ClipboardPasteFallback);
 
         // Deduplicate while preserving order
         use std::collections::HashSet;
         let mut seen = HashSet::new();
         base_order.retain(|m| seen.insert(*m));
 
-        // Sort by historical success rate, preserving base order when equal
+        // Sort primarily by base order; use historical success rate only as a tiebreaker
         let base_order_copy = base_order.clone();
+        let success_cache = self.success_cache.lock().unwrap();
+
         base_order.sort_by(|a, b| {
-            let key_a = (app_id.to_string(), *a);
-            let key_b = (app_id.to_string(), *b);
-
-            let rate_a = self
-                .success_cache
-                .get(&key_a)
-                .map(|r| r.success_rate)
-                .unwrap_or(0.5);
-            let rate_b = self
-                .success_cache
-                .get(&key_b)
-                .map(|r| r.success_rate)
-                .unwrap_or(0.5);
-
-            rate_b
-                .partial_cmp(&rate_a)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| {
-                    let pos_a = base_order_copy.iter().position(|m| m == a).unwrap_or(0);
-                    let pos_b = base_order_copy.iter().position(|m| m == b).unwrap_or(0);
-                    pos_a.cmp(&pos_b)
-                })
+            let pos_a = base_order_copy
+                .iter()
+                .position(|m| m == a)
+                .unwrap_or(usize::MAX);
+            let pos_b = base_order_copy
+                .iter()
+                .position(|m| m == b)
+                .unwrap_or(usize::MAX);
+            pos_a.cmp(&pos_b).then_with(|| {
+                let key_a = (app_id.to_string(), *a);
+                let key_b = (app_id.to_string(), *b);
+                let rate_a = success_cache
+                    .get(&key_a)
+                    .map(|r| r.success_rate)
+                    .unwrap_or(0.5);
+                let rate_b = success_cache
+                    .get(&key_b)
+                    .map(|r| r.success_rate)
+                    .unwrap_or(0.5);
+                rate_b
+                    .partial_cmp(&rate_a)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
         });
+
+        drop(success_cache);
 
         // Always include NoOp at the end as a last resort
         base_order.push(InjectionMethod::NoOp);
@@ -617,47 +668,22 @@ impl StrategyManager {
         base_order
     }
 
-    /// Get the preferred method order based on current context and history (cached per app)
-    pub(crate) fn get_method_order_cached(&mut self, app_id: &str) -> Vec<InjectionMethod> {
-        // Use cached order when app_id unchanged
-        if let Some((cached_app, cached_order)) = &self.cached_method_order {
-            if cached_app == app_id {
-                return cached_order.clone();
-            }
-        }
+    /// Helper: Compute method order based on environment and config
+    fn compute_method_order(&self, app_id: &str) -> Vec<InjectionMethod> {
+        use std::env;
+        let on_wayland = env::var("XDG_SESSION_TYPE")
+            .map(|s| s == "wayland")
+            .unwrap_or(false)
+            || env::var("WAYLAND_DISPLAY").is_ok();
+        let on_x11 = env::var("XDG_SESSION_TYPE")
+            .map(|s| s == "x11")
+            .unwrap_or(false)
+            || env::var("DISPLAY").is_ok();
 
-        // Get available backends
-        let available_backends = self.backend_detector.detect_available_backends();
-
-        // Base order as specified in the requirements
         let mut base_order = Vec::new();
 
-        // Add methods based on available backends
-        for backend in available_backends {
-            match backend {
-                Backend::WaylandXdgDesktopPortal | Backend::WaylandVirtualKeyboard => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::X11Xdotool | Backend::X11Native => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::MacCgEvent => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::WindowsSendInput => {
-                    // 2025-09-04: Currently not targeting Windows builds
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                _ => {}
-            }
+        if on_wayland || on_x11 {
+            base_order.push(InjectionMethod::AtspiInsert);
         }
 
         // Add optional methods if enabled
@@ -668,125 +694,84 @@ impl StrategyManager {
             base_order.push(InjectionMethod::EnigoText);
         }
 
-        if self.config.allow_ydotool {
-            base_order.push(InjectionMethod::YdoToolPaste);
-        }
+        // Ensure ClipboardPaste (with internal fallback) is tried last
+        base_order.push(InjectionMethod::ClipboardPasteFallback);
+
         // Deduplicate while preserving order
         use std::collections::HashSet;
         let mut seen = HashSet::new();
         base_order.retain(|m| seen.insert(*m));
 
-        // Sort by preference: methods with higher success rate first, then by base order
-
-        // Create a copy of base order for position lookup
+        // Sort primarily by base order; use success rate as tiebreaker
         let base_order_copy = base_order.clone();
+        let success_cache = self.success_cache.lock().unwrap();
 
         base_order.sort_by(|a, b| {
-            let key_a = (app_id.to_string(), *a);
-            let key_b = (app_id.to_string(), *b);
-
-            let success_a = self
-                .success_cache
-                .get(&key_a)
-                .map(|r| r.success_rate)
-                .unwrap_or(0.5);
-            let success_b = self
-                .success_cache
-                .get(&key_b)
-                .map(|r| r.success_rate)
-                .unwrap_or(0.5);
-
-            // Sort by success rate (descending), then by base order
-            success_b.partial_cmp(&success_a).unwrap().then_with(|| {
-                // Preserve base order for equal success rates
-                let pos_a = base_order_copy.iter().position(|m| m == a).unwrap_or(0);
-                let pos_b = base_order_copy.iter().position(|m| m == b).unwrap_or(0);
-                pos_a.cmp(&pos_b)
+            let pos_a = base_order_copy
+                .iter()
+                .position(|m| m == a)
+                .unwrap_or(usize::MAX);
+            let pos_b = base_order_copy
+                .iter()
+                .position(|m| m == b)
+                .unwrap_or(usize::MAX);
+            pos_a.cmp(&pos_b).then_with(|| {
+                let key_a = (app_id.to_string(), *a);
+                let key_b = (app_id.to_string(), *b);
+                let success_a = success_cache
+                    .get(&key_a)
+                    .map(|r| r.success_rate)
+                    .unwrap_or(0.5);
+                let success_b = success_cache
+                    .get(&key_b)
+                    .map(|r| r.success_rate)
+                    .unwrap_or(0.5);
+                success_b
+                    .partial_cmp(&success_a)
+                    .unwrap_or(std::cmp::Ordering::Equal)
             })
         });
 
+        drop(success_cache);
+
         // Ensure NoOp is always available as a last resort
         base_order.push(InjectionMethod::NoOp);
+        base_order
+    }
+
+    /// Get the preferred method order based on current context and history (cached per app)
+    pub(crate) async fn get_method_order_cached(&self, app_id: &str) -> Vec<InjectionMethod> {
+        // Use cached order when app_id unchanged
+        {
+            let cached_guard = self.cached_method_order.read().await;
+            if let Some((cached_app, cached_order)) = &*cached_guard {
+                if cached_app == app_id {
+                    return cached_order.clone();
+                }
+            }
+        }
+
+        let base_order = self.compute_method_order(app_id);
 
         // Cache and return
-        self.cached_method_order = Some((app_id.to_string(), base_order.clone()));
+        {
+            let mut cached_guard = self.cached_method_order.write().await;
+            *cached_guard = Some((app_id.to_string(), base_order.clone()));
+        }
         base_order
     }
 
     /// Back-compat: previous tests may call no-arg version; compute without caching
     #[allow(dead_code)]
     pub fn get_method_order_uncached(&self) -> Vec<InjectionMethod> {
-        // Compute using a placeholder app id without affecting cache
-        // Duplicate core logic minimally by delegating to a copy of code
-        let available_backends = self.backend_detector.detect_available_backends();
-        let mut base_order = Vec::new();
-        for backend in available_backends {
-            match backend {
-                Backend::WaylandXdgDesktopPortal | Backend::WaylandVirtualKeyboard => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::X11Xdotool | Backend::X11Native => {
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                Backend::MacCgEvent | Backend::WindowsSendInput => {
-                    // 2025-09-04: Currently not targeting Windows builds
-                    base_order.push(InjectionMethod::AtspiInsert);
-                    base_order.push(InjectionMethod::ClipboardAndPaste);
-                    base_order.push(InjectionMethod::Clipboard);
-                }
-                _ => {}
-            }
-        }
-        if self.config.allow_kdotool {
-            base_order.push(InjectionMethod::KdoToolAssist);
-        }
-        if self.config.allow_enigo {
-            base_order.push(InjectionMethod::EnigoText);
-        }
-
-        if self.config.allow_ydotool {
-            base_order.push(InjectionMethod::YdoToolPaste);
-        }
-        use std::collections::HashSet;
-        let mut seen = HashSet::new();
-        base_order.retain(|m| seen.insert(*m));
-        // Sort by success rate for placeholder app id
-        let app_id = "unknown_app";
-        let base_order_copy = base_order.clone();
-        let mut base_order2 = base_order;
-        base_order2.sort_by(|a, b| {
-            let key_a = (app_id.to_string(), *a);
-            let key_b = (app_id.to_string(), *b);
-            let success_a = self
-                .success_cache
-                .get(&key_a)
-                .map(|r| r.success_rate)
-                .unwrap_or(0.5);
-            let success_b = self
-                .success_cache
-                .get(&key_b)
-                .map(|r| r.success_rate)
-                .unwrap_or(0.5);
-            success_b.partial_cmp(&success_a).unwrap().then_with(|| {
-                let pos_a = base_order_copy.iter().position(|m| m == a).unwrap_or(0);
-                let pos_b = base_order_copy.iter().position(|m| m == b).unwrap_or(0);
-                pos_a.cmp(&pos_b)
-            })
-        });
-        base_order2.push(InjectionMethod::NoOp);
-        base_order2
+        self.compute_method_order("unknown_app")
     }
 
     /// Check if we've exceeded the global time budget
     fn has_budget_remaining(&self) -> bool {
-        if let Some(start) = self.global_start {
-            let elapsed = start.elapsed();
-            let budget = self.config.max_total_latency();
-            elapsed < budget
+        let guard = self.global_start.lock().unwrap();
+        if let Some(start) = *guard {
+            start.elapsed() < self.config.max_total_latency()
         } else {
             true
         }
@@ -822,7 +807,7 @@ impl StrategyManager {
             }
 
             let chunk = &text[start..end];
-            injector.inject_text(chunk).await?;
+            injector.inject_text(chunk, None).await?;
 
             start = end;
 
@@ -872,7 +857,7 @@ impl StrategyManager {
             }
 
             let burst = &text[start..end];
-            injector.inject_text(burst).await?;
+            injector.inject_text(burst, None).await?;
 
             // Calculate delay based on burst size and rate
             let delay_ms = (burst.len() as f64 / rate_cps as f64 * 1000.0) as u64;
@@ -912,7 +897,7 @@ impl StrategyManager {
         }
 
         // Start global timer
-        self.global_start = Some(Instant::now());
+        *self.global_start.lock().unwrap() = Some(Instant::now());
         if self.config.max_total_latency_ms <= 1 {
             if let Ok(mut metrics) = self.metrics.lock() {
                 metrics.record_rate_limited();
@@ -959,16 +944,40 @@ impl StrategyManager {
             )));
         }
 
+        // Check if we should trigger pre-warming
+        self.check_and_trigger_prewarm().await;
+
         // Determine injection method based on config
-        let use_paste = match self.config.injection_mode.as_str() {
-            "paste" => true,
-            "keystroke" => false,
-            "auto" => text.len() > self.config.paste_chunk_chars as usize,
-            _ => text.len() > self.config.paste_chunk_chars as usize, // Default to auto
+        let injection_mode = match self.config.injection_mode.as_str() {
+            "paste" => InjectionMode::Paste,
+            "keystroke" => InjectionMode::Keystroke,
+            "auto" => {
+                if text.len() > self.config.paste_chunk_chars as usize {
+                    InjectionMode::Paste
+                } else {
+                    InjectionMode::Keystroke
+                }
+            }
+            _ => {
+                if text.len() > self.config.paste_chunk_chars as usize {
+                    InjectionMode::Paste
+                } else {
+                    InjectionMode::Keystroke
+                }
+            }
+        };
+
+        // Create injection context with mode override
+        let context = InjectionContext {
+            target_app: Some(app_id.clone()),
+            window_id: None,
+            atspi_focused_node_path: None,
+            clipboard_backup: None,
+            mode_override: Some(injection_mode),
         };
 
         // Get ordered list of methods to try
-        let method_order = self.get_method_order_cached(&app_id);
+        let method_order = self.get_method_order_cached(&app_id).await;
         trace!(
             "Strategy selection for app '{}': {:?} ({} methods available)",
             app_id,
@@ -980,8 +989,7 @@ impl StrategyManager {
         let total_start = Instant::now();
         let mut attempts = 0;
         let total_methods = method_order.len();
-
-        for method in method_order {
+        for method in method_order.clone() {
             attempts += 1;
             // Skip if in cooldown
             if self.is_in_cooldown(method) {
@@ -1019,17 +1027,11 @@ impl StrategyManager {
             // Try injection with the real injector
             let start = Instant::now();
             // Perform the injector call in a narrow scope to avoid borrowing self across updates
-            let result = {
-                if let Some(injector) = self.injectors.get_mut(method) {
-                    if use_paste {
-                        // For now, perform a single paste operation; chunking is optional
-                        injector.inject_text(text).await
-                    } else {
-                        injector.inject_text(text).await
-                    }
-                } else {
-                    continue;
-                }
+            let result = if let Some(injector) = self.injectors.get(method) {
+                let injector = Arc::clone(injector);
+                injector.inject_text(text, Some(&context)).await
+            } else {
+                continue;
             };
 
             match result {
@@ -1041,11 +1043,15 @@ impl StrategyManager {
                     self.update_success_record(&app_id, method, true);
                     self.clear_cooldown(method);
                     let total_elapsed = total_start.elapsed();
+                    let mode_str = match injection_mode {
+                        InjectionMode::Paste => "paste",
+                        InjectionMode::Keystroke => "keystroke",
+                    };
                     info!(
                         "Successfully injected {} chars using {:?} (mode: {}, method time: {}ms, total: {}ms, attempt {} of {})",
                         text.len(),
                         method,
-                        if use_paste { "paste" } else { "keystroke" },
+                        mode_str,
                         duration,
                         total_elapsed.as_millis(),
                         attempts,
@@ -1060,15 +1066,25 @@ impl StrategyManager {
                 Err(e) => {
                     let duration = start.elapsed().as_millis() as u64;
                     let error_string = e.to_string();
+                    let backend_name = self
+                        .injectors
+                        .get(method)
+                        .map(|inj| inj.backend_name().to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
+                    error!(
+                        "Injection method {:?} (backend: {}) failed after {}ms (attempt {} of {}): {}",
+                        method,
+                        backend_name,
+                        duration,
+                        attempts,
+                        total_methods,
+                        error_string
+                    );
                     if let Ok(mut m) = self.metrics.lock() {
                         m.record_failure(method, duration, error_string.clone());
                     }
                     self.update_success_record(&app_id, method, false);
                     self.update_cooldown(method, &error_string);
-                    debug!(
-                        "Method {:?} failed after {}ms (attempt {}): {}",
-                        method, duration, attempts, error_string
-                    );
                     trace!("Continuing to next method in fallback chain");
                     // Continue to next method
                 }
@@ -1083,9 +1099,27 @@ impl StrategyManager {
             total_elapsed.as_millis(),
             attempts
         );
-        Err(InjectionError::MethodFailed(
-            "All injection methods failed".to_string(),
-        ))
+
+        // Prepare diagnostic payload
+        let diag = format!(
+            "Injection failure diagnostics:\n  app_id={}\n  attempts={}\n  total_methods={}\n  total_elapsed_ms={}\n  redact_logs={}\n  method_order={:?}\n",
+            app_id,
+            attempts,
+            total_methods,
+            total_elapsed.as_millis(),
+            self.config.redact_logs,
+            method_order
+        );
+
+        if self.config.fail_fast {
+            error!("Fail-fast mode enabled: {}", diag);
+            let _ = std::io::stderr().write_all(diag.as_bytes());
+            process::exit(1);
+        } else {
+            Err(InjectionError::MethodFailed(
+                "All injection methods failed".to_string(),
+            ))
+        }
     }
 
     /// Get metrics for the strategy manager
@@ -1097,9 +1131,9 @@ impl StrategyManager {
     #[allow(dead_code)]
     pub(crate) fn override_injectors_for_tests(
         &mut self,
-        map: std::collections::HashMap<InjectionMethod, Box<dyn TextInjector>>,
+        map: std::collections::HashMap<InjectionMethod, Arc<dyn TextInjector>>,
     ) {
-        self.injectors = InjectorRegistry { injectors: map };
+        self.injectors = Arc::new(InjectorRegistry { injectors: map });
     }
 
     /// Clean up old log throttle entries to prevent memory growth
@@ -1140,7 +1174,22 @@ impl StrategyManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::test_util::util::skip_if_headless_ci;
+    // Local helper to decide whether to skip GUI-dependent tests in CI environments.
+    // We keep this lightweight to avoid depending on internal test helpers during unit tests.
+    fn skip_if_headless_ci() -> bool {
+        let is_ci = std::env::var("CI").is_ok()
+            || std::env::var("GITHUB_ACTIONS").is_ok()
+            || std::env::var("GITLAB_CI").is_ok();
+
+        if is_ci {
+            // If no display environment variables are present, skip
+            if std::env::var("DISPLAY").is_err() && std::env::var("WAYLAND_DISPLAY").is_err() {
+                return true;
+            }
+        }
+
+        false
+    }
     use async_trait::async_trait;
     use std::time::Duration;
 
@@ -1173,7 +1222,11 @@ mod tests {
             self.available
         }
 
-        async fn inject_text(&self, _text: &str) -> crate::types::InjectionResult<()> {
+        async fn inject_text(
+            &self,
+            _text: &str,
+            _context: Option<&crate::types::InjectionContext>,
+        ) -> crate::types::InjectionResult<()> {
             // Use deterministic behavior in CI/test environments
             let success = if cfg!(test) && std::env::var("CI").is_ok() {
                 // Deterministic success in CI
@@ -1249,13 +1302,11 @@ mod tests {
         let has_desktop = !available.is_empty();
         if has_desktop {
             assert!(order.contains(&InjectionMethod::AtspiInsert));
-            assert!(order.contains(&InjectionMethod::ClipboardAndPaste));
-            assert!(order.contains(&InjectionMethod::Clipboard));
+            assert!(order.contains(&InjectionMethod::ClipboardPasteFallback));
         }
 
         // Verify optional methods are included if enabled
         let config = InjectionConfig {
-            allow_ydotool: true,
             allow_kdotool: true,
             allow_enigo: true,
 
@@ -1273,10 +1324,9 @@ mod tests {
         let available = manager.backend_detector.detect_available_backends();
         if !available.is_empty() {
             assert!(order.contains(&InjectionMethod::AtspiInsert));
-            assert!(order.contains(&InjectionMethod::ClipboardAndPaste));
-            assert!(order.contains(&InjectionMethod::Clipboard));
+            assert!(order.contains(&InjectionMethod::ClipboardPasteFallback));
         }
-        assert!(order.contains(&InjectionMethod::YdoToolPaste));
+        // YdoToolPaste is no longer a standalone method; its behavior is subsumed by ClipboardPaste
         assert!(order.contains(&InjectionMethod::KdoToolAssist));
         assert!(order.contains(&InjectionMethod::EnigoText));
     }
@@ -1286,19 +1336,23 @@ mod tests {
     async fn test_success_record_update() {
         let config = InjectionConfig::default();
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
-        let mut manager = StrategyManager::new(config.clone(), metrics).await;
+        let manager = StrategyManager::new(config.clone(), metrics).await;
 
         // Test success
         manager.update_success_record("unknown_app", InjectionMethod::AtspiInsert, true);
         let key = ("unknown_app".to_string(), InjectionMethod::AtspiInsert);
-        let record = manager.success_cache.get(&key).unwrap();
-        assert_eq!(record.success_count, 1);
-        assert_eq!(record.fail_count, 0);
-        assert!(record.success_rate > 0.4);
+        {
+            let cache = manager.success_cache.lock().unwrap();
+            let record = cache.get(&key).unwrap();
+            assert_eq!(record.success_count, 1);
+            assert_eq!(record.fail_count, 0);
+            assert!(record.success_rate > 0.4);
+        }
 
         // Test failure
         manager.update_success_record("unknown_app", InjectionMethod::AtspiInsert, false);
-        let record = manager.success_cache.get(&key).unwrap();
+        let cache = manager.success_cache.lock().unwrap();
+        let record = cache.get(&key).unwrap();
         assert_eq!(record.success_count, 1);
         assert_eq!(record.fail_count, 1);
         assert!(record.success_rate > 0.3 && record.success_rate < 0.8);
@@ -1309,17 +1363,21 @@ mod tests {
     async fn test_cooldown_update() {
         let config = InjectionConfig::default();
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
-        let mut manager = StrategyManager::new(config.clone(), metrics).await;
+        let manager = StrategyManager::new(config.clone(), metrics).await;
 
         // First failure
         manager.update_cooldown(InjectionMethod::AtspiInsert, "test error");
         let key = ("unknown_app".to_string(), InjectionMethod::AtspiInsert);
-        let cooldown = manager.cooldowns.get(&key).unwrap();
-        assert_eq!(cooldown.backoff_level, 1);
+        {
+            let cooldowns = manager.cooldowns.lock().unwrap();
+            let cooldown = cooldowns.get(&key).unwrap();
+            assert_eq!(cooldown.backoff_level, 1);
+        }
 
         // Second failure - backoff level should increase
         manager.update_cooldown(InjectionMethod::AtspiInsert, "test error");
-        let cooldown = manager.cooldowns.get(&key).unwrap();
+        let cooldowns = manager.cooldowns.lock().unwrap();
+        let cooldown = cooldowns.get(&key).unwrap();
         assert_eq!(cooldown.backoff_level, 2);
 
         // Duration should be longer
@@ -1339,17 +1397,23 @@ mod tests {
         };
 
         let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
-        let mut manager = StrategyManager::new(config, metrics).await;
+        let manager = StrategyManager::new(config, metrics).await;
 
         // No start time - budget should be available
         assert!(manager.has_budget_remaining());
 
         // Set start time
-        manager.global_start = Some(Instant::now() - Duration::from_millis(50));
+        {
+            let mut guard = manager.global_start.lock().unwrap();
+            *guard = Some(Instant::now() - Duration::from_millis(50));
+        }
         assert!(manager.has_budget_remaining());
 
         // Exceed budget
-        manager.global_start = Some(Instant::now() - Duration::from_millis(150));
+        {
+            let mut guard = manager.global_start.lock().unwrap();
+            *guard = Some(Instant::now() - Duration::from_millis(150));
+        }
         assert!(!manager.has_budget_remaining());
     }
 

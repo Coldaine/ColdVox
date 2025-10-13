@@ -9,7 +9,6 @@ use std::sync::Arc;
 
 use crate::stt::TranscriptionEvent;
 use coldvox_audio::chunker::AudioFrame;
-use coldvox_audio::SharedAudioFrame;
 use coldvox_vad::types::VadEvent;
 
 /// Configuration for transcription persistence
@@ -194,18 +193,23 @@ impl TranscriptionWriter {
     }
 
     /// Handle audio frame for potential saving
-    pub fn handle_audio_frame(&self, frame: &SharedAudioFrame) {
+    pub fn handle_audio_frame(&self, frame: &AudioFrame) {
         if !self.config.enabled || !self.config.save_audio {
             return;
         }
 
         let is_active = *self.utterance_active.lock();
         if is_active {
-            let i16_slice = &*frame.samples; // Zero-copy deref
+            // Convert f32 samples back to i16
+            let i16_samples: Vec<i16> = frame
+                .samples
+                .iter()
+                .map(|&s| (s * i16::MAX as f32) as i16)
+                .collect();
 
-            // Accumulate directly
+            // Accumulate audio for current utterance
             let mut audio = self.current_utterance_audio.lock();
-            audio.extend_from_slice(i16_slice);
+            audio.extend_from_slice(&i16_samples);
         }
     }
 
@@ -590,7 +594,7 @@ impl TranscriptionWriter {
 pub fn spawn_persistence_handler(
     config: PersistenceConfig,
     metadata: SessionMetadata,
-    mut audio_rx: tokio::sync::broadcast::Receiver<SharedAudioFrame>,
+    mut audio_rx: tokio::sync::broadcast::Receiver<AudioFrame>,
     mut vad_rx: tokio::sync::mpsc::Receiver<VadEvent>,
     mut transcript_rx: tokio::sync::mpsc::Receiver<TranscriptionEvent>,
 ) -> tokio::task::JoinHandle<()> {

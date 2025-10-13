@@ -1,10 +1,16 @@
 use crate::types::{InjectionConfig, InjectionError};
+use async_trait::async_trait;
 use std::time::{Duration, Instant};
 use tracing::debug;
 
-#[async_trait::async_trait]
+#[async_trait]
 pub trait FocusProvider: Send + Sync {
     async fn get_focus_status(&mut self) -> Result<FocusStatus, InjectionError>;
+}
+
+#[async_trait]
+pub trait FocusBackend: Send + Sync {
+    async fn query_focus(&self) -> Result<FocusStatus, InjectionError>;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -14,18 +20,26 @@ pub enum FocusStatus {
     Unknown,
 }
 
-pub struct FocusTracker {
-    _config: InjectionConfig,
+pub struct FocusTracker<B: FocusBackend = SystemFocusAdapter> {
+    config: InjectionConfig,
+    backend: B,
     last_check: Option<Instant>,
     cached_status: Option<FocusStatus>,
     cache_duration: Duration,
 }
 
-impl FocusTracker {
+impl FocusTracker<SystemFocusAdapter> {
     pub fn new(config: InjectionConfig) -> Self {
+        Self::with_backend(config, SystemFocusAdapter::default())
+    }
+}
+
+impl<B: FocusBackend> FocusTracker<B> {
+    pub fn with_backend(config: InjectionConfig, backend: B) -> Self {
         let cache_duration = Duration::from_millis(config.focus_cache_duration_ms);
         Self {
-            _config: config,
+            config,
+            backend,
             last_check: None,
             cached_status: None,
             cache_duration,
@@ -39,6 +53,7 @@ impl FocusTracker {
                 return Ok(status);
             }
         }
+
         let status = self.check_focus_status().await?;
         self.last_check = Some(Instant::now());
         self.cached_status = Some(status);
@@ -47,89 +62,45 @@ impl FocusTracker {
     }
 
     async fn check_focus_status(&self) -> Result<FocusStatus, InjectionError> {
-        #[cfg(feature = "atspi")]
-        {
-            use atspi::{
-                connection::AccessibilityConnection, proxy::collection::CollectionProxy, Interface,
-                MatchType, ObjectMatchRule, SortOrder, State,
-            };
-            use tokio::time;
-
-            let timeout_duration = Duration::from_millis(5000);
-            let conn = match time::timeout(timeout_duration, AccessibilityConnection::new()).await {
-                Ok(Ok(c)) => c,
-                Ok(Err(err)) => {
-                    debug!(error = ?err, "AT-SPI: failed to connect");
-                    return Ok(FocusStatus::Unknown);
-                }
-                Err(_) => {
-                    debug!(
-                        "AT-SPI: connection timeout after {}ms",
-                        timeout_duration.as_millis()
-                    );
-                    return Ok(FocusStatus::Unknown);
-                }
-            };
-            let zbus_conn = conn.connection();
-
-            let builder = CollectionProxy::builder(zbus_conn);
-            let builder = match builder.destination("org.a11y.atspi.Registry") {
-                Ok(b) => b,
-                Err(e) => {
-                    debug!(error = ?e, "AT-SPI: failed to set destination");
-                    return Ok(FocusStatus::Unknown);
-                }
-            };
-            let builder = match builder.path("/org/a11y/atspi/accessible/root") {
-                Ok(b) => b,
-                Err(e) => {
-                    debug!(error = ?e, "AT-SPI: failed to set path");
-                    return Ok(FocusStatus::Unknown);
-                }
-            };
-            let collection = match builder.build().await {
-                Ok(p) => p,
-                Err(err) => {
-                    debug!(error = ?err, "AT-SPI: failed to create CollectionProxy on root");
-                    return Ok(FocusStatus::Unknown);
-                }
-            };
-
-            let mut rule = ObjectMatchRule::default();
-            rule.states = State::Focused.into();
-            rule.states_mt = MatchType::All;
-            rule.ifaces = Interface::EditableText.into();
-            rule.ifaces_mt = MatchType::All;
-
-            let matches = match collection
-                .get_matches(rule, SortOrder::Canonical, 1, false)
-                .await
-            {
-                Ok(v) => v,
-                Err(err) => {
-                    debug!(error = ?err, "AT-SPI: Collection.get_matches failed");
-                    return Ok(FocusStatus::Unknown);
-                }
-            };
-
-            if matches.is_empty() {
-                return Ok(FocusStatus::NonEditable);
+        match self.backend.query_focus().await {
+            Ok(status) => Ok(status),
+            Err(err) => {
+                debug!("Focus backend error: {}", err);
+                Ok(FocusStatus::Unknown)
             }
-
-            Ok(FocusStatus::EditableText)
         }
+    }
 
-        #[cfg(not(feature = "atspi"))]
-        {
-            debug!("AT-SPI feature disabled; focus status unknown");
-            Ok(FocusStatus::Unknown)
-        }
+    pub fn config(&self) -> &InjectionConfig {
+        &self.config
     }
 }
 
-#[async_trait::async_trait]
-impl FocusProvider for FocusTracker {
+#[async_trait]
+impl<B: FocusBackend> FocusProvider for FocusTracker<B> {
     async fn get_focus_status(&mut self) -> Result<FocusStatus, InjectionError> {
         FocusTracker::get_focus_status(self).await
+    }
+}
+
+#[derive(Default, Clone)]
+pub struct SystemFocusAdapter;
+
+#[async_trait]
+impl FocusBackend for SystemFocusAdapter {
+    async fn query_focus(&self) -> Result<FocusStatus, InjectionError> {
+        // Temporarily disabled due to AT-SPI API changes
+        // TODO(#38): Update to work with current atspi crate API
+        Ok(FocusStatus::Unknown)
+    }
+}
+
+#[async_trait]
+impl<T> FocusBackend for std::sync::Arc<T>
+where
+    T: FocusBackend + ?Sized,
+{
+    async fn query_focus(&self) -> Result<FocusStatus, InjectionError> {
+        (**self).query_focus().await
     }
 }
