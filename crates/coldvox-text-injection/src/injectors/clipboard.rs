@@ -497,7 +497,7 @@ impl ClipboardInjector {
     }
 
     /// Main injection method
-    pub async fn inject(&self, text: &str, context: &InjectionContext) -> InjectionResult<()> {
+    pub async fn inject(&self, text: &str, _context: &InjectionContext) -> InjectionResult<()> {
         if text.is_empty() {
             return Ok(());
         }
