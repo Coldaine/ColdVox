@@ -25,7 +25,7 @@ LIB_VERSION="0.3.45"
 LIB_ARCH="x86_64"
 LIB_ZIP="vosk-linux-${LIB_ARCH}-${LIB_VERSION}.zip"
 LIB_URL="https://github.com/alphacep/vosk-api/releases/download/v${LIB_VERSION}/${LIB_ZIP}"
-LIB_SHA256="25c3c27c63b505a682833f44a1bde99a48b1088f682b3325789a454990a13b46"
+LIB_SHA256="bbdc8ed85c43979f6443142889770ea95cbfbc56cffb5c5dcd73afa875c5fbb2"
 LIB_EXTRACT_PATH="vosk-linux-${LIB_ARCH}-${LIB_VERSION}"
 
 # Runner's cache directory (this path is specific to the self-hosted runner config)
