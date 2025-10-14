@@ -13,7 +13,9 @@ use crate::TextInjector;
 use async_trait::async_trait;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
+use std::process::Stdio;
 use tracing::{debug, trace, warn};
 
 // Re-export the old Context type for backwards compatibility
@@ -220,18 +222,34 @@ impl ClipboardInjector {
 
     /// Write content to X11 clipboard
     async fn write_x11_clipboard(&self, content: &[u8]) -> InjectionResult<()> {
-        let _content_str = String::from_utf8_lossy(content);
-        let output = Command::new("xclip")
-            .args(&["-selection", "clipboard"])
-            .stdin(std::process::Stdio::piped())
-            .output()
+        // xclip expects input on stdin. Write asynchronously and await exit.
+        let mut child = Command::new("xclip")
+            .args(["-selection", "clipboard"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| InjectionError::Process(format!("Failed to spawn xclip: {}", e)))?;
+
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin
+                .write_all(content)
+                .await
+                .map_err(|e| InjectionError::Process(format!("Failed to write to xclip stdin: {}", e)))?;
+        } else {
+            return Err(InjectionError::Process("xclip stdin unavailable".to_string()));
+        }
+
+        let output = child
+            .wait_with_output()
             .await
-            .map_err(|e| InjectionError::Process(format!("Failed to execute xclip: {}", e)))?;
+            .map_err(|e| InjectionError::Process(format!("Failed to wait for xclip: {}", e)))?;
 
         if output.status.success() {
             Ok(())
         } else {
-            Err(InjectionError::Process("xclip command failed".to_string()))
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            Err(InjectionError::Process(format!("xclip command failed: {}", stderr)))
         }
     }
 
