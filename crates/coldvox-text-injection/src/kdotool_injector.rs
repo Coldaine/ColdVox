@@ -1,10 +1,19 @@
 use crate::types::{InjectionConfig, InjectionError, InjectionResult};
 use crate::TextInjector;
 use async_trait::async_trait;
+use serde::Deserialize;
 use std::process::Command;
 use std::time::Duration;
 use tokio::time::timeout;
-use tracing::info;
+use tracing::{debug, info, warn};
+
+/// Details of the active window, retrieved via kdotool
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+pub struct WindowDetails {
+    pub id: String,
+    pub pid: i32,
+    pub class: String,
+}
 
 /// Kdotool injector for KDE window activation/focus assistance
 pub struct KdotoolInjector {
@@ -47,7 +56,7 @@ impl KdotoolInjector {
     }
 
     /// Get the currently active window ID
-    async fn get_active_window(&self) -> Result<String, InjectionError> {
+    pub async fn get_active_window(&self) -> Result<String, InjectionError> {
         let output = timeout(
             Duration::from_millis(self.config.discovery_timeout_ms),
             tokio::process::Command::new("kdotool")
@@ -68,6 +77,58 @@ impl KdotoolInjector {
 
         let window_id = String::from_utf8_lossy(&output.stdout).trim().to_string();
         Ok(window_id)
+    }
+
+    /// Get details (ID, PID, class) of the currently active window
+    pub async fn get_active_window_details(&self) -> Result<WindowDetails, InjectionError> {
+        // First, get the active window ID
+        let window_id = self.get_active_window().await?;
+
+        // Then, search for that window to get its details
+        let search_output = timeout(
+            Duration::from_millis(self.config.discovery_timeout_ms),
+            tokio::process::Command::new("kdotool")
+                .args(["search", "--class", ".*", &window_id])
+                .output(),
+        )
+        .await
+        .map_err(|_| InjectionError::Timeout(self.config.discovery_timeout_ms))?
+        .map_err(|e| InjectionError::Process(e.to_string()))?;
+
+        if !search_output.status.success() {
+            let stderr = String::from_utf8_lossy(&search_output.stderr);
+            warn!(
+                "kdotool search failed for window id {}: {}",
+                window_id, stderr
+            );
+            return Err(InjectionError::MethodFailed(format!(
+                "kdotool search failed: {}",
+                stderr
+            )));
+        }
+
+        let stdout = String::from_utf8_lossy(&search_output.stdout);
+        debug!("kdotool search output: {}", stdout);
+
+        // The output of `kdotool search` is expected to be a series of lines,
+        // each being a JSON object representing a window. We need to find the
+        // one that matches our active window ID.
+        for line in stdout.lines() {
+            if let Ok(mut details) = serde_json::from_str::<WindowDetails>(line) {
+                // Ensure the ID is a plain string without extra quotes
+                details.id = details.id.trim_matches('"').to_string();
+                if details.id == window_id {
+                    return Ok(details);
+                }
+            } else {
+                warn!("Failed to parse kdotool search output line: {}", line);
+            }
+        }
+
+        Err(InjectionError::MethodFailed(format!(
+            "Could not find details for active window ID {}",
+            window_id
+        )))
     }
 
     /// Activate a window by ID

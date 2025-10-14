@@ -338,13 +338,36 @@ impl StrategyManager {
         Ok("unknown".to_string())
     }
 
+    /// Check if the current desktop session is KDE
+    fn is_kde_session() -> bool {
+        if let Ok(desktop) = std::env::var("XDG_CURRENT_DESKTOP") {
+            return desktop.to_lowercase().contains("kde");
+        }
+        if let Ok(session) = std::env::var("DESKTOP_SESSION") {
+            return session.to_lowercase().contains("plasma");
+        }
+        false
+    }
+
     /// Get active window class via window manager
     #[cfg(target_os = "linux")]
-    #[allow(clippy::unused_async)] // Function needs to be async to match trait/interface expectations
     async fn get_active_window_class(&self) -> Result<String, InjectionError> {
-        use std::process::Command;
+        // Prioritize kdotool in KDE sessions if available
+        #[cfg(feature = "kdotool")]
+        if self.config.allow_kdotool && Self::is_kde_session() {
+            let kdotool_injector = KdotoolInjector::new(self.config.clone());
+            if kdotool_injector.is_available().await {
+                match kdotool_injector.get_active_window_details().await {
+                    Ok(details) => return Ok(details.class),
+                    Err(e) => {
+                        warn!("kdotool window detection failed, falling back: {}", e);
+                    }
+                }
+            }
+        }
 
-        // Try xprop for X11
+        // Fallback to xprop for X11
+        use std::process::Command;
         if let Ok(output) = Command::new("xprop")
             .args(["-root", "_NET_ACTIVE_WINDOW"])
             .output()
@@ -354,14 +377,12 @@ impl StrategyManager {
                 if let Some(window_id) = window_str.split("# ").nth(1) {
                     let window_id = window_id.trim();
 
-                    // Get window class
                     if let Ok(class_output) = Command::new("xprop")
                         .args(["-id", window_id, "WM_CLASS"])
                         .output()
                     {
                         if class_output.status.success() {
                             let class_str = String::from_utf8_lossy(&class_output.stdout);
-                            // Parse WM_CLASS string
                             if let Some(class_part) = class_str.split('"').nth(3) {
                                 return Ok(class_part.to_string());
                             }
@@ -371,20 +392,17 @@ impl StrategyManager {
             }
         }
 
-        // Try swaymsg for Wayland
+        // Fallback to swaymsg for Sway/Wayland
         if let Ok(output) = Command::new("swaymsg").args(["-t", "get_tree"]).output() {
             if output.status.success() {
                 let tree = String::from_utf8_lossy(&output.stdout);
                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(&tree) {
-                    // Find focused window
                     fn find_focused_window(node: &serde_json::Value) -> Option<String> {
                         if node.get("focused").and_then(|v| v.as_bool()) == Some(true) {
                             if let Some(app_id) = node.get("app_id").and_then(|v| v.as_str()) {
                                 return Some(app_id.to_string());
                             }
                         }
-
-                        // Check children
                         if let Some(nodes) = node.get("nodes").and_then(|v| v.as_array()) {
                             for n in nodes {
                                 if let Some(found) = find_focused_window(n) {
@@ -392,10 +410,8 @@ impl StrategyManager {
                                 }
                             }
                         }
-
                         None
                     }
-
                     if let Some(app_id) = find_focused_window(&json) {
                         return Ok(app_id);
                     }
@@ -404,7 +420,7 @@ impl StrategyManager {
         }
 
         Err(InjectionError::Other(
-            "Could not determine active window class".to_string(),
+            "Could not determine active window class using any available method".to_string(),
         ))
     }
 
