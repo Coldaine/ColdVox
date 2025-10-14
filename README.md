@@ -69,6 +69,11 @@ cargo run --bin mic_probe -- list-devices
 
 More detail: See [`CLAUDE.md`](CLAUDE.md) for full developer guide.
 
+### Future Vision (Experimental)
+- We're actively exploring an **always-on intelligent listening** architecture that keeps a lightweight listener running continuously and spins up tiered STT engines on demand.
+- This speculative work includes decoupled listening/processing threads, dynamic STT memory management, and context-aware activation.
+- Read the full experimental plan in [`docs/architecture.md`](docs/architecture.md#coldvox-future-vision). Treat it as research guidance—not a committed roadmap.
+
 ## Slow / Environment-Sensitive Tests
 Some end‑to‑end tests exercise real injection & STT. Gate them locally by setting an env variable (planned):
 ```bash
