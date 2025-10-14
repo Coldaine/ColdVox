@@ -46,6 +46,8 @@ docs/
     └── ...
 ```
 
+> **Update**: `docs/architecture.md` now contains the canonical **ColdVox Future Vision** section (always-on intelligent listening, tiered STT, intelligent memory management). Keep speculative architecture material centralized there and reference it from other docs (README, CLAUDE, roadmap).
+
 ## 3. Documentation Migration Plan
 
 | Current Path                                                | Proposed Action | New Path / Target                                      | Notes                                                              |
@@ -59,14 +61,20 @@ docs/
 | `.github/SETUP_RELEASE_TOKEN.md`                            | Move            | `docs/playbooks/organizational/ci_cd_playbook.md`      | Becomes part of the CI/CD playbook.                                |
 | **Crates**                                                  |                 |                                                        |                                                                    |
 | `crates/app/docs/updated_architecture_diagram.md`           | Merge           | `docs/architecture.md`                                 |                                                                    |
-| `crates/coldvox-audio/README.md` & `docs/*.md`              | Move            | `docs/domains/audio/`                                  | Consolidate all crate-specific docs.                               |
-| `crates/coldvox-foundation/README.md`                       | Move            | `docs/domains/foundation/README.md`                    |                                                                    |
-| `crates/coldvox-gui/README.md` & `docs/*.md`                | Move            | `docs/domains/gui/`                                    |                                                                    |
-| `crates/coldvox-stt/README.md`                              | Move            | `docs/domains/stt/README.md`                           |                                                                    |
-| `crates/coldvox-stt-vosk/README.md`                         | Merge           | `docs/domains/stt/vosk.md`                             |                                                                    |
-| `crates/coldvox-telemetry/README.md`                        | Move            | `docs/domains/telemetry/README.md`                     |                                                                    |
-| `crates/coldvox-text-injection/README.md`                   | Move            | `docs/domains/text-injection/README.md`                |                                                                    |
+| `crates/coldvox-audio/README.md`                            | Keep (crate stub)| `crates/coldvox-audio/README.md`                      | Keep minimal README in crate that links to `docs/domains/audio/`.
+| `crates/coldvox-audio/docs/*.md`                            | Move            | `docs/domains/audio/`                                  | Move crate-specific docs into domain folder.                       |
+| `crates/coldvox-foundation/README.md`                       | Keep (crate stub)| `crates/coldvox-foundation/README.md`                 | Keep minimal README in crate that links to `docs/domains/foundation/`.
+| `crates/coldvox-foundation/docs/*.md`                       | Move            | `docs/domains/foundation/`                             | Move crate-specific docs into domain folder.                       |
+| `crates/coldvox-gui/README.md`                              | Keep (crate stub)| `crates/coldvox-gui/README.md`                        | Keep minimal README in crate that links to `docs/domains/gui/`.
+| `crates/coldvox-gui/docs/*.md`                              | Move            | `docs/domains/gui/`                                    | Move GUI docs into the GUI domain folder.                          |
+| `crates/coldvox-stt/README.md`                              | Keep (crate stub)| `crates/coldvox-stt/README.md`                        | Keep minimal README in crate that links to `docs/domains/stt/`.
+| `crates/coldvox-stt-vosk/README.md`                         | Keep (crate stub)| `crates/coldvox-stt-vosk/README.md`                   | Keep crate README; merge implementation notes into `docs/domains/stt/vosk.md`.
+| `crates/coldvox-stt-vosk/docs/*.md`                         | Move            | `docs/domains/stt/`                                    | Move STT implementation docs into STT domain folder.               |
+| `crates/coldvox-telemetry/README.md`                        | Keep (crate stub)| `crates/coldvox-telemetry/README.md`                  | Keep minimal README in crate that links to `docs/domains/telemetry/`.
+| `crates/coldvox-telemetry/docs/*.md`                        | Move            | `docs/domains/telemetry/`                              | Move crate-specific docs into telemetry domain.                    |
+| `crates/coldvox-text-injection/README.md`                   | Keep (crate stub)| `crates/coldvox-text-injection/README.md`             | Keep minimal README in crate that links to `docs/domains/text-injection/`.
 | `crates/coldvox-text-injection/TESTING.md`                  | Merge & Move    | `docs/playbooks/organizational/testing_playbook.md`    | Consolidate into the main testing playbook.                        |
+| `crates/coldvox-text-injection/docs/*.md`                   | Move            | `docs/domains/text-injection/`                         | Move other text-injection docs into domain folder.                 |
 | `crates/voice-activity-detector/MODIFICATIONS.md`           | Move            | `docs/domains/vad/vendor_modifications.md`             |                                                                    |
 | **Docs (Old Structure)**                                    |                 |                                                        |                                                                    |
 | `docs/TextInjectionArchitecture.md`                         | Merge           | `docs/architecture.md`                                 |                                                                    |
@@ -218,6 +226,16 @@ The following are proposed strategies to make the rich diagram visually clear an
 1) Domain-colored nodes; shape by document type
 - Color: Assign each domain (audio, vad, stt, text-injection, gui, telemetry, foundation) a distinct hue.
 - Shape: Use distinct node shapes for types (architecture, standard, playbook, reference, research, ADR, index).
+
+## Long-term vision
+
+As part of our long-term goals, the system's interaction model should make clear trade-offs between privacy and convenience. The aspirational modes we expect to document and discuss in architecture/UX materials are:
+
+- Default: Push-to-Talk (manual hotkey activation) — recommended for privacy and predictability.
+- Aspirational: Always listening — system monitors audio continuously but requires an explicit trigger before performing any injection. This mode must be opt-in and surfaced with clear UI affordances and consent.
+- Optional UI: Single-button "Speak-to-Talk" toggle — a lightweight, user-visible toggle that provides a momentary activation without a hotkey (behaves like push-to-talk but presented as a persistent toggle).
+
+These modes should be described in domain architecture documents (audio, text-injection) and UX playbooks, and any enabling of always-listening must be gated by explicit user consent and clear indicators in the UI.
 - Accents: Border style to indicate enforcement level (e.g., solid=mandatory, dashed=optional).
 - Pros: Easy mapping from color to domain; redundant encoding via shape increases accessibility.
 

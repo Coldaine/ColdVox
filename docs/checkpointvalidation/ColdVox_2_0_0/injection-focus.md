@@ -54,4 +54,14 @@ This enables:
 - Alternative focus detection methods
 - Mock backends for testing
 - Platform-specific implementations</content>
+
+## Aspirational interaction modes
+
+Long-term we envision an "always listening" option as an aspirational mode where the system monitors audio continuously but does not perform injection until explicitly triggered. The recommended and default interaction model remains Push-to-Talk (manual hotkey activation) which minimizes accidental injection and preserves user privacy. A lightweight "Speak-to-Talk" toggle (single-button in the UI) can be offered as an opt-in mode: when enabled it behaves like a momentary push-to-talk but presented as a persistent toggle for convenience.
+
+- Default: Push-to-Talk (hotkey) — recommended for privacy and predictability.
+- Aspirational: Always listening with explicit trigger to begin injection workflow.
+- Optional UI: Single-button "Speak-to-Talk" toggle to opt into a momentary activation mode without requiring a hotkey.
+
+These modes should be documented in architecture and UX design materials and only enabled after clear user consent and UI affordances.
 <parameter name="filePath">/home/coldaine/Desktop/ColdVoxRefactorTwo/ColdVox/docs/architecture/injection-focus.md

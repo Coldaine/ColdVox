@@ -10,6 +10,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Rust-based voice AI pipeline implementing VAD-gated STT with text injection. The pipeline captures audio, detects speech activity, transcribes it to text, and injects the transcribed text into the active application.
 
+**Future Vision (Experimental)**: See [`docs/architecture.md`](docs/architecture.md#coldvox-future-vision) for the always-on intelligent listening plan, decoupled threading model, and tiered STT memory strategy under active research.
+
 ## Workspace Structure
 
 Multi-crate Cargo workspace:
