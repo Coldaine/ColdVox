@@ -127,18 +127,15 @@ ChunkerConfig {
 ### VAD Configuration (`crates/coldvox-vad/src/config.rs`)
 ```rust
 UnifiedVadConfig {
-    mode: VadMode::Silero,          // Silero (default) | Level3 (feature-gated)
+    mode: VadMode::Silero,          // Silero (only available VAD implementation)
     silero: SileroConfig {
-        threshold: 0.3,
-        min_speech_duration_ms: 250,
-        min_silence_duration_ms: 100,
+        threshold: 0.1,
+        min_speech_duration_ms: 100,
+        min_silence_duration_ms: 500,  // Increased to stitch natural pauses
         window_size_samples: 512,
     },
-    level3: Level3Config {
-        enabled: false,             // Disabled by default
-        onset_threshold_db: 9.0,
-        // ... other Level3 settings
-    }
+    frame_size_samples: 512,
+    sample_rate_hz: 16_000,
 }
 ```
 

@@ -39,10 +39,10 @@ Multi-crate Cargo workspace:
   - `watchdog.rs`: 5-second no-data watchdog with automatic recovery
   - `detector.rs`: RMS-based `SilenceDetector`
 
-- `crates/coldvox-vad/` - VAD core traits and legacy Level3 energy-based VAD
-  - `config.rs`: `UnifiedVadConfig`, `VadMode` (Silero default, Level3 feature-gated)
+- `crates/coldvox-vad/` - VAD core traits and configurations
+  - `config.rs`: `UnifiedVadConfig`, `VadMode`
   - `engine.rs`: `VadEngine` trait for VAD implementations
-  - `level3.rs`: Legacy energy-based VAD (feature `level3`) - disabled by default and not recommended for use.
+  - `energy.rs`: Energy calculation utilities for audio analysis
   - `types.rs`: `VadEvent`, `VadState`, `VadMetrics`
 
 - `crates/coldvox-vad-silero/` - Silero V5 ONNX-based VAD (default)
@@ -155,8 +155,7 @@ Default features: `silero`, `whisper`, `text-injection`
 
 - `whisper` - Faster-Whisper STT support (requires faster-whisper Python package)
 - `text-injection` - Text injection backends (platform-specific)
-- `silero` - Silero VAD (default)
-- `level3` - Legacy Level3 energy-based VAD (not recommended for use)
+- `silero` - Silero V5 ONNX-based VAD (default and only VAD implementation)
 - `examples` - Enable example-specific dependencies
 - `live-hardware-tests` - Hardware-specific test suites
 
@@ -175,8 +174,8 @@ Platform-specific text injection backends are automatically enabled at build tim
 - **Watchdog**: 5-second no-data detection with auto-recovery
 
 ### VAD System
-- **Primary**: Silero V5 via ONNX (feature `silero`)
-- **Legacy Fallback**: Level3 energy-based (feature `level3`, not recommended for use)
+- **Engine**: Silero V5 ONNX-based VAD (feature `silero`, enabled by default)
+- **Configuration**: threshold=0.1, min_speech=100ms, min_silence=500ms
 - **Events**: `VadEvent::{SpeechStart, SpeechEnd}` with debouncing
 
 ### STT Integration
@@ -197,9 +196,9 @@ Platform-specific text injection backends are automatically enabled at build tim
 - Resampler quality: Fast/Balanced/Quality
 
 ### VAD Config
-- Silero threshold: 0.3
-- Min speech duration: 250ms
-- Min silence duration: 100ms
+- Silero threshold: 0.1
+- Min speech duration: 100ms
+- Min silence duration: 500ms (increased to stitch natural pauses)
 
 ### Logging
 - Main app: stderr + `logs/coldvox.log` (daily rotation)
@@ -225,7 +224,7 @@ Build-time detection in `crates/app/build.rs`:
 ## Key Design Principles
 
 - **Monotonic timing**: Uses `std::time::Instant` for all durations and timestamps
-- **Graceful degradation**: Silero VAD as default with Level3 energy VAD as fallback
+- **Single VAD implementation**: Silero V5 ONNX-based VAD with no fallback
 - **Automatic recovery**: Watchdog monitoring + automatic stream restart on errors
 - **Platform awareness**: Build-time detection of OS and desktop environment
 - **Lock-free communication**: rtrb ring buffer with atomic counters for audio data
@@ -236,7 +235,7 @@ Build-time detection in `crates/app/build.rs`:
 ### Core Implementation
 - **Main app**: `crates/app/src/main.rs`
 - **Audio pipeline**: `crates/coldvox-audio/src/capture.rs`, `frame_reader.rs`, `chunker.rs`
-- **VAD engines**: `crates/coldvox-vad-silero/src/silero_wrapper.rs`, `crates/coldvox-vad/src/level3.rs`
+- **VAD engine**: `crates/coldvox-vad-silero/src/silero_wrapper.rs`
 - **STT integration**: `crates/app/src/stt/processor.rs`, `crates/coldvox-stt/src/plugins/whisper_plugin.rs`
 - **Text injection**: `crates/coldvox-text-injection/src/manager.rs`
 

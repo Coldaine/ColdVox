@@ -16,15 +16,16 @@ For long-range architectural intent (always-on intelligent listening, tiered STT
 ### 1. Audio Capture & Device Management
 
 - The system shall initialize an audio capture stream from the specified device, or fall back to the default device when none is provided or when the target device is unavailable.
-- The system shall capture audio continuously in 16 kHz, 16-bit mono format and maintain stream health with watchdog-based recovery.
+- The system shall capture audio in the device's native format (sample rate, bit depth, channels), convert samples to 16-bit signed integers, and resample/downmix to 16 kHz mono downstream in the chunker as needed for VAD and STT processing.
 - The system shall expose device selection through configuration (CLI arguments and environment variables) and log any automatic fallbacks or recovery events.
 - The system shall restart the capture stream automatically when no audio data is observed for the watchdog interval.
+
 
 ### 2. Voice Activity Detection
 
 - The system shall evaluate incoming audio frames through a voice activity detector to distinguish speech from silence.
 - The system shall emit SpeechStart and SpeechEnd events that respect minimum duration thresholds to reduce spurious activations.
-- The system shall use Silero VAD as the default engine with a threshold of 0.3, and maintain Level3 energy VAD as a fallback option.
+- The system shall use Silero V5 ONNX-based VAD as the default and only voice activity detection engine, configured with a threshold of 0.1, minimum speech duration of 100ms, and minimum silence duration of 500ms to stitch together natural pauses in speech.
 - The system shall suppress speech events that do not meet minimum speech duration requirements and ignore silence shorter than the configured minimum.
 
 ### 3. Speech Transcription
@@ -36,10 +37,10 @@ For long-range architectural intent (always-on intelligent listening, tiered STT
 
 ### 4. Text Injection
 
-- The system shall attempt to inject each final transcription into the currently focused application when text injection is enabled.
+- The system shall attempt to inject each final transcription into the currently focused application when text injection is compiled with the `text-injection` feature flag.
 - The system shall select the appropriate injection backend based on platform (e.g., AT-SPI/clipboard for Wayland, kdotool/ydotool for X11) and provide fallbacks when a backend fails.
-- The system shall allow injection to be disabled while continuing to log transcription output.
-- The system shall restore clipboard contents after injection when clipboard preservation is configured.
+- The system shall support disabling text injection only at compile time by omitting the `text-injection` feature; runtime enable/disable is not currently supported.
+- The system shall restore clipboard contents after injection operations that use the clipboard.
 
 ### 5. Activation & Control Modes
 
