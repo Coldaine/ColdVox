@@ -13,9 +13,10 @@ use crate::TextInjector;
 use async_trait::async_trait;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 use std::process::Stdio;
+use tokio::time::timeout;
 use tracing::{debug, trace, warn};
 
 // Re-export the old Context type for backwards compatibility
@@ -230,26 +231,48 @@ impl ClipboardInjector {
             .stderr(Stdio::piped())
             .spawn()
             .map_err(|e| InjectionError::Process(format!("Failed to spawn xclip: {}", e)))?;
+        // Take stderr for later diagnostics if the process fails
+        let mut stderr_pipe = child.stderr.take();
 
         if let Some(mut stdin) = child.stdin.take() {
-            stdin
-                .write_all(content)
+            // Timebox the stdin write to avoid hangs
+            let per_method = self.config.per_method_timeout();
+            timeout(per_method, stdin.write_all(content))
                 .await
+                .map_err(|_| InjectionError::Timeout(self.config.per_method_timeout_ms))?
                 .map_err(|e| InjectionError::Process(format!("Failed to write to xclip stdin: {}", e)))?;
+            // Explicitly close stdin so xclip knows input is finished
+            drop(stdin);
         } else {
             return Err(InjectionError::Process("xclip stdin unavailable".to_string()));
         }
 
-        let output = child
-            .wait_with_output()
-            .await
-            .map_err(|e| InjectionError::Process(format!("Failed to wait for xclip: {}", e)))?;
-
-        if output.status.success() {
-            Ok(())
-        } else {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            Err(InjectionError::Process(format!("xclip command failed: {}", stderr)))
+        // Wait for xclip to exit within paste_action_timeout budget
+        let paste_timeout = self.config.paste_action_timeout();
+        match timeout(paste_timeout, child.wait()).await {
+            Ok(Ok(status)) => {
+                if status.success() {
+                    Ok(())
+                } else {
+                    // Attempt to read stderr for context
+                    let mut buf = Vec::new();
+                    if let Some(mut s) = stderr_pipe.take() {
+                        let _ = s.read_to_end(&mut buf).await;
+                    }
+                    let stderr = String::from_utf8_lossy(&buf);
+                    Err(InjectionError::Process(format!(
+                        "xclip command failed (status {}): {}",
+                        status,
+                        stderr
+                    )))
+                }
+            }
+            Ok(Err(e)) => Err(InjectionError::Process(format!("Failed to wait for xclip: {}", e))),
+            Err(_) => {
+                // Timed out: best effort kill to avoid zombie process
+                let _ = child.kill().await;
+                Err(InjectionError::Timeout(self.config.paste_action_timeout_ms))
+            }
         }
     }
 
