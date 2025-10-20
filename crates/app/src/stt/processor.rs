@@ -20,7 +20,7 @@ use crate::stt::{
     session::{HotkeyBehavior, SessionEvent, Settings},
     TranscriptionConfig, TranscriptionEvent,
 };
-use coldvox_audio::{SharedAudioFrame, chunker::AudioFrame};
+use coldvox_audio::SharedAudioFrame;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::{broadcast, mpsc};
@@ -170,7 +170,7 @@ impl PluginSttProcessor {
             }
         }
 
-        let handoff_latency_ms = handoff_start.elapsed().as_millis() as u64;
+        let _handoff_latency_ms = handoff_start.elapsed().as_millis() as u64;
         // Assume pipeline_metrics is available, update max
         // Note: Add pipeline_metrics: Arc<PipelineMetrics> to PluginSttProcessor if not present, but since it's in runtime, pass via new or global
         // For now, assume it's added; update
@@ -218,18 +218,19 @@ impl PluginSttProcessor {
 
         tokio::spawn(async move {
             // For batch, concat Arcs to Vec<i16> once
-            let audio_buffer = if behavior != HotkeyBehavior::Incremental && !buffer_arcs.is_empty() {
-                let mut full_buffer = Vec::with_capacity(512 * buffer_arcs.len());
-                for arc in buffer_arcs {
-                    full_buffer.extend_from_slice(&*arc);
-                }
-                if let Err(e) = pm.write().await.process_audio(&full_buffer).await {
-                    tracing::error!(target: "stt", "Plugin batch processing error: {}", e);
-                }
-                Some(full_buffer)
-            } else {
-                None
-            };
+            let _audio_buffer =
+                if behavior != HotkeyBehavior::Incremental && !buffer_arcs.is_empty() {
+                    let mut full_buffer = Vec::with_capacity(512 * buffer_arcs.len());
+                    for arc in buffer_arcs {
+                        full_buffer.extend_from_slice(&*arc);
+                    }
+                    if let Err(e) = pm.write().await.process_audio(&full_buffer).await {
+                        tracing::error!(target: "stt", "Plugin batch processing error: {}", e);
+                    }
+                    Some(full_buffer)
+                } else {
+                    None
+                };
 
             let finalize_result = pm.write().await.finalize().await;
 
@@ -268,48 +269,57 @@ impl PluginSttProcessor {
                     let mut metrics = self.metrics.write();
                     metrics.frames_in += 10;
                 }
-                if state.buffer.len() > 300 {
-                    tracing::warn!(target: "stt", "Audio frame ceiling reached. Defensively finalizing.");
+
+                let buffered_samples: usize = state.buffer.iter().map(|chunk| chunk.len()).sum();
+                if buffered_samples >= BUFFER_CEILING_SAMPLES {
+                    tracing::warn!(
+                        target: "stt",
+                        "Audio buffer ceiling ({} samples) reached. Defensively finalizing.",
+                        BUFFER_CEILING_SAMPLES
+                    );
                     self.handle_session_end(state.source, false, &mut state);
                 }
             }
-        } else {
-            // Incremental mode
-            let should_process = {
-                let state = self.state.lock();
-                state.state == UtteranceState::SpeechActive
-            };
+            return;
+        }
 
-            if should_process {
-                // Batch metrics
-                let mut state = self.state.lock();
-                state.local_frame_count += 1;
-                if state.local_frame_count % 10 == 0 {
-                    let mut metrics = self.metrics.write();
-                    metrics.frames_in += 10;
-                }
-                drop(state); // Release lock
+        // Incremental mode
+        let should_process = {
+            let state = self.state.lock();
+            state.state == UtteranceState::SpeechActive
+        };
 
-                tracing::debug!(target: "stt", "Dispatching {} samples to plugin.process_audio()", i16_slice.len());
-                match self
-                    .plugin_manager
-                    .write()
-                    .await
-                    .process_audio(i16_slice)
-                    .await
-                {
-                    Ok(Some(event)) => {
-                        Self::send_event_static(&self.event_tx, &self.metrics, event).await;
-                    }
-                    Ok(None) => {}
-                    Err(e) => {
-                        let err_event = TranscriptionEvent::Error {
-                            code: "PLUGIN_PROCESS_ERROR".to_string(),
-                            message: e,
-                        };
-                        Self::send_event_static(&self.event_tx, &self.metrics, err_event).await;
-                    }
-                }
+        if !should_process {
+            return;
+        }
+
+        {
+            let mut state = self.state.lock();
+            state.local_frame_count += 1;
+            if state.local_frame_count % 10 == 0 {
+                let mut metrics = self.metrics.write();
+                metrics.frames_in += 10;
+            }
+        }
+
+        tracing::debug!(target: "stt", "Dispatching {} samples to plugin.process_audio()", i16_slice.len());
+        match self
+            .plugin_manager
+            .write()
+            .await
+            .process_audio(i16_slice)
+            .await
+        {
+            Ok(Some(event)) => {
+                Self::send_event_static(&self.event_tx, &self.metrics, event).await;
+            }
+            Ok(None) => {}
+            Err(e) => {
+                let err_event = TranscriptionEvent::Error {
+                    code: "PLUGIN_PROCESS_ERROR".to_string(),
+                    message: e,
+                };
+                Self::send_event_static(&self.event_tx, &self.metrics, err_event).await;
             }
         }
     }
