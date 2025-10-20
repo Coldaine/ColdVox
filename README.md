@@ -47,6 +47,8 @@ cargo run
 cargo run --bin mic_probe -- list-devices
 ```
 
+> Audio dumps: The TUI dashboard now records raw audio to `logs/audio_dumps/` by default. Pass `--dump-audio=false` to disable persistent capture.
+
 **Note on Defaults**: Vosk STT is now the default feature (enabled automatically), ensuring real speech recognition in the app and tests. This prevents fallback to the mock plugin, which skips transcription. Override with `--stt-preferred mock` or env `COLDVOX_STT_PREFERRED=mock` if needed for testing. For other STT backends (e.g., Whisper), enable their features and set preferred accordingly.
 
 ### Vosk Model Setup
@@ -56,9 +58,9 @@ cargo run --bin mic_probe -- list-devices
 - **Verification**: `sha256sum -c models/vosk-model-small-en-us-0.15/SHA256SUMS`
 
 ## How It Works
-1. **Audio Capture** → **VAD** → **STT** → **Text Injection**
-2. **Push-to-Talk**: Hold `Super+Ctrl`, speak, release (hotkey mode)
-3. **Voice Activation**: Automatically detects speech and transcribes (VAD mode)
+1. **Always-on pipeline**: Audio capture, VAD, STT, and text-injection buffering run continuously by default. Raw 16 kHz mono audio is recorded to `logs/audio_dumps/` for later review.
+2. **Voice activation (default)**: The Silero VAD segments speech automatically—no hotkey required.
+3. **Push-to-talk (preview inject)**: Hold `Super+Ctrl` to stream buffered text into the preview/injection window when you need manual control. Release to stop feeding new text.
 
 More detail: See [`CLAUDE.md`](CLAUDE.md) for full developer guide.
 

@@ -4,7 +4,7 @@
 // - File output uses a non-blocking writer; logs/ is created if missing.
 // - Useful for post-session analysis even when the TUI is active.
 use chrono::Local;
-use clap::{Parser, ValueEnum};
+use clap::{builder::BoolishValueParser, Parser, ValueEnum};
 use coldvox_app::runtime::{self as app_runtime, ActivationMode};
 #[cfg(feature = "vosk")]
 use coldvox_app::stt::TranscriptionEvent;
@@ -77,7 +77,7 @@ struct Cli {
     #[arg(short = 'D', long)]
     device: Option<String>,
     /// Activation mode: vad or hotkey
-    #[arg(long = "activation-mode", default_value = "hotkey", value_enum)]
+    #[arg(long = "activation-mode", default_value = "vad", value_enum)]
     activation_mode: CliActivationMode,
     /// Resampler quality: fast, balanced, quality
     #[arg(long = "resampler-quality", default_value = "balanced")]
@@ -90,9 +90,14 @@ struct Cli {
     )]
     log_level: String,
 
-    /// Enable dumping raw audio to disk
-    #[arg(long = "dump-audio", default_value_t = false)]
-    dump_audio: bool,
+    /// Enable or disable dumping raw audio to disk (defaults to enabled)
+    #[arg(
+        long = "dump-audio",
+        num_args = 0..=1,
+        default_missing_value = "true",
+        value_parser = BoolishValueParser::new()
+    )]
+    dump_audio: Option<bool>,
 
     /// Directory to save audio dumps (defaults to logs/audio_dumps)
     #[arg(long = "dump-dir")]
@@ -285,7 +290,7 @@ impl Default for DashboardState {
             #[cfg(feature = "vosk")]
             plugin_failures: 0,
 
-            dump_audio: false,
+            dump_audio: true,
             dump_dir: None,
             dump_format: DumpFormat::Pcm,
         }
@@ -293,6 +298,13 @@ impl Default for DashboardState {
 }
 
 impl DashboardState {
+    fn activation_label(mode: ActivationMode) -> &'static str {
+        match mode {
+            ActivationMode::Vad => "Always-on (VAD)",
+            ActivationMode::Hotkey => "Push-to-talk (preview inject)",
+        }
+    }
+
     fn log(&mut self, level: LogLevel, message: String) {
         self.logs.push_back(LogEntry {
             timestamp: Instant::now(),
@@ -335,10 +347,7 @@ impl DashboardState {
             LogLevel::Info,
             format!(
                 "Switched activation mode to {}",
-                match self.activation_mode {
-                    ActivationMode::Vad => "VAD",
-                    ActivationMode::Hotkey => "Push-to-talk",
-                }
+                Self::activation_label(self.activation_mode)
             ),
         );
     }
@@ -373,7 +382,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Audio dump settings from CLI
-    state.dump_audio = cli.dump_audio;
+    state.dump_audio = cli.dump_audio.unwrap_or(true);
     state.dump_dir = cli.dump_dir;
     state.dump_format = cli.dump_format;
 
@@ -1048,10 +1057,7 @@ fn draw_status(f: &mut Frame, area: Rect, state: &DashboardState) {
     status_text.push(Line::from(format!("Device: {}", state.selected_device)));
     status_text.push(Line::from(format!(
         "Activation: {}",
-        match state.activation_mode {
-            ActivationMode::Vad => "VAD",
-            ActivationMode::Hotkey => "Push-to-talk",
-        }
+        DashboardState::activation_label(state.activation_mode)
     )));
     status_text.push(Line::from(""));
     status_text.push(Line::from(vec![
