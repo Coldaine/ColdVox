@@ -6,18 +6,12 @@ pub use coldvox_stt::{
     WordInfo,
 };
 
-#[cfg(feature = "vosk")]
-pub mod vosk;
-
-#[cfg(feature = "vosk")]
-pub use vosk::VoskTranscriber;
-
-#[cfg(feature = "vosk")]
+#[cfg(feature = "whisper")]
 pub mod processor;
 
 pub mod session;
 
-#[cfg(feature = "vosk")]
+#[cfg(feature = "whisper")]
 pub mod persistence;
 
 pub mod plugin_manager;

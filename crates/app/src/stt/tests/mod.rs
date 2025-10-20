@@ -5,20 +5,19 @@ pub mod timeout_utils;
 /// including WER calculation, timeout handling, and integration tests.
 pub mod wer_utils;
 
-#[cfg(feature = "vosk")]
+#[cfg(feature = "whisper")]
 pub mod end_to_end_wav;
 
 #[cfg(test)]
-mod vosk_tests {
+mod stt_core_tests {
     use crate::stt::*;
 
     #[test]
     fn test_transcription_config_default() {
+        std::env::remove_var("WHISPER_MODEL_PATH");
         let config = TranscriptionConfig::default();
         assert!(!config.enabled);
-        // Model path should match default or env var if set
-        let expected_path = std::env::var("VOSK_MODEL_PATH")
-            .unwrap_or_else(|_| "models/vosk-model-small-en-us-0.15".to_string());
+        let expected_path = std::env::var("WHISPER_MODEL_PATH").unwrap_or_else(|_| "base.en".to_string());
         assert_eq!(config.model_path, expected_path);
         assert!(config.partial_results);
         assert_eq!(config.max_alternatives, 1);
@@ -78,129 +77,9 @@ mod vosk_tests {
             _ => panic!("Expected Error variant"),
         }
     }
-
-    #[cfg(feature = "vosk")]
-    mod vosk_integration_tests {
-        use coldvox_stt::EventBasedTranscriber;
-
-        use crate::stt::vosk::VoskTranscriber;
-        use crate::stt::TranscriptionConfig;
-
-        #[test]
-        fn test_vosk_transcriber_missing_model() {
-            // Ensure the environment variable is not set for this test
-            std::env::remove_var("VOSK_MODEL_PATH");
-
-            // Create a path that is guaranteed not to exist
-            let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
-            let non_existent_path = temp_dir.path().join("non_existent_model");
-
-            let config = TranscriptionConfig {
-                enabled: true,
-                model_path: non_existent_path.to_str().unwrap().to_string(),
-                partial_results: true,
-                max_alternatives: 1,
-                include_words: false,
-                buffer_size_ms: 512,
-                streaming: false,
-                auto_extract_model: std::env::var("COLDVOX_STT_AUTO_EXTRACT")
-                    .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
-                    .unwrap_or(true),
-            };
-
-            let result = VoskTranscriber::new(config, 16000.0);
-            assert!(
-                result.is_err(),
-                "Expected an error for a missing model path, but got Ok"
-            );
-            if let Err(e) = result {
-                assert!(
-                    e.contains("does not exist or is not a directory"),
-                    "Error message was: {}",
-                    e
-                );
-            }
-        }
-
-        #[test]
-        fn test_vosk_transcriber_empty_model_path() {
-            // Empty model_path should fall back to default_model_path()
-            let config = TranscriptionConfig {
-                enabled: true,
-                model_path: "".to_string(),
-                partial_results: true,
-                max_alternatives: 1,
-                include_words: false,
-                buffer_size_ms: 512,
-                streaming: false,
-                auto_extract_model: std::env::var("COLDVOX_STT_AUTO_EXTRACT")
-                    .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
-                    .unwrap_or(true),
-            };
-
-            let default_path = crate::stt::vosk::default_model_path();
-            let default_exists = std::path::Path::new(&default_path).exists();
-
-            let result = VoskTranscriber::new(config, 16000.0);
-
-            if default_exists {
-                assert!(
-                    result.is_ok(),
-                    "Expected Ok() when default model exists at {}",
-                    default_path
-                );
-            } else {
-                assert!(
-                    result.is_err(),
-                    "Expected Err() when default model missing at {}",
-                    default_path
-                );
-                if let Err(e) = result {
-                    assert!(e.contains("Vosk model not found"));
-                }
-            }
-        }
-
-        // Integration test with real model (if available)
-        #[test]
-        fn test_vosk_transcriber_with_model() {
-            let model_path = "models/vosk-model-small-en-us-0.15";
-            if !std::path::Path::new(model_path).exists() {
-                eprintln!("Skipping test: Model not found at {}", model_path);
-                return;
-            }
-
-            let config = TranscriptionConfig {
-                enabled: true,
-                model_path: model_path.to_string(),
-                partial_results: true,
-                max_alternatives: 1,
-                include_words: false,
-                buffer_size_ms: 512,
-                streaming: false,
-                auto_extract_model: std::env::var("COLDVOX_STT_AUTO_EXTRACT")
-                    .map(|v| matches!(v.to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
-                    .unwrap_or(true),
-            };
-
-            let result = VoskTranscriber::new(config.clone(), 16000.0);
-            assert!(result.is_ok());
-
-            let mut transcriber = result.unwrap();
-
-            // Test with silence (should not produce transcription)
-            let silence = vec![0i16; 512];
-            let event = transcriber.accept_frame(&silence);
-            assert!(event.is_ok());
-
-            // Test finalization
-            let final_result = transcriber.finalize_utterance();
-            assert!(final_result.is_ok());
-        }
-    }
 }
 
-#[cfg(all(test, feature = "vosk"))]
+#[cfg(all(test, feature = "whisper"))]
 mod processor_tests {
     use crate::stt::processor::*;
 

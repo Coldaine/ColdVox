@@ -55,7 +55,7 @@ min_success_rate = 0.3           # Minimum success rate before fallback
 min_sample_size = 5              # Samples before trusting success rate
 
 [stt]
-# preferred = "vosk"              # Preferred STT engine (omit for auto-select)
+# preferred = "whisper"           # Preferred STT engine (omit for auto-select)
 fallbacks = []
 require_local = false
 # max_mem_mb = 1024               # Memory limit in MB (omit for no limit)
