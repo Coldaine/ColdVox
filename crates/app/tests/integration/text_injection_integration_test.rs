@@ -8,7 +8,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_text_injection_end_to_end() {
-        std::env::set_var("COLDVOX_STT_PREFERRED", "vosk"); // Force Vosk for integration
+        std::env::set_var("COLDVOX_STT_PREFERRED", "whisper"); // Force Faster-Whisper for integration
     
         // Create configuration
         let config = InjectionConfig::default();

@@ -1,7 +1,7 @@
 {
-  "preferred_plugin": "vosk",
+  "preferred_plugin": "whisper",
   "fallback_plugins": [
-    "vosk",
+    "whisper",
     "mock"
   ],
   "require_local": false,

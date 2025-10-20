@@ -6,7 +6,7 @@
 use chrono::Local;
 use clap::{Parser, ValueEnum};
 use coldvox_app::runtime::{self as app_runtime, ActivationMode};
-#[cfg(feature = "vosk")]
+#[cfg(feature = "whisper")]
 use coldvox_app::stt::TranscriptionEvent;
 use coldvox_vad::types::VadEvent;
 use crossterm::{
@@ -128,15 +128,15 @@ enum AppEvent {
     Vad(VadEvent),
     /// Internal control signal: runtime replaced (after restart)
     AppReplaced(app_runtime::AppHandle),
-    #[cfg(feature = "vosk")]
+    #[cfg(feature = "whisper")]
     Transcription(TranscriptionEvent),
-    #[cfg(feature = "vosk")]
+    #[cfg(feature = "whisper")]
     PluginLoad(String),
-    #[cfg(feature = "vosk")]
+    #[cfg(feature = "whisper")]
     PluginUnload(String),
-    #[cfg(feature = "vosk")]
+    #[cfg(feature = "whisper")]
     PluginSwitch(String),
-    #[cfg(feature = "vosk")]
+    #[cfg(feature = "whisper")]
     PluginStatusUpdate,
 }
 
@@ -176,26 +176,26 @@ struct DashboardState {
     has_metrics_snapshot: bool,
     current_tab: Tab,
     /// Last final transcript (if STT enabled)
-    #[cfg(feature = "vosk")]
+    #[cfg(feature = "whisper")]
     last_transcript: Option<String>,
 
-    #[cfg(feature = "vosk")]
+    #[cfg(feature = "whisper")]
     plugin_manager:
         Option<Arc<tokio::sync::RwLock<coldvox_app::stt::plugin_manager::SttPluginManager>>>,
 
-    #[cfg(feature = "vosk")]
+    #[cfg(feature = "whisper")]
     plugin_current: Option<String>,
 
-    #[cfg(feature = "vosk")]
+    #[cfg(feature = "whisper")]
     plugin_active_count: usize,
 
-    #[cfg(feature = "vosk")]
+    #[cfg(feature = "whisper")]
     plugin_transcription_requests: u64,
 
-    #[cfg(feature = "vosk")]
+    #[cfg(feature = "whisper")]
     plugin_success: u64,
 
-    #[cfg(feature = "vosk")]
+    #[cfg(feature = "whisper")]
     plugin_failures: u64,
 
     // Audio dump options
@@ -270,19 +270,19 @@ impl Default for DashboardState {
             },
             has_metrics_snapshot: false,
             current_tab: Tab::Audio,
-            #[cfg(feature = "vosk")]
+            #[cfg(feature = "whisper")]
             last_transcript: None,
-            #[cfg(feature = "vosk")]
+            #[cfg(feature = "whisper")]
             plugin_manager: None,
-            #[cfg(feature = "vosk")]
+            #[cfg(feature = "whisper")]
             plugin_current: None,
-            #[cfg(feature = "vosk")]
+            #[cfg(feature = "whisper")]
             plugin_active_count: 0,
-            #[cfg(feature = "vosk")]
+            #[cfg(feature = "whisper")]
             plugin_transcription_requests: 0,
-            #[cfg(feature = "vosk")]
+            #[cfg(feature = "whisper")]
             plugin_success: 0,
-            #[cfg(feature = "vosk")]
+            #[cfg(feature = "whisper")]
             plugin_failures: 0,
 
             dump_audio: false,
@@ -462,7 +462,7 @@ async fn run_app(
                                         #[allow(unused_mut)]
                                         let mut app = app;
                                         // Extract plugin manager for UI access before moving app
-                                        #[cfg(feature = "vosk")]
+                                        #[cfg(feature = "whisper")]
                                         {
                                             state.plugin_manager = app.plugin_manager.clone();
                                         }
@@ -475,7 +475,7 @@ async fn run_app(
                                         });
 
                                         // Forward STT events to UI (if enabled)
-                                        #[cfg(feature = "vosk")]
+                                        #[cfg(feature = "whisper")]
                                         if let Some(mut stt_rx) = app.stt_rx.take() {
                                             let ui_tx2 = tx.clone();
                                             tokio::spawn(async move {
@@ -646,7 +646,7 @@ async fn run_app(
                         KeyCode::Char('l') | KeyCode::Char('L') => {
                             // Load plugin (only when running)
                             if state.is_running {
-                                #[cfg(feature = "vosk")]
+                                #[cfg(feature = "whisper")]
                                 {
                                     if let Some(ref pm) = state.plugin_manager {
                                         let pm_clone = pm.clone();
@@ -666,7 +666,7 @@ async fn run_app(
                         KeyCode::Char('u') | KeyCode::Char('U') => {
                             // Unload plugin (only when running)
                             if state.is_running {
-                                #[cfg(feature = "vosk")]
+                                #[cfg(feature = "whisper")]
                                 {
                                     if let Some(ref pm) = state.plugin_manager {
                                         let pm_clone = pm.clone();
@@ -683,7 +683,7 @@ async fn run_app(
                         KeyCode::Char('w') | KeyCode::Char('W') => {
                             // Switch plugin (only when running and in plugins tab)
                             if state.is_running && matches!(state.current_tab, Tab::Plugins) {
-                                #[cfg(feature = "vosk")]
+                                #[cfg(feature = "whisper")]
                                 {
                                     if let Some(ref pm) = state.plugin_manager {
                                         let pm_clone = pm.clone();
@@ -725,7 +725,7 @@ async fn run_app(
                         state.app = Some(app);
                         state.is_running = true;
                     }
-                        #[cfg(feature = "vosk")]
+                        #[cfg(feature = "whisper")]
                         AppEvent::Transcription(tevent) => {
                             match tevent.clone() {
                                 TranscriptionEvent::Partial { utterance_id, text, .. } => {
@@ -744,7 +744,7 @@ async fn run_app(
                                 }
                             }
                         }
-                        #[cfg(feature = "vosk")]
+                        #[cfg(feature = "whisper")]
                         AppEvent::PluginLoad(plugin_id) => {
                             state.plugin_current = Some(plugin_id.clone());
                             state.plugin_active_count += 1;
@@ -756,7 +756,7 @@ async fn run_app(
                             }
                             state.log(LogLevel::Success, format!("Plugin loaded: {}", plugin_id));
                         }
-                        #[cfg(feature = "vosk")]
+                        #[cfg(feature = "whisper")]
                         AppEvent::PluginUnload(plugin_id) => {
                             if state.plugin_current.as_ref() == Some(&plugin_id) {
                                 state.plugin_current = None;
@@ -772,7 +772,7 @@ async fn run_app(
                             }
                             state.log(LogLevel::Info, format!("Plugin unloaded: {}", plugin_id));
                         }
-                        #[cfg(feature = "vosk")]
+                        #[cfg(feature = "whisper")]
                         AppEvent::PluginSwitch(plugin_id) => {
                             state.plugin_current = Some(plugin_id.clone());
                             // Update metrics from shared sink
@@ -783,7 +783,7 @@ async fn run_app(
                             }
                             state.log(LogLevel::Info, format!("Switched to plugin: {}", plugin_id));
                         }
-                        #[cfg(feature = "vosk")]
+                        #[cfg(feature = "whisper")]
                         AppEvent::PluginStatusUpdate => {
                             // Update plugin status (could refresh metrics)
                             state.log(LogLevel::Debug, "Plugin status updated".to_string());
@@ -1074,7 +1074,7 @@ fn draw_status(f: &mut Frame, area: Rect, state: &DashboardState) {
     status_text.push(Line::from(
         state.last_vad_event.as_deref().unwrap_or("None"),
     ));
-    #[cfg(feature = "vosk")]
+    #[cfg(feature = "whisper")]
     {
         status_text.push(Line::from(""));
         status_text.push(Line::from("Last Transcript (final):"));
@@ -1148,7 +1148,7 @@ fn draw_plugins(f: &mut Frame, area: Rect, #[allow(unused_variables)] state: &Da
 
     let mut plugin_lines: Vec<Line> = Vec::new();
 
-    #[cfg(feature = "vosk")]
+    #[cfg(feature = "whisper")]
     {
         // Display available plugins from plugin manager
         if let Some(ref pm) = state.plugin_manager {
@@ -1174,9 +1174,9 @@ fn draw_plugins(f: &mut Frame, area: Rect, #[allow(unused_variables)] state: &Da
         }
     }
 
-    #[cfg(not(feature = "vosk"))]
+    #[cfg(not(feature = "whisper"))]
     {
-        plugin_lines.push(Line::from("STT plugins require 'vosk' feature"));
+        plugin_lines.push(Line::from("STT plugins require 'whisper' feature"));
     }
 
     let paragraph = Paragraph::new(plugin_lines);
@@ -1197,7 +1197,7 @@ fn draw_plugin_status(
 
     let mut status_lines: Vec<Line> = Vec::new();
 
-    #[cfg(feature = "vosk")]
+    #[cfg(feature = "whisper")]
     {
         // Current plugin
         let current = state.plugin_current.as_deref().unwrap_or("None");
@@ -1253,9 +1253,9 @@ fn draw_plugin_status(
         status_lines.push(Line::from("[U] Unload Plugin  [W] Switch"));
     }
 
-    #[cfg(not(feature = "vosk"))]
+    #[cfg(not(feature = "whisper"))]
     {
-        status_lines.push(Line::from("STT plugins require 'vosk' feature"));
+        status_lines.push(Line::from("STT plugins require 'whisper' feature"));
     }
 
     let paragraph = Paragraph::new(status_lines);

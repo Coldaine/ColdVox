@@ -58,7 +58,7 @@ pub enum SttPluginError {
 /// Metadata about an STT plugin
 #[derive(Debug, Clone)]
 pub struct PluginInfo {
-    /// Unique identifier for the plugin (e.g., "vosk", "whisper", "gcloud")
+    /// Unique identifier for the plugin (e.g., "whisper", "mock", "gcloud")
     pub id: String,
 
     /// Human-readable name
@@ -287,7 +287,7 @@ impl Default for PluginSelectionConfig {
         Self {
             preferred_plugin: None,
             fallback_plugins: vec![
-                "vosk".to_string(),
+                "whisper".to_string(),
                 "whisper-local".to_string(),
                 "gcloud".to_string(),
             ],

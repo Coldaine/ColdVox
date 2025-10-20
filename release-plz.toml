@@ -34,10 +34,6 @@ name = "coldvox-stt"
 publish = false
 
 [[package]]
-name = "coldvox-stt-vosk"
-publish = false
-
-[[package]]
 name = "coldvox-text-injection"
 publish = false
 

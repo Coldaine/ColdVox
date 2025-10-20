@@ -532,14 +532,8 @@ impl SttPluginManager {
             registry.register(Box::new(MockPluginFactory::default()));
         }
 
-        // Register Vosk plugin if the vosk feature is enabled in the app
-        #[cfg(feature = "vosk")]
-        {
-            use coldvox_stt_vosk::plugin::VoskPluginFactory;
-            registry.register(Box::new(VoskPluginFactory::new()));
-        }
-
-        // Register Whisper plugin (always available as stub)
+        // Register Faster-Whisper plugin when the whisper feature is enabled.
+        #[cfg(feature = "whisper")]
         {
             use coldvox_stt::plugins::whisper_plugin::WhisperPluginFactory;
             registry.register(Box::new(WhisperPluginFactory::new()));
@@ -1297,14 +1291,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_unload_plugin() {
-        // Set VOSK_MODEL_PATH for the test
-        let model_path = std::path::Path::new("models/vosk-model-small-en-us-0.15")
-            .canonicalize()
-            .unwrap_or_else(|_| std::path::PathBuf::from("models/vosk-model-small-en-us-0.15"))
-            .to_string_lossy()
-            .to_string();
-        std::env::set_var("VOSK_MODEL_PATH", model_path);
-
         let mut manager = create_test_manager();
 
         // Initialize with a plugin
@@ -1531,14 +1517,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_unload_idempotency() {
-        // Set VOSK_MODEL_PATH for the test
-        let model_path = std::path::Path::new("models/vosk-model-small-en-us-0.15")
-            .canonicalize()
-            .unwrap_or_else(|_| std::path::PathBuf::from("models/vosk-model-small-en-us-0.15"))
-            .to_string_lossy()
-            .to_string();
-        std::env::set_var("VOSK_MODEL_PATH", model_path);
-
         let mut manager = create_test_manager();
 
         // Initialize with a plugin

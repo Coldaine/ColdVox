@@ -19,12 +19,12 @@ use coldvox_vad::{UnifiedVadConfig, VadEvent, VadMode, FRAME_SIZE_SAMPLES, SAMPL
 
 use crate::hotkey::spawn_hotkey_listener;
 use crate::stt::plugin_manager::SttPluginManager;
-#[cfg(feature = "vosk")]
+#[cfg(feature = "whisper")]
 use crate::stt::processor::PluginSttProcessor;
-#[cfg(feature = "vosk")]
+#[cfg(feature = "whisper")]
 use crate::stt::session::Settings;
 use crate::stt::session::{SessionEvent, SessionSource};
-#[cfg(feature = "vosk")]
+#[cfg(feature = "whisper")]
 use coldvox_stt::TranscriptionConfig;
 
 /// Activation strategy for push-to-talk vs voice activation
@@ -95,9 +95,9 @@ pub struct AppHandle {
     raw_vad_tx: mpsc::Sender<VadEvent>,
     audio_tx: broadcast::Sender<coldvox_audio::AudioFrame>,
     current_mode: std::sync::Arc<RwLock<ActivationMode>>,
-    #[cfg(feature = "vosk")]
+    #[cfg(feature = "whisper")]
     pub stt_rx: Option<mpsc::Receiver<TranscriptionEvent>>,
-    #[cfg(feature = "vosk")]
+    #[cfg(feature = "whisper")]
     pub plugin_manager: Option<Arc<tokio::sync::RwLock<SttPluginManager>>>,
 
     audio_capture: AudioCaptureThread,
@@ -105,9 +105,9 @@ pub struct AppHandle {
     chunker_handle: JoinHandle<()>,
     trigger_handle: Arc<Mutex<JoinHandle<()>>>,
     vad_fanout_handle: JoinHandle<()>,
-    #[cfg(feature = "vosk")]
+    #[cfg(feature = "whisper")]
     stt_handle: Option<JoinHandle<()>>,
-    #[cfg(feature = "vosk")]
+    #[cfg(feature = "whisper")]
     stt_forward_handle: Option<JoinHandle<()>>,
     #[cfg(feature = "text-injection")]
     injection_handle: Option<JoinHandle<()>>,
@@ -148,11 +148,11 @@ impl AppHandle {
             trigger_guard.abort();
         }
         this.vad_fanout_handle.abort();
-        #[cfg(feature = "vosk")]
+        #[cfg(feature = "whisper")]
         if let Some(h) = &this.stt_handle {
             h.abort();
         }
-        #[cfg(feature = "vosk")]
+        #[cfg(feature = "whisper")]
         if let Some(h) = &this.stt_forward_handle {
             h.abort();
         }
@@ -162,7 +162,7 @@ impl AppHandle {
         }
 
         // Stop plugin manager tasks
-        #[cfg(feature = "vosk")]
+        #[cfg(feature = "whisper")]
         if let Some(pm) = &this.plugin_manager {
             // Unload all plugins before stopping tasks
             let _ = pm.read().await.unload_all_plugins().await;
@@ -177,7 +177,7 @@ impl AppHandle {
             .into_inner();
         let _ = trigger_handle.await;
         let _ = this.vad_fanout_handle.await;
-        #[cfg(feature = "vosk")]
+        #[cfg(feature = "whisper")]
         if let Some(h) = this.stt_handle {
             let _ = h.await;
         }
@@ -215,7 +215,7 @@ impl AppHandle {
         info!("Switching activation mode from {:?} to {:?}", *old, mode);
 
         // Unload STT plugins before switching modes to ensure clean state
-        #[cfg(feature = "vosk")]
+        #[cfg(feature = "whisper")]
         if let Some(ref pm) = self.plugin_manager {
             info!("Unloading STT plugins before activation mode switch");
             let _ = pm.read().await.unload_all_plugins().await;
@@ -442,9 +442,9 @@ pub async fn start(
         };
 
     // Create transcription event channels
-    #[cfg(feature = "vosk")]
+    #[cfg(feature = "whisper")]
     let (stt_tx, stt_rx) = mpsc::channel::<TranscriptionEvent>(100);
-    #[cfg(not(feature = "vosk"))]
+    #[cfg(not(feature = "whisper"))]
     let (_stt_tx, _stt_rx) = mpsc::channel::<TranscriptionEvent>(100);
 
     // Text injection channel
@@ -454,7 +454,7 @@ pub async fn start(
     let (_text_injection_tx, _text_injection_rx) = mpsc::channel::<TranscriptionEvent>(100);
 
     // 6) STT Processor and Fanout - Unified Path
-    #[cfg(feature = "vosk")]
+    #[cfg(feature = "whisper")]
     let mut stt_forward_handle: Option<JoinHandle<()>> = None;
     #[allow(unused_variables)]
     let (stt_handle, vad_fanout_handle) = if let Some(pm) = plugin_manager.clone() {
@@ -462,10 +462,10 @@ pub async fn start(
         let (session_tx, session_rx) = mpsc::channel::<SessionEvent>(100);
         let stt_audio_rx = audio_tx.subscribe();
 
-        #[cfg(feature = "vosk")]
+        #[cfg(feature = "whisper")]
         let (stt_pipeline_tx, stt_pipeline_rx) = mpsc::channel::<TranscriptionEvent>(100);
 
-        #[cfg(feature = "vosk")]
+        #[cfg(feature = "whisper")]
         let stt_config = TranscriptionConfig {
             // This `streaming` flag is now legacy. Behavior is controlled by `Settings`.
             enabled: true,
@@ -473,7 +473,7 @@ pub async fn start(
             ..Default::default()
         };
 
-        #[cfg(feature = "vosk")]
+        #[cfg(feature = "whisper")]
         let processor = PluginSttProcessor::new(
             stt_audio_rx,
             session_rx,
@@ -520,14 +520,14 @@ pub async fn start(
             }
         });
 
-        #[cfg(feature = "vosk")]
+        #[cfg(feature = "whisper")]
         let stt_handle = Some(tokio::spawn(async move {
             processor.run().await;
         }));
-        #[cfg(not(feature = "vosk"))]
+        #[cfg(not(feature = "whisper"))]
         let stt_handle: Option<JoinHandle<()>> = None;
 
-        #[cfg(feature = "vosk")]
+        #[cfg(feature = "whisper")]
         {
             let mut pipeline_rx = stt_pipeline_rx;
             let stt_tx_forward = stt_tx.clone();
@@ -586,9 +586,9 @@ pub async fn start(
             }
         });
 
-        #[cfg(feature = "vosk")]
+        #[cfg(feature = "whisper")]
         let stt_handle = None;
-        #[cfg(not(feature = "vosk"))]
+        #[cfg(not(feature = "whisper"))]
         let stt_handle: Option<JoinHandle<()>> = None;
 
         (stt_handle, vad_fanout_handle)
@@ -661,18 +661,18 @@ pub async fn start(
         raw_vad_tx,
         audio_tx,
         current_mode: std::sync::Arc::new(RwLock::new(opts.activation_mode)),
-        #[cfg(feature = "vosk")]
+        #[cfg(feature = "whisper")]
         stt_rx: Some(stt_rx),
-        #[cfg(feature = "vosk")]
+        #[cfg(feature = "whisper")]
         plugin_manager,
         audio_capture,
         audio_producer,
         chunker_handle,
         trigger_handle: Arc::new(Mutex::new(trigger_handle)),
         vad_fanout_handle,
-        #[cfg(feature = "vosk")]
+        #[cfg(feature = "whisper")]
         stt_handle,
-        #[cfg(feature = "vosk")]
+        #[cfg(feature = "whisper")]
         stt_forward_handle,
         #[cfg(feature = "text-injection")]
         injection_handle,
@@ -695,7 +695,7 @@ mod tests {
             resampler_quality: ResamplerQuality::Balanced,
             activation_mode,
             stt_selection: Some(PluginSelectionConfig {
-                preferred_plugin: Some("vosk".to_string()),
+                preferred_plugin: Some("whisper".to_string()),
                 fallback_plugins: vec!["noop".to_string()],
                 require_local: true,
                 max_memory_mb: None,
@@ -722,7 +722,7 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "vosk")]
+    #[cfg(feature = "whisper")]
     #[tokio::test]
     async fn test_unified_stt_pipeline_vad_mode() {
         // Accelerate playback to shorten test duration
@@ -806,7 +806,7 @@ mod tests {
         Arc::new(app).shutdown().await;
     }
 
-    #[cfg(feature = "vosk")]
+    #[cfg(feature = "whisper")]
     #[tokio::test]
     async fn test_unified_stt_pipeline_hotkey_mode() {
         // Accelerate playback to shorten test duration
