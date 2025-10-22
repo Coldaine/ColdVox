@@ -685,6 +685,7 @@ dependencies = [
  "faster-whisper-rs",
  "hound",
  "parking_lot",
+ "pyo3",
  "serde",
  "tempfile",
  "thiserror 2.0.17",
