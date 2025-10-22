@@ -1,9 +1,20 @@
 ---
-reviser: GitHub Copilot
-date: 2025-10-13
+doc_type: architecture
+subsystem: general
+version: 1.0.0
+status: draft
+owners: Documentation Working Group
+last_reviewed: 2025-10-19
 ---
 
 # ColdVox Architecture & Future Vision
+
+## Navigation
+
+- [Architecture Roadmap](./architecture/roadmap.md)
+- [Architecture Decisions](./architecture/adr/)
+
+
 
 This document is the canonical architecture reference for ColdVox. It summarizes the current structural goals and records speculative directions that guide long-term planning. Sections below will continue to evolve as implementation proceeds.
 

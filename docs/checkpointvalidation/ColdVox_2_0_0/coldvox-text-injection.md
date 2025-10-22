@@ -1,1 +1,0 @@
-../../../crates/coldvox-text-injection/README.md

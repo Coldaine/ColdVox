@@ -84,3 +84,10 @@ Headless behavior notes: see [`docs/text_injection_headless.md`](docs/text_injec
 
 ## License
 Dual-licensed under MIT or Apache-2.0. See `LICENSE-MIT` and `LICENSE-APACHE` if present, else crate-level manifests.
+
+## Contributing
+
+- Review the [Master Documentation Playbook](docs/MasterDocumentationPlaybook.md).
+- Follow the repository [Documentation Standards](docs/standards.md).
+- Coordinate work through the [Documentation Todo Backlog](docs/todo.md).
+- Assistants should read the [Assistant Interaction Index](docs/agents.md).

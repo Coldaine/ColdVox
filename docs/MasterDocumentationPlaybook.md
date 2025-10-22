@@ -4,7 +4,7 @@ subsystem: general
 version: 1.0.0
 status: draft
 owners: Documentation Working Group
-last_reviewed: 2025-10-19
+last_reviewed: 2025-10-22
 ---
 
 # Master Documentation Playbook (Org‑wide)
@@ -46,7 +46,7 @@ docs/
   repo/                           # Repo meta documentation
     gitignore.md                  # Rationale for .gitignore structure
     editor.md                     # Editor/workspace conventions (e.g., .vscode)
-  agents.md                       # AI assistant index + interaction rules (optional)
+  agents.md                       # Assistant orientation (overview, workspace map, commands) mirrored in CLAUDE.md
 
   domains/                        # Technical docs per functional domain
     audio/
@@ -117,7 +117,7 @@ Notes:
 - Domain troubleshooting (e.g., Vosk model discovery) must live inside the relevant `docs/domains/<domain>/troubleshooting/`.
 - Roadmap lives at `docs/architecture/roadmap.md` and is linked from `docs/architecture.md`.
 - ADRs live under `docs/architecture/adr-XXXX.md` with incrementing numeric IDs and MUST be linked from `docs/architecture.md`.
-- CLAUDE.md MUST mirror the index in `docs/agents.md` (no extra content) and link back to this playbook and `docs/standards.md`.
+- `docs/agents.md` and `CLAUDE.md` MUST both contain the full assistant orientation (overview, workspace map, key commands, feature flags). Keep the contents synchronized, include links to this playbook and `docs/standards.md`, and retain these files at the documented paths.
 
 ## 5) Lifecycle & Retention Policies
 
@@ -218,7 +218,7 @@ subsystem: stt
 version: 1.0.0
 status: approved
 owners: STT Team
-last_reviewed: 2025-10-19
+last_reviewed: 2025-10-22
 ---
 ```
 
@@ -231,7 +231,7 @@ subsystem: general
 version: 1.0.0
 status: approved
 owners: Maintainers
-last_reviewed: 2025-10-19
+last_reviewed: 2025-10-22
 ---
 
 # crate: coldvox-audio (Index)
@@ -252,7 +252,7 @@ subsystem: general
 version: 0.1.0
 status: draft
 owners: Platform Team
-last_reviewed: 2025-10-19
+last_reviewed: 2025-10-22
 ---
 
 # PR-152: Clipboard Timeout Fixes – Testing Summary
