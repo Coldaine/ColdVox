@@ -21,67 +21,15 @@ use coldvox_vad::config::{UnifiedVadConfig, VadMode};
 use coldvox_vad::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 use coldvox_vad::types::VadEvent;
 
-/// Attempt to resolve a Vosk model directory automatically when the environment
-/// variable `VOSK_MODEL_PATH` is not set. This walks up from the current crate
-/// directory looking for `models/vosk-model-small-en-us-0.15` (default bundled
-/// test asset) and returns the first match. If nothing is found, returns the
-/// conventional relative path used previously so existing error messaging
-/// remains accurate.
-/// This is robust for both local development and CI runners.
-fn resolve_vosk_model_path() -> String {
-    // 1. Environment override wins immediately
-    // 1. Environment variable override has the highest priority.
-    if let Ok(p) = std::env::var("VOSK_MODEL_PATH") {
-        return p;
-    }
-
-    // 2. Candidate relative names (could be expanded later)
-    const CANDIDATES: &[&str] = &[
-        "models/vosk-model-small-en-us-0.15",
-        "../models/vosk-model-small-en-us-0.15",
-        "../../models/vosk-model-small-en-us-0.15",
-    ];
-    // 2. Dynamically locate the model relative to the project root.
-    // `CARGO_MANIFEST_DIR` is set by Cargo to the directory of the crate's Cargo.toml.
-    // From `crates/app`, we go up two levels to the project root.
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
-    let project_root = std::path::Path::new(&manifest_dir).join("../..");
-    let model_path = project_root.join("models/vosk-model-small-en-us-0.15");
-
-    for cand in CANDIDATES {
-        let graph_path = std::path::Path::new(cand).join("graph");
-        if graph_path.exists() {
-            let absolute_path = std::path::Path::new(cand)
-                .canonicalize()
-                .unwrap_or_else(|_| std::path::PathBuf::from(cand));
-            let final_path = absolute_path.to_string_lossy().to_string();
-            return final_path;
-        }
-    }
-    if model_path.join("graph").exists() {
-        return model_path.to_string_lossy().to_string();
-    }
-
-    // 3. Walk upward a few levels to locate a models directory dynamically
-    if let Ok(cwd) = std::env::current_dir() {
-        let mut cur = Some(cwd.as_path());
-        for _ in 0..5 {
-            // limit depth to avoid long walks
-            if let Some(dir) = cur {
-                let candidate = dir.join("models/vosk-model-small-en-us-0.15");
-                if candidate.join("graph").exists() {
-                    return candidate.to_string_lossy().to_string();
-                }
-                cur = dir.parent();
-            }
-        }
-    }
-
-    // Fallback: original default path (so existing guidance still applies)
-    // 3. Fallback to the original default path. This ensures that if the model
-    // is placed in the working directory, it's still found. This is useful
-    // for CI setups that might copy artifacts.
-    "models/vosk-model-small-en-us-0.15".to_string()
+/// Resolve the Whisper model identifier to use for integration testing.
+///
+/// The current Faster-Whisper integration loads models by identifier (e.g.,
+/// `base.en`) or by explicit filesystem path. For the integration tests we
+/// favour a lightweight default (`base.en`) but still allow callers to
+/// override via `WHISPER_MODEL_PATH` so CI and local developers can supply a
+/// custom model location when desired.
+fn resolve_whisper_model_identifier() -> String {
+    std::env::var("WHISPER_MODEL_PATH").unwrap_or_else(|_| "base.en".to_string())
 }
 
 // Helper to open a test terminal that captures input to a file
@@ -138,7 +86,7 @@ async fn test_end_to_end_with_real_injection() {
     // This test uses the real AsyncInjectionProcessor for comprehensive testing
     // It requires:
     // 1. A WAV file with known speech content
-    // 2. Vosk model downloaded and configured
+    // 2. Faster-Whisper model downloaded and configured (or accessible via identifier)
     // 3. A working text injection backend (e.g., clipboard, AT-SPI)
     // Use a fixed deterministic test asset so results are stable across runs.
     // Chosen sample: test_2.wav with full transcript in test_2.txt
@@ -234,7 +182,7 @@ async fn test_end_to_end_with_real_injection() {
     let (stt_transcription_tx, stt_transcription_rx) = mpsc::channel::<TranscriptionEvent>(100);
     let stt_config = TranscriptionConfig {
         enabled: true,
-        model_path: resolve_vosk_model_path(),
+        model_path: resolve_whisper_model_identifier(),
         partial_results: true,
         max_alternatives: 1,
         include_words: false,
@@ -246,7 +194,7 @@ async fn test_end_to_end_with_real_injection() {
     // Check if STT model exists; if missing, fail fast with actionable guidance
     if !std::path::Path::new(&stt_config.model_path).exists() {
         panic!(
-            "Vosk model not found at '{}'. \n\nResolution:\n  1. Download a Vosk model (e.g., small en-us) and place it at that path, or\n  2. Set VOSK_MODEL_PATH to the extracted model directory, e.g.: export VOSK_MODEL_PATH=/path/to/vosk-model-small-en-us-0.15\n  3. Re-run: cargo test -p coldvox-app test_end_to_end_with_real_injection --features vosk,text-injection -- --nocapture\n",
+            "Whisper model or identifier '{}' is not available. \n\nResolution:\n  1. Install the faster-whisper Python package and ensure a model is downloaded.\n  2. Set WHISPER_MODEL_PATH to a valid identifier or model directory.\n  3. Re-run: cargo test -p coldvox-app test_end_to_end_with_real_injection --features whisper,text-injection -- --nocapture\n",
             stt_config.model_path
         );
     }

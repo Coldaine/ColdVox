@@ -342,7 +342,10 @@ pub struct DeviceInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cpal::traits::StreamTrait;
+    use cpal::Sample;
     use std::env;
+    use std::sync::{Arc, Mutex as SyncMutex};
 
     fn setup_test_manager() -> DeviceManager {
         DeviceManager::new().unwrap()
@@ -609,6 +612,50 @@ mod tests {
         }
         // Verify current_device set
         assert!(manager.current_device.is_some());
+
+        let known_devices = manager.enumerate_devices();
+        let validation_mode = live_validation_mode();
+        if should_attempt_live_validation(validation_mode, &known_devices, &device_name) {
+            eprintln!(
+                "Live audio validation enabled (mode: {:?}) for device '{}'",
+                validation_mode, device_name
+            );
+            let stats = capture_live_input_stats(&device, std::time::Duration::from_millis(600))
+                .unwrap_or_else(|err| panic!("Live audio validation failed: {err}"));
+            assert!(
+                stats.samples > 0,
+                "Live audio validation captured zero samples from default device"
+            );
+            eprintln!(
+                "Captured {} samples (non-zero: {}, peak: {:.6}, rms: {:.6})",
+                stats.samples,
+                stats.non_zero_samples,
+                stats.peak,
+                stats.rms()
+            );
+            match validation_mode {
+                LiveValidationMode::Force => assert!(
+                    stats.non_zero_samples > 0,
+                    "Default device produced only digital silence while live validation forced. \
+                     Adjust routing or disable with COLDVOX_AUDIO_VALIDATE_LIVE=off."
+                ),
+                LiveValidationMode::Auto => {
+                    if stats.non_zero_samples == 0 {
+                        panic!(
+                            "Default device produced only digital silence; expected routed microphone. \
+                             Set COLDVOX_AUDIO_VALIDATE_LIVE=off to skip or COLDVOX_AUDIO_VALIDATE_KEYWORDS \
+                             to refine detection."
+                        );
+                    }
+                }
+                LiveValidationMode::Off => {}
+            }
+        } else {
+            eprintln!(
+                "Live audio validation skipped (mode: {:?}) for device '{}'",
+                validation_mode, device_name
+            );
+        }
     }
 
     #[test]
@@ -652,6 +699,188 @@ mod tests {
         // If hardware like "front:" is present, it should be selected if no better
         // This is system-dependent, but assert no panic and current_device set
         assert!(manager.current_device.is_some());
+    }
+
+    #[derive(Clone, Default)]
+    struct EnergyAccumulator {
+        samples: usize,
+        non_zero_samples: usize,
+        sum_squares: f64,
+        peak: f32,
+    }
+
+    impl EnergyAccumulator {
+        fn rms(&self) -> f64 {
+            if self.samples == 0 {
+                0.0
+            } else {
+                (self.sum_squares / self.samples as f64).sqrt()
+            }
+        }
+    }
+
+    const ENERGY_NON_ZERO_EPSILON: f32 = 1.0e-6;
+    const DEFAULT_LIVE_KEYWORDS: &[&str] = &["hyperx", "quadcast"];
+
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    enum LiveValidationMode {
+        Off,
+        Auto,
+        Force,
+    }
+
+    fn live_validation_mode() -> LiveValidationMode {
+        match env::var("COLDVOX_AUDIO_VALIDATE_LIVE") {
+            Ok(value) => match value.trim().to_ascii_lowercase().as_str() {
+                "" | "0" | "false" | "off" => LiveValidationMode::Off,
+                "auto" => LiveValidationMode::Auto,
+                "force" | "1" | "true" | "on" => LiveValidationMode::Force,
+                _ => LiveValidationMode::Force,
+            },
+            Err(_) => LiveValidationMode::Auto,
+        }
+    }
+
+    fn should_attempt_live_validation(
+        mode: LiveValidationMode,
+        devices: &[DeviceInfo],
+        opened_device_name: &str,
+    ) -> bool {
+        match mode {
+            LiveValidationMode::Off => false,
+            LiveValidationMode::Force => true,
+            LiveValidationMode::Auto => {
+                if env::var("CI").is_ok() || env_flag_true("COLDVOX_AUDIO_FORCE_HEADLESS") {
+                    return false;
+                }
+
+                let keywords = live_validation_keywords();
+                let opened_matches = {
+                    let lowered = opened_device_name.to_ascii_lowercase();
+                    keywords.iter().any(|kw| lowered.contains(kw))
+                };
+
+                let device_matches = devices.iter().any(|info| {
+                    let lowered = info.name.to_ascii_lowercase();
+                    keywords.iter().any(|kw| lowered.contains(kw))
+                });
+
+                opened_matches || device_matches
+            }
+        }
+    }
+
+    fn live_validation_keywords() -> Vec<String> {
+        match env::var("COLDVOX_AUDIO_VALIDATE_KEYWORDS") {
+            Ok(raw) => {
+                let parsed: Vec<String> = raw
+                    .split(',')
+                    .map(|s| s.trim().to_ascii_lowercase())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                if parsed.is_empty() {
+                    DEFAULT_LIVE_KEYWORDS
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect()
+                } else {
+                    parsed
+                }
+            }
+            Err(_) => DEFAULT_LIVE_KEYWORDS
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+        }
+    }
+
+    fn capture_live_input_stats(
+        device: &Device,
+        duration: std::time::Duration,
+    ) -> Result<EnergyAccumulator, String> {
+        let supported_config = device
+            .default_input_config()
+            .map_err(|err| format!("default_input_config failed: {err}"))?;
+        let sample_format = supported_config.sample_format();
+        let stream_config = supported_config.config();
+        let accumulator = Arc::new(SyncMutex::new(EnergyAccumulator::default()));
+
+        let stream = match sample_format {
+            cpal::SampleFormat::F32 => device.build_input_stream(
+                &stream_config,
+                {
+                    let acc = accumulator.clone();
+                    move |data: &[f32], _| accumulate_energy(&acc, data)
+                },
+                move |err| eprintln!("Live audio stream error: {err}"),
+                None,
+            ),
+            cpal::SampleFormat::I16 => device.build_input_stream(
+                &stream_config,
+                {
+                    let acc = accumulator.clone();
+                    move |data: &[i16], _| accumulate_energy(&acc, data)
+                },
+                move |err| eprintln!("Live audio stream error: {err}"),
+                None,
+            ),
+            cpal::SampleFormat::U16 => device.build_input_stream(
+                &stream_config,
+                {
+                    let acc = accumulator.clone();
+                    move |data: &[u16], _| accumulate_energy(&acc, data)
+                },
+                move |err| eprintln!("Live audio stream error: {err}"),
+                None,
+            ),
+            other => {
+                return Err(format!(
+                    "Unsupported sample format for live validation: {other:?}"
+                ))
+            }
+        }
+        .map_err(|err| format!("Failed to build input stream: {err}"))?;
+
+        stream
+            .play()
+            .map_err(|err| format!("Failed to start input stream: {err}"))?;
+
+        let start = std::time::Instant::now();
+        while start.elapsed() < duration {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+
+        drop(stream);
+        // Allow callbacks queued during drop to finish
+        std::thread::sleep(std::time::Duration::from_millis(20));
+
+        accumulator
+            .lock()
+            .map(|guard| guard.clone())
+            .map_err(|_| "Live audio accumulator mutex poisoned".to_string())
+    }
+
+    fn accumulate_energy<T>(target: &Arc<SyncMutex<EnergyAccumulator>>, data: &[T])
+    where
+        T: Sample,
+    {
+        if let Ok(mut guard) = target.lock() {
+            for &sample in data {
+                let value: f32 = sample.to_float_sample().to_sample::<f32>();
+                let abs = value.abs();
+                if abs > ENERGY_NON_ZERO_EPSILON {
+                    guard.non_zero_samples += 1;
+                }
+                guard.sum_squares += {
+                    let value_f64 = f64::from(value);
+                    value_f64 * value_f64
+                };
+                if abs > guard.peak {
+                    guard.peak = abs;
+                }
+                guard.samples += 1;
+            }
+        }
     }
 
     fn skip_hardware_dependent(test_name: &str) -> bool {
