@@ -1,12 +1,11 @@
-name: Vosk Integration Tests
+name: Whisper Integration Tests
 
 on:
   pull_request:
     paths:
       - "crates/coldvox-stt/**"
-      - "crates/coldvox-stt-vosk/**"
       - "crates/app/**"
-      - "examples/vosk_*.rs"
+      - "examples/whisper_*.rs"
       - ".github/workflows/vosk-integration.yml"
   schedule:
     - cron: "0 0 * * 0"
@@ -17,25 +16,27 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: vosk-${{ github.ref }}
+  group: whisper-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  setup-vosk-dependencies:
-    name: Setup Vosk Dependencies
+  setup-whisper-dependencies:
+    name: Setup Whisper Dependencies
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
+    env:
+      WHISPER_MODEL_SIZE: base  # Use base model for integration tests
     outputs:
       model_path: ${{ steps.setup.outputs.model_path }}
-      lib_path: ${{ steps.setup.outputs.lib_path }}
+      model_size: ${{ steps.setup.outputs.model_size }}
     steps:
       - uses: actions/checkout@v5
-      - name: Setup Vosk Model and Library
+      - name: Setup Whisper Model
         id: setup
-        run: bash scripts/ci/setup-vosk-cache.sh
+        run: bash scripts/ci/setup-whisper-cache.sh
 
-  vosk-tests:
-    name: Vosk STT Integration
-    needs: [setup-vosk-dependencies]
+  whisper-tests:
+    name: Whisper STT Integration
+    needs: [setup-whisper-dependencies]
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
     timeout-minutes: 30
     env:
@@ -50,41 +51,42 @@ jobs:
         uses: ./.github/actions/setup-coldvox
       - name: Install cargo-nextest
         run: cargo install cargo-nextest --locked
-      - name: Build with Vosk
+      - name: Build with Whisper
         env:
-          LD_LIBRARY_PATH: ${{ needs.setup-vosk-dependencies.outputs.lib_path }}
+          WHISPER_MODEL_PATH: ${{ needs.setup-whisper-dependencies.outputs.model_path }}
+          WHISPER_MODEL_SIZE: ${{ needs.setup-whisper-dependencies.outputs.model_size }}
         run: |
-          cargo build --locked -p coldvox-stt-vosk --features vosk
-          cargo build --locked -p coldvox-app --features vosk
-      - name: Run Vosk tests
+          cargo build --locked -p coldvox-stt --features whisper
+          cargo build --locked -p coldvox-app --features whisper
+      - name: Run Whisper tests
         env:
-          VOSK_MODEL_PATH: ${{ needs.setup-vosk-dependencies.outputs.model_path }}
-          LD_LIBRARY_PATH: ${{ needs.setup-vosk-dependencies.outputs.lib_path }}
+          WHISPER_MODEL_PATH: ${{ needs.setup-whisper-dependencies.outputs.model_path }}
+          WHISPER_MODEL_SIZE: ${{ needs.setup-whisper-dependencies.outputs.model_size }}
           RUST_TEST_THREADS: 1
         run: |
-          cargo nextest run --locked -p coldvox-stt-vosk --features vosk
+          cargo nextest run --locked -p coldvox-stt --features whisper
       - name: Run end-to-end WAV pipeline test
         env:
-          VOSK_MODEL_PATH: ${{ needs.setup-vosk-dependencies.outputs.model_path }}
-          LD_LIBRARY_PATH: ${{ needs.setup-vosk-dependencies.outputs.lib_path }}
+          WHISPER_MODEL_PATH: ${{ needs.setup-whisper-dependencies.outputs.model_path }}
+          WHISPER_MODEL_SIZE: ${{ needs.setup-whisper-dependencies.outputs.model_size }}
         run: |
-          cargo test --locked -p coldvox-app --features vosk test_end_to_end_wav_pipeline -- --ignored --nocapture
-      - name: Test Vosk examples
+          cargo test --locked -p coldvox-app --features whisper test_end_to_end_wav_pipeline -- --ignored --nocapture
+      - name: Test Whisper examples
         env:
-          VOSK_MODEL_PATH: ${{ needs.setup-vosk-dependencies.outputs.model_path }}
-          LD_LIBRARY_PATH: ${{ needs.setup-vosk-dependencies.outputs.lib_path }}
+          WHISPER_MODEL_PATH: ${{ needs.setup-whisper-dependencies.outputs.model_path }}
+          WHISPER_MODEL_SIZE: ${{ needs.setup-whisper-dependencies.outputs.model_size }}
         run: |
-          if ls examples/vosk_*.rs 1> /dev/null 2>&1; then
-            for example in examples/vosk_*.rs; do
+          if ls examples/whisper_*.rs 1> /dev/null 2>&1; then
+            for example in examples/whisper_*.rs; do
               name=$(basename $example .rs)
-              cargo run --locked --example $name --features vosk,examples || true
+              cargo run --locked --example $name --features whisper,examples || true
             done
           fi
       - name: Upload artifacts on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: vosk-test-artifacts
+          name: whisper-test-artifacts
           path: |
             target/debug/**/*.log
             logs/

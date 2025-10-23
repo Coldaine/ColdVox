@@ -78,24 +78,13 @@ else
     exit 1
 fi
 
-# 6. Run tests (skip E2E if no Vosk model)
+# 6. Run tests
 print_step "Running tests..."
-if [[ -n "${VOSK_MODEL_PATH:-}" ]] && [[ -d "$VOSK_MODEL_PATH" ]]; then
-    print_step "Running all tests (Vosk model found at $VOSK_MODEL_PATH)"
-    if cargo test --workspace --locked; then
-        print_success "All tests passed"
-    else
-        print_error "Tests failed"
-        exit 1
-    fi
+if cargo test --workspace --locked; then
+    print_success "All tests passed"
 else
-    print_warning "Skipping E2E tests (VOSK_MODEL_PATH not set or directory not found)"
-    if cargo test --workspace --locked -- --skip test_end_to_end_wav_pipeline; then
-        print_success "Tests passed (E2E skipped)"
-    else
-        print_error "Tests failed"
-        exit 1
-    fi
+    print_error "Tests failed"
+    exit 1
 fi
 
 # 7. Check GUI build (if Qt available)

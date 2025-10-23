@@ -40,31 +40,31 @@ repos:
   # Server-side validation of GitHub workflows via gh CLI
   - repo: local
     hooks:
-      - id: verify-vosk-model
-        name: Verify Vosk Model Structure
-        entry: scripts/verify_vosk_model.sh
+      - id: verify-whisper-model
+        name: Verify Whisper Model Structure
+        entry: scripts/verify_whisper_model.sh
         language: script
         stages: [pre-commit]
         pass_filenames: false
       - id: e2e-stt-wav
-        name: E2E STT WAV Test (Vosk)
+        name: E2E STT WAV Test (Whisper)
         language: system
         pass_filenames: false
         entry: |
           bash -euo pipefail -c '
             # Only run if model directory exists and contains expected structure
-            MODEL_PATH="${VOSK_MODEL_PATH:-models/vosk-model-small-en-us-0.15}"
-            if [[ ! -d "$MODEL_PATH/graph" ]]; then
-              echo "[e2e] Skipping: Vosk model not found at $MODEL_PATH (set VOSK_MODEL_PATH to override)";
+            MODEL_PATH="${WHISPER_MODEL_PATH:-models/whisper-base.en}"
+            if [[ ! -f "$MODEL_PATH/ggml-base.en.bin" ]]; then
+              echo "[e2e] Skipping: Whisper model not found at $MODEL_PATH (set WHISPER_MODEL_PATH to override)";
               exit 0
             fi
-            echo "[e2e] Running end-to-end WAV pipeline test (vosk model: $MODEL_PATH)";
+            echo "[e2e] Running end-to-end WAV pipeline test (whisper model: $MODEL_PATH)";
             # Restrict to the single test to keep runtime bounded; allow override via TEST_WAV_MODE=all
             if [[ "${TEST_WAV_MODE:-}" == "all" ]]; then
               echo "[e2e] TEST_WAV_MODE=all -> running full suite (may be slow)";
-              cargo test -p coldvox-app --features vosk -- test_end_to_end_wav_pipeline --nocapture
+              cargo test -p coldvox-app --features whisper -- test_end_to_end_wav_pipeline --nocapture
             else
-              cargo test -p coldvox-app --features vosk -- test_end_to_end_wav_pipeline -- --test-threads=1 --nocapture
+              cargo test -p coldvox-app --features whisper -- test_end_to_end_wav_pipeline -- --test-threads=1 --nocapture
             fi
           '
         types: [rust]
@@ -166,7 +166,7 @@ repos:
         entry: bash -c 'scripts/gpu-build-precommit.sh'
       - id: injection-tests
         name: Text Injection Tests
-        entry: bash -c 'if [[ "${SKIP_INJECTION_TESTS:-}" == "1" || "${CI:-}" != "true" ]]; then echo "⏭️ Skipping injection tests (CI only)"; exit 0; fi; cd crates/app && cargo test --features vosk,text-injection test_atspi_injection test_clipboard_injection -- --nocapture'
+        entry: bash -c 'if [[ "${SKIP_INJECTION_TESTS:-}" == "1" || "${CI:-}" != "true" ]]; then echo "⏭️ Skipping injection tests (CI only)"; exit 0; fi; cd crates/app && cargo test --features whisper,text-injection test_atspi_injection test_clipboard_injection -- --nocapture'
         language: system
         types: [rust]
         pass_filenames: false

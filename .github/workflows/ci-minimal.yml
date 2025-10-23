@@ -154,11 +154,13 @@ jobs:
         if: steps.check_tools.outputs.available != 'true'
         run: echo "⚠️ Skipping - X11 tools not available"
 
-  # Optional: Vosk E2E tests (only if model available)
-  vosk-e2e:
-    name: Vosk E2E (Optional)
+  # Optional: Whisper E2E tests (only if model available)
+  whisper-e2e:
+    name: Whisper E2E (Optional)
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
     continue-on-error: true # Don't fail CI if this fails
+    env:
+      WHISPER_MODEL_SIZE: tiny  # Use tiny model for minimal CI
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -171,23 +173,16 @@ jobs:
         with:
           key: ${{ steps.rust-version.outputs.version }}
       
-      - name: Check if Vosk model available
-        id: check_model
-        run: |
-          MODEL_PATH="${VOSK_MODEL_PATH:-models/vosk-model-small-en-us-0.15}"
-          if [[ -d "$MODEL_PATH/graph" ]]; then
-            echo "available=true" >> $GITHUB_OUTPUT
-            echo "path=$MODEL_PATH" >> $GITHUB_OUTPUT
-          else
-            echo "available=false" >> $GITHUB_OUTPUT
-          fi
+      - name: Setup Whisper model
+        id: setup
+        run: bash scripts/ci/setup-whisper-cache.sh
       
-      - name: Run Vosk E2E test
-        if: steps.check_model.outputs.available == 'true'
+      - name: Run Whisper E2E test
         env:
-          VOSK_MODEL_PATH: ${{ steps.check_model.outputs.path }}
-        run: cargo test -p coldvox-app --features vosk test_end_to_end_wav_pipeline -- --nocapture
+          WHISPER_MODEL_PATH: ${{ steps.setup.outputs.model_path }}
+          WHISPER_MODEL_SIZE: ${{ steps.setup.outputs.model_size }}
+        run: cargo test -p coldvox-app --features whisper test_end_to_end_wav_pipeline -- --nocapture
       
-      - name: Skip Vosk E2E
-        if: steps.check_model.outputs.available != 'true'
-        run: echo "⚠️ Skipping - Vosk model not available"
+      - name: Skip Whisper E2E
+        if: steps.setup.outputs.model_path == ''
+        run: echo "⚠️ Skipping - Whisper model not available"

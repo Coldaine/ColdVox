@@ -71,7 +71,7 @@ echo "  - text_injection_tests"
 echo "  - msrv-check"
 echo
 echo "MEDIUM JOBS (2 concurrent, 3 cores):"
-echo "  - setup-vosk-model"
+echo "  - setup-whisper-model"
 echo "  - gui-groundwork"
 echo "  - security"
 echo

@@ -1,11 +1,29 @@
 {
-  "preferred_plugin": "vosk",
+  "preferred_plugin": "whisper",
   "fallback_plugins": [
-    "noop"
+    "whisper",
+    "mock"
   ],
   "require_local": false,
   "max_memory_mb": null,
   "required_language": "en",
+  "model_size": {
+    "default": "base",
+    "environments": {
+      "ci": "tiny",
+      "development": "base",
+      "production": "small"
+    },
+    "memory_based_selection": {
+      "enabled": true,
+      "thresholds": {
+        "tiny_mb": 500,
+        "base_mb": 1000,
+        "small_mb": 2000,
+        "medium_mb": 4000
+      }
+    }
+  },
   "failover": {
     "failover_threshold": 3,
     "failover_cooldown_secs": 30

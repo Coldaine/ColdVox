@@ -27,8 +27,8 @@ flowchart TD
     %% STT processing branch
     BROADCAST --> |Subscribe| STT[SttProcessor]
     EVENTS --> STT
-    STT --> |Gated by VAD / Activation Mode| VOSK[VoskTranscriber]
-    VOSK --> |Transcription| LOGS[Structured Logs]
+    STT --> |Gated by VAD / Activation Mode| WHISPER[WhisperTranscriber]
+    WHISPER --> |Transcription| LOGS[Structured Logs]
 
     %% Text injection pipeline
     LOGS --> |TranscriptionEvent| TEXTINJ[TextInjectionProcessor]
@@ -83,7 +83,7 @@ flowchart TD
 
     class AC,ARB,FR,CHUNKER,BROADCAST processing
     class VAD,VADENG,SILERO,VADFSM,EVENTS,HK vad
-    class STT,VOSK stt
+    class STT,WHISPER stt
     class TEXTINJ,STRATEGY,BACKENDS,ATSPI,CLIP,YDOT,KDOT,ENIGO,APPS textinj
     class TUI ui
     class SM,HM,SH,METRICS foundation
@@ -99,7 +99,7 @@ flowchart TD
 
 ### 2. **STT Integration (New)**
 - `SttProcessor` subscribes to both audio frames and VAD events
-- Vosk transcriber only processes audio when VAD indicates speech
+- Whisper transcriber only processes audio when VAD indicates speech
 - Produces structured logging output with partial and final transcriptions
 
 ### 3. **Global Hotkey System (New)**
@@ -137,7 +137,7 @@ flowchart TD
 3. **Chunking**: Variable frames → Fixed 512-sample chunks
 4. **Distribution**: Broadcast channel distributes to VAD + STT processors
 5. **VAD**: Audio frames → Silero engine → State machine → Events
-6. **STT**: Audio frames + VAD events → Vosk transcriber → Logs
+6. **STT**: Audio frames + VAD events → Whisper transcriber → Logs
 7. **UI**: VAD events + transcription logs → TUI dashboard display
 8. **Shutdown**: Graceful stop sequence with proper task cleanup
 

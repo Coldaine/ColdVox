@@ -22,13 +22,13 @@ This copies the hooks from `.githooks/` into `.git/hooks/` and makes them execut
 Minimal root README. Full developer & architecture guide: see [`CLAUDE.md`](CLAUDE.md).
 
 ## Overview
-ColdVox is a modular Rust workspace providing real‑time audio capture, VAD, STT (Vosk), and cross‑platform text injection.
+ColdVox is a modular Rust workspace providing real‑time audio capture, VAD, STT (Faster-Whisper), and cross‑platform text injection.
 
 ## Quick Start
 
 **For Voice Dictation (Recommended):**
 ```bash
-# Run with default Vosk STT and text injection (model auto-discovered)
+# Run with default Faster-Whisper STT and text injection (model auto-discovered)
 cargo run --features text-injection
 
 # With specific microphone device
@@ -49,13 +49,18 @@ cargo run --bin mic_probe -- list-devices
 
 > Audio dumps: The TUI dashboard now records raw audio to `logs/audio_dumps/` by default. Pass `--dump-audio=false` to disable persistent capture.
 
-**Note on Defaults**: Vosk STT is now the default feature (enabled automatically), ensuring real speech recognition in the app and tests. This prevents fallback to the mock plugin, which skips transcription. Override with `--stt-preferred mock` or env `COLDVOX_STT_PREFERRED=mock` if needed for testing. For other STT backends (e.g., Whisper), enable their features and set preferred accordingly.
+**Note on Defaults**: Faster-Whisper STT is the default feature (enabled automatically), ensuring real speech recognition in the app and tests. This prevents fallback to the mock plugin, which skips transcription. Override with `--stt-preferred mock` or env `COLDVOX_STT_PREFERRED=mock` if needed for testing. For other STT backends, enable their features and set preferred accordingly.
 
-### Vosk Model Setup
-- **Small Model** (~40MB, included): Located at `models/vosk-model-small-en-us-0.15/`
-- **Auto-Discovery**: Model automatically found when running from project root
-- **Manual Path**: Set `VOSK_MODEL_PATH` for custom locations if needed
-- **Verification**: `sha256sum -c models/vosk-model-small-en-us-0.15/SHA256SUMS`
+### Whisper Model Setup
+- **Python Package**: Install the `faster-whisper` Python package via pip
+- **Models**: Whisper models are automatically downloaded on first use
+- **Model Identifiers**: Use standard Whisper model names (e.g., "tiny.en", "base.en", "small.en", "medium.en")
+- **Manual Path**: Set `WHISPER_MODEL_PATH` to specify a model identifier or custom model directory
+- **Common Models**:
+  - "tiny.en" (~39MB) - Fastest, lower accuracy
+  - "base.en" (~142MB) - Good balance of speed and accuracy
+  - "small.en" (~466MB) - Better accuracy
+  - "medium.en" (~1.5GB) - High accuracy
 
 ## How It Works
 1. **Always-on pipeline**: Audio capture, VAD, STT, and text-injection buffering run continuously by default. Raw 16 kHz mono audio is recorded to `logs/audio_dumps/` for later review.
