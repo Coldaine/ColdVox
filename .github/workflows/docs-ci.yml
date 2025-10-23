@@ -1,0 +1,48 @@
+name: Docs Validation
+
+on:
+  pull_request:
+    paths:
+      - 'docs/**'
+      - '.github/workflows/docs-ci.yml'
+      - 'scripts/validate_docs.py'
+      - 'scripts/docs_revision_logger.py'
+      - '**/*.md'
+
+jobs:
+  validate:
+    name: Validate documentation changes
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+      
+      - name: Create virtual environment
+        run: |
+          uv venv .venv --python 3.12
+          uv pip install -r requirements.txt
+
+      - name: Validate documentation frontmatter and placement
+        run: |
+          uv run scripts/validate_docs.py "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}"
+
+      - name: Append revision log entries
+        run: |
+          uv run scripts/docs_revision_logger.py "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}" "${{ github.actor }}"
+
+      - name: Show revision log diff
+        run: |
+          git diff docs/revision_log.csv || true

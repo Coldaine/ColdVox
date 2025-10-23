@@ -54,6 +54,10 @@ fmt:
 docs:
     cargo doc --workspace --no-deps --locked --open
 
+# Validate documentation changes (requires uv and Python 3.12)
+docs-validate base="origin/main" head="HEAD":
+    uv run scripts/validate_docs.py {{base}} {{head}}
+
 # Install pre-commit hooks
 setup-hooks:
     pre-commit install

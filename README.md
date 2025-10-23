@@ -69,6 +69,11 @@ cargo run --bin mic_probe -- list-devices
 
 More detail: See [`CLAUDE.md`](CLAUDE.md) for full developer guide.
 
+### Future Vision (Experimental)
+- We're actively exploring an **always-on intelligent listening** architecture that keeps a lightweight listener running continuously and spins up tiered STT engines on demand.
+- This speculative work includes decoupled listening/processing threads, dynamic STT memory management, and context-aware activation.
+- Read the full experimental plan in [`docs/architecture.md`](docs/architecture.md#coldvox-future-vision). Treat it as research guidance—not a committed roadmap.
+
 ## Slow / Environment-Sensitive Tests
 Some end‑to‑end tests exercise real injection & STT. Gate them locally by setting an env variable (planned):
 ```bash
@@ -79,3 +84,10 @@ Headless behavior notes: see [`docs/text_injection_headless.md`](docs/text_injec
 
 ## License
 Dual-licensed under MIT or Apache-2.0. See `LICENSE-MIT` and `LICENSE-APACHE` if present, else crate-level manifests.
+
+## Contributing
+
+- Review the [Master Documentation Playbook](docs/MasterDocumentationPlaybook.md).
+- Follow the repository [Documentation Standards](docs/standards.md).
+- Coordinate work through the [Documentation Todo Backlog](docs/todo.md).
+- Assistants should read the [Assistant Interaction Index](docs/agents.md).

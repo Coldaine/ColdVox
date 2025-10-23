@@ -1,3 +1,14 @@
+---
+doc_type: plan
+subsystem: general
+version: 1.0.0
+status: draft
+owners: Documentation Working Group
+last_reviewed: 2025-10-19
+---
+
+Linked task: See [Documentation migration epic](../todo.md#epic-documentation-migration).
+
 # CI Runner Readiness Proposal (Nobara Linux)
 
 Owner: @Coldaine  
