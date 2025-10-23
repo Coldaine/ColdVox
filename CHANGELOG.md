@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased]
+
+### Documentation
+- **Major documentation restructure** (#180): Implemented Master Documentation Playbook v1.0.0
+  - Added comprehensive documentation structure under `/docs` with canonical layout
+  - Created Master Documentation Playbook defining standards, metadata schema, and governance
+  - Organized documentation into domains (audio, stt, text-injection, vad, gui, foundation)
+  - Added revision tracking system with automated CSV logger
+  - Established PR workflow requirements including metadata validation
+  - Migrated legacy documentation to new structure with proper categorization
+  - Added Python virtual environment management using uv with Python 3.12
+  - Fixed docs validation script to handle deleted files correctly
+  - Updated CLAUDE.md with detailed workspace structure and development guidelines
+
+### Dependencies
+- Bump `toml` from 0.8.23 to 0.9.8 (#182)
+- Bump `clap` from 4.5.49 to 4.5.50 (#181)
+- Keep `atspi` at 0.28.0 (defer 0.29.0 upgrade due to breaking API changes)
+
 ## v2.0.2 — 2025-09-12
 
 Highlights

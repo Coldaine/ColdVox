@@ -35,6 +35,79 @@ Any additional exception requires approval from the Documentation Working Group 
 
 ## Changelog Rubric
 
+The root `CHANGELOG.md` follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) format and documents user-visible changes only.
+
+### When to Update CHANGELOG.md
+
+**MUST update** for:
+- New features or functionality (user-facing)
+- Breaking changes (API, configuration, behavior)
+- Deprecations (features being phased out)
+- Removed features or APIs
+- Bug fixes affecting user experience
+- Security fixes
+- Major performance improvements
+- Major dependency updates (version bumps, security patches)
+- Major documentation overhauls (like documentation restructures)
+
+**SHOULD update** for:
+- Minor bug fixes
+- Minor performance improvements
+- Quality-of-life improvements
+- Notable dependency updates
+
+**SKIP changelog** for:
+- Internal refactoring (no user impact)
+- Test additions/changes
+- CI/CD configuration
+- Development tooling
+- Documentation typos or minor clarifications
+- Code formatting or linting
+
+### Version Numbering (Semantic Versioning)
+
+- **MAJOR (x.0.0)**: Breaking changes, incompatible API changes
+- **MINOR (0.x.0)**: New features, backwards-compatible additions
+- **PATCH (0.0.x)**: Bug fixes, backwards-compatible fixes
+
+### Changelog Entry Format
+
+```markdown
+## [Unreleased]
+
+### Added
+- New feature description (#PR-number)
+
+### Changed
+- Changed behavior description (#PR-number)
+
+### Deprecated
+- Deprecated feature (#PR-number)
+
+### Removed
+- Removed feature (#PR-number)
+
+### Fixed
+- Bug fix description (#PR-number)
+
+### Security
+- Security fix description (#PR-number)
+
+### Documentation
+- Major documentation changes only (#PR-number)
+
+### Dependencies
+- Dependency update with rationale (#PR-number)
+```
+
+### Changelog Review Process
+
+1. **PR Author**: Add changelog entry in PR if change is user-visible per rubric
+2. **Reviewer**: Verify changelog entry exists and is appropriate
+3. **Release Manager**: Move `[Unreleased]` entries to versioned release section
+
+### Documentation Updates
+
 All substantive documentation updates must:
 
 1. Update the relevant section in this file if they introduce new exceptions or schema adjustments.
