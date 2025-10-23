@@ -551,6 +551,13 @@ impl SttPluginManager {
             use coldvox_stt::plugins::parakeet::ParakeetPluginFactory;
             registry.register(Box::new(ParakeetPluginFactory::new()));
         }
+
+        // Register FasterWhisper plugin if the faster-whisper feature is enabled
+        #[cfg(feature = "faster-whisper")]
+        {
+            use coldvox_stt_whisper::FasterWhisperPluginFactory;
+            registry.register(Box::new(FasterWhisperPluginFactory));
+        }
     }
 
     /// Initialize the plugin manager and select the best available plugin

@@ -1,0 +1,20 @@
+[package]
+name = "coldvox-stt-whisper"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+async-trait = "0.1"
+thiserror = "1.0"
+log = "0.4"
+parking_lot = "0.12"
+whisper-rs = "0.15"
+whisper-rs-sys = "0.14"
+tokio = { version = "1", features = ["sync"] }
+
+coldvox-stt = { path = "../coldvox-stt" }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+hound = "3.5"
+rubato = "0.16"
