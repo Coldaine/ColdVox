@@ -11,7 +11,110 @@ last_reviewed: 2025-10-19
 
 ## Overview
 
+ColdVox follows a **Pragmatic, Large-Span Testing Philosophy**: one comprehensive test that exercises real behavior beats ten fragmented unit tests. Our testing approach prioritizes **observable outcomes over implementation details** and **integration confidence over isolated verification**.
+
 ColdVox has a comprehensive test suite that tests real STT functionality using Vosk models and actual hardware. Tests are designed to work with actual speech recognition and real audio devices rather than mocks to ensure functional correctness. This guide explains how to run tests and set up the required dependencies.
+
+## Testing Philosophy: Large-Span, Behavior-First
+
+### Core Principles
+
+1. **Test at the highest meaningful level**
+   - Default: Write Service/Integration tests (70% of suite)
+   - Only drop to unit tests for complex algorithms
+   - Prefer E2E tests for critical user journeys
+
+2. **One comprehensive test > Ten fragmented tests**
+   - Example: Instead of testing watchdog timer in isolation, test "audio pipeline recovers from disconnection"
+   - Tests should tell complete stories about user value
+
+3. **Real dependencies over mocks**
+   - Use real services, TestContainers, or behavioral fakes
+   - Mocks only for external services we don't control
+   - Every mock should have a corresponding real test
+
+4. **Behavior over implementation**
+   - Tests should verify user-facing outcomes
+   - Tests shouldn't break when you refactor
+   - Focus on "what" not "how"
+
+### Test Distribution Target
+
+| Layer | Percentage | When to Use | Example |
+|-------|-----------|-------------|---------|
+| **Service/Integration** | 70% | Default for all features | Audio capture → VAD → STT flow |
+| **E2E/Trace** | 15% | Critical user journeys | Complete dictation session |
+| **Pure Logic** | 10% | Complex algorithms only | RMS calculation edge cases |
+| **Contract** | 5% | External service boundaries | Vosk model API |
+
+### The Six Mental Models
+
+Before writing any test, ask yourself:
+
+1. **External Observer**: What would a user expect to see happen?
+2. **Real Action**: Can this test perform a real action that proves the system works?
+3. **Larger Span**: Could this be part of a bigger, more meaningful test?
+4. **Failure Clarity**: If this fails, will I know behavior is broken (not just code changed)?
+5. **Story**: Does this test tell a complete story about user value?
+6. **No-Mock Challenge**: How can I eliminate every mock in this test?
+
+### Decision Framework: When to Write Which Test
+
+**Write an E2E test when:**
+- Testing a critical business flow (e.g., "user dictates and text appears")
+- Testing error recovery across multiple services
+- Verifying latency budgets end-to-end
+- Maximum: 10-15 E2E tests total
+
+**Write a Service/Integration test when:**
+- **ALMOST ALWAYS - This is your default**
+- Testing any feature or behavior
+- Verifying component interactions
+- Testing error handling within a service
+- This should be 70% of your test suite
+
+**Write a Pure Logic test when:**
+- Algorithm complexity > 20 lines
+- Parsing complex formats (WAV, config files)
+- Mathematical calculations with edge cases
+- **Ask yourself: "Can this be part of a larger test?"**
+
+### Examples: Good vs Bad Tests
+
+#### ❌ Bad: Fragmented Unit Tests
+```rust
+#[test] fn test_validate_input() { /* checks one field */ }
+#[test] fn test_process_data() { /* checks processing */ }
+#[test] fn test_save_result() { /* checks storage */ }
+#[test] fn test_send_notification() { /* checks notification */ }
+// 4 tests, no complete story, breaks on refactor
+```
+
+#### ✅ Good: Comprehensive Integration Test
+```rust
+#[tokio::test]
+async fn test_audio_pipeline_processes_speech_end_to_end() {
+    // Complete story: User's audio → Text in application
+    let audio = load_test_audio("speech.wav");
+    let pipeline = create_complete_pipeline(audio);
+
+    let result = pipeline.process().await.unwrap();
+
+    // Verify user-facing outcome
+    assert!(result.text_injected.contains("expected phrase"));
+    assert_eq!(result.segments_detected, 3);
+    assert!(result.latency < Duration::from_secs(2));
+
+    // One test proves the complete feature works
+}
+```
+
+### Further Reading
+
+- **[Pragmatic Test Analysis](../testing/PRAGMATIC_TEST_ANALYSIS.md)** - Complete analysis of current test suite
+- **[Test Improvements](../testing/PRAGMATIC_TEST_IMPROVEMENTS.md)** - Specific code changes to make
+- **[Test Removal Plan](../testing/TEST_REMOVAL_PLAN.md)** - Which tests to consolidate/remove
+- **[Testing Examples](../testing/TESTING_EXAMPLES.md)** - Good vs bad test examples
 
 ## Test Categories
 
