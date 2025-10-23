@@ -25,13 +25,15 @@ APPROVED_EXCEPTIONS = {
 
 
 def git_diff_files(base: str, head: str) -> List[str]:
+    """Get list of added or modified files (not deleted ones)."""
     result = subprocess.run(
-        ["git", "diff", "--name-only", base, head],
+        ["git", "diff", "--name-status", "--diff-filter=AM", base, head],
         capture_output=True,
         text=True,
         check=True,
     )
-    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    # Extract just the file paths (skip the status column)
+    return [line.split(None, 1)[1].strip() for line in result.stdout.splitlines() if line.strip()]
 
 
 def load_file(path: Path) -> str:
