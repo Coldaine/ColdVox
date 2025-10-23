@@ -187,7 +187,13 @@ impl Environment {
             Environment::Development => {
                 // In development, check available memory and choose accordingly
                 if let Some(available_mb) = WhisperPluginFactory::get_available_memory_mb() {
-                    WhisperPluginFactory::get_model_size_for_memory(available_mb)
+                    // On high-performance developer workstations, prefer the largest model for accuracy
+                    // Use a conservative threshold (>= 12 GB available) to avoid impacting typical laptops
+                    if available_mb >= 12_000 {
+                        WhisperModelSize::LargeV3
+                    } else {
+                        WhisperPluginFactory::get_model_size_for_memory(available_mb)
+                    }
                 } else {
                     // If we can't determine memory, use a small model
                     WhisperModelSize::Base
@@ -542,6 +548,14 @@ impl WhisperPluginFactory {
 
     /// Get available memory in MB
     fn get_available_memory_mb() -> Option<u32> {
+        // Test/override hook: allow forcing a specific available memory size via env var
+        // Useful for unit tests and local validation without relying on /proc/meminfo.
+        if let Ok(fake_mb) = env::var("WHISPER_AVAILABLE_MEM_MB") {
+            if let Ok(val) = fake_mb.parse::<u32>() {
+                return Some(val);
+            }
+        }
+
         #[cfg(unix)]
         {
             use std::fs;
@@ -752,6 +766,48 @@ mod tests {
 
         // Development and production depend on memory, so we can't test exact values
         // without mocking memory detection
+    }
+
+    #[test]
+    fn development_env_prefers_large_on_beefy_machine() {
+        // Simulate development environment
+        env::set_var("DEBUG", "1");
+        // Simulate a beefy machine with lots of available memory
+        env::set_var("WHISPER_AVAILABLE_MEM_MB", "16384");
+
+        assert_eq!(WhisperPluginFactory::detect_environment(), Environment::Development);
+        let chosen = Environment::Development.default_model_size();
+        assert_eq!(chosen, WhisperModelSize::LargeV3);
+
+        env::remove_var("WHISPER_AVAILABLE_MEM_MB");
+        env::remove_var("DEBUG");
+    }
+
+    #[test]
+    fn production_env_does_not_escalate_to_large_by_default() {
+        // Ensure no CI or dev markers are present
+        for var in [
+            "CI",
+            "CONTINUOUS_INTEGRATION",
+            "GITHUB_ACTIONS",
+            "GITLAB_CI",
+            "TRAVIS",
+            "CIRCLECI",
+            "JENKINS_URL",
+            "BUILDKITE",
+            "RUST_BACKTRACE",
+            "DEBUG",
+            "DEV",
+        ] {
+            env::remove_var(var);
+        }
+
+        // Simulate lots of memory
+        env::set_var("WHISPER_AVAILABLE_MEM_MB", "16384");
+        assert_eq!(WhisperPluginFactory::detect_environment(), Environment::Production);
+        let chosen = Environment::Production.default_model_size();
+        assert_ne!(chosen, WhisperModelSize::LargeV3);
+        env::remove_var("WHISPER_AVAILABLE_MEM_MB");
     }
 
     #[test]

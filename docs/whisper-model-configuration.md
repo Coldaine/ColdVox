@@ -82,7 +82,10 @@ Detected by:
 - `DEV` environment variable
 - Presence of `.git` directory
 
-**Recommended model:** `base` (balanced for development)
+Behavior:
+- Defaults to `base` for balanced development.
+- On high-performance desktops with ample free memory (>= 12 GB available), automatically prefers `large-v3` for maximum accuracy.
+  - You can always override with `WHISPER_MODEL_SIZE`.
 
 ### Production Environment
 Default when neither CI nor development indicators are present.
@@ -109,12 +112,14 @@ When enabled, ColdVox can select model size based on available system memory:
 }
 ```
 
-Memory thresholds:
+Memory thresholds (general guidance):
 - < 500MB: `tiny`
 - 500-1000MB: `base`
 - 1000-2000MB: `small`
 - 2000-4000MB: `medium`
 - > 4000MB: `base` (conservative default for stability)
+
+Note: In the Development environment only, if available memory is >= 12 GB, ColdVox will auto-select `large-v3`.
 
 ## Priority Order
 
@@ -147,8 +152,10 @@ export WHISPER_MODEL_SIZE=small
 Better accuracy for production workloads.
 
 ### High-Performance Systems
+On powerful developer workstations (>= 12 GB available), `large-v3` is selected automatically in the Development environment.
+To force selection explicitly or on other environments:
 ```bash
-export WHISPER_MODEL_SIZE=medium
+export WHISPER_MODEL_SIZE=large-v3
 ```
 For systems with ample memory and CPU resources.
 
@@ -202,6 +209,12 @@ export WHISPER_DEVICE=opencl
 ```
 
 ### Compute Type
+### Simulate Available Memory (advanced/testing)
+You can simulate available memory detection (useful for testing) by setting:
+```bash
+export WHISPER_AVAILABLE_MEM_MB=16384
+```
+This overrides the system probe used for memory-based selection.
 Control model precision:
 
 ```bash
