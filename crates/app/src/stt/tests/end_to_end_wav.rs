@@ -24,12 +24,30 @@ use coldvox_vad::types::VadEvent;
 /// Resolve the Whisper model identifier to use for integration testing.
 ///
 /// The current Faster-Whisper integration loads models by identifier (e.g.,
-/// `base.en`) or by explicit filesystem path. For the integration tests we
-/// favour a lightweight default (`base.en`) but still allow callers to
-/// override via `WHISPER_MODEL_PATH` so CI and local developers can supply a
-/// custom model location when desired.
+/// `tiny`, `base.en`) or by explicit filesystem path. For the integration tests we
+/// favour a lightweight default but allow callers to override via environment variables.
+///
+/// Priority order:
+/// 1. WHISPER_MODEL_PATH (explicit filesystem path)
+/// 2. WHISPER_MODEL_SIZE (model size identifier)
+/// 3. Default based on environment (tiny for CI, base for development)
 fn resolve_whisper_model_identifier() -> String {
-    std::env::var("WHISPER_MODEL_PATH").unwrap_or_else(|_| "base.en".to_string())
+    // First check for explicit model path
+    if let Ok(model_path) = std::env::var("WHISPER_MODEL_PATH") {
+        return model_path;
+    }
+
+    // Then check for model size
+    if let Ok(model_size) = std::env::var("WHISPER_MODEL_SIZE") {
+        return model_size;
+    }
+
+    // Default based on environment
+    if std::env::var("CI").is_ok() || std::env::var("GITHUB_ACTIONS").is_ok() {
+        "tiny".to_string() // Use tiny model in CI for faster execution
+    } else {
+        "base.en".to_string() // Use base model for local development
+    }
 }
 
 // Helper to open a test terminal that captures input to a file

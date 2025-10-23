@@ -23,14 +23,14 @@ lint:
 test:
     cargo test --workspace --locked
 
-# Run tests with Vosk model if available
+# Run tests with Whisper model if available
 test-full:
     #!/usr/bin/env bash
-    if [[ -d "models/vosk-model-small-en-us-0.15" ]]; then
-        export VOSK_MODEL_PATH="models/vosk-model-small-en-us-0.15"
+    if [[ -d "models/whisper-base.en" ]]; then
+        export WHISPER_MODEL_PATH="models/whisper-base.en"
         cargo test --workspace --locked
     else
-        echo "Vosk model not found, running without E2E tests"
+        echo "Whisper model not found, running without E2E tests"
         cargo test --workspace --locked -- --skip test_end_to_end_wav_pipeline
     fi
 

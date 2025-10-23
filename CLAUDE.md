@@ -16,7 +16,7 @@ Multi-crate Cargo workspace:
 
 - `crates/app/` - Main application crate (package: `coldvox-app`)
   - **Audio glue**: `src/audio/vad_adapter.rs`, `src/audio/vad_processor.rs`
-  - **STT integration**: `src/stt/processor.rs`, `src/stt/vosk.rs`, `src/stt/persistence.rs`
+  - **STT integration**: `src/stt/processor.rs`, `src/stt/whisper.rs`, `src/stt/persistence.rs`
   - **Text injection**: `src/text_injection/` - integration layer
   - **Hotkey system**: `src/hotkey/` - global hotkey support with KDE KGlobalAccel
   - **Binaries**: `src/main.rs` (main), `src/bin/tui_dashboard.rs`, `src/bin/mic_probe.rs`
@@ -51,8 +51,8 @@ Multi-crate Cargo workspace:
   - `types.rs`: Core STT types (`TranscriptionEvent`, `WordInfo`)
   - `processor.rs`: STT processing traits
 
-- `crates/coldvox-stt-vosk/` - Vosk STT integration (feature `vosk`)
-  - `vosk_transcriber.rs`: `VoskTranscriber` for offline speech recognition
+- `crates/coldvox-stt/` - STT core abstractions
+  - `plugins/whisper_plugin.rs`: `WhisperPlugin` for offline speech recognition via faster-whisper
 
 - `crates/coldvox-text-injection/` - Text injection backends (feature-gated)
   - **Linux**: `atspi_injector.rs`, `clipboard_injector.rs`, `ydotool_injector.rs`, `kdotool_injector.rs`
@@ -76,17 +76,17 @@ Multi-crate Cargo workspace:
 # Main app with default features (Silero VAD + text injection, no STT by default)
 cargo build
 
-# With Vosk STT
-cargo build --features vosk
+# With Whisper STT
+cargo build --features whisper
 
 # Full feature set
-cargo build --features vosk,text-injection
+cargo build --features whisper,text-injection
 
 # Workspace build (all crates)
 cargo build --workspace
 
 # Release builds
-cargo build --release --features vosk,text-injection
+cargo build --release --features whisper,text-injection
 ```
 
 ### Running
@@ -98,11 +98,11 @@ cargo run
 # With specific device
 cargo run -- --device "USB Microphone"
 
-# With Vosk STT (for actual voice dictation)
-cargo run --features vosk,text-injection
+# With Whisper STT (for actual voice dictation)
+cargo run --features whisper,text-injection
 
 # With specific device and STT
-cargo run --features vosk,text-injection -- --device "HyperX QuadCast"
+cargo run --features whisper,text-injection -- --device "HyperX QuadCast"
 
 # TUI Dashboard (shared runtime)
 cargo run --bin tui_dashboard  # S=Start, A=Toggle VAD/PTT, R=Reset, Q=Quit
@@ -115,7 +115,7 @@ cargo run --bin mic_probe -- --duration 30
 # Examples (must include required features)
 cargo run --example foundation_probe
 cargo run --example record_10s
-cargo run --example vosk_test --features vosk,examples
+cargo run --example whisper_test --features whisper,examples
 cargo run --example inject_demo --features text-injection
 cargo run --example test_silero_wav --features examples
 ```
@@ -135,8 +135,8 @@ cargo test -p coldvox-app
 # Integration tests
 cargo test integration
 
-# End-to-end WAV test (requires Vosk model - auto-discovered from project root)
-cargo test -p coldvox-app --features vosk test_end_to_end_wav --nocapture
+# End-to-end WAV test (requires Whisper model - auto-discovered from project root)
+cargo test -p coldvox-app --features whisper test_end_to_end_wav --nocapture
 ```
 
 ### Linting & Formatting
@@ -149,9 +149,9 @@ cargo clippy -- -D warnings
 
 ## Features
 
-Default features: `silero`, `vosk`, `text-injection`
+Default features: `silero`, `whisper`, `text-injection`
 
-- `vosk` - Vosk STT support (requires libvosk system library)
+- `whisper` - Faster-Whisper STT support (requires faster-whisper Python package)
 - `text-injection` - Text injection backends (platform-specific)
 - `silero` - Silero VAD (default)
 - `level3` - Legacy Level3 energy-based VAD (not recommended for use)
@@ -178,8 +178,8 @@ Platform-specific text injection backends are automatically enabled at build tim
 - **Events**: `VadEvent::{SpeechStart, SpeechEnd}` with debouncing
 
 ### STT Integration
-- **Vosk**: Offline recognition (feature `vosk`)
-- **Model**: `VOSK_MODEL_PATH` or `models/vosk-model-small-en-us-0.15/` (legacy root fallback supported temporarily)
+- **Whisper**: Offline recognition via faster-whisper (feature `whisper`)
+- **Model**: `WHISPER_MODEL_PATH` or standard Whisper model identifiers (e.g., "base.en", "small.en")
 - **Events**: `TranscriptionEvent::{Partial, Final, Error}`
 
 ### Text Injection
@@ -235,7 +235,7 @@ Build-time detection in `crates/app/build.rs`:
 - **Main app**: `crates/app/src/main.rs`
 - **Audio pipeline**: `crates/coldvox-audio/src/capture.rs`, `frame_reader.rs`, `chunker.rs`
 - **VAD engines**: `crates/coldvox-vad-silero/src/silero_wrapper.rs`, `crates/coldvox-vad/src/level3.rs`
-- **STT integration**: `crates/app/src/stt/processor.rs`, `crates/app/src/stt/vosk.rs`
+- **STT integration**: `crates/app/src/stt/processor.rs`, `crates/coldvox-stt/src/plugins/whisper_plugin.rs`
 - **Text injection**: `crates/coldvox-text-injection/src/manager.rs`
 
 ### Configuration & Build
@@ -257,11 +257,11 @@ Run `scripts/setup_text_injection.sh` to install:
 - kdotool (optional)
 - Configures uinput permissions and user groups
 
-### Vosk STT
-- Install libvosk system library
-- Download model from https://alphacephei.com/vosk/models
-- Set `VOSK_MODEL_PATH` or place in `models/vosk-model-small-en-us-0.15/`
-- **Deprecation note**: Root-level model path (`vosk-model-small-en-us-0.15/`) will be removed after two minor releases
+### Whisper STT
+- Install faster-whisper Python package: `pip install faster-whisper`
+- Models are automatically downloaded on first use
+- Set `WHISPER_MODEL_PATH` to specify a model identifier or custom model directory
+- Common model identifiers: "tiny.en", "base.en", "small.en", "medium.en"
 
 ## Maintenance Notes
 

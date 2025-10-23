@@ -1,7 +1,7 @@
 //! STT Plugin Architecture
 //!
 //! This module defines the plugin interface for Speech-to-Text engines.
-//! Any STT backend (Vosk, Whisper, Cloud APIs, etc.) implements these traits.
+//! Any STT backend (Whisper, Cloud APIs, etc.) implements these traits.
 
 use async_trait::async_trait;
 use std::fmt::Debug;
@@ -147,7 +147,7 @@ pub trait SttPlugin: Send + Sync + Debug {
     ///
     /// # Implementation Guidelines for Plugin Developers:
     ///
-    /// ## For Model-Based Plugins (Vosk, Whisper, Coqui, etc.):
+    /// ## For Model-Based Plugins (Whisper, Coqui, etc.):
     /// - Drop model instances to free GPU/CPU memory
     /// - Close any open file handles or network connections
     /// - Reset internal state to uninitialized

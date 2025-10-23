@@ -17,7 +17,8 @@ mod stt_core_tests {
         std::env::remove_var("WHISPER_MODEL_PATH");
         let config = TranscriptionConfig::default();
         assert!(!config.enabled);
-        let expected_path = std::env::var("WHISPER_MODEL_PATH").unwrap_or_else(|_| "base.en".to_string());
+        let expected_path =
+            std::env::var("WHISPER_MODEL_PATH").unwrap_or_else(|_| "base.en".to_string());
         assert_eq!(config.model_path, expected_path);
         assert!(config.partial_results);
         assert_eq!(config.max_alternatives, 1);

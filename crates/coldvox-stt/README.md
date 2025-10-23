@@ -19,7 +19,7 @@ This crate provides the foundational types and traits for speech-to-text functio
 - **VAD Integration**: Built-in support for Voice Activity Detection gating
 - **Flexible Configuration**: Support for partial results, word timing, alternatives, etc.
 - **Backward Compatibility**: Legacy `Transcriber` trait still supported
-- **Engine Agnostic**: Works with any STT implementation (Vosk, Whisper, etc.)
+- **Engine Agnostic**: Works with any STT implementation (Whisper, etc.)
 
 ## Usage
 
@@ -35,7 +35,7 @@ let config = TranscriptionConfig {
     ..Default::default()
 };
 
-// Use with any implementation (e.g., VoskTranscriber from coldvox-stt-vosk)
+// Use with any implementation (e.g., WhisperTranscriber from coldvox-stt-whisper)
 let mut transcriber = SomeTranscriber::new(config, 16000.0)?;
 
 // Process audio
@@ -50,10 +50,10 @@ match transcriber.accept_frame(&audio_samples)? {
 ## Default Model Path
 
 The default model path can be configured via:
-1. `VOSK_MODEL_PATH` environment variable
-2. Falls back to `models/vosk-model-small-en-us-0.15`
+1. `WHISPER_MODEL_PATH` environment variable
+2. Falls back to `models/whisper-base.en`
 
 ## Related Crates
 
-- `coldvox-stt-vosk`: Vosk STT implementation (feature-gated)
+- `coldvox-stt-whisper`: Whisper STT implementation (feature-gated)
 - `coldvox-app`: Main application using STT functionality

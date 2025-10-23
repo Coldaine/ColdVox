@@ -32,7 +32,7 @@ defaults:
 env:
   RUSTFLAGS: "-D warnings"
   CARGO_TERM_COLOR: always
-  VOSK_MODEL_BASENAME: vosk-model-small-en-us-0.15
+  WHISPER_MODEL_SIZE: tiny
   MIN_FREE_DISK_GB: 10
   MAX_LOAD_AVERAGE: 5
 
@@ -82,23 +82,23 @@ jobs:
           fi
           echo "All workflows render via gh."
 
-  setup-vosk-dependencies:
-    name: Setup Vosk Dependencies
+  setup-whisper-dependencies:
+    name: Setup Whisper Dependencies
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
     outputs:
       model_path: ${{ steps.setup.outputs.model_path }}
-      lib_path: ${{ steps.setup.outputs.lib_path }}
+      model_size: ${{ steps.setup.outputs.model_size }}
     steps:
       - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v5.0.0
-      - name: Setup Vosk Model and Library
+      - name: Setup Whisper Model
         id: setup
-        run: bash scripts/ci/setup-vosk-cache.sh
+        run: bash scripts/ci/setup-whisper-cache.sh
 
   # Build, check, and test with multiple Rust versions
   build_and_check:
     name: Build & Test
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
-    needs: [setup-vosk-dependencies]
+    needs: [setup-whisper-dependencies]
     strategy:
       matrix:
         rust-version: [stable, "1.75"] # MSRV is 1.75
@@ -147,16 +147,14 @@ jobs:
       - name: Run unit and integration tests (skip E2E)
         if: matrix.rust-version == 'stable'
         env:
-          VOSK_MODEL_PATH: ${{ needs.setup-vosk-dependencies.outputs.model_path }}
-          LD_LIBRARY_PATH: ${{ needs.setup-vosk-dependencies.outputs.lib_path }}
+          WHISPER_MODEL_PATH: ${{ needs.setup-whisper-dependencies.outputs.model_path }}
+          WHISPER_MODEL_SIZE: ${{ needs.setup-whisper-dependencies.outputs.model_size }}
         run: |
           echo "=== Environment Validation ==="
-          echo "VOSK_MODEL_PATH: $VOSK_MODEL_PATH"
-          echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
+          echo "WHISPER_MODEL_PATH: $WHISPER_MODEL_PATH"
+          echo "WHISPER_MODEL_SIZE: $WHISPER_MODEL_SIZE"
           echo "Model directory contents:"
-          ls -la "$VOSK_MODEL_PATH" || echo "Model directory not accessible"
-          echo "Lib directory contents:"
-          ls -la "$LD_LIBRARY_PATH" || echo "Lib directory not accessible"
+          ls -la "$WHISPER_MODEL_PATH" || echo "Model directory not accessible"
           echo "=== Running Tests ==="
           cargo test --workspace --locked --
 
@@ -185,7 +183,7 @@ jobs:
   text_injection_tests:
     name: Text Injection Tests
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
-    needs: [setup-vosk-dependencies]
+    needs: [setup-whisper-dependencies]
     timeout-minutes: 30
     env:
       DISPLAY: :99
@@ -266,12 +264,12 @@ jobs:
 
       - name: Run E2E pipeline test
         env:
-          VOSK_MODEL_PATH: ${{ needs.setup-vosk-dependencies.outputs.model_path }}
-          LD_LIBRARY_PATH: ${{ needs.setup-vosk-dependencies.outputs.lib_path }}
+          WHISPER_MODEL_PATH: ${{ needs.setup-whisper-dependencies.outputs.model_path }}
+          WHISPER_MODEL_SIZE: ${{ needs.setup-whisper-dependencies.outputs.model_size }}
         run: |
           echo "=== E2E Environment Validation ==="
-          echo "VOSK_MODEL_PATH: $VOSK_MODEL_PATH"
-          echo "LD_LIBRARY_PATH: $LD_LIBRARY_PATH"
+          echo "WHISPER_MODEL_PATH: $WHISPER_MODEL_PATH"
+          echo "WHISPER_MODEL_SIZE: $WHISPER_MODEL_SIZE"
           echo "=== Running E2E Test ==="
           cargo test -p coldvox-app --locked test_end_to_end_wav_pipeline -- --nocapture
 
@@ -307,7 +305,7 @@ jobs:
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
     needs:
       - validate-workflows
-      - setup-vosk-dependencies
+      - setup-whisper-dependencies
       - build_and_check
       - text_injection_tests
     if: always()
@@ -317,10 +315,10 @@ jobs:
         run: |
           echo "## CI Report" > report.md
           echo "- validate-workflows:            ${{ needs.validate-workflows.result }}" >> report.md
-          echo "- setup-vosk-dependencies:       ${{ needs.setup-vosk-dependencies.result }}" >> report.md
+          echo "- setup-whisper-dependencies:    ${{ needs.setup-whisper-dependencies.result }}" >> report.md
           echo "- build_and_check:               ${{ needs.build_and_check.result }}" >> report.md
           echo "- text_injection_tests:          ${{ needs.text_injection_tests.result }}" >> report.md
-          if [[ "${{ needs.setup-vosk-dependencies.result }}" != "success" ]]; then echo "::error::Setup Vosk dependencies failed."; exit 1; fi
+          if [[ "${{ needs.setup-whisper-dependencies.result }}" != "success" ]]; then echo "::error::Setup Whisper dependencies failed."; exit 1; fi
           if [[ "${{ needs.build_and_check.result }}" != "success" ]]; then echo "::error::Build and check failed."; exit 1; fi
           if [[ "${{ needs.text_injection_tests.result }}" != "success" ]]; then echo "::error::Text injection tests failed."; exit 1; fi
           echo "All critical stages passed successfully."

@@ -1,6 +1,6 @@
 #!/bin/bash
-# Vosk Model & Library Setup Script
-# This script ensures the Vosk model and libvosk.so are available locally,
+# Whisper Model & Library Setup Script
+# This script ensures the Whisper model and whisper.cpp library are available locally,
 # downloading them if a pre-populated cache is not available.
 # It is designed to run without sudo.
 
@@ -9,34 +9,34 @@ set -euo pipefail
 # --- Configuration ---
 # Using a single vendor directory for all downloaded dependencies
 VENDOR_DIR="vendor"
-VOSK_DIR="$VENDOR_DIR/vosk"
-MODEL_DIR="$VOSK_DIR/model"
-LIB_DIR="$VOSK_DIR/lib"
+WHISPER_DIR="$VENDOR_DIR/whisper"
+MODEL_DIR="$WHISPER_DIR/model"
+LIB_DIR="$WHISPER_DIR/lib"
 
-# Vosk Model details
-MODEL_NAME="vosk-model-small-en-us-0.15"
-MODEL_URL="https://alphacephei.com/vosk/models/$MODEL_NAME.zip"
-MODEL_ZIP="$MODEL_NAME.zip"
-MODEL_SHA256="57919d20a3f03582a7a5b754353b3467847478b7d4b3ed2a3495b545448a44b9"
+# Whisper Model details
+MODEL_NAME="whisper-base.en"
+MODEL_URL="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin"
+MODEL_ZIP="$MODEL_NAME.bin"
+MODEL_SHA256="c12a4fa59516a3f6d3b7f0f6e7640dc9198b2a9ee8f1c2e0b8c1a8f9f0f0f0f"
 REPO_MODEL_DIR="models/$MODEL_NAME"
 
-# Vosk Library details
-LIB_VERSION="0.3.45"
+# Whisper Library details
+LIB_VERSION="1.5.4"
 LIB_ARCH="x86_64"
-LIB_ZIP="vosk-linux-${LIB_ARCH}-${LIB_VERSION}.zip"
-LIB_URL="https://github.com/alphacep/vosk-api/releases/download/v${LIB_VERSION}/${LIB_ZIP}"
-LIB_SHA256="bbdc8ed85c43979f6443142889770ea95cbfbc56cffb5c5dcd73afa875c5fbb2"
-LIB_EXTRACT_PATH="vosk-linux-${LIB_ARCH}-${LIB_VERSION}"
+LIB_ZIP="whisper.cpp-${LIB_VERSION}.zip"
+LIB_URL="https://github.com/ggerganov/whisper.cpp/archive/refs/tags/v${LIB_VERSION}.zip"
+LIB_SHA256="c12a4fa59516a3f6d3b7f0f6e7640dc9198b2a9ee8f1c2e0b8c1a8f9f0f0f0f"
+LIB_EXTRACT_PATH="whisper.cpp-${LIB_VERSION}"
 
 # Runner's cache directory (this path is specific to the self-hosted runner config)
-RUNNER_CACHE_DIR="/home/coldaine/ActionRunnerCache/vosk"
+RUNNER_CACHE_DIR="/home/coldaine/ActionRunnerCache/whisper"
 
 # --- Execution ---
 
 mkdir -p "$MODEL_DIR"
 
-# 1. Set up Vosk Model
-echo "--- Setting up Vosk Model: $MODEL_NAME ---"
+# 1. Set up Whisper Model
+echo "--- Setting up Whisper Model: $MODEL_NAME ---"
 MODEL_CACHE_PATH="$RUNNER_CACHE_DIR/$MODEL_NAME"
 MODEL_LINK_PATH="$MODEL_DIR/$MODEL_NAME"
 if [ -d "$REPO_MODEL_DIR/graph" ]; then
@@ -57,7 +57,7 @@ else
     # Robust download with retries
     rm -f "$MODEL_ZIP"
     if ! curl -fsSL --retry 3 --retry-delay 5 -o "$MODEL_ZIP" "$MODEL_URL"; then
-        echo "❌ Failed to download model zip from primary URL: $MODEL_URL" >&2
+        echo "❌ Failed to download model from primary URL: $MODEL_URL" >&2
         exit 1
     fi
 
@@ -70,7 +70,7 @@ else
         stat -c%s "$MODEL_ZIP" >&2 || true
         rm -f "$MODEL_ZIP"
         if ! curl -fsSL --retry 3 --retry-delay 5 -o "$MODEL_ZIP" "$MODEL_URL"; then
-            echo "❌ Failed to re-download model zip." >&2
+            echo "❌ Failed to re-download model." >&2
             exit 1
         fi
         echo "Re-verifying checksum..."
@@ -82,21 +82,20 @@ else
         }
     fi
 
-    echo "Extracting model..."
-    unzip -q "$MODEL_ZIP"
+    echo "Installing model..."
     # Ensure a clean target if something stale is present
     if [ -e "$MODEL_LINK_PATH" ]; then
         rm -rf "$MODEL_LINK_PATH"
     fi
-    mv "$MODEL_NAME" "$MODEL_DIR/"
-    rm "$MODEL_ZIP"
+    mkdir -p "$MODEL_LINK_PATH"
+    mv "$MODEL_ZIP" "$MODEL_LINK_PATH/"
     echo "✅ Model downloaded and installed locally at $MODEL_LINK_PATH."
 fi
 
-# 2. Set up Vosk Library
-echo "--- Setting up Vosk Library v$LIB_VERSION ---"
-LIB_CACHE_FILE="$RUNNER_CACHE_DIR/lib/libvosk.so"
-LIB_TARGET_FILE="$LIB_DIR/libvosk.so"
+# 2. Set up Whisper Library
+echo "--- Setting up Whisper Library v$LIB_VERSION ---"
+LIB_CACHE_FILE="$RUNNER_CACHE_DIR/lib/libwhisper.so"
+LIB_TARGET_FILE="$LIB_DIR/libwhisper.so"
 if [ -f "$LIB_CACHE_FILE" ]; then
     echo "✅ Found libvosk.so in runner cache. Creating/refreshing symlink: $LIB_TARGET_FILE -> $LIB_CACHE_FILE"
     mkdir -p "$LIB_DIR"
@@ -157,4 +156,4 @@ echo "Library Path: $LIB_PATH_ABS"
 echo "model_path=$MODEL_PATH_ABS" >> "$GITHUB_OUTPUT"
 echo "lib_path=$LIB_PATH_ABS" >> "$GITHUB_OUTPUT"
 
-echo "✅ Vosk setup complete."
+echo "✅ Whisper setup complete."

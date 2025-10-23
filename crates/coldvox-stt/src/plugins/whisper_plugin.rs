@@ -12,6 +12,7 @@
 use crate::plugin::*;
 use crate::types::{TranscriptionConfig, TranscriptionEvent, WordInfo};
 use async_trait::async_trait;
+use std::env;
 use std::path::{Path, PathBuf};
 #[allow(unused_imports)]
 use tracing::{debug, info, warn};
@@ -87,7 +88,10 @@ impl WhisperPlugin {
     }
 
     #[cfg(feature = "whisper")]
-    fn resolve_model_identifier(&self, config: &TranscriptionConfig) -> Result<String, SttPluginError> {
+    fn resolve_model_identifier(
+        &self,
+        config: &TranscriptionConfig,
+    ) -> Result<String, SttPluginError> {
         let path_candidate = if !config.model_path.is_empty() {
             Some(PathBuf::from(&config.model_path))
         } else {
@@ -111,15 +115,16 @@ impl WhisperPlugin {
 
     #[cfg(feature = "whisper")]
     fn build_whisper_config(&self, config: &TranscriptionConfig) -> WhisperConfig {
-        let mut whisper_config = WhisperConfig::default();
-        whisper_config.language = self.language.clone();
-        whisper_config.beam_size = config.max_alternatives.max(1) as usize;
-        whisper_config.best_of = config.max_alternatives.max(1) as usize;
-        whisper_config.vad = VadConfig {
-            active: config.streaming,
+        WhisperConfig {
+            language: self.language.clone(),
+            beam_size: config.max_alternatives.max(1) as usize,
+            best_of: config.max_alternatives.max(1) as usize,
+            vad: VadConfig {
+                active: config.streaming,
+                ..Default::default()
+            },
             ..Default::default()
-        };
-        whisper_config
+        }
     }
 }
 
@@ -171,6 +176,36 @@ impl Default for WhisperModelSize {
     }
 }
 
+impl Environment {
+    /// Get the default model size for this environment
+    fn default_model_size(self) -> WhisperModelSize {
+        match self {
+            Environment::CI => {
+                // In CI, use the smallest model to conserve resources
+                WhisperModelSize::Tiny
+            }
+            Environment::Development => {
+                // In development, check available memory and choose accordingly
+                if let Some(available_mb) = WhisperPluginFactory::get_available_memory_mb() {
+                    WhisperPluginFactory::get_model_size_for_memory(available_mb)
+                } else {
+                    // If we can't determine memory, use a small model
+                    WhisperModelSize::Base
+                }
+            }
+            Environment::Production => {
+                // In production, check available memory and choose accordingly
+                if let Some(available_mb) = WhisperPluginFactory::get_available_memory_mb() {
+                    WhisperPluginFactory::get_model_size_for_memory(available_mb)
+                } else {
+                    // If we can't determine memory, use a balanced model
+                    WhisperModelSize::Small
+                }
+            }
+        }
+    }
+}
+
 #[async_trait]
 impl SttPlugin for WhisperPlugin {
     fn info(&self) -> PluginInfo {
@@ -181,10 +216,7 @@ impl SttPlugin for WhisperPlugin {
             requires_network: false,
             is_local: true,
             is_available: check_whisper_available(),
-            supported_languages: vec![
-                "auto".to_string(),
-                "en".to_string(),
-            ],
+            supported_languages: vec!["auto".to_string(), "en".to_string()],
             memory_usage_mb: Some(self.model_size.memory_usage_mb()),
         }
     }
@@ -316,9 +348,7 @@ impl SttPlugin for WhisperPlugin {
                 .model
                 .as_ref()
                 .ok_or_else(|| {
-                    SttPluginError::ProcessingError(
-                        "Faster Whisper model not loaded".to_string(),
-                    )
+                    SttPluginError::ProcessingError("Faster Whisper model not loaded".to_string())
                 })?
                 .transcribe(temp_path.to_string_lossy().to_string())
                 .map_err(|err| SttPluginError::TranscriptionFailed(err.to_string()))?;
@@ -342,7 +372,7 @@ impl SttPlugin for WhisperPlugin {
                         .map(|segment| WordInfo {
                             start: segment.start,
                             end: segment.end,
-                            conf: (1.0 - segment.no_speech_prob).clamp(0.0, 1.0) as f32,
+                            conf: (1.0 - segment.no_speech_prob).clamp(0.0, 1.0),
                             text: segment.text.clone(),
                         })
                         .collect(),
@@ -425,14 +455,133 @@ pub struct WhisperPluginFactory {
     compute_type: String,
 }
 
+/// Environment type for model selection
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Environment {
+    CI,
+    Development,
+    Production,
+}
+
 impl WhisperPluginFactory {
     pub fn new() -> Self {
+        // Check for WHISPER_MODEL_SIZE environment variable first
+        let model_size = if let Ok(model_size_str) = env::var("WHISPER_MODEL_SIZE") {
+            Self::parse_model_size(&model_size_str).unwrap_or_else(|_| {
+                warn!(
+                    target: "coldvox::stt::whisper",
+                    "Invalid WHISPER_MODEL_SIZE value: {}, using default", model_size_str
+                );
+                Self::detect_environment().default_model_size()
+            })
+        } else {
+            Self::detect_environment().default_model_size()
+        };
+
         Self {
             model_path: std::env::var("WHISPER_MODEL_PATH").ok().map(PathBuf::from),
-            model_size: WhisperModelSize::Base,
+            model_size,
             language: std::env::var("WHISPER_LANGUAGE").ok(),
             device: std::env::var("WHISPER_DEVICE").unwrap_or_else(|_| "cpu".to_string()),
             compute_type: std::env::var("WHISPER_COMPUTE").unwrap_or_else(|_| "int8".to_string()),
+        }
+    }
+
+    /// Parse model size from string
+    fn parse_model_size(size_str: &str) -> Result<WhisperModelSize, ()> {
+        match size_str.to_lowercase().as_str() {
+            "tiny" => Ok(WhisperModelSize::Tiny),
+            "base" => Ok(WhisperModelSize::Base),
+            "small" => Ok(WhisperModelSize::Small),
+            "medium" => Ok(WhisperModelSize::Medium),
+            "large" => Ok(WhisperModelSize::Large),
+            "large-v2" => Ok(WhisperModelSize::LargeV2),
+            "large-v3" => Ok(WhisperModelSize::LargeV3),
+            _ => Err(()),
+        }
+    }
+
+    /// Detect the current environment
+    fn detect_environment() -> Environment {
+        // Check for CI environment variables
+        if Self::is_ci_environment() {
+            return Environment::CI;
+        }
+
+        // Check for development environment indicators
+        if Self::is_development_environment() {
+            return Environment::Development;
+        }
+
+        // Default to production
+        Environment::Production
+    }
+
+    /// Check if running in CI environment
+    fn is_ci_environment() -> bool {
+        // Common CI environment variables
+        env::var("CI").is_ok()
+            || env::var("CONTINUOUS_INTEGRATION").is_ok()
+            || env::var("GITHUB_ACTIONS").is_ok()
+            || env::var("GITLAB_CI").is_ok()
+            || env::var("TRAVIS").is_ok()
+            || env::var("CIRCLECI").is_ok()
+            || env::var("JENKINS_URL").is_ok()
+            || env::var("BUILDKITE").is_ok()
+    }
+
+    /// Check if running in development environment
+    fn is_development_environment() -> bool {
+        // Check for development indicators
+        env::var("RUST_BACKTRACE").is_ok() ||
+        env::var("DEBUG").is_ok() ||
+        env::var("DEV").is_ok() ||
+        // Check if running from a git repository
+        PathBuf::from(".git").exists()
+    }
+
+    /// Get available memory in MB
+    fn get_available_memory_mb() -> Option<u32> {
+        #[cfg(unix)]
+        {
+            use std::fs;
+            match fs::read_to_string("/proc/meminfo") {
+                Ok(content) => {
+                    for line in content.lines() {
+                        if line.starts_with("MemAvailable:") {
+                            let parts: Vec<&str> = line.split_whitespace().collect();
+                            if parts.len() >= 2 {
+                                if let Ok(kb) = parts[1].parse::<u32>() {
+                                    return Some(kb / 1024); // Convert KB to MB
+                                }
+                            }
+                        }
+                    }
+                    None
+                }
+                Err(_) => None,
+            }
+        }
+
+        #[cfg(not(unix))]
+        {
+            // For non-Unix systems, return None
+            None
+        }
+    }
+
+    /// Get appropriate model size based on available memory
+    fn get_model_size_for_memory(available_mb: u32) -> WhisperModelSize {
+        if available_mb < 500 {
+            WhisperModelSize::Tiny
+        } else if available_mb < 1000 {
+            WhisperModelSize::Base
+        } else if available_mb < 2000 {
+            WhisperModelSize::Small
+        } else if available_mb < 4000 {
+            WhisperModelSize::Medium
+        } else {
+            WhisperModelSize::Base // Default to Base even with lots of memory for stability
         }
     }
 
@@ -515,7 +664,7 @@ impl SttPluginFactory for WhisperPluginFactory {
 
 #[cfg(feature = "whisper")]
 fn check_whisper_available() -> bool {
-    Python::with_gil(|py| py.import("faster_whisper").is_ok())
+    Python::with_gil(|py| py.import_bound("faster_whisper").is_ok())
 }
 
 #[cfg(not(feature = "whisper"))]
@@ -526,11 +675,101 @@ fn check_whisper_available() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::env;
 
     #[test]
     fn model_size_identifier_mapping() {
         assert_eq!(WhisperModelSize::Tiny.model_identifier(), "tiny");
         assert_eq!(WhisperModelSize::Base.model_identifier(), "base.en");
         assert_eq!(WhisperModelSize::LargeV3.model_identifier(), "large-v3");
+    }
+
+    #[test]
+    fn parse_model_size() {
+        assert_eq!(
+            WhisperPluginFactory::parse_model_size("tiny").unwrap(),
+            WhisperModelSize::Tiny
+        );
+        assert_eq!(
+            WhisperPluginFactory::parse_model_size("large-v3").unwrap(),
+            WhisperModelSize::LargeV3
+        );
+        assert!(WhisperPluginFactory::parse_model_size("invalid").is_err());
+        assert!(WhisperPluginFactory::parse_model_size("").is_err());
+    }
+
+    #[test]
+    fn environment_detection() {
+        // Test CI detection
+        env::set_var("CI", "true");
+        assert_eq!(WhisperPluginFactory::detect_environment(), Environment::CI);
+        env::remove_var("CI");
+
+        // Test development detection
+        env::set_var("DEBUG", "1");
+        assert_eq!(
+            WhisperPluginFactory::detect_environment(),
+            Environment::Development
+        );
+        env::remove_var("DEBUG");
+
+        // Default to production when no indicators are present
+        assert_eq!(
+            WhisperPluginFactory::detect_environment(),
+            Environment::Production
+        );
+    }
+
+    #[test]
+    fn model_size_for_memory() {
+        // Test memory-based model selection
+        assert_eq!(
+            WhisperPluginFactory::get_model_size_for_memory(300),
+            WhisperModelSize::Tiny
+        );
+        assert_eq!(
+            WhisperPluginFactory::get_model_size_for_memory(750),
+            WhisperModelSize::Base
+        );
+        assert_eq!(
+            WhisperPluginFactory::get_model_size_for_memory(1500),
+            WhisperModelSize::Small
+        );
+        assert_eq!(
+            WhisperPluginFactory::get_model_size_for_memory(3000),
+            WhisperModelSize::Medium
+        );
+        assert_eq!(
+            WhisperPluginFactory::get_model_size_for_memory(8000),
+            WhisperModelSize::Base
+        );
+    }
+
+    #[test]
+    fn environment_default_model_sizes() {
+        // Test default model sizes for each environment
+        assert_eq!(Environment::CI.default_model_size(), WhisperModelSize::Tiny);
+
+        // Development and production depend on memory, so we can't test exact values
+        // without mocking memory detection
+    }
+
+    #[test]
+    fn whisper_model_size_env_var() {
+        // Test that WHISPER_MODEL_SIZE environment variable is respected
+        env::set_var("WHISPER_MODEL_SIZE", "large-v2");
+        let factory = WhisperPluginFactory::new();
+        assert_eq!(factory.model_size, WhisperModelSize::LargeV2);
+        env::remove_var("WHISPER_MODEL_SIZE");
+
+        // Test with invalid value - should fall back to environment default
+        env::set_var("WHISPER_MODEL_SIZE", "invalid-size");
+        let factory = WhisperPluginFactory::new();
+        // Should not panic and should use a valid default based on environment
+        assert!(matches!(
+            factory.model_size,
+            WhisperModelSize::Tiny | WhisperModelSize::Base | WhisperModelSize::Small
+        ));
+        env::remove_var("WHISPER_MODEL_SIZE");
     }
 }
