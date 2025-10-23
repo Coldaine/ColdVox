@@ -264,6 +264,40 @@ Run `scripts/setup_text_injection.sh` to install:
 - Set `WHISPER_MODEL_PATH` to specify a model identifier or custom model directory
 - Common model identifiers: "tiny.en", "base.en", "small.en", "medium.en"
 
+## Changelog Maintenance
+
+**REQUIRED**: All user-visible changes MUST be documented in `CHANGELOG.md` following the rubric in `docs/standards.md`.
+
+### When to Update the Changelog
+
+Update `CHANGELOG.md` for:
+- **User-visible features**: New functionality, commands, options, or behaviors
+- **Breaking changes**: API changes, configuration changes, removed features
+- **Bug fixes**: Fixes that impact user experience or behavior
+- **Deprecations**: Features or APIs being phased out
+- **Performance improvements**: Significant performance changes users will notice
+- **Security fixes**: Any security-related changes
+- **Dependency updates**: Major version bumps or security updates
+
+### When NOT to Update the Changelog
+
+Skip changelog updates for:
+- Internal refactoring with no user-visible impact
+- Documentation-only changes (unless they're major documentation overhauls)
+- Test changes
+- CI/CD configuration changes
+- Development tooling changes
+
+### Changelog Format
+
+Follow [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) format:
+- Use `## [Unreleased]` for unreleased changes
+- Group changes under `### Added`, `### Changed`, `### Deprecated`, `### Removed`, `### Fixed`, `### Security`, `### Documentation`, `### Dependencies`
+- Include PR numbers in parentheses: `(#123)`
+- Use clear, user-focused language
+
+See the detailed rubric in `docs/standards.md` for version numbering guidelines.
+
 ## Maintenance Notes
 
 - Project status: Source of truth is `docs/PROJECT_STATUS.md`. The README badge is static and must be updated manually to match the current phase.
