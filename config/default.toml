@@ -90,6 +90,7 @@ auto_extract = true
 #
 # When WHISPER_MODEL_SIZE is not set, the system will:
 #   1. Use the environment-specific default based on detection
-#   2. Fall back to memory-based selection if available memory can be determined
+#   2. In Development: auto-select large-v3 when available memory >= 12 GB
+#   3. Otherwise: fall back to memory-based selection if available memory can be determined
 #   3. Use the configured default as a last resort
 # model_size = "base"             # Default model size (can be overridden by environment)
