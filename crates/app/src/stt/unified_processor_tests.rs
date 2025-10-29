@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::stt::plugin_manager::SttPluginManager;
-use coldvox_audio::AudioFrame;
+use coldvox_audio::SharedAudioFrame as AudioFrame;
 use coldvox_stt::SttProcessingMode;
 use coldvox_vad::VadEvent;
 use std::sync::Arc;
@@ -94,7 +94,7 @@ async fn test_mode_switch_during_speech() {
     let mut audio_handle = tokio::spawn(async move {
         for i in 0..3 {
             let frame = AudioFrame {
-                samples: vec![0.0; 512],
+                samples: std::sync::Arc::from(vec![0i16; 512]),
                 sample_rate: 16000,
                 timestamp: Instant::now(),
             };

@@ -10,7 +10,6 @@ use std::time::{Duration, Instant};
 use std::sync::atomic::Ordering;
 
 use coldvox_stt::plugin::{PluginSelectionConfig, SttPlugin, SttPluginError, SttPluginRegistry};
-use coldvox_stt::plugins::NoOpPlugin;
 use coldvox_stt::TranscriptionConfig;
 use coldvox_telemetry::pipeline_metrics::PipelineMetrics;
 use serde_json;
@@ -737,12 +736,18 @@ impl SttPluginManager {
             }
         }
 
-        // Last resort: try any available plugin
+        // Last resort: try any available plugin, but never auto-select NoOp
         match registry.create_best_available() {
             Ok(p) => {
+                let id = p.info().id.clone();
+                if id == "noop" {
+                    return Err(SttPluginError::ConfigurationError(
+                        "No real STT plugin available (NoOp is not allowed as fallback)".to_string(),
+                    ));
+                }
                 info!(
                     target: "coldvox::stt",
-                    plugin_id = %p.info().id,
+                    plugin_id = %id,
                     event = "plugin_auto_selected",
                     "Using best available STT plugin"
                 );
@@ -751,8 +756,7 @@ impl SttPluginManager {
             Err(_) => {
                 // No fallback to NoOp; require real STT
                 Err(SttPluginError::ConfigurationError(
-                    "No STT plugin available. Ensure required models and libraries are installed."
-                        .to_string(),
+                    "No STT plugin available. Ensure required models and libraries are installed.".to_string(),
                 ))
             }
         }
@@ -1232,17 +1236,8 @@ impl SttPluginManager {
             }
         }
 
-        // Last resort: NoOp plugin
-        let noop_plugin = Box::new(NoOpPlugin::new());
-        let noop_id = noop_plugin.info().id.clone();
-
-        {
-            let mut current = self.current_plugin.write().await;
-            *current = Some(noop_plugin);
-        }
-
-        warn!("All fallback plugins failed, using NoOp plugin");
-        Ok(noop_id)
+        // No last-resort fallback: fail explicitly so callers/tests never silently use NoOp
+        Err("No available STT plugins for failover".to_string())
     }
 
     /// Get current failover metrics
@@ -1285,7 +1280,8 @@ mod tests {
         let mut manager = SttPluginManager::new();
         // For tests, prefer Mock plugin to avoid model dependencies
         manager.selection_config.preferred_plugin = Some("mock".to_string());
-        manager.selection_config.fallback_plugins = vec!["noop".to_string()];
+        // Do not include NoOp in fallbacks for stricter behavior
+        manager.selection_config.fallback_plugins = vec![];
         manager
     }
 
@@ -1373,29 +1369,25 @@ mod tests {
         // Should be able to switch to mock plugin
         manager.switch_plugin("mock").await.unwrap();
         assert_eq!(manager.current_plugin().await, Some("mock".to_string()));
-
-        // Should be able to switch to noop plugin
-        manager.switch_plugin("noop").await.unwrap();
-        assert_eq!(manager.current_plugin().await, Some("noop".to_string()));
     }
 
     #[tokio::test]
-    async fn test_fallback_to_noop() {
+    async fn test_fallback_failure_when_no_plugins_available() {
         let mut manager = SttPluginManager::new();
 
-        // Configure to prefer a non-existent plugin
+        // Configure to prefer a non-existent plugin and no fallbacks
         manager.selection_config.preferred_plugin = Some("non-existent".to_string());
-        manager.selection_config.fallback_plugins = vec!["also-non-existent".to_string()];
+        manager.selection_config.fallback_plugins = vec![];
 
-        // Should fall back to NoOp
-        let plugin_id = manager.initialize().await.unwrap();
-        assert_eq!(plugin_id, "noop");
+        // Initialization should fail explicitly (no NoOp fallback)
+        let init_result = manager.initialize().await;
+        assert!(init_result.is_err());
     }
 
     #[tokio::test]
     async fn test_unload_metrics() {
         let metrics = Arc::new(PipelineMetrics::default());
-        let mut manager = SttPluginManager::new().with_metrics_sink(metrics.clone());
+        let mut manager = create_test_manager().with_metrics_sink(metrics.clone());
 
         // Initialize with a plugin
         let plugin_id = manager.initialize().await.unwrap();
@@ -1436,7 +1428,7 @@ mod tests {
     #[tokio::test]
     async fn test_unload_error_metrics() {
         let metrics = Arc::new(PipelineMetrics::default());
-        let mut manager = SttPluginManager::new().with_metrics_sink(metrics.clone());
+        let mut manager = create_test_manager().with_metrics_sink(metrics.clone());
 
         // Initialize with a plugin
         let _plugin_id = manager.initialize().await.unwrap();
@@ -1477,7 +1469,7 @@ mod tests {
     #[tokio::test]
     async fn test_switch_plugin_unload_metrics() {
         let metrics = Arc::new(PipelineMetrics::default());
-        let mut manager = SttPluginManager::new().with_metrics_sink(metrics.clone());
+        let mut manager = create_test_manager().with_metrics_sink(metrics.clone());
 
         // Initialize with a plugin
         let _plugin_id = manager.initialize().await.unwrap();

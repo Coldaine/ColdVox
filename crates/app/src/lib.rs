@@ -188,8 +188,13 @@ impl Settings {
             .set_default("stt.debug_dump_events", false)?
             .set_default("stt.auto_extract", true)?;
 
+        // Allow tests or callers to skip config file discovery entirely
+        let skip_discovery = std::env::var("COLDVOX_SKIP_CONFIG_DISCOVERY").ok().map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false);
+
         // Check if a config file will be loaded
-        let config_file_exists = if let Some(path) = &explicit_path {
+        let config_file_exists = if skip_discovery {
+            false
+        } else if let Some(path) = &explicit_path {
             path.exists()
         } else {
             Self::discover_config_path().is_some()
@@ -204,8 +209,10 @@ impl Settings {
                     path.display()
                 )));
             }
-        } else if let Some(path) = Self::discover_config_path() {
+        } else if !skip_discovery {
+            if let Some(path) = Self::discover_config_path() {
             builder = builder.add_source(File::from(path));
+            }
         }
 
         builder = builder.add_source(
