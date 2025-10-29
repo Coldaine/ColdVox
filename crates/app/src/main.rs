@@ -368,6 +368,7 @@ mod tests {
         // Clean up any leftover env vars from previous tests
         env::remove_var("COLDVOX_INJECTION__MAX_TOTAL_LATENCY_MS");
         env::remove_var("COLDVOX_ACTIVATION_MODE");
+        let _guard_skip = EnvVarGuard::set("COLDVOX_SKIP_CONFIG_DISCOVERY", "1");
         // Test default loading without file
         let settings = Settings::new().unwrap();
         assert_eq!(settings.resampler_quality.to_lowercase(), "balanced");

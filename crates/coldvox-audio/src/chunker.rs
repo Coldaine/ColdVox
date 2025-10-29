@@ -9,8 +9,9 @@ use super::capture::DeviceConfig;
 use super::frame_reader::FrameReader;
 use super::resampler::StreamResampler;
 use coldvox_telemetry::{FpsTracker, PipelineMetrics, PipelineStage};
+use crate::SharedAudioFrame;
 
-// AudioFrame will be defined in the VAD crate
+// Legacy f32 frame retained for compatibility in some callsites
 #[derive(Debug, Clone)]
 pub struct AudioFrame {
     pub samples: Vec<f32>,
@@ -43,7 +44,7 @@ impl Default for ChunkerConfig {
 
 pub struct AudioChunker {
     frame_reader: FrameReader,
-    output_tx: broadcast::Sender<AudioFrame>,
+    output_tx: broadcast::Sender<SharedAudioFrame>,
     cfg: ChunkerConfig,
     running: Arc<AtomicBool>,
     metrics: Option<Arc<PipelineMetrics>>,
@@ -53,7 +54,7 @@ pub struct AudioChunker {
 impl AudioChunker {
     pub fn new(
         frame_reader: FrameReader,
-        output_tx: broadcast::Sender<AudioFrame>,
+        output_tx: broadcast::Sender<SharedAudioFrame>,
         cfg: ChunkerConfig,
     ) -> Self {
         Self {
@@ -95,7 +96,7 @@ impl AudioChunker {
 
 struct ChunkerWorker {
     frame_reader: FrameReader,
-    output_tx: broadcast::Sender<AudioFrame>,
+    output_tx: broadcast::Sender<SharedAudioFrame>,
     cfg: ChunkerConfig,
     buffer: VecDeque<i16>,
     samples_emitted: u64,
@@ -113,7 +114,7 @@ struct ChunkerWorker {
 impl ChunkerWorker {
     fn new(
         frame_reader: FrameReader,
-        output_tx: broadcast::Sender<AudioFrame>,
+        output_tx: broadcast::Sender<SharedAudioFrame>,
         cfg: ChunkerConfig,
         metrics: Option<Arc<PipelineMetrics>>,
         device_cfg_rx: Option<broadcast::Receiver<DeviceConfig>>,
@@ -193,11 +194,10 @@ impl ChunkerWorker {
                 (self.samples_emitted as u128 * 1000 / self.cfg.sample_rate_hz as u128) as u64;
             let timestamp = self.start_time + std::time::Duration::from_millis(timestamp_ms);
 
-            let vf = AudioFrame {
-                samples: out
-                    .into_iter()
-                    .map(|s| s as f32 / i16::MAX as f32)
-                    .collect(),
+            // Convert Vec<i16> to Arc<[i16]> without extra copying
+            let samples_arc: Arc<[i16]> = Arc::from(out);
+            let vf = SharedAudioFrame {
+                samples: samples_arc,
                 sample_rate: self.cfg.sample_rate_hz,
                 timestamp,
             };
@@ -293,7 +293,7 @@ mod tests {
         let rb = AudioRingBuffer::new(1024);
         let (_prod, cons) = rb.split();
         let reader = FrameReader::new(cons, 48_000, 2, 1024, None);
-        let (tx, _rx) = broadcast::channel::<AudioFrame>(8);
+    let (tx, _rx) = broadcast::channel::<SharedAudioFrame>(8);
         let cfg = ChunkerConfig {
             frame_size_samples: 512,
             sample_rate_hz: 16_000,
@@ -327,7 +327,7 @@ mod tests {
         let rb = AudioRingBuffer::new(1024);
         let (_prod, cons) = rb.split();
         let reader = FrameReader::new(cons, 16_000, 2, 1024, None);
-        let (tx, _rx) = broadcast::channel::<AudioFrame>(8);
+    let (tx, _rx) = broadcast::channel::<SharedAudioFrame>(8);
         let cfg = ChunkerConfig {
             frame_size_samples: 512,
             sample_rate_hz: 16_000,

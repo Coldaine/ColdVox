@@ -20,7 +20,7 @@ use crate::stt::{
     session::{HotkeyBehavior, SessionEvent, Settings},
     TranscriptionConfig, TranscriptionEvent,
 };
-use coldvox_audio::chunker::AudioFrame;
+use coldvox_audio::SharedAudioFrame;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::{broadcast, mpsc};
@@ -55,7 +55,7 @@ const BUFFER_CEILING_SAMPLES: usize = 16000 * 30;
 /// activation and processing strategies defined by `Settings`.
 #[cfg(feature = "whisper")]
 pub struct PluginSttProcessor {
-    audio_rx: broadcast::Receiver<AudioFrame>,
+    audio_rx: broadcast::Receiver<SharedAudioFrame>,
     session_event_rx: mpsc::Receiver<SessionEvent>,
     event_tx: mpsc::Sender<TranscriptionEvent>,
     plugin_manager: Arc<tokio::sync::RwLock<crate::stt::plugin_manager::SttPluginManager>>,
@@ -77,7 +77,7 @@ struct State {
 impl PluginSttProcessor {
     /// Creates a new instance of the unified STT processor.
     pub fn new(
-        audio_rx: broadcast::Receiver<AudioFrame>,
+        audio_rx: broadcast::Receiver<SharedAudioFrame>,
         session_event_rx: mpsc::Receiver<SessionEvent>,
         event_tx: mpsc::Sender<TranscriptionEvent>,
         plugin_manager: Arc<tokio::sync::RwLock<crate::stt::plugin_manager::SttPluginManager>>,
@@ -241,19 +241,16 @@ impl PluginSttProcessor {
     }
 
     /// Handles an incoming chunk of audio frames.
-    async fn handle_audio_frame(&self, frame: AudioFrame) {
+    async fn handle_audio_frame(&self, frame: SharedAudioFrame) {
         let behavior = self.settings.hotkey_behavior.clone();
-        let i16_samples: Vec<i16> = frame
-            .samples
-            .iter()
-            .map(|&s| (s * 32767.0) as i16)
-            .collect();
+        // Use i16 samples directly from SharedAudioFrame
+        let samples_slice: &[i16] = &frame.samples;
 
         if behavior != HotkeyBehavior::Incremental {
             // Batch mode: lock, buffer, and return.
             let mut state = self.state.lock();
             if state.state == UtteranceState::SpeechActive {
-                state.buffer.extend_from_slice(&i16_samples);
+                state.buffer.extend_from_slice(samples_slice);
                 if state.buffer.len() > BUFFER_CEILING_SAMPLES {
                     tracing::warn!(target: "stt", "Audio buffer ceiling reached. Defensively finalizing.");
                     self.handle_session_end(state.source, false, &mut state);
@@ -267,12 +264,12 @@ impl PluginSttProcessor {
             };
 
             if should_process {
-                tracing::info!(target: "stt_debug", "Dispatching {} samples to plugin.process_audio()", i16_samples.len());
+                tracing::info!(target: "stt_debug", "Dispatching {} samples to plugin.process_audio()", samples_slice.len());
                 match self
                     .plugin_manager
                     .write()
                     .await
-                    .process_audio(&i16_samples)
+                    .process_audio(samples_slice)
                     .await
                 {
                     Ok(Some(event)) => {
@@ -323,7 +320,7 @@ pub struct PluginSttProcessor;
 #[cfg(not(feature = "whisper"))]
 impl PluginSttProcessor {
     pub fn new(
-        _audio_rx: broadcast::Receiver<AudioFrame>,
+        _audio_rx: broadcast::Receiver<SharedAudioFrame>,
         _session_event_rx: mpsc::Receiver<SessionEvent>,
         _event_tx: mpsc::Sender<TranscriptionEvent>,
         _plugin_manager: Arc<tokio::sync::RwLock<crate::stt::plugin_manager::SttPluginManager>>,

@@ -252,6 +252,12 @@ impl SttPlugin for WhisperPlugin {
                 whisper_config.language = self.language.clone();
             }
 
+            // If the selected model is English-only (e.g., base.en/small.en/medium.en)
+            // and no language was set explicitly, default to "en" to avoid runtime warnings.
+            if whisper_config.language.is_none() && model_id.to_lowercase().contains(".en") {
+                whisper_config.language = Some("en".to_string());
+            }
+
             debug!(
                 target: "coldvox::stt::whisper",
                 model = %model_id,

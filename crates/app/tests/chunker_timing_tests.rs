@@ -1,5 +1,5 @@
 use coldvox_audio::{
-    AudioChunker, AudioFrame as VadFrame, AudioRingBuffer, ChunkerConfig, FrameReader,
+    AudioChunker, SharedAudioFrame as VadFrame, AudioRingBuffer, ChunkerConfig, FrameReader,
     ResamplerQuality,
 };
 use coldvox_telemetry::pipeline_metrics::PipelineMetrics;

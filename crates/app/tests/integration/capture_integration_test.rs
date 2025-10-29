@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use coldvox_audio::{AudioCapture, AudioConfig, AudioFrame};
+    use coldvox_audio::{AudioCapture, AudioConfig, SharedAudioFrame as AudioFrame};
     use coldvox_foundation::error::AudioError;
     use coldvox_vad::constants::FRAME_SIZE_SAMPLES;
     use std::time::Duration;
@@ -73,7 +73,7 @@ mod tests {
             if let Ok(frame) = capture.try_recv_timeout(Duration::from_millis(100)) {
                 frames_received += 1;
                 assert_eq!(frame.sample_rate, 16000, "Frame should have correct sample rate");
-                assert_eq!(frame.channels, 1, "Frame should be mono");
+                // SharedAudioFrame is always mono
                 assert!(!frame.samples.is_empty(), "Frame should contain samples");
             }
         }
@@ -135,10 +135,9 @@ mod tests {
         let producer = thread::spawn(move || {
             for i in 0..1000 {
                 let frame = AudioFrame {
-                    samples: vec![i as i16; FRAME_SIZE_SAMPLES],
+                    samples: std::sync::Arc::from(vec![i as i16; FRAME_SIZE_SAMPLES]),
                     timestamp: std::time::Instant::now(),
                     sample_rate: 16000,
-                    channels: 1,
                 };
 
                 if tx_clone.try_send(frame).is_err() {
@@ -188,10 +187,9 @@ mod tests {
         // Try to send more frames than buffer can hold
         for i in 0..100 {
             let frame = AudioFrame {
-                samples: vec![i as i16; FRAME_SIZE_SAMPLES],
+                samples: std::sync::Arc::from(vec![i as i16; FRAME_SIZE_SAMPLES]),
                 timestamp: std::time::Instant::now(),
                 sample_rate: 16000,
-                channels: 1,
             };
 
             match tx.try_send(frame) {

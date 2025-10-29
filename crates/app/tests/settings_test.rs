@@ -21,12 +21,15 @@ fn get_test_config_path() -> PathBuf {
 
 #[test]
 fn test_settings_new_default() {
+    // Ensure we test pure defaults without loading repository config files
+    std::env::set_var("COLDVOX_SKIP_CONFIG_DISCOVERY", "1");
     // Test default loading without file - Settings::new() will use defaults if no config found
     let settings = Settings::new().unwrap();
     assert_eq!(settings.resampler_quality.to_lowercase(), "balanced");
     assert_eq!(settings.activation_mode.to_lowercase(), "vad");
     assert_eq!(settings.injection.max_total_latency_ms, 800);
     assert!(settings.stt.failover_threshold > 0);
+    std::env::remove_var("COLDVOX_SKIP_CONFIG_DISCOVERY");
 }
 
 #[test]

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use coldvox_audio::AudioFrame;
+use coldvox_audio::SharedAudioFrame;
 use coldvox_telemetry::{FpsTracker, PipelineMetrics};
 use coldvox_vad::{UnifiedVadConfig, VadEvent};
 use tokio::sync::broadcast;
@@ -12,7 +12,7 @@ use super::vad_adapter::VadAdapter;
 
 pub struct VadProcessor {
     adapter: VadAdapter,
-    audio_rx: broadcast::Receiver<AudioFrame>,
+    audio_rx: broadcast::Receiver<SharedAudioFrame>,
     event_tx: Sender<VadEvent>,
     metrics: Option<Arc<PipelineMetrics>>,
     fps_tracker: FpsTracker,
@@ -23,7 +23,7 @@ pub struct VadProcessor {
 impl VadProcessor {
     pub fn new(
         config: UnifiedVadConfig,
-        audio_rx: broadcast::Receiver<AudioFrame>,
+    audio_rx: broadcast::Receiver<SharedAudioFrame>,
         event_tx: Sender<VadEvent>,
         metrics: Option<Arc<PipelineMetrics>>,
     ) -> Result<Self, String> {
@@ -54,7 +54,7 @@ impl VadProcessor {
         );
     }
 
-    async fn process_frame(&mut self, frame: AudioFrame) {
+    async fn process_frame(&mut self, frame: SharedAudioFrame) {
         trace!(
             "VAD: Processing frame {:?} with {} samples",
             frame.timestamp,
@@ -67,16 +67,8 @@ impl VadProcessor {
             }
         }
 
-        // Convert f32 samples back to i16
-        let i16_data: Vec<i16> = frame
-            .samples
-            .iter()
-            .map(|&s| (s * i16::MAX as f32) as i16)
-            .collect();
-
-        trace!("VAD: Converted {} f32 samples to i16", i16_data.len());
-
-        match self.adapter.process(&i16_data) {
+        // Process i16 samples directly (zero-copy from SharedAudioFrame)
+        match self.adapter.process(&frame.samples) {
             Ok(Some(event)) => {
                 self.events_generated += 1;
 
@@ -145,7 +137,7 @@ impl VadProcessor {
 
     pub fn spawn(
         config: UnifiedVadConfig,
-        audio_rx: broadcast::Receiver<AudioFrame>,
+        audio_rx: broadcast::Receiver<SharedAudioFrame>,
         event_tx: Sender<VadEvent>,
         metrics: Option<Arc<PipelineMetrics>>,
     ) -> Result<JoinHandle<()>, String> {
