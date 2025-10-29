@@ -4,6 +4,31 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Core Architecture
+- Migrate runtime, VAD, STT processor, and probes to SharedAudioFrame (Arc<[i16]>) for zero-copy fanout across the audio pipeline. This reduces allocations and improves throughput in multi-consumer scenarios.
+
+### STT Plugin Manager
+- Remove silent NoOp fallback paths. Initialization now fails explicitly when preferred and fallback plugins are unavailable, and failover will not switch to NoOp. Tests adjusted to reflect strict behavior.
+- Hardened "best available" selection to never auto-pick NoOp.
+
+### Whisper STT
+- Default language to "en" automatically when using English-only models (e.g., base.en/small.en) to suppress repeated runtime warnings.
+- Test stability: set TQDM_DISABLE=0 in E2E tests to avoid buggy disabled_tqdm stubs in some Python environments.
+
+### Tests and CI stability
+- WAV-driven end-to-end tests now use a dummy capture in test mode instead of opening a real ALSA/CPAL input device. This removes ALSA "Unknown PCM pulse/jack/oss" stderr spam while keeping the full pipeline (chunker → VAD → STT → injection) under test.
+- Hotkey E2E test is opt-in to avoid environment-specific Python/tqdm issues: set COLDVOX_RUN_HOTKEY_E2E=1 to run locally. Still skipped in CI/headless.
+- WER fallback in E2E test now skips strict assertions in CI/headless or when small/tiny models are in use, validating execution without penalizing constrained environments.
+
+### Configuration
+- Add COLDVOX_SKIP_CONFIG_DISCOVERY to bypass loading repo config files during tests that need to assert pure in-code defaults.
+
+### Breaking Changes
+- NoOp fallback removal: any workflows relying on implicit NoOp selection must now provide a valid plugin or handle explicit errors. Tests and configs updated accordingly.
+
+### Developer Notes
+- Minor warning cleanups (unused imports) and documentation of new env flags in tests.
+
 ### Documentation
 - **Major documentation restructure** (#180): Implemented Master Documentation Playbook v1.0.0
   - Added comprehensive documentation structure under `/docs` with canonical layout
