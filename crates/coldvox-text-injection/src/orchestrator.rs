@@ -140,15 +140,8 @@ impl StrategyOrchestrator {
         }
 
         // Check for Wayland vs X11
-        let is_wayland = env::var("XDG_SESSION_TYPE")
-            .map(|s| s == "wayland")
-            .unwrap_or(false)
-            || env::var("WAYLAND_DISPLAY").is_ok();
-
-        let is_x11 = env::var("XDG_SESSION_TYPE")
-            .map(|s| s == "x11")
-            .unwrap_or(false)
-            || env::var("DISPLAY").is_ok();
+        let is_wayland = coldvox_foundation::env::is_wayland();
+        let is_x11 = coldvox_foundation::env::is_x11();
 
         // Check for specific desktop environments
         let desktop = env::var("XDG_CURRENT_DESKTOP")

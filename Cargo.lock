@@ -690,6 +690,7 @@ name = "coldvox-stt"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "coldvox-foundation",
  "dirs",
  "faster-whisper-rs",
  "hound",
@@ -719,6 +720,7 @@ dependencies = [
  "atspi",
  "cc",
  "chrono",
+ "coldvox-foundation",
  "coldvox-stt",
  "enigo",
  "mockall",

@@ -594,15 +594,9 @@ impl StrategyManager {
     /// Includes NoOp as a final fallback so the list is never empty.
     pub(crate) fn _get_method_priority(&self, app_id: &str) -> Vec<InjectionMethod> {
         // Base order derived from environment first (robust when portals/VK are unavailable)
-        use std::env;
-        let on_wayland = env::var("XDG_SESSION_TYPE")
-            .map(|s| s == "wayland")
-            .unwrap_or(false)
-            || env::var("WAYLAND_DISPLAY").is_ok();
-        let on_x11 = env::var("XDG_SESSION_TYPE")
-            .map(|s| s == "x11")
-            .unwrap_or(false)
-            || env::var("DISPLAY").is_ok();
+        use coldvox_foundation::env::{is_wayland, is_x11};
+        let on_wayland = is_wayland();
+        let on_x11 = is_x11();
 
         let mut base_order: Vec<InjectionMethod> = Vec::new();
 
@@ -671,15 +665,9 @@ impl StrategyManager {
 
     /// Helper: Compute method order based on environment and config
     fn compute_method_order(&self, app_id: &str) -> Vec<InjectionMethod> {
-        use std::env;
-        let on_wayland = env::var("XDG_SESSION_TYPE")
-            .map(|s| s == "wayland")
-            .unwrap_or(false)
-            || env::var("WAYLAND_DISPLAY").is_ok();
-        let on_x11 = env::var("XDG_SESSION_TYPE")
-            .map(|s| s == "x11")
-            .unwrap_or(false)
-            || env::var("DISPLAY").is_ok();
+        use coldvox_foundation::env::{is_wayland, is_x11};
+        let on_wayland = is_wayland();
+        let on_x11 = is_x11();
 
         let mut base_order = Vec::new();
 

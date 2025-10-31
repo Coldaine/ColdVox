@@ -545,13 +545,11 @@ impl WhisperPluginFactory {
 
     /// Detect the current environment
     fn detect_environment() -> Environment {
-        // Check for CI environment variables
-        if Self::is_ci_environment() {
+        if coldvox_foundation::env::is_ci() {
             return Environment::CI;
         }
 
-        // Check for development environment indicators
-        if Self::is_development_environment() {
+        if coldvox_foundation::env::is_dev() {
             return Environment::Development;
         }
 
@@ -559,28 +557,6 @@ impl WhisperPluginFactory {
         Environment::Production
     }
 
-    /// Check if running in CI environment
-    fn is_ci_environment() -> bool {
-        // Common CI environment variables
-        env::var("CI").is_ok()
-            || env::var("CONTINUOUS_INTEGRATION").is_ok()
-            || env::var("GITHUB_ACTIONS").is_ok()
-            || env::var("GITLAB_CI").is_ok()
-            || env::var("TRAVIS").is_ok()
-            || env::var("CIRCLECI").is_ok()
-            || env::var("JENKINS_URL").is_ok()
-            || env::var("BUILDKITE").is_ok()
-    }
-
-    /// Check if running in development environment
-    fn is_development_environment() -> bool {
-        // Check for development indicators
-        env::var("RUST_BACKTRACE").is_ok() ||
-        env::var("DEBUG").is_ok() ||
-        env::var("DEV").is_ok() ||
-        // Check if running from a git repository
-        PathBuf::from(".git").exists()
-    }
 
     /// Get available memory in MB
     fn get_available_memory_mb() -> Option<u32> {

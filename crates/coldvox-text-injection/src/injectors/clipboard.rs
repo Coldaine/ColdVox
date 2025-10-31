@@ -5,7 +5,7 @@
 //! performs the injection, and then restores the original clipboard content.
 //! Optional Klipper cleanup is available behind a feature flag.
 
-use crate::detection::{detect_display_protocol, DisplayProtocol};
+use coldvox_foundation::env::{detect_display_protocol, DisplayProtocol};
 use crate::logging::utils;
 use crate::types::{
     InjectionConfig, InjectionContext, InjectionError, InjectionMethod, InjectionResult,

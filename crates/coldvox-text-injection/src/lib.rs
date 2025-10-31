@@ -27,7 +27,6 @@
 
 pub mod backend;
 pub mod compat;
-pub mod detection;
 pub mod focus;
 pub mod log_throttle;
 pub mod logging;
