@@ -223,7 +223,18 @@ impl InjectionProcessor {
     /// Update internal metrics from session state
     fn update_metrics(&self) {
         let mut metrics = self.metrics.lock().unwrap();
+        let previous_state = metrics.session_state;
+        let previous_buffer = metrics.buffer_size;
         metrics.update_from_session(&self.session);
+        if metrics.session_state != previous_state || metrics.buffer_size != previous_buffer {
+            debug!(
+                prev_state = %previous_state,
+                new_state = %metrics.session_state,
+                buffer_items = metrics.buffer_size,
+                buffer_chars = metrics.buffer_chars,
+                "Session metrics updated"
+            );
+        }
     }
 
     /// Get current session state

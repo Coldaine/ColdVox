@@ -112,6 +112,17 @@ cargo run --features text-injection
 cargo run --features text-injection -- --allow-ydotool --restore-clipboard
 ```
 
+### Diagnostics
+
+Run the `injection_diagnostics` example to inspect the computed fallback chain and execute a real injection:
+
+```bash
+cargo run -p coldvox-text-injection --example injection_diagnostics \
+    -- --config ../../config/default.toml --text "diagnostic ping" --no-redact
+```
+
+Omit `--no-redact` to keep text content hashed in logs.
+
 ## Dependencies
 
 - Backend-specific libraries (optional based on features)

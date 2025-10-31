@@ -87,6 +87,8 @@ pub struct InjectionSession {
     normalize_whitespace: bool,
     /// Reference to injection metrics for telemetry
     metrics: std::sync::Arc<std::sync::Mutex<InjectionMetrics>>,
+    /// Throttled timestamp for diagnostic logging to avoid log spam
+    last_diagnostic_log: Option<Instant>,
 }
 
 impl InjectionSession {
@@ -108,6 +110,7 @@ impl InjectionSession {
             punctuation_marks: config.punctuation_marks,
             normalize_whitespace: config.normalize_whitespace,
             metrics,
+            last_diagnostic_log: None,
         }
     }
 
@@ -125,6 +128,9 @@ impl InjectionSession {
         } else {
             text.to_string()
         };
+
+        // Reset diagnostic throttling on new input
+        self.last_diagnostic_log = None;
 
         // Record the number of characters being buffered
         self.record_buffered_chars(text.len() as u64);
@@ -200,12 +206,39 @@ impl InjectionSession {
         }
     }
 
+    /// Determine if we should emit a diagnostic log message (throttled to avoid noise)
+    fn should_log_diagnostic(&mut self) -> bool {
+        const DIAGNOSTIC_INTERVAL: Duration = Duration::from_millis(500);
+        let now = Instant::now();
+        if let Some(last) = self.last_diagnostic_log {
+            if now.duration_since(last) < DIAGNOSTIC_INTERVAL {
+                return false;
+            }
+        }
+        self.last_diagnostic_log = Some(now);
+        true
+    }
+
     /// Check if the session should inject based on silence timeout
     pub fn should_inject(&mut self) -> bool {
         match self.state {
             SessionState::Buffering => {
                 // Check if we should transition to WaitingForSilence first
                 self.check_for_silence_transition();
+                if self.should_log_diagnostic() {
+                    let since_last = self
+                        .time_since_last_transcription()
+                        .map(|d| d.as_millis())
+                        .unwrap_or(0);
+                    debug!(
+                        state = "BUFFERING",
+                        buffer_items = self.buffer.len(),
+                        buffer_chars = self.total_chars(),
+                        time_since_last_ms = since_last,
+                        pause_timeout_ms = self.buffer_pause_timeout.as_millis(),
+                        "Session buffering - awaiting pause before injection"
+                    );
+                }
                 false // Don't inject while still in Buffering state
             }
             SessionState::WaitingForSilence => {
@@ -213,12 +246,26 @@ impl InjectionSession {
                     if last_time.elapsed() >= self.silence_timeout {
                         // Silence timeout reached, transition to ready to inject
                         self.state = SessionState::ReadyToInject;
+                        self.last_diagnostic_log = None;
                         debug!(
                             "Silence timeout reached, ready to inject {} transcriptions",
                             self.buffer.len()
                         );
                         true
                     } else {
+                        if self.should_log_diagnostic() {
+                            let elapsed = last_time.elapsed();
+                            let remaining = self.silence_timeout.saturating_sub(elapsed);
+                            debug!(
+                                state = "WAITING_FOR_SILENCE",
+                                buffer_items = self.buffer.len(),
+                                buffer_chars = self.total_chars(),
+                                elapsed_ms = elapsed.as_millis(),
+                                remaining_ms = remaining.as_millis(),
+                                silence_timeout_ms = self.silence_timeout.as_millis(),
+                                "Waiting for silence before injection"
+                            );
+                        }
                         false
                     }
                 } else {
@@ -229,8 +276,10 @@ impl InjectionSession {
                 // Check if buffer is empty (could happen if cleared)
                 if self.buffer.is_empty() {
                     self.state = SessionState::Idle;
+                    self.last_diagnostic_log = None;
                     false
                 } else {
+                    self.last_diagnostic_log = None;
                     true
                 }
             }
@@ -246,6 +295,7 @@ impl InjectionSession {
         self.last_transcription = None;
         self.buffering_start = None;
         self.state = SessionState::Idle;
+        self.last_diagnostic_log = None;
         debug!("Session buffer cleared, {} chars taken", text.len());
 
         // Record the flush event with the size
@@ -283,6 +333,7 @@ impl InjectionSession {
     pub fn force_inject(&mut self) {
         if self.has_content() {
             self.state = SessionState::ReadyToInject;
+            self.last_diagnostic_log = None;
             debug!("Session forced to inject state");
         }
     }
@@ -293,6 +344,7 @@ impl InjectionSession {
         self.last_transcription = None;
         self.buffering_start = None;
         self.state = SessionState::Idle;
+        self.last_diagnostic_log = None;
         debug!("Session cleared and reset to idle");
     }
 

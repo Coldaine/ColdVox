@@ -11,12 +11,7 @@ use crate::types::{InjectionConfig, InjectionContext};
 use std::process::Command;
 use std::time::Duration;
 
-use super::test_utils::{
-    command_exists,
-    is_wayland_environment,
-    read_clipboard_with_wl_paste,
-    read_clipboard_with_wl_paste_with_timeout,
-};
+use super::test_utils::{command_exists, is_wayland_environment, read_clipboard_with_wl_paste};
 
 /// Test that wl-copy properly receives content via stdin
 /// This is the core test for the stdin piping fix

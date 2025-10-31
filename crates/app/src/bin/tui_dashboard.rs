@@ -39,14 +39,14 @@ fn init_logging(cli_level: &str) -> Result<(), Box<dyn std::error::Error>> {
     std::fs::create_dir_all("logs")?;
     let file_appender = RollingFileAppender::new(Rotation::DAILY, "logs", "coldvox.log");
     let (non_blocking_file, _guard) = tracing_appender::non_blocking(file_appender);
-    // Prefer CLI-provided level; fall back to RUST_LOG; then default to debug for tuning
+    // Prefer CLI-provided level; fall back to RUST_LOG; then default to info for reasonable verbosity
     let effective_level = if !cli_level.is_empty() {
         cli_level.to_string()
     } else {
-        std::env::var("RUST_LOG").unwrap_or_else(|_| "debug".to_string())
+        std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string())
     };
     let env_filter =
-        EnvFilter::try_new(effective_level).unwrap_or_else(|_| EnvFilter::new("debug"));
+        EnvFilter::try_new(effective_level).unwrap_or_else(|_| EnvFilter::new("info"));
 
     // Only use file logging for TUI mode to avoid corrupting the display
     let file_layer = fmt::layer()
@@ -85,8 +85,8 @@ struct Cli {
     /// Log level filter (overrides RUST_LOG)
     #[arg(
         long = "log-level",
-        // Default to full debug for TUI runs unless user specifies otherwise
-        default_value = "debug"
+        // Default to info level to reduce verbosity (use "debug" or "trace" for more detail)
+        default_value = "info"
     )]
     log_level: String,
 
