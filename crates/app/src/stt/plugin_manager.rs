@@ -1274,6 +1274,12 @@ impl Drop for SttPluginManager {
 mod tests {
     use super::*;
     use coldvox_stt::plugin::{FailoverConfig, GcPolicy};
+    #[cfg(feature = "whisper")]
+    use coldvox_stt::TranscriptionEvent;
+    #[cfg(feature = "whisper")]
+    use coldvox_vad::constants::FRAME_SIZE_SAMPLES;
+    #[cfg(feature = "whisper")]
+    use std::path::PathBuf;
 
     /// Create a test manager - uses Mock plugin for tests to avoid model dependencies
     fn create_test_manager() -> SttPluginManager {
@@ -1332,15 +1338,10 @@ mod tests {
 
         // Try to unload a plugin that doesn't exist
         let result = manager.unload_plugin("nonexistent").await;
-        assert!(result.is_err());
-
-        // Verify error type
-        match result {
-            Err(SttPluginError::NotAvailable { reason }) => {
-                assert!(reason.contains("No plugin is currently loaded"));
-            }
-            _ => panic!("Expected NotAvailable error"),
-        }
+        assert!(matches!(
+            result,
+            Err(SttPluginError::NotAvailable { ref reason }) if reason.contains("No plugin is currently loaded")
+        ));
     }
 
     #[tokio::test]
@@ -1422,6 +1423,163 @@ mod tests {
                 .stt_unload_errors
                 .load(std::sync::atomic::Ordering::Relaxed),
             0
+        );
+    }
+
+    struct EnvVarGuard {
+        key: &'static str,
+        original: Option<String>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let original = std::env::var(key).ok();
+            std::env::set_var(key, value);
+            Self { key, original }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            if let Some(ref value) = self.original {
+                std::env::set_var(self.key, value);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
+
+    #[cfg(feature = "whisper")]
+    fn resolved_test_whisper_model() -> Option<PathBuf> {
+        let explicit = std::env::var("COLDVOX_WHISPER_TEST_MODEL").ok();
+        explicit.map(PathBuf::from).filter(|path| path.exists())
+    }
+
+    #[cfg(all(test, feature = "whisper"))]
+    #[tokio::test]
+    async fn test_whisper_plugin_transcribes_when_model_available() {
+        use coldvox_stt::plugins::whisper_plugin::WhisperPluginFactory;
+        use hound::WavReader;
+
+        let Some(model_path) = resolved_test_whisper_model() else {
+            eprintln!(
+                "Skipping Whisper integration test: COLDVOX_WHISPER_TEST_MODEL not set to a readable path"
+            );
+            return;
+        };
+
+        let _model_guard = EnvVarGuard::set("WHISPER_MODEL_PATH", &model_path.to_string_lossy());
+        let _device_guard = EnvVarGuard::set("WHISPER_DEVICE", "cpu");
+        let _compute_guard = EnvVarGuard::set("WHISPER_COMPUTE", "int8");
+
+        if let Err(err) = WhisperPluginFactory::new().check_requirements() {
+            eprintln!("Skipping Whisper integration test: requirements not met ({err})");
+            return;
+        }
+
+        let wav_path = PathBuf::from("crates/app/test_data/test_11.wav");
+        if !wav_path.exists() {
+            eprintln!(
+                "Skipping Whisper integration test: sample WAV not found at {:?}",
+                wav_path
+            );
+            return;
+        }
+
+        let mut reader = WavReader::open(&wav_path).expect("Failed to open sample WAV");
+        let samples: Vec<i16> = reader
+            .samples::<i16>()
+            .map(|s| s.expect("Failed to read wav sample"))
+            .collect();
+
+        let mut manager = SttPluginManager::new();
+        manager.selection_config.preferred_plugin = Some("whisper".to_string());
+        manager.selection_config.fallback_plugins = vec!["noop".to_string()];
+
+        let plugin_id = manager
+            .initialize()
+            .await
+            .expect("Whisper plugin should initialize when requirements satisfied");
+        if plugin_id != "whisper" {
+            eprintln!(
+                "Skipping Whisper integration test: expected whisper plugin but selected {plugin_id}"
+            );
+            return;
+        }
+
+        let mut config = TranscriptionConfig::default();
+        config.enabled = true;
+        config.model_path = model_path.to_string_lossy().into_owned();
+        config.partial_results = false;
+        config.streaming = false;
+        config.include_words = false;
+
+        manager
+            .apply_transcription_config(config)
+            .await
+            .expect("Applying transcription config should succeed");
+
+        manager
+            .begin_utterance()
+            .await
+            .expect("Should begin utterance");
+
+        for chunk in samples.chunks(FRAME_SIZE_SAMPLES) {
+            manager
+                .process_audio(chunk)
+                .await
+                .expect("Whisper should accept audio chunks");
+        }
+
+        let final_event = manager
+            .finalize()
+            .await
+            .expect("Finalize should complete")
+            .expect("Finalize should yield a transcription");
+
+        match final_event {
+            TranscriptionEvent::Final { ref text, .. } => {
+                assert!(
+                    !text.trim().is_empty(),
+                    "Transcription text should not be empty"
+                );
+            }
+            other => panic!("Expected final transcription event, got {other:?}"),
+        }
+    }
+
+    #[cfg(all(test, feature = "whisper"))]
+    #[tokio::test]
+    async fn test_whisper_unavailable_reason_propagates() {
+        let missing_path = std::env::temp_dir().join("coldvox-missing-whisper-model");
+        if missing_path.exists() {
+            std::fs::remove_file(&missing_path).ok();
+        }
+        let _model_guard = EnvVarGuard::set("WHISPER_MODEL_PATH", &missing_path.to_string_lossy());
+
+        let mut manager = SttPluginManager::new();
+        manager.selection_config.preferred_plugin = Some("whisper".to_string());
+        manager.selection_config.fallback_plugins.clear();
+
+        let _ = manager
+            .initialize()
+            .await
+            .expect("Manager should select whisper even when model missing");
+
+        let mut config = TranscriptionConfig::default();
+        config.enabled = true;
+        config.model_path = missing_path.to_string_lossy().into_owned();
+        config.partial_results = false;
+        config.streaming = false;
+
+        let err = manager
+            .apply_transcription_config(config)
+            .await
+            .expect_err("Applying config should fail when model is missing");
+
+        assert!(
+            err.contains(&missing_path.to_string_lossy()),
+            "Expected error to mention missing path, got: {err}"
         );
     }
 
