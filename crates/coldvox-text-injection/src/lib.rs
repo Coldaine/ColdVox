@@ -27,6 +27,7 @@
 
 pub mod backend;
 pub mod compat;
+pub mod detection;
 pub mod focus;
 pub mod log_throttle;
 pub mod logging;
@@ -111,3 +112,7 @@ pub use confirm::{
     create_confirmation_context, text_changed, ConfirmationContext, ConfirmationResult,
     TextChangeListener,
 };
+
+// Test modules
+#[cfg(test)]
+mod tests;
