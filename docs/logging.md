@@ -1,7 +1,10 @@
 ---
-id: logging
-title: ColdVox Logging Configuration
-description: How to control log levels, per-module filters, and troubleshooting tips for ColdVox logging.
+doc_type: reference
+subsystem: general
+version: 1.0.0
+status: draft
+owners: Documentation Working Group
+last_reviewed: 2025-10-31
 ---
 
 # ColdVox Logging Configuration
@@ -175,7 +178,7 @@ As of this commit:
 1. **Default level changed from DEBUG to INFO** to reduce verbosity
 2. **High-frequency logs downgraded**:
    - Silence detector: INFO → DEBUG
-   - Audio chunk dispatch: INFO → TRACE  
+   - Audio chunk dispatch: INFO → TRACE
    - Plugin process calls: DEBUG → TRACE
    - Plugin process results: DEBUG → TRACE (success) / WARN (errors)
 3. **Documentation improved** with examples for common use cases
