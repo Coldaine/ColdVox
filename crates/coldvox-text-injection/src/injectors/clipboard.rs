@@ -5,17 +5,18 @@
 //! performs the injection, and then restores the original clipboard content.
 //! Optional Klipper cleanup is available behind a feature flag.
 
+use crate::detection::{detect_display_protocol, DisplayProtocol};
 use crate::logging::utils;
 use crate::types::{
     InjectionConfig, InjectionContext, InjectionError, InjectionMethod, InjectionResult,
 };
 use crate::TextInjector;
 use async_trait::async_trait;
+use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
-use std::process::Stdio;
 use tokio::time::timeout;
 use tracing::{debug, trace, warn};
 
@@ -66,9 +67,9 @@ pub struct ClipboardInjector {
 /// Clipboard backend types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClipboardBackend {
-    /// Wayland with wl-clipboard-rs
+    /// Wayland with wl-clipboard-rs (native)
     Wayland,
-    /// X11 with xclip
+    /// X11 with xclip (including XWayland)
     X11,
     /// Unknown or unavailable
     Unknown,
@@ -85,22 +86,24 @@ impl ClipboardInjector {
         }
     }
 
-    /// Detect the clipboard backend type
+    /// Detect the clipboard backend type using unified display protocol detection
     fn detect_backend() -> ClipboardBackend {
-        // Check for Wayland first
-        if std::env::var("WAYLAND_DISPLAY").is_ok() {
-            debug!("Detected Wayland clipboard backend");
-            return ClipboardBackend::Wayland;
-        }
+        let protocol = detect_display_protocol();
 
-        // Check for X11
-        if std::env::var("DISPLAY").is_ok() {
-            debug!("Detected X11 clipboard backend");
-            return ClipboardBackend::X11;
+        match protocol {
+            DisplayProtocol::Wayland => {
+                debug!("Detected Wayland clipboard backend via unified detection");
+                ClipboardBackend::Wayland
+            }
+            DisplayProtocol::X11 => {
+                debug!("Detected X11 clipboard backend via unified detection");
+                ClipboardBackend::X11
+            }
+            DisplayProtocol::Unknown => {
+                warn!("Could not detect clipboard backend via unified detection");
+                ClipboardBackend::Unknown
+            }
         }
-
-        warn!("Could not detect clipboard backend");
-        ClipboardBackend::Unknown
     }
 
     /// Read clipboard content for backup
@@ -129,9 +132,51 @@ impl ClipboardInjector {
         Ok(backup)
     }
 
+    /// Read clipboard content using native Wayland wl-clipboard-rs
+    #[cfg(feature = "wl_clipboard")]
+    async fn read_wayland_clipboard_native(&self) -> InjectionResult<ClipboardBackup> {
+        use wl_clipboard_rs::paste::{get_contents, ClipboardType, MimeType, Seat};
+
+        let result = tokio::task::spawn_blocking(move || {
+            get_contents(ClipboardType::Regular, Seat::Unspecified, MimeType::Text)
+        })
+        .await
+        .map_err(|e| InjectionError::Other(format!("Failed to spawn clipboard task: {}", e)))?;
+
+        match result {
+            Ok((data, _)) => {
+                // Convert PipeReader to Vec<u8>
+                let mut buf = Vec::new();
+                use std::io::Read;
+                let mut reader = data;
+                reader.read_to_end(&mut buf).map_err(|e| {
+                    InjectionError::Other(format!("Failed to read clipboard data: {}", e))
+                })?;
+                Ok(ClipboardBackup::new(buf, "text/plain".to_string()))
+            }
+            Err(e) => Err(InjectionError::Other(format!(
+                "Failed to read Wayland clipboard: {}",
+                e
+            ))),
+        }
+    }
     /// Read clipboard content using Wayland
     async fn read_wayland_clipboard(&self) -> InjectionResult<ClipboardBackup> {
-        // Use wl-paste command to read clipboard (simple and reliable fallback)
+        // Try native wl-clipboard-rs first, fallback to wl-paste command
+        #[cfg(feature = "wl_clipboard")]
+        {
+            match self.read_wayland_clipboard_native().await {
+                Ok(backup) => return Ok(backup),
+                Err(e) => {
+                    debug!(
+                        "Native Wayland clipboard read failed, falling back to wl-paste: {}",
+                        e
+                    );
+                }
+            }
+        }
+
+        // Fallback to wl-paste command
         let output = Command::new("wl-paste")
             .args(&["--type", "text/plain"])
             .output()
@@ -198,26 +243,104 @@ impl ClipboardInjector {
         Ok(())
     }
 
-    /// Write content to Wayland clipboard
-    async fn write_wayland_clipboard(
+    /// Write content to Wayland clipboard using native wl-clipboard-rs
+    #[cfg(feature = "wl_clipboard")]
+    async fn write_wayland_clipboard_native(
         &self,
         content: &[u8],
         _mime_type: &str,
     ) -> InjectionResult<()> {
-        // Use wl-copy command as a simple fallback implementation
-        let _content_str = String::from_utf8_lossy(content);
-        let output = Command::new("wl-copy")
-            .arg(_content_str.as_ref())
-            .output()
-            .await
-            .map_err(|e| InjectionError::Process(format!("Failed to execute wl-copy: {}", e)))?;
+        use wl_clipboard_rs::copy::{Options, Source};
 
-        if output.status.success() {
-            Ok(())
+        let opts = Options::new();
+        opts.copy(
+            Source::Bytes(content.to_vec().into_boxed_slice()),
+            wl_clipboard_rs::copy::MimeType::Text,
+        )
+        .map_err(|e| InjectionError::Other(format!("Failed to write Wayland clipboard: {}", e)))?;
+
+        Ok(())
+    }
+
+    /// Write content to Wayland clipboard
+    async fn write_wayland_clipboard(
+        &self,
+        content: &[u8],
+        mime_type: &str,
+    ) -> InjectionResult<()> {
+        // Try native wl-clipboard-rs first, fallback to wl-copy command
+        #[cfg(feature = "wl_clipboard")]
+        {
+            match self
+                .write_wayland_clipboard_native(content, mime_type)
+                .await
+            {
+                Ok(()) => return Ok(()),
+                Err(e) => {
+                    debug!(
+                        "Native Wayland clipboard write failed, falling back to wl-copy: {}",
+                        e
+                    );
+                }
+            }
+        }
+
+        // Fallback to wl-copy command
+        // wl-copy expects input on stdin. Write asynchronously and await exit.
+        let mut child = Command::new("wl-copy")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| InjectionError::Process(format!("Failed to spawn wl-copy: {}", e)))?;
+        // Take stderr for later diagnostics if the process fails
+        let mut stderr_pipe = child.stderr.take();
+
+        if let Some(mut stdin) = child.stdin.take() {
+            // Timebox the stdin write to avoid hangs
+            let per_method = self.config.per_method_timeout();
+            timeout(per_method, stdin.write_all(content))
+                .await
+                .map_err(|_| InjectionError::Timeout(self.config.per_method_timeout_ms))?
+                .map_err(|e| {
+                    InjectionError::Process(format!("Failed to write to wl-copy stdin: {}", e))
+                })?;
+            // Explicitly close stdin so wl-copy knows input is finished
+            drop(stdin);
         } else {
-            Err(InjectionError::Process(
-                "wl-copy command failed".to_string(),
-            ))
+            return Err(InjectionError::Process(
+                "wl-copy stdin unavailable".to_string(),
+            ));
+        }
+
+        // Wait for wl-copy to exit within paste_action_timeout budget
+        let paste_timeout = self.config.paste_action_timeout();
+        match timeout(paste_timeout, child.wait()).await {
+            Ok(Ok(status)) => {
+                if status.success() {
+                    Ok(())
+                } else {
+                    // Attempt to read stderr for context
+                    let mut buf = Vec::new();
+                    if let Some(mut s) = stderr_pipe.take() {
+                        let _ = s.read_to_end(&mut buf).await;
+                    }
+                    let stderr = String::from_utf8_lossy(&buf);
+                    Err(InjectionError::Process(format!(
+                        "wl-copy command failed (status {}): {}",
+                        status, stderr
+                    )))
+                }
+            }
+            Ok(Err(e)) => Err(InjectionError::Process(format!(
+                "Failed to wait for wl-copy: {}",
+                e
+            ))),
+            Err(_) => {
+                // Timed out: best effort kill to avoid zombie process
+                let _ = child.kill().await;
+                Err(InjectionError::Timeout(self.config.paste_action_timeout_ms))
+            }
         }
     }
 
@@ -240,11 +363,15 @@ impl ClipboardInjector {
             timeout(per_method, stdin.write_all(content))
                 .await
                 .map_err(|_| InjectionError::Timeout(self.config.per_method_timeout_ms))?
-                .map_err(|e| InjectionError::Process(format!("Failed to write to xclip stdin: {}", e)))?;
+                .map_err(|e| {
+                    InjectionError::Process(format!("Failed to write to xclip stdin: {}", e))
+                })?;
             // Explicitly close stdin so xclip knows input is finished
             drop(stdin);
         } else {
-            return Err(InjectionError::Process("xclip stdin unavailable".to_string()));
+            return Err(InjectionError::Process(
+                "xclip stdin unavailable".to_string(),
+            ));
         }
 
         // Wait for xclip to exit within paste_action_timeout budget
@@ -262,12 +389,14 @@ impl ClipboardInjector {
                     let stderr = String::from_utf8_lossy(&buf);
                     Err(InjectionError::Process(format!(
                         "xclip command failed (status {}): {}",
-                        status,
-                        stderr
+                        status, stderr
                     )))
                 }
             }
-            Ok(Err(e)) => Err(InjectionError::Process(format!("Failed to wait for xclip: {}", e))),
+            Ok(Err(e)) => Err(InjectionError::Process(format!(
+                "Failed to wait for xclip: {}",
+                e
+            ))),
             Err(_) => {
                 // Timed out: best effort kill to avoid zombie process
                 let _ = child.kill().await;
