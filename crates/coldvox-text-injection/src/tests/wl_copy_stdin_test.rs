@@ -6,23 +6,28 @@
 //! To run this test, use the following command:
 //! `cargo test -p coldvox-text-injection --features wl_clipboard test_wl_copy_stdin_piping`
 
-use crate::injectors::unified_clipboard::UnifiedClipboardInjector;
+use crate::injectors::clipboard::ClipboardInjector;
 use crate::types::{InjectionConfig, InjectionContext};
-use coldvox_foundation::error::InjectionError;
 use std::process::Command;
 use std::time::Duration;
 
-use super::test_utils::{command_exists, read_clipboard_with_wl_paste};
-use coldvox_foundation::skip_test_unless;
+use super::test_utils::{
+    command_exists,
+    is_wayland_environment,
+    read_clipboard_with_wl_paste,
+    read_clipboard_with_wl_paste_with_timeout,
+};
 
 /// Test that wl-copy properly receives content via stdin
 /// This is the core test for the stdin piping fix
 #[tokio::test]
+#[ignore] // Requires Wayland environment
 async fn test_wl_copy_stdin_piping() {
-    skip_test_unless!(TestRequirements::new()
-        .requires_wayland()
-        .requires_command("wl-copy")
-        .requires_command("wl-paste"));
+    // Skip if not on Wayland
+    if !is_wayland_environment() {
+        println!("Skipping wl-copy test: Not running on Wayland");
+        return;
+    }
 
     // Skip if wl-copy is not available
     if !command_exists("wl-copy") {
@@ -31,7 +36,7 @@ async fn test_wl_copy_stdin_piping() {
     }
 
     let config = InjectionConfig::default();
-    let injector = UnifiedClipboardInjector::new(config);
+    let injector = ClipboardInjector::new(config);
 
     // Test cases that would fail with command-line argument approach
     let long_text_base =
@@ -86,14 +91,16 @@ async fn test_wl_copy_stdin_piping() {
 /// Test clipboard backup and restore functionality
 /// This ensures the complete injection workflow works
 #[tokio::test]
+#[ignore] // Requires Wayland environment
 async fn test_wl_copy_clipboard_backup_restore() {
-    skip_test_unless!(TestRequirements::new()
-        .requires_wayland()
-        .requires_command("wl-copy")
-        .requires_command("wl-paste"));
+    // Skip if not on Wayland or wl-copy not available
+    if !is_wayland_environment() || !command_exists("wl-copy") {
+        println!("Skipping clipboard backup/restore test: Requirements not met");
+        return;
+    }
 
     let config = InjectionConfig::default();
-    let injector = UnifiedClipboardInjector::new(config);
+    let injector = ClipboardInjector::new(config);
     let context = InjectionContext::default();
 
     // Set initial clipboard content
@@ -130,19 +137,20 @@ async fn test_wl_copy_clipboard_backup_restore() {
 
 /// Test timeout handling for wl-copy operations
 #[tokio::test]
+#[ignore] // Requires Wayland environment
 async fn test_wl_copy_timeout_handling() {
-    skip_test_unless!(TestRequirements::new()
-        .requires_wayland()
-        .requires_command("wl-copy")
-        .requires_command("wl-paste")
-        .timing_sensitive());
+    // Skip if not on Wayland or wl-copy not available
+    if !is_wayland_environment() || !command_exists("wl-copy") {
+        println!("Skipping wl-copy timeout test: Requirements not met");
+        return;
+    }
 
     // Create config with very short timeout to force timeout
     let mut config = InjectionConfig::default();
     config.per_method_timeout_ms = 10; // Very short timeout
     config.paste_action_timeout_ms = 10; // Very short timeout
 
-    let injector = UnifiedClipboardInjector::new(config);
+    let injector = ClipboardInjector::new(config);
 
     // Test with content that might take time to process
     let large_content = "Large content ".repeat(10000);
@@ -158,7 +166,7 @@ async fn test_wl_copy_timeout_handling() {
     );
 
     match result.unwrap_err() {
-        InjectionError::Timeout(_) => {
+        crate::types::InjectionError::Timeout(_) => {
             println!("✅ Timeout handling works correctly");
         }
         other => {
@@ -169,15 +177,18 @@ async fn test_wl_copy_timeout_handling() {
 
 /// Test error handling when wl-copy fails
 #[tokio::test]
+#[ignore] // Requires Wayland environment
 async fn test_wl_copy_error_handling() {
-    skip_test_unless!(TestRequirements::new()
-        .requires_wayland()
-        .requires_command("wl-copy"));
+    // Skip if not on Wayland
+    if !is_wayland_environment() {
+        println!("Skipping wl-copy error test: Not running on Wayland");
+        return;
+    }
 
     // We can't easily make wl-copy fail in a controlled way
     // but we can test that the error handling path doesn't panic
     let config = InjectionConfig::default();
-    let injector = UnifiedClipboardInjector::new(config);
+    let injector = ClipboardInjector::new(config);
 
     // Try to write a very large amount of data that might cause issues
     let huge_content = "x".repeat(100_000_000); // 100MB
@@ -195,14 +206,16 @@ async fn test_wl_copy_error_handling() {
 
 /// Test that the fix handles edge cases correctly
 #[tokio::test]
+#[ignore] // Requires Wayland environment
 async fn test_wl_copy_edge_cases() {
-    skip_test_unless!(TestRequirements::new()
-        .requires_wayland()
-        .requires_command("wl-copy")
-        .requires_command("wl-paste"));
+    // Skip if not on Wayland or wl-copy not available
+    if !is_wayland_environment() || !command_exists("wl-copy") {
+        println!("Skipping wl-copy edge cases test: Requirements not met");
+        return;
+    }
 
     let config = InjectionConfig::default();
-    let injector = UnifiedClipboardInjector::new(config);
+    let injector = ClipboardInjector::new(config);
 
     // Test empty string
     let result = injector.write_clipboard(b"", "text/plain").await;
