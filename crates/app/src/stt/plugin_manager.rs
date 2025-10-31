@@ -1467,7 +1467,6 @@ mod tests {
     #[tokio::test]
     async fn test_whisper_plugin_transcribes_when_model_available() {
         use coldvox_stt::plugins::whisper_plugin::WhisperPluginFactory;
-        use coldvox_vad::constants::FRAME_SIZE_SAMPLES;
         use hound::WavReader;
 
         let Some(model_path) = resolved_test_whisper_model() else {
