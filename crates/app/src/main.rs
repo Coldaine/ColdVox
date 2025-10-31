@@ -1,6 +1,10 @@
 // Logging behavior:
 // - Writes logs to both stderr and a daily-rotated file at logs/coldvox.log.
-// - Log level is controlled via the RUST_LOG environment variable (e.g., "info", "debug").
+// - Default log level is INFO to reduce verbosity. Control via RUST_LOG environment variable:
+//   * RUST_LOG=info                     # Standard logging (default, recommended)
+//   * RUST_LOG=debug                    # Verbose debugging (includes silence detection)
+//   * RUST_LOG=trace                    # Maximum verbosity (includes every audio chunk)
+//   * RUST_LOG=coldvox=info,stt_debug=trace  # Fine-grained per-module control
 // - The logs/ directory is created on startup if missing; file output uses a non-blocking writer.
 // - File layer disables ANSI to keep logs clean for analysis.
 use std::fs;
@@ -25,8 +29,14 @@ fn init_logging() -> Result<tracing_appender::non_blocking::WorkerGuard, Box<dyn
     std::fs::create_dir_all("logs")?;
     let file_appender = RollingFileAppender::new(Rotation::DAILY, "logs", "coldvox.log");
     let (non_blocking_file, guard) = tracing_appender::non_blocking(file_appender);
-    let log_level = std::env::var("RUST_LOG").unwrap_or_else(|_| "debug".to_string());
-    let env_filter = EnvFilter::try_new(log_level).unwrap_or_else(|_| EnvFilter::new("debug"));
+    
+    // Default to INFO level to reduce verbosity. Use RUST_LOG to override:
+    // - RUST_LOG=trace                    # Maximum verbosity (includes all audio chunk logs)
+    // - RUST_LOG=debug                    # Verbose debugging (includes silence detection)
+    // - RUST_LOG=info                     # Standard logging (default, recommended)
+    // - RUST_LOG=coldvox=info,stt_debug=trace  # Fine-grained control per module
+    let log_level = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
+    let env_filter = EnvFilter::try_new(log_level).unwrap_or_else(|_| EnvFilter::new("info"));
 
     let stderr_layer = fmt::layer().with_writer(std::io::stderr);
     let file_layer = fmt::layer().with_writer(non_blocking_file).with_ansi(false);

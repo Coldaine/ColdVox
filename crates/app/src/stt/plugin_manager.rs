@@ -1004,7 +1004,7 @@ impl SttPluginManager {
         let mut current = self.current_plugin.write().await;
 
         if let Some(ref mut plugin) = *current {
-            tracing::debug!(target: "stt_debug", plugin_id = %plugin.info().id, sample_count = samples.len(), "plugin_manager.process_audio() called");
+            tracing::trace!(target: "stt_debug", plugin_id = %plugin.info().id, sample_count = samples.len(), "plugin_manager.process_audio() called");
             let plugin_id = plugin.info().id.clone();
 
             // Update last activity for GC
@@ -1015,7 +1015,7 @@ impl SttPluginManager {
 
             match plugin.process_audio(samples).await {
                 Ok(result) => {
-                    tracing::debug!(target: "stt_debug", plugin_id = %plugin_id, has_event = %result.is_some(), "plugin_manager.process_audio() ok");
+                    tracing::trace!(target: "stt_debug", plugin_id = %plugin_id, has_event = %result.is_some(), "plugin_manager.process_audio() ok");
                     // Reset error count on success
                     {
                         let mut errors = self.consecutive_errors.write().await;
@@ -1030,7 +1030,7 @@ impl SttPluginManager {
                     Ok(result)
                 }
                 Err(e) => {
-                    tracing::debug!(target: "stt_debug", plugin_id = %plugin_id, error = %e, "plugin_manager.process_audio() error");
+                    tracing::warn!(target: "stt_debug", plugin_id = %plugin_id, error = %e, "plugin_manager.process_audio() error");
                     // Track error and potentially trigger failover
                     self.total_errors
                         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);

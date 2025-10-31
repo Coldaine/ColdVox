@@ -4,6 +4,23 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Logging and Observability
+- **Change default log level from DEBUG to INFO** to reduce verbosity in normal operation
+- Downgrade high-frequency logs to appropriate levels:
+  - Silence detection events: INFO → DEBUG
+  - Audio chunk dispatch: INFO → TRACE
+  - Plugin process calls: DEBUG → TRACE
+  - Plugin process results: DEBUG → TRACE (success) / WARN (errors)
+- Add structured logging to text-injection manager with detailed diagnostics:
+  - Method path snapshots showing availability, success rates, and cooldown states
+  - Focus status, injection mode, and char count logging
+  - Throttled session state diagnostics to avoid log spam
+- Create comprehensive `docs/logging.md` with usage examples and troubleshooting guide
+- Add `injection_diagnostics` example for troubleshooting injection issues
+- Extract shared test utilities for clipboard testing
+
+Users can still enable detailed debugging via `RUST_LOG=debug` or `RUST_LOG=trace` environment variables.
+
 ### Core Architecture
 - Migrate runtime, VAD, STT processor, and probes to SharedAudioFrame (Arc<[i16]>) for zero-copy fanout across the audio pipeline. This reduces allocations and improves throughput in multi-consumer scenarios.
 

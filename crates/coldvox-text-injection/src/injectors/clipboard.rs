@@ -5,17 +5,18 @@
 //! performs the injection, and then restores the original clipboard content.
 //! Optional Klipper cleanup is available behind a feature flag.
 
+use crate::detection::{detect_display_protocol, DisplayProtocol};
 use crate::logging::utils;
 use crate::types::{
     InjectionConfig, InjectionContext, InjectionError, InjectionMethod, InjectionResult,
 };
 use crate::TextInjector;
 use async_trait::async_trait;
+use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
-use std::process::Stdio;
 use tokio::time::timeout;
 use tracing::{debug, trace, warn};
 
@@ -66,9 +67,9 @@ pub struct ClipboardInjector {
 /// Clipboard backend types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClipboardBackend {
-    /// Wayland with wl-clipboard-rs
+    /// Wayland with wl-clipboard-rs (native)
     Wayland,
-    /// X11 with xclip
+    /// X11 with xclip (including XWayland)
     X11,
     /// Unknown or unavailable
     Unknown,
@@ -85,22 +86,142 @@ impl ClipboardInjector {
         }
     }
 
-    /// Detect the clipboard backend type
+    /// Detect the clipboard backend type using unified display protocol detection
     fn detect_backend() -> ClipboardBackend {
-        // Check for Wayland first
-        if std::env::var("WAYLAND_DISPLAY").is_ok() {
-            debug!("Detected Wayland clipboard backend");
-            return ClipboardBackend::Wayland;
+        let protocol = detect_display_protocol();
+
+        match protocol {
+            DisplayProtocol::Wayland => {
+                debug!("Detected Wayland clipboard backend via unified detection");
+                ClipboardBackend::Wayland
+            }
+            DisplayProtocol::X11 => {
+                debug!("Detected X11 clipboard backend via unified detection");
+                ClipboardBackend::X11
+            }
+            DisplayProtocol::Unknown => {
+                warn!("Could not detect clipboard backend via unified detection");
+                ClipboardBackend::Unknown
+            }
+        }
+    }
+
+    /// Helper for "native attempt + command fallback" pattern with consistent timeout/kill handling
+    ///
+    /// This function encapsulates the common pattern of trying a native implementation first,
+    /// then falling back to a command-line tool if the native approach fails. It ensures
+    /// consistent timeout and process cleanup handling across all backends.
+    ///
+    /// # Arguments
+    /// * `native_attempt` - A function that tries the native implementation
+    /// * `fallback_name` - Name of the fallback command for logging
+    /// * `fallback_command` - A function that executes the fallback command and returns the result
+    ///
+    /// # Returns
+    /// The result from either the native attempt or fallback command
+    async fn native_attempt_with_fallback<T, F, Fut, G, Gfut>(
+        &self,
+        native_attempt: F,
+        fallback_name: &str,
+        fallback_command: G,
+    ) -> InjectionResult<T>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<T, InjectionError>>,
+        G: FnOnce() -> Gfut,
+        Gfut: std::future::Future<Output = Result<T, InjectionError>>,
+    {
+        // Try native implementation first
+        match native_attempt().await {
+            Ok(result) => return Ok(result),
+            Err(e) => {
+                debug!(
+                    "Native implementation failed, falling back to {}: {}",
+                    fallback_name, e
+                );
+            }
         }
 
-        // Check for X11
-        if std::env::var("DISPLAY").is_ok() {
-            debug!("Detected X11 clipboard backend");
-            return ClipboardBackend::X11;
+        // Fallback to command
+        fallback_command().await
+    }
+
+    /// Execute a command with stdin, stdout, stderr and consistent timeout/kill handling
+    ///
+    /// This helper encapsulates the common pattern of spawning a command, writing to stdin,
+    /// and handling timeouts with proper process cleanup.
+    ///
+    /// # Arguments
+    /// * `command_name` - Name of the command for error messages
+    /// * `command_args` - Arguments for the command
+    /// * `content` - Content to write to stdin
+    /// * `timeout_duration` - Timeout duration for the operation
+    ///
+    /// # Returns
+    /// Result of the command execution
+    async fn execute_command_with_stdin(
+        &self,
+        command_name: &str,
+        command_args: &[&str],
+        content: &[u8],
+        timeout_duration: Duration,
+    ) -> InjectionResult<()> {
+        let mut child = Command::new(command_name)
+            .args(command_args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| InjectionError::Process(format!("Failed to spawn {}: {}", command_name, e)))?;
+        
+        // Take stderr for later diagnostics if the process fails
+        let mut stderr_pipe = child.stderr.take();
+
+        if let Some(mut stdin) = child.stdin.take() {
+            // Timebox the stdin write to avoid hangs
+            let per_method = self.config.per_method_timeout();
+            timeout(per_method, stdin.write_all(content))
+                .await
+                .map_err(|_| InjectionError::Timeout(self.config.per_method_timeout_ms))?
+                .map_err(|e| {
+                    InjectionError::Process(format!("Failed to write to {} stdin: {}", command_name, e))
+                })?;
+            // Explicitly close stdin so the command knows input is finished
+            drop(stdin);
+        } else {
+            return Err(InjectionError::Process(
+                format!("{} stdin unavailable", command_name),
+            ));
         }
 
-        warn!("Could not detect clipboard backend");
-        ClipboardBackend::Unknown
+        // Wait for command to exit within timeout budget
+        match timeout(timeout_duration, child.wait()).await {
+            Ok(Ok(status)) => {
+                if status.success() {
+                    Ok(())
+                } else {
+                    // Attempt to read stderr for context
+                    let mut buf = Vec::new();
+                    if let Some(mut s) = stderr_pipe.take() {
+                        let _ = s.read_to_end(&mut buf).await;
+                    }
+                    let stderr = String::from_utf8_lossy(&buf);
+                    Err(InjectionError::Process(format!(
+                        "{} command failed (status {}): {}",
+                        command_name, status, stderr
+                    )))
+                }
+            }
+            Ok(Err(e)) => Err(InjectionError::Process(format!(
+                "Failed to wait for {}: {}",
+                command_name, e
+            ))),
+            Err(_) => {
+                // Timed out: best effort kill to avoid zombie process
+                let _ = child.kill().await;
+                Err(InjectionError::Timeout(self.config.paste_action_timeout_ms))
+            }
+        }
     }
 
     /// Read clipboard content for backup
@@ -129,9 +250,53 @@ impl ClipboardInjector {
         Ok(backup)
     }
 
+    /// Read clipboard content using native Wayland wl-clipboard-rs
+    #[cfg(feature = "wl_clipboard")]
+    async fn read_wayland_clipboard_native(&self) -> InjectionResult<ClipboardBackup> {
+        use wl_clipboard_rs::paste::{get_contents, ClipboardType, MimeType, Seat};
+
+        let result = tokio::task::spawn_blocking(move || {
+            get_contents(ClipboardType::Regular, Seat::Unspecified, MimeType::Text)
+        })
+        .await
+        .map_err(|e| InjectionError::Other(format!("Failed to spawn clipboard task: {}", e)))?;
+
+        match result {
+            Ok((data, _)) => {
+                // Convert PipeReader to Vec<u8>
+                let mut buf = Vec::new();
+                use std::io::Read;
+                let mut reader = data;
+                reader.read_to_end(&mut buf).map_err(|e| {
+                    InjectionError::Other(format!("Failed to read clipboard data: {}", e))
+                })?;
+                Ok(ClipboardBackup::new(buf, "text/plain".to_string()))
+            }
+            Err(e) => Err(InjectionError::Other(format!(
+                "Failed to read Wayland clipboard: {}",
+                e
+            ))),
+        }
+    }
     /// Read clipboard content using Wayland
     async fn read_wayland_clipboard(&self) -> InjectionResult<ClipboardBackup> {
-        // Use wl-paste command to read clipboard (simple and reliable fallback)
+        #[cfg(feature = "wl_clipboard")]
+        {
+            self.native_attempt_with_fallback(
+                || self.read_wayland_clipboard_native(),
+                "wl-paste",
+                || self.read_wayland_clipboard_fallback(),
+            )
+            .await
+        }
+        #[cfg(not(feature = "wl_clipboard"))]
+        {
+            self.read_wayland_clipboard_fallback().await
+        }
+    }
+
+    /// Fallback implementation using wl-paste command
+    async fn read_wayland_clipboard_fallback(&self) -> InjectionResult<ClipboardBackup> {
         let output = Command::new("wl-paste")
             .args(&["--type", "text/plain"])
             .output()
@@ -198,82 +363,64 @@ impl ClipboardInjector {
         Ok(())
     }
 
-    /// Write content to Wayland clipboard
-    async fn write_wayland_clipboard(
+    /// Write content to Wayland clipboard using native wl-clipboard-rs
+    #[cfg(feature = "wl_clipboard")]
+    async fn write_wayland_clipboard_native(
         &self,
         content: &[u8],
         _mime_type: &str,
     ) -> InjectionResult<()> {
-        // Use wl-copy command as a simple fallback implementation
-        let _content_str = String::from_utf8_lossy(content);
-        let output = Command::new("wl-copy")
-            .arg(_content_str.as_ref())
-            .output()
-            .await
-            .map_err(|e| InjectionError::Process(format!("Failed to execute wl-copy: {}", e)))?;
+        use wl_clipboard_rs::copy::{Options, Source};
 
-        if output.status.success() {
-            Ok(())
-        } else {
-            Err(InjectionError::Process(
-                "wl-copy command failed".to_string(),
-            ))
+        // wl-clipboard-rs operations are blocking; run on a blocking thread
+        let data = content.to_vec().into_boxed_slice();
+        tokio::task::spawn_blocking(move || {
+            let opts = Options::new();
+            opts.copy(Source::Bytes(data), wl_clipboard_rs::copy::MimeType::Text)
+                .map_err(|e| {
+                    InjectionError::Other(format!(
+                        "Failed to write Wayland clipboard: {}",
+                        e
+                    ))
+                })
+        })
+        .await
+        .map_err(|e| InjectionError::Other(format!("Tokio spawn_blocking failed: {}", e)))??;
+
+        Ok(())
+    }
+
+    /// Write content to Wayland clipboard
+    async fn write_wayland_clipboard(
+        &self,
+        content: &[u8],
+        mime_type: &str,
+    ) -> InjectionResult<()> {
+        #[cfg(feature = "wl_clipboard")]
+        {
+            self.native_attempt_with_fallback(
+                || self.write_wayland_clipboard_native(content, mime_type),
+                "wl-copy",
+                || self.write_wayland_clipboard_fallback(content),
+            )
+            .await
         }
+        #[cfg(not(feature = "wl_clipboard"))]
+        {
+            self.write_wayland_clipboard_fallback(content).await
+        }
+    }
+
+    /// Fallback implementation using wl-copy command
+    async fn write_wayland_clipboard_fallback(&self, content: &[u8]) -> InjectionResult<()> {
+        let paste_timeout = self.config.paste_action_timeout();
+        self.execute_command_with_stdin("wl-copy", &[], content, paste_timeout).await
     }
 
     /// Write content to X11 clipboard
     async fn write_x11_clipboard(&self, content: &[u8]) -> InjectionResult<()> {
-        // xclip expects input on stdin. Write asynchronously and await exit.
-        let mut child = Command::new("xclip")
-            .args(["-selection", "clipboard"])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| InjectionError::Process(format!("Failed to spawn xclip: {}", e)))?;
-        // Take stderr for later diagnostics if the process fails
-        let mut stderr_pipe = child.stderr.take();
-
-        if let Some(mut stdin) = child.stdin.take() {
-            // Timebox the stdin write to avoid hangs
-            let per_method = self.config.per_method_timeout();
-            timeout(per_method, stdin.write_all(content))
-                .await
-                .map_err(|_| InjectionError::Timeout(self.config.per_method_timeout_ms))?
-                .map_err(|e| InjectionError::Process(format!("Failed to write to xclip stdin: {}", e)))?;
-            // Explicitly close stdin so xclip knows input is finished
-            drop(stdin);
-        } else {
-            return Err(InjectionError::Process("xclip stdin unavailable".to_string()));
-        }
-
-        // Wait for xclip to exit within paste_action_timeout budget
         let paste_timeout = self.config.paste_action_timeout();
-        match timeout(paste_timeout, child.wait()).await {
-            Ok(Ok(status)) => {
-                if status.success() {
-                    Ok(())
-                } else {
-                    // Attempt to read stderr for context
-                    let mut buf = Vec::new();
-                    if let Some(mut s) = stderr_pipe.take() {
-                        let _ = s.read_to_end(&mut buf).await;
-                    }
-                    let stderr = String::from_utf8_lossy(&buf);
-                    Err(InjectionError::Process(format!(
-                        "xclip command failed (status {}): {}",
-                        status,
-                        stderr
-                    )))
-                }
-            }
-            Ok(Err(e)) => Err(InjectionError::Process(format!("Failed to wait for xclip: {}", e))),
-            Err(_) => {
-                // Timed out: best effort kill to avoid zombie process
-                let _ = child.kill().await;
-                Err(InjectionError::Timeout(self.config.paste_action_timeout_ms))
-            }
-        }
+        self.execute_command_with_stdin("xclip", &["-selection", "clipboard"], content, paste_timeout).await
     }
 
     /// Restore clipboard content from backup
@@ -737,5 +884,172 @@ mod tests {
             backend_type,
             ClipboardBackend::Wayland | ClipboardBackend::X11 | ClipboardBackend::Unknown
         ));
+    }
+
+    #[tokio::test]
+    async fn test_native_attempt_with_fallback_success() {
+        let config = InjectionConfig::default();
+        let injector = ClipboardInjector::new(config);
+
+        // Test successful native attempt
+        let result = injector
+            .native_attempt_with_fallback(
+                || async { Ok("native_success") },
+                "fallback_cmd",
+                || async { Ok("fallback_success") },
+            )
+            .await;
+
+        assert_eq!(result.unwrap(), "native_success");
+    }
+
+    #[tokio::test]
+    async fn test_native_attempt_with_fallback_fallback() {
+        let config = InjectionConfig::default();
+        let injector = ClipboardInjector::new(config);
+
+        // Test fallback when native fails
+        let result = injector
+            .native_attempt_with_fallback(
+                || async { Err(InjectionError::Other("native failed".to_string())) },
+                "fallback_cmd",
+                || async { Ok("fallback_success") },
+            )
+            .await;
+
+        assert_eq!(result.unwrap(), "fallback_success");
+    }
+
+    #[tokio::test]
+    async fn test_native_attempt_with_fallback_both_fail() {
+        let config = InjectionConfig::default();
+        let injector = ClipboardInjector::new(config);
+
+        // Test when both native and fallback fail
+        let result = injector
+            .native_attempt_with_fallback(
+                || async { Err(InjectionError::Other("native failed".to_string())) },
+                "fallback_cmd",
+                || async { Err(InjectionError::Other("fallback failed".to_string())) },
+            )
+            .await;
+
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(e.to_string().contains("fallback failed"));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_execute_command_with_stdin_success() {
+        let config = InjectionConfig::default();
+        let injector = ClipboardInjector::new(config);
+
+        // Test successful command execution with echo
+        let result = injector
+            .execute_command_with_stdin(
+                "echo",
+                &["test"],
+                b"test content",
+                Duration::from_secs(1),
+            )
+            .await;
+
+        // Echo should succeed
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_execute_command_with_stdin_nonexistent() {
+        let config = InjectionConfig::default();
+        let injector = ClipboardInjector::new(config);
+
+        // Test nonexistent command
+        let result = injector
+            .execute_command_with_stdin(
+                "nonexistent_command_12345",
+                &[],
+                b"test content",
+                Duration::from_secs(1),
+            )
+            .await;
+
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(e.to_string().contains("Failed to spawn"));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_execute_command_with_stdin_timeout() {
+        let config = InjectionConfig::default();
+        let injector = ClipboardInjector::new(config);
+
+        // Test timeout with sleep command
+        let result = injector
+            .execute_command_with_stdin(
+                "sleep",
+                &["10"], // Sleep for 10 seconds
+                b"test content",
+                Duration::from_millis(100), // Very short timeout
+            )
+            .await;
+
+        assert!(result.is_err());
+        if let Err(e) = result {
+            assert!(matches!(e, InjectionError::Timeout(_)));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_helper_functions_are_generic() {
+        let config = InjectionConfig::default();
+        let injector = ClipboardInjector::new(config);
+
+        // Test that the helper functions work with different types
+        let string_result = injector
+            .native_attempt_with_fallback(
+                || async { Ok("string_result".to_string()) },
+                "test_cmd",
+                || async { Ok("fallback_string".to_string()) },
+            )
+            .await;
+
+        let u32_result = injector
+            .native_attempt_with_fallback(
+                || async { Ok(42u32) },
+                "test_cmd",
+                || async { Ok(0u32) },
+            )
+            .await;
+
+        assert_eq!(string_result.unwrap(), "string_result".to_string());
+        assert_eq!(u32_result.unwrap(), 42u32);
+    }
+
+    #[tokio::test]
+    async fn test_fallback_function_extensibility() {
+        let config = InjectionConfig::default();
+        let injector = ClipboardInjector::new(config);
+
+        // Test that fallback functions can have different signatures
+        let result1 = injector
+            .native_attempt_with_fallback(
+                || async { Err(InjectionError::Other("native failed".to_string())) },
+                "cmd1",
+                || async { Ok("result1".to_string()) },
+            )
+            .await;
+
+        let result2 = injector
+            .native_attempt_with_fallback(
+                || async { Err(InjectionError::Other("native failed".to_string())) },
+                "cmd2",
+                || async { Ok(123u64) },
+            )
+            .await;
+
+        assert_eq!(result1.unwrap(), "result1".to_string());
+        assert_eq!(result2.unwrap(), 123u64);
     }
 }

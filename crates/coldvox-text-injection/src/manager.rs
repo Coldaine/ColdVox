@@ -1,6 +1,7 @@
 use crate::backend::{Backend, BackendDetector};
 use crate::focus::{FocusProvider, FocusStatus, FocusTracker};
 use crate::log_throttle::LogThrottle;
+use crate::logging::utils as log_utils;
 use crate::prewarm::PrewarmController;
 use crate::session::{InjectionSession, SessionState};
 use crate::types::{
@@ -767,6 +768,68 @@ impl StrategyManager {
         self.compute_method_order("unknown_app")
     }
 
+    /// Build a human-readable summary of the current fallback chain with availability and history.
+    fn describe_method_path(&self, app_id: &str, methods: &[InjectionMethod]) -> String {
+        let success_snapshot: HashMap<AppMethodKey, SuccessRecord> = self
+            .success_cache
+            .lock()
+            .map(|guard| guard.clone())
+            .unwrap_or_else(|_| HashMap::new());
+        let cooldown_snapshot: HashMap<AppMethodKey, CooldownState> = self
+            .cooldowns
+            .lock()
+            .map(|guard| guard.clone())
+            .unwrap_or_else(|_| HashMap::new());
+        let now = Instant::now();
+
+        methods
+            .iter()
+            .map(|method| {
+                let backend_name = self
+                    .injectors
+                    .get(*method)
+                    .map(|inj| inj.backend_name().to_string())
+                    .unwrap_or_else(|| "unregistered".to_string());
+                let available = self.injectors.contains(*method);
+                let key = (app_id.to_string(), *method);
+                let stats = success_snapshot
+                    .get(&key)
+                    .map(|record| {
+                        format!(
+                            "{:.0}% success ({} ok / {} fail)",
+                            record.success_rate * 100.0,
+                            record.success_count,
+                            record.fail_count
+                        )
+                    })
+                    .unwrap_or_else(|| "no history".to_string());
+                let cooldown_note = cooldown_snapshot
+                    .get(&key)
+                    .and_then(|state| {
+                        if state.until > now {
+                            let remaining =
+                                state.until.checked_duration_since(now).unwrap_or_default();
+                            Some(format!(
+                                "cooldown_remaining={}ms last_error={}",
+                                remaining.as_millis(),
+                                state.last_error
+                            ))
+                        } else {
+                            None
+                        }
+                    })
+                    .map(|note| format!(", {}", note))
+                    .unwrap_or_default();
+
+                format!(
+                    "{:?}@{}[available={}, stats={}{}]",
+                    method, backend_name, available, stats, cooldown_note
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" -> ")
+    }
+
     /// Check if we've exceeded the global time budget
     fn has_budget_remaining(&self) -> bool {
         let guard = self.global_start.lock().unwrap();
@@ -915,11 +978,21 @@ impl StrategyManager {
             }
         };
 
+        debug!(
+            ?focus_status,
+            require_focus = self.config.require_focus,
+            inject_on_unknown = self.config.inject_on_unknown_focus,
+            "Focus status evaluated for injection"
+        );
+
         // Check if we should inject on unknown focus
         if focus_status == FocusStatus::Unknown && !self.config.inject_on_unknown_focus {
             if let Ok(mut metrics) = self.metrics.lock() {
                 metrics.record_focus_missing();
             }
+            warn!(
+                "Aborting injection: focus state unknown and config prohibits injection in this state"
+            );
             return Err(InjectionError::Other(
                 "Unknown focus state and injection disabled".to_string(),
             ));
@@ -930,6 +1003,7 @@ impl StrategyManager {
             if let Ok(mut metrics) = self.metrics.lock() {
                 metrics.record_focus_missing();
             }
+            warn!("Aborting injection: focused element is not editable and require_focus=true");
             return Err(InjectionError::NoEditableFocus);
         }
 
@@ -938,6 +1012,10 @@ impl StrategyManager {
 
         // Check allowlist/blocklist
         if !self.is_app_allowed(&app_id) {
+            warn!(
+                "Skipping injection: app '{}' is blocked by allow/block list",
+                app_id
+            );
             return Err(InjectionError::Other(format!(
                 "Application {} is not allowed for injection",
                 app_id
@@ -948,7 +1026,8 @@ impl StrategyManager {
         self.check_and_trigger_prewarm().await;
 
         // Determine injection method based on config
-        let injection_mode = match self.config.injection_mode.as_str() {
+        let configured_mode = self.config.injection_mode.as_str();
+        let injection_mode = match configured_mode {
             "paste" => InjectionMode::Paste,
             "keystroke" => InjectionMode::Keystroke,
             "auto" => {
@@ -967,6 +1046,19 @@ impl StrategyManager {
             }
         };
 
+        let mode_label = match injection_mode {
+            InjectionMode::Paste => "paste",
+            InjectionMode::Keystroke => "keystroke",
+        };
+
+        debug!(
+            configured_mode = configured_mode,
+            effective_mode = mode_label,
+            char_count = text.len(),
+            paste_threshold = self.config.paste_chunk_chars,
+            "Determined injection mode"
+        );
+
         // Create injection context with mode override
         let context = InjectionContext {
             target_app: Some(app_id.clone()),
@@ -978,11 +1070,15 @@ impl StrategyManager {
 
         // Get ordered list of methods to try
         let method_order = self.get_method_order_cached(&app_id).await;
-        trace!(
-            "Strategy selection for app '{}': {:?} ({} methods available)",
-            app_id,
-            method_order,
-            method_order.len()
+        let method_path_summary = self.describe_method_path(&app_id, &method_order);
+        info!(
+            app_id = %app_id,
+            char_count = text.len(),
+            mode = mode_label,
+            focus = ?focus_status,
+            method_path = %method_path_summary,
+            methods = method_order.len(),
+            "Starting injection attempt"
         );
 
         // Try each method in order
@@ -993,10 +1089,19 @@ impl StrategyManager {
             attempts += 1;
             // Skip if in cooldown
             if self.is_in_cooldown(method) {
-                trace!(
-                    "Skipping method {:?} (attempt {}) - in cooldown",
-                    method,
-                    attempts
+                let remaining_ms = {
+                    let now = Instant::now();
+                    let guard = self.cooldowns.lock().unwrap();
+                    guard
+                        .get(&(app_id.clone(), method))
+                        .and_then(|state| state.until.checked_duration_since(now))
+                        .map(|d| d.as_millis())
+                };
+                debug!(
+                    method = ?method,
+                    attempt = attempts,
+                    remaining_ms = remaining_ms.unwrap_or(0),
+                    "Skipping method - cooldown active"
                 );
                 continue;
             }
@@ -1006,86 +1111,106 @@ impl StrategyManager {
                 if let Ok(mut metrics) = self.metrics.lock() {
                     metrics.record_rate_limited();
                 }
+                debug!(
+                    "Aborting injection - global budget exhausted before attempt {}",
+                    attempts
+                );
                 return Err(InjectionError::BudgetExhausted);
             }
 
             // Skip if injector not available
             if !self.injectors.contains(method) {
-                trace!(
-                    "Skipping method {:?} (attempt {}) - injector not available",
-                    method,
-                    attempts
+                debug!(
+                    method = ?method,
+                    attempt = attempts,
+                    "Skipping method - injector not registered"
                 );
                 continue;
             }
 
+            let injector_entry = self.injectors.get(method).cloned();
+            let backend_name = injector_entry
+                .as_ref()
+                .map(|inj| inj.backend_name().to_string())
+                .unwrap_or_else(|| "unregistered".to_string());
+
+            log_utils::log_injection_attempt(method, text, self.config.redact_logs);
             debug!(
-                "Attempting injection with method {:?} (attempt {} of {})",
-                method, attempts, total_methods
+                method = ?method,
+                backend = %backend_name,
+                attempt = attempts,
+                total_attempts = total_methods,
+                "Invoking injector"
             );
 
             // Try injection with the real injector
             let start = Instant::now();
-            // Perform the injector call in a narrow scope to avoid borrowing self across updates
-            let result = if let Some(injector) = self.injectors.get(method) {
-                let injector = Arc::clone(injector);
+            let result = if let Some(injector) = injector_entry {
                 injector.inject_text(text, Some(&context)).await
             } else {
+                debug!(method = ?method, attempt = attempts, "Injector dropped before invocation");
                 continue;
             };
 
             match result {
                 Ok(()) => {
-                    let duration = start.elapsed().as_millis() as u64;
+                    let method_duration = start.elapsed();
+                    let duration_ms = method_duration.as_millis() as u64;
+                    log_utils::log_injection_success(
+                        method,
+                        text,
+                        method_duration,
+                        self.config.redact_logs,
+                    );
                     if let Ok(mut m) = self.metrics.lock() {
-                        m.record_success(method, duration);
+                        m.record_success(method, duration_ms);
                     }
                     self.update_success_record(&app_id, method, true);
                     self.clear_cooldown(method);
                     let total_elapsed = total_start.elapsed();
-                    let mode_str = match injection_mode {
-                        InjectionMode::Paste => "paste",
-                        InjectionMode::Keystroke => "keystroke",
-                    };
                     info!(
-                        "Successfully injected {} chars using {:?} (mode: {}, method time: {}ms, total: {}ms, attempt {} of {})",
-                        text.len(),
-                        method,
-                        mode_str,
-                        duration,
-                        total_elapsed.as_millis(),
-                        attempts,
-                        total_methods
+                        app_id = %app_id,
+                        method = ?method,
+                        backend = %backend_name,
+                        char_count = text.len(),
+                        mode = mode_label,
+                        method_time_ms = duration_ms,
+                        total_time_ms = total_elapsed.as_millis(),
+                        attempt = attempts,
+                        total_attempts = total_methods,
+                        "Injection method succeeded"
                     );
-                    // Log full text only at trace level when not redacting
                     if !self.config.redact_logs {
                         trace!("Full text injected: {}", text);
                     }
                     return Ok(());
                 }
                 Err(e) => {
-                    let duration = start.elapsed().as_millis() as u64;
+                    let method_duration = start.elapsed();
+                    let duration_ms = method_duration.as_millis() as u64;
                     let error_string = e.to_string();
-                    let backend_name = self
-                        .injectors
-                        .get(method)
-                        .map(|inj| inj.backend_name().to_string())
-                        .unwrap_or_else(|| "unknown".to_string());
-                    error!(
-                        "Injection method {:?} (backend: {}) failed after {}ms (attempt {} of {}): {}",
+                    log_utils::log_injection_failure(
                         method,
-                        backend_name,
-                        duration,
-                        attempts,
-                        total_methods,
-                        error_string
+                        text,
+                        &error_string,
+                        method_duration,
+                        self.config.redact_logs,
+                    );
+                    error!(
+                        method = ?method,
+                        backend = %backend_name,
+                        attempt = attempts,
+                        total_attempts = total_methods,
+                        duration_ms = duration_ms,
+                        error = %error_string,
+                        "Injection method failed"
                     );
                     if let Ok(mut m) = self.metrics.lock() {
-                        m.record_failure(method, duration, error_string.clone());
+                        m.record_failure(method, duration_ms, error_string.clone());
                     }
                     self.update_success_record(&app_id, method, false);
                     self.update_cooldown(method, &error_string);
-                    trace!("Continuing to next method in fallback chain");
+                    debug!("Continuing to next method in fallback chain");
                     // Continue to next method
                 }
             }
@@ -1093,22 +1218,24 @@ impl StrategyManager {
 
         // If we get here, all methods failed
         let total_elapsed = total_start.elapsed();
+        let final_method_snapshot = self.describe_method_path(&app_id, &method_order);
         error!(
-            "All {} injection methods failed after {}ms ({} attempts made)",
-            total_methods,
-            total_elapsed.as_millis(),
-            attempts
+            app_id = %app_id,
+            total_time_ms = total_elapsed.as_millis(),
+            attempts = attempts,
+            method_path = %final_method_snapshot,
+            "All injection methods failed"
         );
 
         // Prepare diagnostic payload
         let diag = format!(
-            "Injection failure diagnostics:\n  app_id={}\n  attempts={}\n  total_methods={}\n  total_elapsed_ms={}\n  redact_logs={}\n  method_order={:?}\n",
+            "Injection failure diagnostics:\n  app_id={}\n  attempts={}\n  total_methods={}\n  total_elapsed_ms={}\n  redact_logs={}\n  method_path={}\n",
             app_id,
             attempts,
             total_methods,
             total_elapsed.as_millis(),
             self.config.redact_logs,
-            method_order
+            final_method_snapshot
         );
 
         if self.config.fail_fast {

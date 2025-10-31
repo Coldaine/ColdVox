@@ -24,12 +24,106 @@ owners: Documentation Working Group
 last_reviewed: YYYY-MM-DD
 ```
 
-## Approved Exceptions
+### Frontmatter Template
 
-- Root `README.md`
-- Root `CHANGELOG.md`
-- Workspace configuration directories such as `.vscode/`
-- Crate README files required for package publishing (see `docs/reference/crates/`)
+Copy-paste this template into new documentation files:
+
+```yaml
+---
+doc_type: reference
+subsystem: general
+version: 1.0.0
+status: draft
+owners: Your Name or Team
+last_reviewed: YYYY-MM-DD
+---
+```
+
+### Field Descriptions
+
+- **doc_type**: Type of document
+  - `architecture` - System design, component interactions, ADRs
+  - `standard` - Coding standards, conventions, policies
+  - `playbook` - Step-by-step guides, procedures, operational runbooks
+  - `reference` - API docs, crate documentation, technical references
+  - `research` - Investigations, experiments, proof-of-concepts
+  - `plan` - Proposals, roadmaps, future work
+  - `troubleshooting` - Debugging guides, known issues, solutions
+  - `index` - Directory or category landing pages
+
+- **subsystem**: Which part of ColdVox this relates to
+  - `general` - Cross-cutting or repository-wide concerns
+  - `audio` - Audio capture, processing, VAD
+  - `foundation` - Core utilities, telemetry, shared infrastructure
+  - `gui` - User interface, TUI dashboard
+  - `stt` - Speech-to-text engine and plugins
+  - `text-injection` - Keyboard/clipboard automation
+  - `vad` - Voice activity detection
+
+- **version**: Document version following semantic versioning
+  - Start with `1.0.0` for new docs
+  - Increment MAJOR for breaking reorganizations
+  - Increment MINOR for significant additions
+  - Increment PATCH for minor fixes/clarifications
+
+- **status**: Current state of the document
+  - `draft` - Work in progress, under active development
+  - `active` - Current, approved, and in use
+  - `deprecated` - Outdated, replaced by newer docs
+
+- **owners**: Who maintains this document
+  - Individual name: "Jane Developer"
+  - Team: "Documentation Working Group"
+  - Multiple: "Audio Team, Jane Developer"
+
+- **last_reviewed**: Date of last review (YYYY-MM-DD format)
+  - Update when you make changes or verify accuracy
+  - Helps identify stale documentation
+
+### Auto-fix Missing Frontmatter
+
+Pre-commit hooks will warn about missing frontmatter. To auto-fix files:
+
+```bash
+# Fix specific files
+python3 scripts/ensure_doc_frontmatter.py --fix docs/path/to/file.md
+
+# Fix all docs in a directory
+python3 scripts/ensure_doc_frontmatter.py --fix docs/plans/*.md
+```
+
+The auto-fixer will:
+- Infer `doc_type` from path (e.g., `docs/plans/` → `plan`)
+- Infer `subsystem` from path (e.g., `docs/domains/audio/` → `audio`)
+- Set sensible defaults for `version`, `status`
+- Use your git author name for `owners`
+- Set `last_reviewed` to today's date
+
+**Always review auto-generated frontmatter** and adjust as needed before committing.
+
+## Documentation Placement
+
+All Markdown documentation MUST reside under `/docs/` to maintain discoverability and consistency.
+
+**Pre-commit enforcement**: The `check-markdown-placement` hook will **block commits** containing Markdown files outside `/docs/`.
+
+### Approved Exceptions
+
+The following files are explicitly allowed outside `/docs/`:
+
+**Root-level files:**
+- `README.md` - Repository overview and quick-start
+- `CHANGELOG.md` - User-facing release notes
+- `CLAUDE.md` - AI assistant context and guidelines
+- `PR-NNN-*.md` - Pull request assessment documents (temporary)
+
+**GitHub templates:**
+- `.github/pull_request_template.md` - PR template for GitHub
+
+**Crate READMEs:**
+- `crates/*/README.md` - Package READMEs required for crates.io publishing
+
+Crate READMEs are allowed but should be kept minimal (overview, installation, quick example). Place detailed documentation in `docs/reference/crates/<crate-name>/` instead.
 
 Any additional exception requires approval from the Documentation Working Group and must be recorded here.
 

@@ -8,18 +8,18 @@
 //! `cargo test -p coldvox-text-injection --features real-injection-tests`
 
 // NOTE: Using modular injectors from the injectors module
-#[cfg(feature = "atspi")]
-use crate::injectors::atspi::AtspiInjector;
 #[cfg(feature = "wl_clipboard")]
 use crate::clipboard_paste_injector::ClipboardPasteInjector;
 #[cfg(feature = "enigo")]
 use crate::enigo_injector::EnigoInjector;
+#[cfg(feature = "atspi")]
+use crate::injectors::atspi::AtspiInjector;
 #[cfg(feature = "ydotool")]
 use crate::ydotool_injector::YdotoolInjector;
 // Bring trait into scope so async trait methods (inject_text, is_available) resolve.
 use crate::TextInjector;
 
-use super::test_harness::{verify_injection, TestApp, TestAppManager, TestEnvironment};
+use crate::tests::test_harness::{verify_injection, TestApp, TestAppManager, TestEnvironment};
 use std::time::Duration;
 
 /// A placeholder test to verify that the test harness, build script, and

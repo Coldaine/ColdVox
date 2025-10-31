@@ -202,7 +202,7 @@ impl PluginSttProcessor {
         let state_arc = self.state.clone();
 
         tokio::spawn(async move {
-            tracing::info!(target: "stt_debug", "Finalization task started.");
+            tracing::debug!(target: "stt_debug", "Finalization task started.");
             // In batch mode, send the entire buffer to the plugin first.
             if behavior != HotkeyBehavior::Incremental && !buffer.is_empty() {
                 if let Err(e) = pm.write().await.process_audio(&buffer).await {
@@ -211,17 +211,17 @@ impl PluginSttProcessor {
             }
 
             // Finalize the utterance to get the definitive transcription.
-            tracing::info!(target: "stt_debug", "Calling plugin.finalize().");
+            tracing::debug!(target: "stt_debug", "Calling plugin.finalize().");
             let finalize_result = pm.write().await.finalize().await;
-            tracing::info!(target: "stt_debug", "Plugin.finalize() returned.");
+            tracing::debug!(target: "stt_debug", "Plugin.finalize() returned.");
 
             match finalize_result {
                 Ok(Some(event)) => {
-                    tracing::info!(target: "stt_debug", "Finalization produced event: {:?}", event);
+                    tracing::debug!(target: "stt_debug", "Finalization produced event: {:?}", event);
                     Self::send_event_static(&event_tx, &metrics, event).await;
                 }
                 Ok(None) => {
-                    tracing::info!(target: "stt_debug", "Finalization produced no event.");
+                    tracing::debug!(target: "stt_debug", "Finalization produced no event.");
                 }
                 Err(e) => {
                     let err_event = TranscriptionEvent::Error {
@@ -236,7 +236,7 @@ impl PluginSttProcessor {
             let mut final_state = state_arc.lock();
             final_state.state = UtteranceState::Idle;
             final_state.buffer.clear();
-            tracing::info!(target: "stt_debug", "Finalization task finished, state reset to Idle.");
+            tracing::debug!(target: "stt_debug", "Finalization task finished, state reset to Idle.");
         });
     }
 
@@ -264,7 +264,7 @@ impl PluginSttProcessor {
             };
 
             if should_process {
-                tracing::info!(target: "stt_debug", "Dispatching {} samples to plugin.process_audio()", samples_slice.len());
+                tracing::trace!(target: "stt_debug", "Dispatching {} samples to plugin.process_audio()", samples_slice.len());
                 match self
                     .plugin_manager
                     .write()
@@ -273,12 +273,12 @@ impl PluginSttProcessor {
                     .await
                 {
                     Ok(Some(event)) => {
-                        tracing::info!(target: "stt_debug", "plugin.process_audio() produced event: {:?}", event);
+                        tracing::debug!(target: "stt_debug", "plugin.process_audio() produced event: {:?}", event);
                         Self::send_event_static(&self.event_tx, &self.metrics, event).await;
                     }
                     Ok(None) => {}
                     Err(e) => {
-                        tracing::info!(target: "stt_debug", "plugin.process_audio() returned error: {}", e);
+                        tracing::warn!(target: "stt_debug", "plugin.process_audio() returned error: {}", e);
                         let err_event = TranscriptionEvent::Error {
                             code: "PLUGIN_PROCESS_ERROR".to_string(),
                             message: e,

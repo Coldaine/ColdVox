@@ -37,6 +37,22 @@ repos:
     hooks:
       - id: actionlint
 
+  # Documentation checks
+  - repo: local
+    hooks:
+      - id: check-markdown-placement
+        name: Check Markdown Placement (Blocker)
+        entry: python3 scripts/check_markdown_placement.py
+        language: system
+        types: [markdown]
+        pass_filenames: true
+      - id: check-doc-frontmatter
+        name: Check Documentation Frontmatter (Warning)
+        entry: python3 scripts/ensure_doc_frontmatter.py
+        language: system
+        types: [markdown]
+        pass_filenames: true
+
   # Server-side validation of GitHub workflows via gh CLI
   - repo: local
     hooks:
