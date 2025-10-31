@@ -1,3 +1,9 @@
+---
+id: logging
+title: ColdVox Logging Configuration
+description: How to control log levels, per-module filters, and troubleshooting tips for ColdVox logging.
+---
+
 # ColdVox Logging Configuration
 
 ## Overview

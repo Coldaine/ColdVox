@@ -272,8 +272,14 @@ pub mod utils {
 
     /// Log injection attempt with redaction if needed
     pub fn log_injection_attempt(method: InjectionMethod, text: &str, redact: bool) {
-        let display_text = if redact && text.len() > 10 {
-            format!("{}...({} chars)", &text[..10], text.len())
+        let display_text = if redact {
+            // Do not leak any portion of text when redaction is enabled
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+            let mut hasher = DefaultHasher::new();
+            text.hash(&mut hasher);
+            let hash = hasher.finish() & 0xFFFFFFFF;
+            format!("[REDACTED] len={} hash={:08x}", text.len(), hash)
         } else {
             text.to_string()
         };
@@ -293,8 +299,13 @@ pub mod utils {
         duration: Duration,
         redact: bool,
     ) {
-        let display_text = if redact && text.len() > 10 {
-            format!("{}...({} chars)", &text[..10], text.len())
+        let display_text = if redact {
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+            let mut hasher = DefaultHasher::new();
+            text.hash(&mut hasher);
+            let hash = hasher.finish() & 0xFFFFFFFF;
+            format!("[REDACTED] len={} hash={:08x}", text.len(), hash)
         } else {
             text.to_string()
         };
@@ -316,8 +327,13 @@ pub mod utils {
         duration: Duration,
         redact: bool,
     ) {
-        let display_text = if redact && text.len() > 10 {
-            format!("{}...({} chars)", &text[..10], text.len())
+        let display_text = if redact {
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+            let mut hasher = DefaultHasher::new();
+            text.hash(&mut hasher);
+            let hash = hasher.finish() & 0xFFFFFFFF;
+            format!("[REDACTED] len={} hash={:08x}", text.len(), hash)
         } else {
             text.to_string()
         };

@@ -1,3 +1,9 @@
+---
+id: text-injection-overview
+title: Text Injection Overview
+description: Overview and usage guide for the ColdVox text-injection system.
+---
+
 # coldvox-text-injection
 
 Automated text injection system for ColdVox transcribed speech.
@@ -14,20 +20,20 @@ Automated text injection system for ColdVox transcribed speech.
 
 This crate provides text injection capabilities that automatically type transcribed speech into applications:
 
-- **Multi-Backend Support**: Multiple text injection methods for different environments
-- **Focus Tracking**: Automatic detection of active application windows
-- **Smart Routing**: Application-specific injection method selection
-- **Cross-Platform**: Support for X11, Wayland, and other desktop environments
+- Multi-Backend Support: Multiple text injection methods for different environments
+- Focus Tracking: Automatic detection of active application windows
+- Smart Routing: Application-specific injection method selection
+- Cross-Platform: Support for X11, Wayland, and other desktop environments
 
 ## Key Components
 
 ### Text Injection Backends
-- **Clipboard**: Copy transcription to clipboard and paste
-- **AT-SPI**: Accessibility API for direct text insertion (if enabled)
-- **Combo (Clipboard + Paste)**: Clipboard set plus AT-SPI paste or `ydotool` fallback
-- **YDotool**: uinput-based paste or key events (opt-in)
-- **KDotool Assist**: KDE/X11 window activation assistance (opt-in)
-- **Enigo**: Cross-platform input simulation (opt-in)
+- Clipboard: Copy transcription to clipboard and paste
+- AT-SPI: Accessibility API for direct text insertion (if enabled)
+- Combo (Clipboard + Paste): Clipboard set plus AT-SPI paste or `ydotool` fallback
+- YDotool: uinput-based paste or key events (opt-in)
+- KDotool Assist: KDE/X11 window activation assistance (opt-in)
+- Enigo: Cross-platform input simulation (opt-in)
 
 ### Focus Detection
 - Active window detection and application identification
@@ -55,11 +61,11 @@ This crate provides text injection capabilities that automatically type transcri
 
 The system automatically selects the best available backend for each application:
 
-1. **AT-SPI** (preferred for accessibility compliance)
-2. **Clipboard + Paste** (AT-SPI paste when available; `ydotool` fallback)
-3. **Clipboard** (plain clipboard set)
-4. **Input Simulation** (YDotool/Enigo as opt-in fallbacks)
-5. **KDotool Assist** (window activation assistance)
+1. AT-SPI (preferred for accessibility compliance)
+2. Clipboard + Paste (AT-SPI paste when available; `ydotool` fallback)
+3. Clipboard (plain clipboard set)
+4. Input Simulation (YDotool/Enigo as opt-in fallbacks)
+5. KDotool Assist (window activation assistance)
 
 ## Configuration
 
@@ -92,13 +98,13 @@ sudo apt install xclip wl-clipboard
 sudo apt install ydotool
 ```
 
-### Security Considerations
+## Security Considerations
 
 Text injection requires various system permissions:
-- **X11**: Access to X server for input simulation
-- **Wayland**: May require special permissions for input
-- **AT-SPI**: Accessibility service access
-- **Clipboard**: Read/write access to system clipboard
+- X11: Access to X server for input simulation
+- Wayland: May require special permissions for input
+- AT-SPI: Accessibility service access
+- Clipboard: Read/write access to system clipboard
 
 ## Usage
 
@@ -144,4 +150,4 @@ cargo test -p coldvox-text-injection --no-default-features --locked
 cargo test -p coldvox-text-injection --no-default-features --features regex --locked
 ```
 
-See `docs/testing.md` for details on live/CI testing and feature matrices.
+See `docs/domains/text-injection/testing.md` for details on live/CI testing and feature matrices.

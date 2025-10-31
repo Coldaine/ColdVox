@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
+use coldvox_foundation::env::{is_ci_environment, has_display};
 
 /// Represents a running instance of a test application.
 ///
@@ -195,7 +196,7 @@ pub async fn verify_injection_with_timeout(
 
     // Use custom timeout or determine based on environment
     let timeout = custom_timeout.unwrap_or_else(|| {
-        if env::var("CI").is_ok() {
+        if is_ci_environment() {
             // Longer timeout in CI due to potential resource contention
             Duration::from_millis(2000)
         } else {
@@ -234,10 +235,10 @@ impl TestEnvironment {
     /// Creates a new `TestEnvironment` by inspecting environment variables.
     pub fn current() -> Self {
         // A display server is required for any UI-based injection.
-        let has_display = env::var("DISPLAY").is_ok() || env::var("WAYLAND_DISPLAY").is_ok();
+        let has_display = has_display();
 
-        // The CI variable is a de-facto standard for detecting CI environments.
-        let is_ci = env::var("CI").is_ok();
+        // Use centralized CI detection
+        let is_ci = is_ci_environment();
 
         Self { has_display, is_ci }
     }

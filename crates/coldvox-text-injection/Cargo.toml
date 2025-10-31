@@ -19,6 +19,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 toml = "0.9"
 chrono = { version = "0.4", features = ["serde"] }
+coldvox-foundation = { path = "../coldvox-foundation" }
 coldvox-stt = { path = "../coldvox-stt" }
 
 # Backend dependencies (all optional)
