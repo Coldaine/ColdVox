@@ -55,11 +55,11 @@ min_success_rate = 0.3           # Minimum success rate before fallback
 min_sample_size = 5              # Samples before trusting success rate
 
 [stt]
-# preferred = "whisper"           # Preferred STT engine (whisper, parakeet, etc. - omit for auto-select)
+preferred = "whisper"              # Preferred STT engine (whisper, parakeet, etc. - omit for auto-select)
 fallbacks = []
 require_local = false
 # max_mem_mb = 1024               # Memory limit in MB (omit for no limit)
-# language = "en-US"              # Language code (omit for default)
+language = "en"                    # Language code (use "en" for English, or other ISO 639-1 codes)
 failover_threshold = 5
 failover_cooldown_secs = 10
 model_ttl_secs = 300
