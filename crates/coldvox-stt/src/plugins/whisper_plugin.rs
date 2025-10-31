@@ -47,6 +47,8 @@ use pyo3::Python;
 #[cfg(feature = "whisper")]
 use tempfile::Builder;
 
+use coldvox_foundation::error::{ColdVoxError, SttError};
+
 /// Static cache for GPU detection result to avoid repeated Python round-trips
 ///
 /// This cache stores the result of GPU detection to avoid repeated shell-outs
@@ -122,7 +124,7 @@ impl WhisperPlugin {
     fn resolve_model_identifier(
         &self,
         config: &TranscriptionConfig,
-    ) -> Result<String, SttPluginError> {
+    ) -> Result<String, ColdVoxError> {
         let path_candidate = if !config.model_path.is_empty() {
             Some(PathBuf::from(&config.model_path))
         } else {
@@ -268,11 +270,11 @@ impl SttPlugin for WhisperPlugin {
         }
     }
 
-    async fn is_available(&self) -> Result<bool, SttPluginError> {
+    async fn is_available(&self) -> Result<bool, ColdVoxError> {
         Ok(check_whisper_available())
     }
 
-    async fn initialize(&mut self, config: TranscriptionConfig) -> Result<(), SttPluginError> {
+    async fn initialize(&mut self, config: TranscriptionConfig) -> Result<(), ColdVoxError> {
         #[cfg(feature = "whisper")]
         {
             let model_id = self.resolve_model_identifier(&config)?;
@@ -301,7 +303,7 @@ impl SttPlugin for WhisperPlugin {
                 self.compute_type.clone(),
                 whisper_config,
             )
-            .map_err(|err| SttPluginError::ModelLoadFailed(err.to_string()))?;
+            .map_err(|err| SttError::LoadFailed(err.to_string()))?;
 
             self.model = Some(model);
             self.audio_buffer.clear();
@@ -317,22 +319,26 @@ impl SttPlugin for WhisperPlugin {
         #[cfg(not(feature = "whisper"))]
         {
             let _ = config;
-            Err(SttPluginError::NotAvailable {
+            Err(SttError::NotAvailable {
+                plugin: "whisper".to_string(),
                 reason: "Whisper feature not compiled".to_string(),
-            })
+            }
+            .into())
         }
     }
 
     async fn process_audio(
         &mut self,
         samples: &[i16],
-    ) -> Result<Option<TranscriptionEvent>, SttPluginError> {
+    ) -> Result<Option<TranscriptionEvent>, ColdVoxError> {
         #[cfg(feature = "whisper")]
         {
             if !self.initialized {
-                return Err(SttPluginError::InitializationFailed(
-                    "Faster Whisper plugin not initialized".to_string(),
-                ));
+                return Err(SttError::NotAvailable {
+                    plugin: "whisper".to_string(),
+                    reason: "Faster Whisper plugin not initialized".to_string(),
+                }
+                .into());
             }
 
             self.audio_buffer.extend_from_slice(samples);
@@ -342,13 +348,15 @@ impl SttPlugin for WhisperPlugin {
         #[cfg(not(feature = "whisper"))]
         {
             let _ = samples;
-            Err(SttPluginError::InitializationFailed(
-                "Whisper feature not compiled".to_string(),
-            ))
+            Err(SttError::NotAvailable {
+                plugin: "whisper".to_string(),
+                reason: "Whisper feature not compiled".to_string(),
+            }
+            .into())
         }
     }
 
-    async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, SttPluginError> {
+    async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, ColdVoxError> {
         #[cfg(feature = "whisper")]
         {
             if !self.initialized {
@@ -363,7 +371,7 @@ impl SttPlugin for WhisperPlugin {
                 .prefix("coldvox-whisper-")
                 .suffix(".wav")
                 .tempfile()
-                .map_err(|err| SttPluginError::ProcessingError(err.to_string()))?;
+                .map_err(|err| SttError::TranscriptionFailed(err.to_string()))?;
             let temp_path = temp.path().to_path_buf();
 
             {
@@ -374,25 +382,25 @@ impl SttPlugin for WhisperPlugin {
                     sample_format: hound::SampleFormat::Int,
                 };
                 let mut writer = hound::WavWriter::create(&temp_path, spec)
-                    .map_err(|err| SttPluginError::ProcessingError(err.to_string()))?;
+                    .map_err(|err| SttError::TranscriptionFailed(err.to_string()))?;
                 for sample in &self.audio_buffer {
                     writer
                         .write_sample(*sample)
-                        .map_err(|err| SttPluginError::ProcessingError(err.to_string()))?;
+                        .map_err(|err| SttError::TranscriptionFailed(err.to_string()))?;
                 }
                 writer
                     .finalize()
-                    .map_err(|err| SttPluginError::ProcessingError(err.to_string()))?;
+                    .map_err(|err| SttError::TranscriptionFailed(err.to_string()))?;
             }
 
             let transcription = self
                 .model
                 .as_ref()
                 .ok_or_else(|| {
-                    SttPluginError::ProcessingError("Faster Whisper model not loaded".to_string())
+                    SttError::TranscriptionFailed("Faster Whisper model not loaded".to_string())
                 })?
                 .transcribe(temp_path.to_string_lossy().to_string())
-                .map_err(|err| SttPluginError::TranscriptionFailed(err.to_string()))?;
+                .map_err(|err| SttError::TranscriptionFailed(err.to_string()))?;
 
             let mut text = transcription.to_string();
             if text.ends_with('\n') {
@@ -441,13 +449,15 @@ impl SttPlugin for WhisperPlugin {
 
         #[cfg(not(feature = "whisper"))]
         {
-            Err(SttPluginError::InitializationFailed(
-                "Whisper feature not compiled".to_string(),
-            ))
+            Err(SttError::NotAvailable {
+                plugin: "whisper".to_string(),
+                reason: "Whisper feature not compiled".to_string(),
+            }
+            .into())
         }
     }
 
-    async fn reset(&mut self) -> Result<(), SttPluginError> {
+    async fn reset(&mut self) -> Result<(), ColdVoxError> {
         #[cfg(feature = "whisper")]
         {
             self.audio_buffer.clear();
@@ -456,20 +466,22 @@ impl SttPlugin for WhisperPlugin {
 
         #[cfg(not(feature = "whisper"))]
         {
-            Err(SttPluginError::InitializationFailed(
-                "Whisper feature not compiled".to_string(),
-            ))
+            Err(SttError::NotAvailable {
+                plugin: "whisper".to_string(),
+                reason: "Whisper feature not compiled".to_string(),
+            }
+            .into())
         }
     }
 
-    async fn load_model(&mut self, model_path: Option<&Path>) -> Result<(), SttPluginError> {
+    async fn load_model(&mut self, model_path: Option<&Path>) -> Result<(), ColdVoxError> {
         if let Some(path) = model_path {
             self.model_path = Some(path.to_path_buf());
         }
         Ok(())
     }
 
-    async fn unload(&mut self) -> Result<(), SttPluginError> {
+    async fn unload(&mut self) -> Result<(), ColdVoxError> {
         #[cfg(feature = "whisper")]
         {
             self.model = None;
@@ -480,9 +492,11 @@ impl SttPlugin for WhisperPlugin {
 
         #[cfg(not(feature = "whisper"))]
         {
-            Err(SttPluginError::InitializationFailed(
-                "Whisper feature not compiled".to_string(),
-            ))
+            Err(SttError::NotAvailable {
+                plugin: "whisper".to_string(),
+                reason: "Whisper feature not compiled".to_string(),
+            }
+            .into())
         }
     }
 }
@@ -679,7 +693,7 @@ impl Default for WhisperPluginFactory {
 }
 
 impl SttPluginFactory for WhisperPluginFactory {
-    fn create(&self) -> Result<Box<dyn SttPlugin>, SttPluginError> {
+    fn create(&self) -> Result<Box<dyn SttPlugin>, ColdVoxError> {
         let mut plugin = WhisperPlugin::new()
             .with_model_size(self.model_size)
             .with_device(self.device.clone())
@@ -704,18 +718,21 @@ impl SttPluginFactory for WhisperPluginFactory {
             .info()
     }
 
-    fn check_requirements(&self) -> Result<(), SttPluginError> {
+    fn check_requirements(&self) -> Result<(), ColdVoxError> {
         if !check_whisper_available() {
-            return Err(SttPluginError::NotAvailable {
+            return Err(SttError::NotAvailable {
+                plugin: "whisper".to_string(),
                 reason: "The faster-whisper Python module is not available. Install the `faster-whisper` package.".to_string(),
-            });
+            }
+            .into());
         }
 
         if let Some(ref path) = self.model_path {
             if !path.exists() {
-                return Err(SttPluginError::NotAvailable {
-                    reason: format!("Model not found at {:?}", path),
-                });
+                return Err(SttError::ModelNotFound {
+                    path: path.clone(),
+                }
+                .into());
             }
         }
 

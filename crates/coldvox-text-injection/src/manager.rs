@@ -5,9 +5,10 @@ use crate::logging::utils as log_utils;
 use crate::prewarm::PrewarmController;
 use crate::session::{InjectionSession, SessionState};
 use crate::types::{
-    InjectionConfig, InjectionContext, InjectionError, InjectionMethod, InjectionMetrics,
+    InjectionConfig, InjectionContext, InjectionMethod, InjectionMetrics,
     InjectionMode,
 };
+use coldvox_foundation::error::InjectionError;
 use crate::TextInjector;
 
 // Import injectors

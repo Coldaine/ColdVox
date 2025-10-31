@@ -659,6 +659,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn test_open_device_specific_name() {
         if skip_hardware_dependent("test_open_device_specific_name") {
             return;

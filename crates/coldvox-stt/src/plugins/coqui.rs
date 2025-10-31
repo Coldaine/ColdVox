@@ -11,6 +11,7 @@ use std::sync::Arc;
 use crate::plugin::*;
 use crate::plugin_types::*;
 use crate::types::{TranscriptionConfig, TranscriptionEvent};
+use coldvox_foundation::error::{ColdVoxError, SttError};
 
 /// Coqui STT model configuration
 #[derive(Debug, Clone)]
@@ -153,30 +154,34 @@ impl SttPlugin for CoquiPlugin {
         }
     }
 
-    async fn is_available(&self) -> Result<bool, SttPluginError> {
+    async fn is_available(&self) -> Result<bool, ColdVoxError> {
         Ok(false) // Not yet implemented
     }
 
-    async fn initialize(&mut self, _config: TranscriptionConfig) -> Result<(), SttPluginError> {
-        Err(SttPluginError::NotAvailable {
+    async fn initialize(&mut self, _config: TranscriptionConfig) -> Result<(), ColdVoxError> {
+        Err(SttError::NotAvailable {
+            plugin: "coqui".to_string(),
             reason: "Coqui STT integration not yet implemented".to_string(),
-        })
+        }
+        .into())
     }
 
     async fn process_audio(
         &mut self,
         _samples: &[i16],
-    ) -> Result<Option<TranscriptionEvent>, SttPluginError> {
-        Err(SttPluginError::NotAvailable {
+    ) -> Result<Option<TranscriptionEvent>, ColdVoxError> {
+        Err(SttError::NotAvailable {
+            plugin: "coqui".to_string(),
             reason: "Coqui STT plugin not yet implemented".to_string(),
-        })
+        }
+        .into())
     }
 
-    async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, SttPluginError> {
+    async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, ColdVoxError> {
         Ok(None)
     }
 
-    async fn reset(&mut self) -> Result<(), SttPluginError> {
+    async fn reset(&mut self) -> Result<(), ColdVoxError> {
         Ok(())
     }
 }
@@ -200,7 +205,7 @@ impl CoquiPluginFactory {
 }
 
 impl SttPluginFactory for CoquiPluginFactory {
-    fn create(&self) -> Result<Box<dyn SttPlugin>, SttPluginError> {
+    fn create(&self) -> Result<Box<dyn SttPlugin>, ColdVoxError> {
         Ok(Box::new(CoquiPlugin::with_config(self.config.clone())))
     }
 
@@ -208,9 +213,11 @@ impl SttPluginFactory for CoquiPluginFactory {
         CoquiPlugin::new().info()
     }
 
-    fn check_requirements(&self) -> Result<(), SttPluginError> {
-        Err(SttPluginError::NotAvailable {
+    fn check_requirements(&self) -> Result<(), ColdVoxError> {
+        Err(SttError::NotAvailable {
+            plugin: "coqui".to_string(),
             reason: "Coqui STT not yet integrated".to_string(),
-        })
+        }
+        .into())
     }
 }

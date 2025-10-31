@@ -7,7 +7,7 @@ pub mod text_injection;
 pub mod thresholds;
 pub mod vad_mic;
 
-pub use common::{LiveTestResult, TestContext, TestError, TestErrorKind};
+pub use common::{LiveTestResult, TestContext, TestError};
 pub use mic_capture::MicCaptureCheck;
 #[cfg(feature = "text-injection")]
 pub use text_injection::TextInjectionProbe;

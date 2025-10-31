@@ -1,5 +1,6 @@
-use crate::types::{InjectionConfig, InjectionError};
+use crate::types::InjectionConfig;
 use async_trait::async_trait;
+use coldvox_foundation::error::InjectionError;
 use std::time::{Duration, Instant};
 use tracing::debug;
 

@@ -96,7 +96,10 @@ async fn run_atspi_test(test_text: &str) {
             return;
         }
 
-        injector.inject_text(test_text).await.unwrap_or_else(|e| {
+        injector
+            .inject_text(test_text, None)
+            .await
+            .unwrap_or_else(|e| {
             panic!("AT-SPI injection failed for text '{}': {:?}", test_text, e)
         });
     }
@@ -184,7 +187,7 @@ async fn run_ydotool_test(test_text: &str) {
 
     // The inject_text for ydotool will trigger a paste (Ctrl+V).
     injector
-        .inject_text(test_text)
+        .inject_text(test_text, None)
         .await
         .unwrap_or_else(|e| panic!("ydotool injection failed for text '{}': {:?}", test_text, e));
 
@@ -257,7 +260,7 @@ async fn run_clipboard_paste_test(test_text: &str) {
 
         // Perform clipboard+paste using the combined injector (it will try AT-SPI first then ydotool).
         clipboard_paste
-            .inject_text(test_text)
+        .inject_text(test_text, None)
             .await
             .expect("Clipboard+paste injection failed.");
 

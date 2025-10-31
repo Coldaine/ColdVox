@@ -298,47 +298,7 @@ impl InjectionConfig {
 }
 
 /// Result type for injection operations
-pub type InjectionResult<T> = Result<T, InjectionError>;
-
-/// Errors that can occur during text injection
-#[derive(Debug, thiserror::Error)]
-pub enum InjectionError {
-    #[error("No editable focus found")]
-    NoEditableFocus,
-
-    #[error("Method not available: {0}")]
-    MethodNotAvailable(String),
-
-    #[error("Timeout after {0}ms")]
-    Timeout(u64),
-
-    #[error("All methods failed: {0}")]
-    AllMethodsFailed(String),
-
-    #[error("Method unavailable: {0}")]
-    MethodUnavailable(String),
-
-    #[error("Method failed: {0}")]
-    MethodFailed(String),
-
-    #[error("Budget exhausted")]
-    BudgetExhausted,
-
-    #[error("Clipboard error: {0}")]
-    Clipboard(String),
-
-    #[error("Process error: {0}")]
-    Process(String),
-
-    #[error("Permission denied: {0}")]
-    PermissionDenied(String),
-
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
-
-    #[error("Other error: {0}")]
-    Other(String),
-}
+pub type InjectionResult<T> = Result<T, coldvox_foundation::error::InjectionError>;
 
 /// Metrics and telemetry data for injection attempts
 #[derive(Debug, Default, Clone)]

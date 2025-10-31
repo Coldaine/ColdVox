@@ -29,6 +29,8 @@ async fn test_wl_copy_stdin_piping_basic() {
     let injector = ClipboardInjector::new(config);
 
     // Test cases that would fail with command-line argument approach
+    let long_text =
+        "This is a very long text designed to test that the stdin piping works correctly. ".repeat(100);
     let test_cases = vec![
         // Simple text
         "Hello from wl-copy stdin test!",
@@ -41,8 +43,7 @@ async fn test_wl_copy_stdin_piping_basic() {
         // Unicode text
         "Unicode test: 🎤 ColdVox 测试 🚀",
         // Long text that would exceed command line limits
-        &"This is a very long text designed to test that stdin piping works correctly. "
-            .repeat(100)[..5000], // Truncate to reasonable length
+        &long_text,
     ];
 
     for (i, test_text) in test_cases.iter().enumerate() {

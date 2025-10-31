@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+use super::common::TestError;
+
 #[async_trait::async_trait]
 pub trait LiveTest: Send {
     fn name(&self) -> &'static str;
@@ -15,20 +17,6 @@ pub struct LiveTestResult {
     pub artifacts: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
-pub struct TestError {
-    pub kind: TestErrorKind,
-    pub message: String,
-}
-
-#[derive(Debug, Clone)]
-pub enum TestErrorKind {
-    Setup,
-    Device,
-    Permission,
-    Timeout,
-    Internal,
-}
 
 #[derive(Debug, Clone)]
 pub struct TestContext {

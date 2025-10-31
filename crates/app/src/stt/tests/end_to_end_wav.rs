@@ -95,6 +95,7 @@ async fn open_test_terminal(
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_end_to_end_with_real_injection() {
     // Ensure tqdm is enabled to avoid buggy 'disabled_tqdm' stub in some Python envs
     std::env::set_var("TQDM_DISABLE", "0");

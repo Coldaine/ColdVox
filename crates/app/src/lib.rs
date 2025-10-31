@@ -129,9 +129,9 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             device: None,
-            resampler_quality: "balanced".to_string(),
+            resampler_quality: "".to_string(), // Default handled by builder
             enable_device_monitor: true,
-            activation_mode: "vad".to_string(),
+            activation_mode: "".to_string(),   // Default handled by builder
             audio: AudioSettings::default(),
             injection: InjectionSettings::default(),
             stt: SttSettings::default(),
@@ -218,7 +218,6 @@ impl Settings {
         builder = builder.add_source(
             Environment::with_prefix("COLDVOX")
                 .separator("__")
-                .prefix_separator("_")
                 .convert_case(Case::Snake)
                 .try_parsing(true),
         );

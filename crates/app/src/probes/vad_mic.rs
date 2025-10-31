@@ -1,8 +1,9 @@
 use coldvox_telemetry::pipeline_metrics::PipelineMetrics;
 use std::sync::Arc;
 
-use super::common::{LiveTestResult, TestContext, TestError, TestErrorKind};
+use super::common::{LiveTestResult, TestContext, TestError};
 use crate::audio::vad_processor::VadProcessor;
+use crate::probes::common::TestErrorKind;
 use coldvox_audio::capture::AudioCaptureThread;
 use coldvox_audio::chunker::{AudioChunker, ChunkerConfig, ResamplerQuality};
 use coldvox_audio::SharedAudioFrame;

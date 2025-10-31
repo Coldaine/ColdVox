@@ -8,10 +8,11 @@
 use crate::detection::{detect_display_protocol, DisplayProtocol};
 use crate::logging::utils;
 use crate::types::{
-    InjectionConfig, InjectionContext, InjectionError, InjectionMethod, InjectionResult,
+    InjectionConfig, InjectionContext, InjectionMethod, InjectionResult,
 };
 use crate::TextInjector;
 use async_trait::async_trait;
+use coldvox_foundation::error::InjectionError;
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -901,6 +902,17 @@ mod tests {
             .await;
 
         assert_eq!(result.unwrap(), "native_success");
+
+        // Test fallback when native fails
+        let result2: Result<&str, InjectionError> = injector
+            .native_attempt_with_fallback(
+                || async { Err(InjectionError::Other("native failed".to_string())) },
+                "fallback_cmd",
+                || async { Ok("fallback_success") },
+            )
+            .await;
+
+        assert_eq!(result2.unwrap(), "fallback_success");
     }
 
     #[tokio::test]
@@ -926,7 +938,7 @@ mod tests {
         let injector = ClipboardInjector::new(config);
 
         // Test when both native and fallback fail
-        let result = injector
+        let result: InjectionResult<()> = injector
             .native_attempt_with_fallback(
                 || async { Err(InjectionError::Other("native failed".to_string())) },
                 "fallback_cmd",
@@ -1033,11 +1045,11 @@ mod tests {
         let injector = ClipboardInjector::new(config);
 
         // Test that fallback functions can have different signatures
-        let result1 = injector
+        let result = injector
             .native_attempt_with_fallback(
-                || async { Err(InjectionError::Other("native failed".to_string())) },
-                "cmd1",
-                || async { Ok("result1".to_string()) },
+                || async { Ok("native_success") },
+                "fallback_cmd",
+                || async { Ok("fallback_success") },
             )
             .await;
 
@@ -1049,7 +1061,7 @@ mod tests {
             )
             .await;
 
-        assert_eq!(result1.unwrap(), "result1".to_string());
+        assert_eq!(result.unwrap(), "result1".to_string());
         assert_eq!(result2.unwrap(), 123u64);
     }
 }
