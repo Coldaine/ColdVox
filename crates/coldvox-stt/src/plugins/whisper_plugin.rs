@@ -490,13 +490,43 @@ impl WhisperPluginFactory {
             Self::detect_environment().default_model_size()
         };
 
+        let device = std::env::var("WHISPER_DEVICE").unwrap_or_else(|_| Self::detect_device());
+        let compute_type = std::env::var("WHISPER_COMPUTE").unwrap_or_else(|_| {
+            if device == "cuda" {
+                "float16".to_string()
+            } else {
+                "int8".to_string()
+            }
+        });
+        
         Self {
             model_path: std::env::var("WHISPER_MODEL_PATH").ok().map(PathBuf::from),
             model_size,
-            language: std::env::var("WHISPER_LANGUAGE").ok(),
-            device: std::env::var("WHISPER_DEVICE").unwrap_or_else(|_| "cpu".to_string()),
-            compute_type: std::env::var("WHISPER_COMPUTE").unwrap_or_else(|_| "int8".to_string()),
+            language: std::env::var("WHISPER_LANGUAGE").ok().or_else(|| Some("en".to_string())),
+            device,
+            compute_type,
         }
+    }
+
+    /// Detect GPU availability and return appropriate device
+    fn detect_device() -> String {
+        // Check for CUDA availability using PyTorch
+        if let Ok(output) = std::process::Command::new("python3")
+            .arg("-c")
+            .arg("import torch; print('cuda' if torch.cuda.is_available() else 'cpu')")
+            .output()
+        {
+            if output.status.success() {
+                let device = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if device == "cuda" {
+                    info!(target: "coldvox::stt::whisper", "CUDA GPU detected, using GPU acceleration");
+                    return device;
+                }
+            }
+        }
+        
+        warn!(target: "coldvox::stt::whisper", "No GPU detected, falling back to CPU");
+        "cpu".to_string()
     }
 
     /// Parse model size from string
