@@ -51,6 +51,11 @@ cargo run --bin mic_probe -- list-devices
 
 **Note on Defaults**: Faster-Whisper STT is the default feature (enabled automatically), ensuring real speech recognition in the app and tests. This prevents fallback to the mock plugin, which skips transcription. Override with `--stt-preferred mock` or env `COLDVOX_STT_PREFERRED=mock` if needed for testing. For other STT backends, enable their features and set preferred accordingly.
 
+### Configuration (Canonical Path)
+- Canonical STT selection config lives at `config/plugins.json`.
+- Any legacy duplicates like `./plugins.json` or `crates/app/plugins.json` are deprecated and ignored at runtime. A warning is logged on startup if they exist. Please migrate changes into `config/plugins.json` only.
+- Some defaults can also be set in `config/default.toml`, but `config/plugins.json` is the source of truth for STT plugin selection.
+
 ### Whisper Model Setup
 - **Python Package**: Install the `faster-whisper` Python package via pip
 - **Models**: Whisper models are automatically downloaded on first use
@@ -68,6 +73,19 @@ cargo run --bin mic_probe -- list-devices
 3. **Push-to-talk (preview inject)**: Hold `Super+Ctrl` to stream buffered text into the preview/injection window when you need manual control. Release to stop feeding new text.
 
 More detail: See [`CLAUDE.md`](CLAUDE.md) for full developer guide.
+
+### Python 3.13 and PyO3
+If your system default Python is 3.13, current `pyo3` versions may warn about unsupported Python version during build. Two options:
+
+1) Prefer Python 3.12 for development tools, or
+2) Build using the stable Python ABI by exporting:
+
+```bash
+set -gx PYO3_USE_ABI3_FORWARD_COMPATIBILITY 1  # fish shell
+cargo check
+```
+
+We plan to upgrade `pyo3` in a follow-up to remove this requirement.
 
 ### Future Vision (Experimental)
 - We're actively exploring an **always-on intelligent listening** architecture that keeps a lightweight listener running continuously and spins up tiered STT engines on demand.

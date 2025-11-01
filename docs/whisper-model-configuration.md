@@ -34,7 +34,9 @@ WHISPER_MODEL_SIZE=medium coldvox
 
 ### 2. Configuration File
 
-Edit `config/default.toml` to set the default model size:
+Canonical STT selection and model configuration lives in `config/plugins.json`. Legacy files like `./plugins.json` or `crates/app/plugins.json` are deprecated and ignored at runtime (a warning is logged on startup if they exist).
+
+You can also set defaults in `config/default.toml`:
 
 ```toml
 [stt]
@@ -43,7 +45,8 @@ model_size = "base"  # Default model size
 
 ### 3. Environment-Specific Configuration
 
-The `plugins.json` file defines environment-specific defaults:
+The canonical STT selection configuration lives at `config/plugins.json`.
+This file can define environment-specific defaults:
 
 ```json
 {

@@ -55,6 +55,33 @@ impl Default for SttPluginManager {
 }
 
 impl SttPluginManager {
+    /// Warn if legacy or duplicate plugin selection config files are present.
+    /// Canonical location is `config/plugins.json`. Any other copies will be ignored.
+    fn warn_on_duplicate_configs(&self) {
+        use std::fs;
+        let canonical = std::path::Path::new("config/plugins.json");
+        let legacy_paths = [
+            std::path::Path::new("plugins.json"),
+            std::path::Path::new("crates/app/plugins.json"),
+            std::path::Path::new("crates/app/config/plugins.json"),
+        ];
+
+        for p in legacy_paths.iter() {
+            if *p == canonical {
+                continue;
+            }
+            if fs::metadata(p).is_ok() {
+                warn!(
+                    target: "coldvox::stt",
+                    path = %p.display(),
+                    canonical = %canonical.display(),
+                    "Detected legacy plugins.json at '{}' (deprecated, ignored). Use '{}' instead.",
+                    p.display(),
+                    canonical.display()
+                );
+            }
+        }
+    }
     /// Create a new plugin manager with default configuration
     pub fn new() -> Self {
         Self::new_with_config_path(PathBuf::from("config/plugins.json"))
@@ -546,6 +573,8 @@ impl SttPluginManager {
 
     /// Initialize the plugin manager and select the best available plugin
     pub async fn initialize(&mut self) -> Result<String, ColdVoxError> {
+        // Surface any legacy/duplicate config files to help users consolidate configs
+        self.warn_on_duplicate_configs();
         let registry = self.registry.read().await;
         let init_start = Instant::now();
 
