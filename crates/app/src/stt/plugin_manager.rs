@@ -185,11 +185,14 @@ impl SttPluginManager {
             );
             return Ok(());
         }
-        let config_data = fs::read_to_string(&self.config_path).await.map_err(|e| {
-            ConfigError::MissingField(format!("Failed to read config file: {}", e))
-        })?;
+        let config_data = fs::read_to_string(&self.config_path)
+            .await
+            .map_err(|e| ConfigError::MissingField(format!("Failed to read config file: {}", e)))?;
         let config: PluginSelectionConfig = serde_json::from_str(&config_data).map_err(|e| {
-            ConfigError::Parse(config::ConfigError::Message(format!("Failed to parse config: {}", e)))
+            ConfigError::Parse(config::ConfigError::Message(format!(
+                "Failed to parse config: {}",
+                e
+            )))
         })?;
         self.selection_config = config.clone();
 
@@ -209,17 +212,24 @@ impl SttPluginManager {
     async fn save_config(&self) -> Result<(), ColdVoxError> {
         // Create parent directory if it doesn't exist
         if let Some(parent) = self.config_path.parent() {
-            fs::create_dir_all(parent).await.map_err(|e| {
-                ConfigError::Validation{field: "config".to_string(), reason: format!("Failed to create config directory: {}", e)}
-            })?;
+            fs::create_dir_all(parent)
+                .await
+                .map_err(|e| ConfigError::Validation {
+                    field: "config".to_string(),
+                    reason: format!("Failed to create config directory: {}", e),
+                })?;
         }
         let config_data = serde_json::to_string_pretty(&self.selection_config).map_err(|e| {
-             ConfigError::Parse(config::ConfigError::Message(format!("Failed to serialize config: {}", e)))
+            ConfigError::Parse(config::ConfigError::Message(format!(
+                "Failed to serialize config: {}",
+                e
+            )))
         })?;
         fs::write(&self.config_path, config_data)
             .await
-            .map_err(|e| {
-                ConfigError::Validation{field: "config".to_string(), reason: format!("Failed to write config file: {}", e)}
+            .map_err(|e| ConfigError::Validation {
+                field: "config".to_string(),
+                reason: format!("Failed to write config file: {}", e),
             })?;
         debug!(
             target: "coldvox::stt",
@@ -768,9 +778,10 @@ impl SttPluginManager {
             Ok(p) => {
                 let id = p.info().id.clone();
                 if id == "noop" {
-                    return Err(ConfigError::Validation{
+                    return Err(ConfigError::Validation {
                         field: "stt".to_string(),
-                        reason: "No real STT plugin available (NoOp is not allowed as fallback)".to_string(),
+                        reason: "No real STT plugin available (NoOp is not allowed as fallback)"
+                            .to_string(),
                     }
                     .into());
                 }

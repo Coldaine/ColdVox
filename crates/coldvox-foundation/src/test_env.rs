@@ -1,3 +1,4 @@
+#![allow(clippy::test_attr_in_doctest)]
 //! Comprehensive test environment detection for ColdVox
 //!
 //! This module provides sophisticated environment detection capabilities for tests,
@@ -23,7 +24,7 @@
 //! let requirements = TestRequirements::new()
 //!     .requires_wayland()
 //!     .requires_command("wl-copy");
-//!     
+//!
 //! if env.meets_requirements(&requirements) {
 //!     // Run Wayland clipboard tests
 //! }
@@ -121,7 +122,7 @@ impl TestRequirements {
     }
 
     /// Require multiple commands
-    pub fn requires_commands<I, S>(mut self, commands: I) -> Self 
+    pub fn requires_commands<I, S>(mut self, commands: I) -> Self
     where
         I: IntoIterator<Item = S>,
         S: Into<String>,
@@ -243,29 +244,29 @@ impl TestRequirements {
     /// Get suggested timeout based on requirements and environment
     fn get_suggested_timeout(&self, env: &TestEnvironment) -> Duration {
         let base_timeout = Duration::from_millis(500);
-        
+
         let mut multiplier = 1.0;
-        
+
         // Increase timeout for CI
         if env.is_ci {
             multiplier *= 4.0; // 4x longer in CI
         }
-        
+
         // Increase for timing-sensitive tests
         if self.timing_sensitive {
             multiplier *= 2.0;
         }
-        
+
         // Increase for GUI tests
         if self.requires_gui {
             multiplier *= 1.5;
         }
-        
+
         // Increase for daemon-dependent tests
         if self.requires_daemons {
             multiplier *= 2.0;
         }
-        
+
         Duration::from_millis((base_timeout.as_millis() as f64 * multiplier) as u64)
     }
 }
@@ -285,14 +286,14 @@ impl TestEnvironment {
     /// Detect the current test environment
     pub fn detect() -> Self {
         info!("Detecting test environment...");
-        
+
         let display_protocol = detect_display_protocol();
         let environment_type = detect_environment();
         let has_display = Self::has_display_server();
         let available_commands = Self::detect_available_commands();
         let is_ci = matches!(environment_type, Environment::CI);
         let resources = Self::detect_resource_constraints();
-        
+
         let env = Self {
             display_protocol,
             environment_type,
@@ -301,7 +302,7 @@ impl TestEnvironment {
             is_ci,
             resources,
         };
-        
+
         info!(
             "Test environment detected: {:?} | Display: {:?} | Has Display: {} | CI: {} | Containerized: {}",
             &env.environment_type,
@@ -310,13 +311,13 @@ impl TestEnvironment {
             env.is_ci,
             env.resources.is_containerized
         );
-        
+
         env
     }
 
     /// Check if GUI tests can run
     pub fn can_run_gui_tests(&self) -> bool {
-        self.has_display && (!self.is_ci || self.resources.is_containerized == false)
+        self.has_display && (!self.is_ci || !self.resources.is_containerized)
     }
 
     /// Check if Wayland-specific tests can run
@@ -337,7 +338,7 @@ impl TestEnvironment {
     /// Check if timing-sensitive tests can run
     pub fn can_run_timing_sensitive_tests(&self) -> bool {
         // In CI, timing-sensitive tests may need special handling
-        !self.is_ci || self.resources.limited_cpu == false
+        !self.is_ci || !self.resources.limited_cpu
     }
 
     /// Check if current environment meets the given requirements
@@ -348,19 +349,19 @@ impl TestEnvironment {
     /// Get appropriate timeout for tests in this environment
     pub fn get_test_timeout(&self, base_timeout: Duration) -> Duration {
         let mut multiplier = 1.0;
-        
+
         if self.is_ci {
             multiplier *= 4.0; // 4x longer in CI
         }
-        
+
         if self.resources.limited_memory {
             multiplier *= 1.5;
         }
-        
+
         if self.resources.limited_cpu {
             multiplier *= 2.0;
         }
-        
+
         Duration::from_millis((base_timeout.as_millis() as f64 * multiplier) as u64)
     }
 
@@ -372,21 +373,31 @@ impl TestEnvironment {
     /// Detect available commands on the system
     fn detect_available_commands() -> std::collections::HashSet<String> {
         let mut commands = std::collections::HashSet::new();
-        
+
         // Common commands used in tests
         let test_commands = [
-            "wl-copy", "wl-paste", "xclip", "xsel", "xdotool", 
-            "ydotool", "enigo", "dbus-send", "at-spi-bus-launcher",
-            "xvfb-run", "Xvfb", "fluxbox", "openbox",
+            "wl-copy",
+            "wl-paste",
+            "xclip",
+            "xsel",
+            "xdotool",
+            "ydotool",
+            "enigo",
+            "dbus-send",
+            "at-spi-bus-launcher",
+            "xvfb-run",
+            "Xvfb",
+            "fluxbox",
+            "openbox",
         ];
-        
+
         for cmd in &test_commands {
             if Self::command_exists(cmd) {
                 commands.insert(cmd.to_string());
                 debug!("Found command: {}", cmd);
             }
         }
-        
+
         commands
     }
 
@@ -404,7 +415,7 @@ impl TestEnvironment {
         let limited_memory = Self::detect_memory_constraint();
         let limited_cpu = Self::detect_cpu_constraint();
         let is_containerized = Self::detect_containerization();
-        
+
         ResourceConstraints {
             limited_memory,
             limited_cpu,
@@ -444,7 +455,8 @@ impl TestEnvironment {
     fn detect_cpu_constraint() -> bool {
         // Check for limited CPU cores (common in CI)
         if let Ok(cpu_info) = Self::read_file("/proc/cpuinfo") {
-            let core_count = cpu_info.lines()
+            let core_count = cpu_info
+                .lines()
                 .filter(|line| line.starts_with("processor"))
                 .count();
             core_count <= 2
@@ -487,57 +499,60 @@ impl TestEnvironment {
 ///             .requires_gui()
 ///             .requires_command("xclip")
 ///     );
-///     
+///
 ///     // Test code here...
 /// }
 /// ```
 #[macro_export]
 macro_rules! skip_test_unless {
-    ($requirements:expr) => {
-        {
-            use $crate::test_env::{TestEnvironment, TestRequirements};
-            
-            let env = TestEnvironment::detect();
-            let result = env.meets_requirements(&$requirements);
-            
-            if !result.can_run {
-                eprintln!("⏭️  Skipping test: {}", result.reasons.join(", "));
-                return;
-            }
-            
-            // Set timeout if timing-sensitive
-            if $requirements.timing_sensitive {
-                std::env::set_var("RUST_TEST_TIMEOUT", 
-                    format!("{}", result.suggested_timeout.as_millis()));
-            }
+    ($requirements:expr) => {{
+        use $crate::test_env::{TestEnvironment, TestRequirements};
+
+        let env = TestEnvironment::detect();
+        let result = env.meets_requirements(&$requirements);
+
+        if !result.can_run {
+            eprintln!("⏭️  Skipping test: {}", result.reasons.join(", "));
+            return;
         }
-    };
+
+        // Set timeout if timing-sensitive
+        if $requirements.timing_sensitive {
+            std::env::set_var(
+                "RUST_TEST_TIMEOUT",
+                format!("{}", result.suggested_timeout.as_millis()),
+            );
+        }
+    }};
 }
 
 /// Macro for conditional test execution with detailed logging
 #[macro_export]
 macro_rules! run_test_if {
-    ($requirements:expr, $test_code:block) => {
-        {
-            use $crate::test_env::{TestEnvironment, TestRequirements};
-            
-            let env = TestEnvironment::detect();
-            let result = env.meets_requirements(&$requirements);
-            
-            if !result.can_run {
-                eprintln!("⏭️  Skipping test: {}", result.reasons.join(", "));
-                return;
-            }
-            
-            info!("✅ Running test with timeout: {:?}", result.suggested_timeout);
-            
-            // Set timeout for the test
-            std::env::set_var("RUST_TEST_TIMEOUT", 
-                format!("{}", result.suggested_timeout.as_millis()));
-            
-            $test_code
+    ($requirements:expr, $test_code:block) => {{
+        use $crate::test_env::{TestEnvironment, TestRequirements};
+
+        let env = TestEnvironment::detect();
+        let result = env.meets_requirements(&$requirements);
+
+        if !result.can_run {
+            eprintln!("⏭️  Skipping test: {}", result.reasons.join(", "));
+            return;
         }
-    };
+
+        info!(
+            "✅ Running test with timeout: {:?}",
+            result.suggested_timeout
+        );
+
+        // Set timeout for the test
+        std::env::set_var(
+            "RUST_TEST_TIMEOUT",
+            format!("{}", result.suggested_timeout.as_millis()),
+        );
+
+        $test_code
+    }};
 }
 
 #[cfg(test)]
@@ -547,10 +562,10 @@ mod tests {
     #[test]
     fn test_environment_detection() {
         let env = TestEnvironment::detect();
-        
+
         // Should not panic and should provide some information
         assert!(!env.available_commands.is_empty());
-        
+
         // Check that display detection works
         let has_display = env.has_display;
         println!("Has display: {}", has_display);
@@ -563,23 +578,28 @@ mod tests {
             .requires_command("xclip")
             .requires_wayland()
             .timing_sensitive();
-        
+
         assert!(requirements.requires_display);
         assert!(requirements.requires_gui);
         assert!(requirements.requires_wayland);
         assert!(requirements.timing_sensitive);
-        assert!(requirements.required_commands.contains(&"xclip".to_string()));
+        assert!(requirements
+            .required_commands
+            .contains(&"xclip".to_string()));
     }
 
     #[test]
     fn test_requirements_check() {
         let env = TestEnvironment::detect();
         let requirements = TestRequirements::new().requires_command("nonexistent-command");
-        
+
         let result = env.meets_requirements(&requirements);
-        
+
         // Should fail because command doesn't exist
         assert!(!result.can_run);
-        assert!(result.reasons.iter().any(|r| r.contains("nonexistent-command")));
+        assert!(result
+            .reasons
+            .iter()
+            .any(|r| r.contains("nonexistent-command")));
     }
 }

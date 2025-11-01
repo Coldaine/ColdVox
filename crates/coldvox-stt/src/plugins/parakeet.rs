@@ -216,8 +216,7 @@ impl SttPlugin for ParakeetPlugin {
         *self
             .state
             .write()
-            .map_err(|_| ColdVoxError::Fatal("Lock poisoned".to_string()))? =
-            PluginState::Ready;
+            .map_err(|_| ColdVoxError::Fatal("Lock poisoned".to_string()))? = PluginState::Ready;
         Ok(())
     }
 }

@@ -35,6 +35,19 @@ pub enum ColdVoxError {
     Transient(String),
 }
 
+// From trait implementations for common error types
+impl From<std::io::Error> for ColdVoxError {
+    fn from(err: std::io::Error) -> Self {
+        ColdVoxError::Injection(InjectionError::Io(err))
+    }
+}
+
+impl From<tokio::task::JoinError> for ColdVoxError {
+    fn from(err: tokio::task::JoinError) -> Self {
+        ColdVoxError::Transient(format!("Task join failed: {}", err))
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum AudioError {
     #[error("Device not found: {name:?}")]
@@ -173,7 +186,6 @@ pub enum InjectionError {
     #[error("Other error: {0}")]
     Other(String),
 }
-
 
 /// Device status events for monitoring audio device changes
 #[derive(Debug, Clone, PartialEq)]

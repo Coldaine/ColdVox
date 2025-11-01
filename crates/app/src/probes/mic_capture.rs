@@ -27,15 +27,15 @@ impl MicCaptureCheck {
         let (audio_producer, audio_consumer) = rb.split();
         let audio_producer = Arc::new(parking_lot::Mutex::new(audio_producer));
         let (capture_thread, dev_cfg, _config_rx, _device_event_rx) =
-            AudioCaptureThread::spawn(config.clone(), audio_producer, device_name, false).map_err(
-                |e| TestError {
+            AudioCaptureThread::spawn(config, audio_producer, device_name, false).map_err(|e| {
+                TestError {
                     kind: match e {
                         AudioError::DeviceNotFound { .. } => TestErrorKind::Device,
                         _ => TestErrorKind::Setup,
                     },
                     message: format!("Failed to create audio capture thread: {}", e),
-                },
-            )?;
+                }
+            })?;
 
         tokio::time::sleep(Duration::from_millis(200)).await; // Give the thread time to start
 

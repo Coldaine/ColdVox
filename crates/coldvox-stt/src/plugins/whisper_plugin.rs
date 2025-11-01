@@ -533,11 +533,13 @@ impl WhisperPluginFactory {
                 "int8".to_string()
             }
         });
-        
+
         Self {
             model_path: std::env::var("WHISPER_MODEL_PATH").ok().map(PathBuf::from),
             model_size,
-            language: std::env::var("WHISPER_LANGUAGE").ok().or(Some("en".to_string())),
+            language: std::env::var("WHISPER_LANGUAGE")
+                .ok()
+                .or(Some("en".to_string())),
             device,
             compute_type,
         }
@@ -587,7 +589,7 @@ impl WhisperPluginFactory {
                     }
                 }
             }
-            
+
             warn!(target: "coldvox::stt::whisper", "No GPU detected, falling back to CPU");
             "cpu".to_string()
         }).clone()
@@ -729,10 +731,7 @@ impl SttPluginFactory for WhisperPluginFactory {
 
         if let Some(ref path) = self.model_path {
             if !path.exists() {
-                return Err(SttError::ModelNotFound {
-                    path: path.clone(),
-                }
-                .into());
+                return Err(SttError::ModelNotFound { path: path.clone() }.into());
             }
         }
 
@@ -777,26 +776,20 @@ mod tests {
     }
 
     #[test]
-        fn environment_detection() {
-            // Test CI detection
-            env::set_var("CI", "true");
-            assert_eq!(detect_environment(), Environment::CI);
-            env::remove_var("CI");
-    
-            // Test development detection
-            env::set_var("DEBUG", "1");
-            assert_eq!(
-                detect_environment(),
-                Environment::Development
-            );
-            env::remove_var("DEBUG");
-    
-            // Default to production when no indicators are present
-            assert_eq!(
-                detect_environment(),
-                Environment::Production
-            );
-        }
+    fn environment_detection() {
+        // Test CI detection
+        env::set_var("CI", "true");
+        assert_eq!(detect_environment(), Environment::CI);
+        env::remove_var("CI");
+
+        // Test development detection
+        env::set_var("DEBUG", "1");
+        assert_eq!(detect_environment(), Environment::Development);
+        env::remove_var("DEBUG");
+
+        // Default to production when no indicators are present
+        assert_eq!(detect_environment(), Environment::Production);
+    }
 
     #[test]
     fn model_size_for_memory() {
@@ -826,7 +819,10 @@ mod tests {
     #[test]
     fn environment_default_model_sizes() {
         // Test default model sizes for each environment
-        assert_eq!(default_model_size_for_environment(Environment::CI), WhisperModelSize::Tiny);
+        assert_eq!(
+            default_model_size_for_environment(Environment::CI),
+            WhisperModelSize::Tiny
+        );
 
         // Development and production depend on memory, so we can't test exact values
         // without mocking memory detection
@@ -834,45 +830,45 @@ mod tests {
 
     #[test]
     fn development_env_prefers_large_on_beefy_machine() {
-            // Simulate development environment
-            env::set_var("DEBUG", "1");
-            // Simulate a beefy machine with lots of available memory
-            env::set_var("WHISPER_AVAILABLE_MEM_MB", "16384");
-    
-            assert_eq!(detect_environment(), Environment::Development);
-            let chosen = default_model_size_for_environment(Environment::Development);
-            assert_eq!(chosen, WhisperModelSize::LargeV3);
-    
-            env::remove_var("WHISPER_AVAILABLE_MEM_MB");
-            env::remove_var("DEBUG");
+        // Simulate development environment
+        env::set_var("DEBUG", "1");
+        // Simulate a beefy machine with lots of available memory
+        env::set_var("WHISPER_AVAILABLE_MEM_MB", "16384");
+
+        assert_eq!(detect_environment(), Environment::Development);
+        let chosen = default_model_size_for_environment(Environment::Development);
+        assert_eq!(chosen, WhisperModelSize::LargeV3);
+
+        env::remove_var("WHISPER_AVAILABLE_MEM_MB");
+        env::remove_var("DEBUG");
+    }
+
+    #[test]
+    fn production_env_does_not_escalate_to_large_by_default() {
+        // Ensure no CI or dev markers are present
+        for var in [
+            "CI",
+            "CONTINUOUS_INTEGRATION",
+            "GITHUB_ACTIONS",
+            "GITLAB_CI",
+            "TRAVIS",
+            "CIRCLECI",
+            "JENKINS_URL",
+            "BUILDKITE",
+            "RUST_BACKTRACE",
+            "DEBUG",
+            "DEV",
+        ] {
+            env::remove_var(var);
         }
-    
-        #[test]
-        fn production_env_does_not_escalate_to_large_by_default() {
-            // Ensure no CI or dev markers are present
-            for var in [
-                "CI",
-                "CONTINUOUS_INTEGRATION",
-                "GITHUB_ACTIONS",
-                "GITLAB_CI",
-                "TRAVIS",
-                "CIRCLECI",
-                "JENKINS_URL",
-                "BUILDKITE",
-                "RUST_BACKTRACE",
-                "DEBUG",
-                "DEV",
-            ] {
-                env::remove_var(var);
-            }
-    
-            // Simulate lots of memory
-            env::set_var("WHISPER_AVAILABLE_MEM_MB", "16384");
-            assert_eq!(detect_environment(), Environment::Production);
-            let chosen = default_model_size_for_environment(Environment::Production);
-            assert_ne!(chosen, WhisperModelSize::LargeV3);
-            env::remove_var("WHISPER_AVAILABLE_MEM_MB");
-        }
+
+        // Simulate lots of memory
+        env::set_var("WHISPER_AVAILABLE_MEM_MB", "16384");
+        assert_eq!(detect_environment(), Environment::Production);
+        let chosen = default_model_size_for_environment(Environment::Production);
+        assert_ne!(chosen, WhisperModelSize::LargeV3);
+        env::remove_var("WHISPER_AVAILABLE_MEM_MB");
+    }
 
     #[test]
     fn whisper_model_size_env_var() {
@@ -897,16 +893,16 @@ mod tests {
     fn gpu_detection_caching() {
         // Ensure WHISPER_DEVICE is not set to test detection
         env::remove_var("WHISPER_DEVICE");
-        
+
         // First call should trigger detection
         let device1 = WhisperPluginFactory::detect_device();
-        
+
         // Second call should return cached result without re-running detection
         let device2 = WhisperPluginFactory::detect_device();
-        
+
         // Both calls should return the same result
         assert_eq!(device1, device2);
-        
+
         // Verify the device is either "cuda" or "cpu"
         assert!(device1 == "cuda" || device1 == "cpu");
     }
@@ -915,38 +911,34 @@ mod tests {
     fn whisper_device_env_var_overrides_cache() {
         // Set WHISPER_DEVICE to override detection
         env::set_var("WHISPER_DEVICE", "cuda:1");
-        
+
         let factory = WhisperPluginFactory::new();
         assert_eq!(factory.device, "cuda:1");
-        
+
         env::remove_var("WHISPER_DEVICE");
     }
 
     #[test]
     fn gpu_detection_thread_safety() {
         use std::thread;
-        
+
         // Ensure WHISPER_DEVICE is not set to test detection
         env::remove_var("WHISPER_DEVICE");
-        
+
         let handles: Vec<_> = (0..10)
-            .map(|_| {
-                thread::spawn(|| {
-                    WhisperPluginFactory::detect_device()
-                })
-            })
+            .map(|_| thread::spawn(WhisperPluginFactory::detect_device))
             .collect();
-        
+
         // All threads should get the same result
         let results: Vec<String> = handles
             .into_iter()
             .map(|handle| handle.join().unwrap())
             .collect();
-        
+
         // All results should be identical
         let first_result = &results[0];
         assert!(results.iter().all(|r| r == first_result));
-        
+
         // Verify the device is either "cuda" or "cpu"
         assert!(first_result == "cuda" || first_result == "cpu");
     }

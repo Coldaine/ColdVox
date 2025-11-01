@@ -5,19 +5,18 @@ use crate::logging::utils as log_utils;
 use crate::prewarm::PrewarmController;
 use crate::session::{InjectionSession, SessionState};
 use crate::types::{
-    InjectionConfig, InjectionContext, InjectionMethod, InjectionMetrics,
-    InjectionMode,
+    InjectionConfig, InjectionContext, InjectionMethod, InjectionMetrics, InjectionMode,
 };
-use coldvox_foundation::error::InjectionError;
 use crate::TextInjector;
+use coldvox_foundation::error::InjectionError;
 
 // Import injectors
-#[cfg(feature = "wl_clipboard")]
-use crate::clipboard_paste_injector::ClipboardPasteInjector;
 #[cfg(feature = "enigo")]
 use crate::enigo_injector::EnigoInjector;
 #[cfg(feature = "atspi")]
 use crate::injectors::atspi::AtspiInjector;
+#[cfg(feature = "wl_clipboard")]
+use crate::injectors::unified_clipboard::UnifiedClipboardInjector;
 #[cfg(feature = "kdotool")]
 use crate::kdotool_injector::KdotoolInjector;
 
@@ -98,15 +97,15 @@ impl InjectorRegistry {
             }
         }
 
-        // Add clipboard paste injector if available
+        // Add unified clipboard injector if available
         #[cfg(feature = "wl_clipboard")]
         {
             if _has_wayland || _has_x11 {
-                let paste_injector = ClipboardPasteInjector::new(config.clone());
-                if paste_injector.is_available().await {
+                let unified_injector = UnifiedClipboardInjector::new(config.clone());
+                if unified_injector.is_available().await {
                     injectors.insert(
                         InjectionMethod::ClipboardPasteFallback,
-                        Arc::new(paste_injector),
+                        Arc::new(unified_injector),
                     );
                 }
             }
@@ -1253,15 +1252,6 @@ impl StrategyManager {
     /// Get metrics for the strategy manager
     pub fn metrics(&self) -> Arc<Mutex<InjectionMetrics>> {
         self.metrics.clone()
-    }
-
-    #[cfg(test)]
-    #[allow(dead_code)]
-    pub(crate) fn override_injectors_for_tests(
-        &mut self,
-        map: std::collections::HashMap<InjectionMethod, Arc<dyn TextInjector>>,
-    ) {
-        self.injectors = Arc::new(InjectorRegistry { injectors: map });
     }
 
     /// Clean up old log throttle entries to prevent memory growth

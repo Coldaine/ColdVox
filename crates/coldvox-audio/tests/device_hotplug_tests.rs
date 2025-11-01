@@ -136,7 +136,7 @@ mod device_hotplug_tests {
 
     #[test]
     fn test_recovery_strategy_for_device_errors() {
-        use coldvox_foundation::{error::ColdVoxError, error::AudioError, RecoveryStrategy};
+        use coldvox_foundation::{error::AudioError, error::ColdVoxError, RecoveryStrategy};
 
         // Test recovery strategy for device disconnection
         let disconnection_error = ColdVoxError::Audio(AudioError::DeviceDisconnected);

@@ -23,7 +23,7 @@ pub struct VadProcessor {
 impl VadProcessor {
     pub fn new(
         config: UnifiedVadConfig,
-    audio_rx: broadcast::Receiver<SharedAudioFrame>,
+        audio_rx: broadcast::Receiver<SharedAudioFrame>,
         event_tx: Sender<VadEvent>,
         metrics: Option<Arc<PipelineMetrics>>,
     ) -> Result<Self, String> {

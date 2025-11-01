@@ -7,9 +7,7 @@
 
 use crate::detection::{detect_display_protocol, DisplayProtocol};
 use crate::logging::utils;
-use crate::types::{
-    InjectionConfig, InjectionContext, InjectionMethod, InjectionResult,
-};
+use crate::types::{InjectionConfig, InjectionContext, InjectionMethod, InjectionResult};
 use crate::TextInjector;
 use async_trait::async_trait;
 use coldvox_foundation::error::InjectionError;
@@ -173,8 +171,10 @@ impl ClipboardInjector {
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .spawn()
-            .map_err(|e| InjectionError::Process(format!("Failed to spawn {}: {}", command_name, e)))?;
-        
+            .map_err(|e| {
+                InjectionError::Process(format!("Failed to spawn {}: {}", command_name, e))
+            })?;
+
         // Take stderr for later diagnostics if the process fails
         let mut stderr_pipe = child.stderr.take();
 
@@ -185,14 +185,18 @@ impl ClipboardInjector {
                 .await
                 .map_err(|_| InjectionError::Timeout(self.config.per_method_timeout_ms))?
                 .map_err(|e| {
-                    InjectionError::Process(format!("Failed to write to {} stdin: {}", command_name, e))
+                    InjectionError::Process(format!(
+                        "Failed to write to {} stdin: {}",
+                        command_name, e
+                    ))
                 })?;
             // Explicitly close stdin so the command knows input is finished
             drop(stdin);
         } else {
-            return Err(InjectionError::Process(
-                format!("{} stdin unavailable", command_name),
-            ));
+            return Err(InjectionError::Process(format!(
+                "{} stdin unavailable",
+                command_name
+            )));
         }
 
         // Wait for command to exit within timeout budget
@@ -299,7 +303,7 @@ impl ClipboardInjector {
     /// Fallback implementation using wl-paste command
     async fn read_wayland_clipboard_fallback(&self) -> InjectionResult<ClipboardBackup> {
         let output = Command::new("wl-paste")
-            .args(&["--type", "text/plain"])
+            .args(["--type", "text/plain"])
             .output()
             .await
             .map_err(|e| InjectionError::Process(format!("Failed to execute wl-paste: {}", e)))?;
@@ -319,7 +323,7 @@ impl ClipboardInjector {
     /// Read clipboard content using X11
     async fn read_x11_clipboard(&self) -> InjectionResult<ClipboardBackup> {
         let output = Command::new("xclip")
-            .args(&["-selection", "clipboard", "-o"])
+            .args(["-selection", "clipboard", "-o"])
             .output()
             .await
             .map_err(|e| InjectionError::Process(format!("Failed to execute xclip: {}", e)))?;
@@ -379,10 +383,7 @@ impl ClipboardInjector {
             let opts = Options::new();
             opts.copy(Source::Bytes(data), wl_clipboard_rs::copy::MimeType::Text)
                 .map_err(|e| {
-                    InjectionError::Other(format!(
-                        "Failed to write Wayland clipboard: {}",
-                        e
-                    ))
+                    InjectionError::Other(format!("Failed to write Wayland clipboard: {}", e))
                 })
         })
         .await
@@ -415,13 +416,20 @@ impl ClipboardInjector {
     /// Fallback implementation using wl-copy command
     async fn write_wayland_clipboard_fallback(&self, content: &[u8]) -> InjectionResult<()> {
         let paste_timeout = self.config.paste_action_timeout();
-        self.execute_command_with_stdin("wl-copy", &[], content, paste_timeout).await
+        self.execute_command_with_stdin("wl-copy", &[], content, paste_timeout)
+            .await
     }
 
     /// Write content to X11 clipboard
     async fn write_x11_clipboard(&self, content: &[u8]) -> InjectionResult<()> {
         let paste_timeout = self.config.paste_action_timeout();
-        self.execute_command_with_stdin("xclip", &["-selection", "clipboard"], content, paste_timeout).await
+        self.execute_command_with_stdin(
+            "xclip",
+            &["-selection", "clipboard"],
+            content,
+            paste_timeout,
+        )
+        .await
     }
 
     /// Restore clipboard content from backup
@@ -600,7 +608,7 @@ impl ClipboardInjector {
     /// Try ydotool paste
     async fn try_ydotool_paste(&self) -> InjectionResult<()> {
         let output = Command::new("ydotool")
-            .args(&["key", "ctrl+v"])
+            .args(["key", "ctrl+v"])
             .output()
             .await
             .map_err(|e| InjectionError::Process(format!("Failed to execute ydotool: {}", e)))?;
@@ -959,12 +967,7 @@ mod tests {
 
         // Test successful command execution with echo
         let result = injector
-            .execute_command_with_stdin(
-                "echo",
-                &["test"],
-                b"test content",
-                Duration::from_secs(1),
-            )
+            .execute_command_with_stdin("echo", &["test"], b"test content", Duration::from_secs(1))
             .await;
 
         // Echo should succeed
@@ -1028,11 +1031,7 @@ mod tests {
             .await;
 
         let u32_result = injector
-            .native_attempt_with_fallback(
-                || async { Ok(42u32) },
-                "test_cmd",
-                || async { Ok(0u32) },
-            )
+            .native_attempt_with_fallback(|| async { Ok(42u32) }, "test_cmd", || async { Ok(0u32) })
             .await;
 
         assert_eq!(string_result.unwrap(), "string_result".to_string());
@@ -1061,7 +1060,7 @@ mod tests {
             )
             .await;
 
-        assert_eq!(result.unwrap(), "result1".to_string());
+        assert_eq!(result.unwrap(), "native_success".to_string());
         assert_eq!(result2.unwrap(), 123u64);
     }
 }

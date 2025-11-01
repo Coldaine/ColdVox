@@ -6,7 +6,13 @@
 
 pub mod atspi;
 pub mod clipboard;
+pub mod unified_clipboard;
 
 // Re-export common types for convenience
+#[allow(deprecated)]
 pub use atspi::Context as AtspiContext;
+#[allow(deprecated)]
 pub use clipboard::{ClipboardBackup, ClipboardInjector, Context as ClipboardContext};
+pub use unified_clipboard::{
+    ClipboardBackup as UnifiedClipboardBackup, ClipboardInjectionMode, UnifiedClipboardInjector,
+};

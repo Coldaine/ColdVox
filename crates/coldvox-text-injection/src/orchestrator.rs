@@ -18,7 +18,7 @@ use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
 /// Context for AT-SPI injection operations
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AtspiContext {
     /// Pre-warmed AT-SPI connection data
     pub focused_node: Option<String>,
@@ -26,16 +26,6 @@ pub struct AtspiContext {
     pub target_app: Option<String>,
     /// Window identifier
     pub window_id: Option<String>,
-}
-
-impl Default for AtspiContext {
-    fn default() -> Self {
-        Self {
-            focused_node: None,
-            target_app: None,
-            window_id: None,
-        }
-    }
 }
 
 /// Desktop environment types

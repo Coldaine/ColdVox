@@ -262,9 +262,7 @@ impl SileroSttPluginFactory {
 
 impl SttPluginFactory for SileroSttPluginFactory {
     fn create(&self) -> Result<Box<dyn SttPlugin>, ColdVoxError> {
-        Ok(Box::new(SileroSttPlugin::with_config(
-            self.config.clone(),
-        )))
+        Ok(Box::new(SileroSttPlugin::with_config(self.config.clone())))
     }
 
     fn plugin_info(&self) -> PluginInfo {

@@ -342,6 +342,7 @@ pub struct DeviceInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use coldvox_foundation::skip_test_unless;
     use cpal::traits::StreamTrait;
     use cpal::Sample;
     use std::env;
@@ -659,11 +660,9 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_open_device_specific_name() {
-        if skip_hardware_dependent("test_open_device_specific_name") {
-            return;
-        }
+        skip_test_unless!(coldvox_foundation::test_env::TestRequirements::new()
+            .requires_env_var("COLDVOX_AUDIO_VALIDATE_LIVE"));
         // Test open_device(Some(name)) prefers exact match
         let mut manager = setup_test_manager();
         let test_name = "default";

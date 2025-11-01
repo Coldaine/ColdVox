@@ -54,8 +54,8 @@
 //! - Future: Could extend to clipboard/enigo fallbacks for cross-method validation
 
 use crate::types::{InjectionConfig, InjectionResult};
-use std::sync::Arc;
 use coldvox_foundation::error::InjectionError;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, trace, warn};

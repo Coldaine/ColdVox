@@ -121,7 +121,7 @@ pub struct ConfigMetadata {
 }
 
 /// Compatibility memory that stores migration history and compatibility information
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CompatibilityMemory {
     /// Known legacy configurations
     pub legacy_configs: HashMap<String, LegacyConfigInfo>,
@@ -206,16 +206,6 @@ pub enum CompatibilityRuleType {
     Validation,
     /// Custom transformation rule
     Custom,
-}
-
-impl Default for CompatibilityMemory {
-    fn default() -> Self {
-        Self {
-            legacy_configs: HashMap::new(),
-            migration_history: Vec::new(),
-            compatibility_rules: Vec::new(),
-        }
-    }
 }
 
 impl CompatibilityMemory {

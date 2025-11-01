@@ -8,8 +8,7 @@ use crate::confirm::{create_confirmation_context, ConfirmationContext};
 use crate::log_throttle::log_atspi_connection_failure;
 use crate::logging::utils;
 use crate::types::{
-    InjectionConfig, InjectionContext, InjectionMethod, InjectionMode,
-    InjectionResult,
+    InjectionConfig, InjectionContext, InjectionMethod, InjectionMode, InjectionResult,
 };
 use crate::TextInjector;
 use async_trait::async_trait;

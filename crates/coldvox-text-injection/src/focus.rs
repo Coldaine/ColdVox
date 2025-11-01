@@ -31,7 +31,7 @@ pub struct FocusTracker<B: FocusBackend = SystemFocusAdapter> {
 
 impl FocusTracker<SystemFocusAdapter> {
     pub fn new(config: InjectionConfig) -> Self {
-        Self::with_backend(config, SystemFocusAdapter::default())
+        Self::with_backend(config, SystemFocusAdapter)
     }
 }
 

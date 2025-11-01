@@ -319,9 +319,7 @@ impl Default for WhisperCppPluginFactory {
 
 impl SttPluginFactory for WhisperCppPluginFactory {
     fn create(&self) -> Result<Box<dyn SttPlugin>, ColdVoxError> {
-        Ok(Box::new(WhisperCppPlugin::with_config(
-            self.config.clone(),
-        )))
+        Ok(Box::new(WhisperCppPlugin::with_config(self.config.clone())))
     }
 
     fn plugin_info(&self) -> PluginInfo {
