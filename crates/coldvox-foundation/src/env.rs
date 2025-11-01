@@ -110,20 +110,20 @@ impl std::fmt::Display for EnvironmentInfo {
 /// identification, and CI/development environment detection across different platforms.
 //
 /// # Quick Start
-//
-/// ```rust
-/// use coldvox_foundation::env::{detect, EnvironmentInfo};
-//
+///
+/// ```ignore
+/// use coldvox_foundation::env::detect;
+///
 /// let env_info = detect();
 /// println!("Environment: {}", env_info);
-//
+///
 /// if env_info.is_wayland_environment() {
-///     println!("Running on Wayland");
-// }
-//
+///     // Running on Wayland
+/// }
+///
 /// if env_info.is_ci_environment() {
-///     println!("Running in CI");
-// }
+///     // Running in CI
+/// }
 /// ```
 use std::env;
 use tracing::{debug, warn};

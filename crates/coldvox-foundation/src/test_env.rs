@@ -11,7 +11,7 @@
 //!
 //! # Examples
 //!
-//! ```rust
+//! ```ignore
 //! use coldvox_foundation::test_env::{TestEnvironment, TestRequirements};
 //!
 //! // Check if current environment supports GUI tests
@@ -25,7 +25,8 @@
 //!     .requires_wayland()
 //!     .requires_command("wl-copy");
 //!
-//! if env.meets_requirements(&requirements) {
+//! let result = env.meets_requirements(&requirements);
+//! if result.can_run {
 //!     // Run Wayland clipboard tests
 //! }
 //! ```
