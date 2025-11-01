@@ -1,6 +1,7 @@
 use crate::probes::common::{LiveTestResult, TestContext, TestError};
 use crate::text_injection::manager::StrategyManager;
 use crate::text_injection::types::{InjectionConfig, InjectionMetrics};
+use coldvox_foundation::error::InjectionError;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -54,7 +55,7 @@ impl TextInjectionProbe {
 }
 
 fn evaluate_injection_result(
-    result: &Result<(), crate::text_injection::types::InjectionError>,
+    result: &Result<(), InjectionError>,
     metrics: &HashMap<String, serde_json::Value>,
 ) -> (bool, String) {
     let mut pass = true;

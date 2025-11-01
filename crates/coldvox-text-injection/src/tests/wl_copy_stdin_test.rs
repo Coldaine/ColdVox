@@ -8,6 +8,7 @@
 
 use crate::injectors::clipboard::ClipboardInjector;
 use crate::types::{InjectionConfig, InjectionContext};
+use coldvox_foundation::error::InjectionError;
 use std::process::Command;
 use std::time::Duration;
 
@@ -161,7 +162,7 @@ async fn test_wl_copy_timeout_handling() {
     );
 
     match result.unwrap_err() {
-        crate::types::InjectionError::Timeout(_) => {
+        InjectionError::Timeout(_) => {
             println!("✅ Timeout handling works correctly");
         }
         other => {

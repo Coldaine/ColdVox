@@ -1,4 +1,4 @@
-use crate::types::InjectionError;
+use coldvox_foundation::error::InjectionError;
 use std::process::Command;
 use tracing::debug;
 

@@ -1,13 +1,26 @@
+use std::path::PathBuf;
 use std::time::Duration;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum AppError {
-    #[error("Audio subsystem error: {0}")]
+pub enum ColdVoxError {
+    #[error(transparent)]
     Audio(#[from] AudioError),
 
-    #[error("Configuration error: {0}")]
-    Config(String),
+    #[error(transparent)]
+    Config(#[from] ConfigError),
+
+    #[error(transparent)]
+    Stt(#[from] SttError),
+
+    #[error(transparent)]
+    Vad(#[from] VadError),
+
+    #[error(transparent)]
+    Injection(#[from] InjectionError),
+
+    #[error(transparent)]
+    Plugin(#[from] PluginError),
 
     #[error("Component failed health check: {component}")]
     HealthCheckFailed { component: String },
@@ -58,6 +71,110 @@ pub enum AudioError {
     SupportedStreamConfigs(#[from] cpal::SupportedStreamConfigsError),
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum SttError {
+    #[error("Plugin not available: {reason}")]
+    NotAvailable { plugin: String, reason: String },
+
+    #[error("Transcription failed: {0}")]
+    TranscriptionFailed(String),
+
+    #[error("Plugin load failed: {0}")]
+    LoadFailed(String),
+
+    #[error("Model not found: {path}")]
+    ModelNotFound { path: PathBuf },
+
+    #[error("Invalid configuration: {0}")]
+    InvalidConfig(String),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum VadError {
+    #[error("Processing failed: {0}")]
+    ProcessingFailed(String),
+
+    #[error("Invalid frame size: expected {expected}, got {actual}")]
+    InvalidFrameSize { expected: usize, actual: usize },
+
+    #[error("Model initialization failed: {0}")]
+    ModelInitFailed(String),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum PluginError {
+    #[error("STT plugin error: {0}")]
+    Stt(#[from] SttError),
+
+    #[error("VAD plugin error: {0}")]
+    Vad(#[from] VadError),
+
+    #[error("Generic plugin error: {0}")]
+    Generic(String),
+
+    #[error("Plugin lifecycle error: {operation} failed for {plugin}: {reason}")]
+    Lifecycle {
+        plugin: String,
+        operation: String,
+        reason: String,
+    },
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ConfigError {
+    #[error("Configuration parsing error: {0}")]
+    Parse(#[from] config::ConfigError),
+
+    #[error("Validation failed: {field}: {reason}")]
+    Validation { field: String, reason: String },
+
+    #[error("Missing required field: {0}")]
+    MissingField(String),
+
+    #[error("Environment variable error: {0}")]
+    EnvVar(String),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum InjectionError {
+    #[error("No editable focus found")]
+    NoEditableFocus,
+
+    #[error("Method not available: {0}")]
+    MethodNotAvailable(String),
+
+    #[error("Timeout after {0}ms")]
+    Timeout(u64),
+
+    #[error("All methods failed: {0}")]
+    AllMethodsFailed(String),
+
+    #[error("Method unavailable: {0}")]
+    MethodUnavailable(String),
+
+    #[error("Method failed: {0}")]
+    MethodFailed(String),
+
+    #[error("Budget exhausted")]
+    BudgetExhausted,
+
+    #[error("Clipboard error: {0}")]
+    Clipboard(String),
+
+    #[error("Process error: {0}")]
+    Process(String),
+
+    #[error("Permission denied: {0}")]
+    PermissionDenied(String),
+
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("Other error: {0}")]
+    Other(String),
+}
+
+
 /// Device status events for monitoring audio device changes
 #[derive(Debug, Clone, PartialEq)]
 pub enum DeviceEvent {
@@ -97,18 +214,18 @@ pub enum RecoveryStrategy {
     Fatal,
 }
 
-impl AppError {
+impl ColdVoxError {
     pub fn recovery_strategy(&self) -> RecoveryStrategy {
         match self {
-            AppError::Audio(AudioError::DeviceDisconnected) => RecoveryStrategy::Retry {
+            ColdVoxError::Audio(AudioError::DeviceDisconnected) => RecoveryStrategy::Retry {
                 max_attempts: 5,
                 delay: Duration::from_secs(2),
             },
-            AppError::Audio(AudioError::DeviceNotFound { .. }) => RecoveryStrategy::Fallback {
+            ColdVoxError::Audio(AudioError::DeviceNotFound { .. }) => RecoveryStrategy::Fallback {
                 to: "default".into(),
             },
-            AppError::Audio(AudioError::BufferOverflow { .. }) => RecoveryStrategy::Ignore,
-            AppError::Fatal(_) | AppError::ShutdownRequested => RecoveryStrategy::Fatal,
+            ColdVoxError::Audio(AudioError::BufferOverflow { .. }) => RecoveryStrategy::Ignore,
+            ColdVoxError::Fatal(_) | ColdVoxError::ShutdownRequested => RecoveryStrategy::Fatal,
             _ => RecoveryStrategy::Restart,
         }
     }

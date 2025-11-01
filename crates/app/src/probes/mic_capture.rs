@@ -2,7 +2,8 @@ use crate::probes::MicCaptureThresholds;
 use coldvox_telemetry::PipelineMetrics;
 use std::sync::Arc;
 
-use super::common::{LiveTestResult, TestContext, TestError, TestErrorKind};
+use super::common::{LiveTestResult, TestContext, TestError};
+use crate::probes::common::TestErrorKind;
 use coldvox_audio::{AudioCaptureThread, AudioRingBuffer, FrameReader};
 use coldvox_foundation::{AudioConfig, AudioError};
 use serde_json::json;

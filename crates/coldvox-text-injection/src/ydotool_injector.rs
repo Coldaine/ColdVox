@@ -1,7 +1,8 @@
-use crate::types::{InjectionConfig, InjectionError, InjectionResult};
+use crate::types::{InjectionConfig, InjectionResult};
 use crate::TextInjector;
 use anyhow::Result;
 use async_trait::async_trait;
+use coldvox_foundation::error::InjectionError;
 use std::env;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};

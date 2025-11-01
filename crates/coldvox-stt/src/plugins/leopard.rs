@@ -11,6 +11,7 @@ use std::sync::Arc;
 use crate::plugin::*;
 use crate::plugin_types::*;
 use crate::types::{TranscriptionConfig, TranscriptionEvent};
+use coldvox_foundation::error::{ColdVoxError, SttError};
 
 /// Leopard configuration
 #[derive(Debug, Clone)]
@@ -144,7 +145,7 @@ impl SttPlugin for LeopardPlugin {
         }
     }
 
-    async fn is_available(&self) -> Result<bool, SttPluginError> {
+    async fn is_available(&self) -> Result<bool, ColdVoxError> {
         // Check for access key
         if self.config.access_key.is_empty() {
             return Ok(false);
@@ -152,32 +153,37 @@ impl SttPlugin for LeopardPlugin {
         Ok(false) // Not yet implemented
     }
 
-    async fn initialize(&mut self, _config: TranscriptionConfig) -> Result<(), SttPluginError> {
+    async fn initialize(&mut self, _config: TranscriptionConfig) -> Result<(), ColdVoxError> {
         if self.config.access_key.is_empty() {
-            return Err(SttPluginError::ConfigurationError(
+            return Err(SttError::InvalidConfig(
                 "PICOVOICE_ACCESS_KEY required for Leopard".to_string(),
-            ));
+            )
+            .into());
         }
 
-        Err(SttPluginError::NotAvailable {
+        Err(SttError::NotAvailable {
+            plugin: "leopard".to_string(),
             reason: "Leopard SDK integration not yet implemented".to_string(),
-        })
+        }
+        .into())
     }
 
     async fn process_audio(
         &mut self,
         _samples: &[i16],
-    ) -> Result<Option<TranscriptionEvent>, SttPluginError> {
-        Err(SttPluginError::NotAvailable {
+    ) -> Result<Option<TranscriptionEvent>, ColdVoxError> {
+        Err(SttError::NotAvailable {
+            plugin: "leopard".to_string(),
             reason: "Leopard plugin not yet implemented".to_string(),
-        })
+        }
+        .into())
     }
 
-    async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, SttPluginError> {
+    async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, ColdVoxError> {
         Ok(None)
     }
 
-    async fn reset(&mut self) -> Result<(), SttPluginError> {
+    async fn reset(&mut self) -> Result<(), ColdVoxError> {
         Ok(())
     }
 }
@@ -201,7 +207,7 @@ impl LeopardPluginFactory {
 }
 
 impl SttPluginFactory for LeopardPluginFactory {
-    fn create(&self) -> Result<Box<dyn SttPlugin>, SttPluginError> {
+    fn create(&self) -> Result<Box<dyn SttPlugin>, ColdVoxError> {
         Ok(Box::new(LeopardPlugin::with_config(self.config.clone())))
     }
 
@@ -209,15 +215,19 @@ impl SttPluginFactory for LeopardPluginFactory {
         LeopardPlugin::new().info()
     }
 
-    fn check_requirements(&self) -> Result<(), SttPluginError> {
+    fn check_requirements(&self) -> Result<(), ColdVoxError> {
         if self.config.access_key.is_empty() {
-            return Err(SttPluginError::NotAvailable {
+            return Err(SttError::NotAvailable {
+                plugin: "leopard".to_string(),
                 reason: "Picovoice access key required".to_string(),
-            });
+            }
+            .into());
         }
 
-        Err(SttPluginError::NotAvailable {
+        Err(SttError::NotAvailable {
+            plugin: "leopard".to_string(),
             reason: "Leopard SDK not yet integrated".to_string(),
-        })
+        }
+        .into())
     }
 }

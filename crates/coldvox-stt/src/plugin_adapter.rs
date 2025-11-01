@@ -7,9 +7,9 @@ use async_trait::async_trait;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::plugin::{SttPlugin, SttPluginError};
+use crate::plugin::SttPlugin;
 use crate::types::TranscriptionEvent;
-use crate::{next_utterance_id, StreamingStt, TranscriptionConfig};
+use crate::{next_utterance_id, ColdVoxError, StreamingStt, TranscriptionConfig};
 
 /// Adapter that wraps an SttPlugin and implements StreamingStt
 pub struct PluginAdapter {
@@ -27,7 +27,7 @@ impl PluginAdapter {
     }
 
     /// Initialize the plugin with configuration
-    pub async fn initialize(&mut self, config: TranscriptionConfig) -> Result<(), SttPluginError> {
+    pub async fn initialize(&mut self, config: TranscriptionConfig) -> Result<(), ColdVoxError> {
         let mut plugin = self.plugin.write().await;
         plugin.initialize(config).await
     }

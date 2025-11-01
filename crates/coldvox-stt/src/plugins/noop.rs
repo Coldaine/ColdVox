@@ -4,6 +4,8 @@ use crate::plugin::*;
 use crate::types::{TranscriptionConfig, TranscriptionEvent};
 use async_trait::async_trait;
 
+use coldvox_foundation::error::ColdVoxError;
+
 /// A no-op STT plugin that never transcribes anything
 /// Useful for testing the pipeline without STT dependencies
 #[derive(Debug, Clone)]
@@ -50,11 +52,11 @@ impl SttPlugin for NoOpPlugin {
         }
     }
 
-    async fn is_available(&self) -> Result<bool, SttPluginError> {
+    async fn is_available(&self) -> Result<bool, ColdVoxError> {
         Ok(true) // Always available
     }
 
-    async fn initialize(&mut self, _config: TranscriptionConfig) -> Result<(), SttPluginError> {
+    async fn initialize(&mut self, _config: TranscriptionConfig) -> Result<(), ColdVoxError> {
         self.initialized = true;
         Ok(())
     }
@@ -62,16 +64,16 @@ impl SttPlugin for NoOpPlugin {
     async fn process_audio(
         &mut self,
         _samples: &[i16],
-    ) -> Result<Option<TranscriptionEvent>, SttPluginError> {
+    ) -> Result<Option<TranscriptionEvent>, ColdVoxError> {
         // Never produces transcriptions
         Ok(None)
     }
 
-    async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, SttPluginError> {
+    async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, ColdVoxError> {
         Ok(None)
     }
 
-    async fn reset(&mut self) -> Result<(), SttPluginError> {
+    async fn reset(&mut self) -> Result<(), ColdVoxError> {
         Ok(())
     }
 }
@@ -80,7 +82,7 @@ impl SttPlugin for NoOpPlugin {
 pub struct NoOpPluginFactory;
 
 impl SttPluginFactory for NoOpPluginFactory {
-    fn create(&self) -> Result<Box<dyn SttPlugin>, SttPluginError> {
+    fn create(&self) -> Result<Box<dyn SttPlugin>, ColdVoxError> {
         Ok(Box::new(NoOpPlugin::new()))
     }
 
@@ -88,7 +90,7 @@ impl SttPluginFactory for NoOpPluginFactory {
         NoOpPlugin::new().info()
     }
 
-    fn check_requirements(&self) -> Result<(), SttPluginError> {
+    fn check_requirements(&self) -> Result<(), ColdVoxError> {
         Ok(()) // No requirements
     }
 }

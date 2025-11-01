@@ -74,12 +74,13 @@ pub mod noop_injector;
 
 // Re-export key components for easy access
 pub use backend::Backend;
+pub use coldvox_foundation::error::InjectionError;
 pub use focus::{FocusProvider, FocusStatus};
 pub use manager::StrategyManager;
 pub use processor::{AsyncInjectionProcessor, InjectionProcessor, ProcessorMetrics};
 pub use session::{InjectionSession, SessionConfig, SessionState};
 pub use types::{
-    InjectionConfig, InjectionContext, InjectionError, InjectionMethod, InjectionMode,
+    InjectionConfig, InjectionContext, InjectionMethod, InjectionMode,
     InjectionResult,
 };
 

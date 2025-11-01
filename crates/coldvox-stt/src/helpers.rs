@@ -13,16 +13,19 @@ use std::sync::atomic::Ordering;
 
 use crate::types::TranscriptionEvent;
 use crate::constants::SAMPLE_RATE_HZ;
+use coldvox_foundation::error::{ColdVoxError, SttError};
 use coldvox_telemetry::{stt_metrics::SttPerformanceMetrics, pipeline_metrics::PipelineMetrics};
 
 /// Stub error helper function for unimplemented plugins
 ///
 /// This function centralizes the common pattern of returning a NotAvailable error
 /// for plugins that are not yet implemented.
-pub fn not_yet_implemented<T>(reason: &str) -> Result<T, crate::plugin::SttPluginError> {
-    Err(crate::plugin::SttPluginError::NotAvailable {
+pub fn not_yet_implemented<T>(reason: &str) -> Result<T, ColdVoxError> {
+    Err(SttError::NotAvailable {
+        plugin: reason.to_string(),
         reason: format!("{} plugin not yet implemented", reason),
-    })
+    }
+    .into())
 }
 
 /// Unified event mapper function

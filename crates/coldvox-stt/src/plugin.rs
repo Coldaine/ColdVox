@@ -6,54 +6,9 @@
 use async_trait::async_trait;
 use std::fmt::Debug;
 use std::path::Path;
-use thiserror::Error;
 
 use crate::types::{TranscriptionConfig, TranscriptionEvent};
-
-/// Errors that can occur in STT plugins
-#[derive(Debug, Error)]
-pub enum SttPluginError {
-    #[error("Plugin not available: {reason}")]
-    NotAvailable { reason: String },
-
-    #[error("Initialization failed: {0}")]
-    InitializationFailed(String),
-
-    #[error("Model loading failed: {0}")]
-    ModelLoadFailed(String),
-
-    #[error("Transcription failed: {0}")]
-    TranscriptionFailed(String),
-
-    #[error("Configuration error: {0}")]
-    ConfigurationError(String),
-
-    #[error("Backend error: {0}")]
-    BackendError(Box<dyn std::error::Error + Send + Sync>),
-
-    #[error("Processing error: {0}")]
-    ProcessingError(String),
-
-    /// Transient errors that may be retried (e.g., audio buffer empty, temporary network issues)
-    #[error("Transient error: {0}")]
-    Transient(String),
-
-    /// Fatal errors that should trigger failover (e.g., model corruption, permanent backend failure)
-    #[error("Fatal error: {0}")]
-    Fatal(String),
-
-    /// Unload operation failed (e.g., resource cleanup error)
-    #[error("Unload failed: {0}")]
-    UnloadFailed(String),
-
-    /// Plugin already unloaded or not loaded
-    #[error("Already unloaded: {0}")]
-    AlreadyUnloaded(String),
-
-    /// Extensible error wrapper for third-party plugins
-    #[error("Other error: {0}")]
-    Other(Box<dyn std::error::Error + Send + Sync>),
-}
+use coldvox_foundation::error::{ColdVoxError, SttError};
 
 /// Metadata about an STT plugin
 #[derive(Debug, Clone)]
@@ -118,54 +73,32 @@ pub trait SttPlugin: Send + Sync + Debug {
     fn capabilities(&self) -> PluginCapabilities;
 
     /// Check if the plugin is available and ready to use
-    async fn is_available(&self) -> Result<bool, SttPluginError>;
+    async fn is_available(&self) -> Result<bool, ColdVoxError>;
 
     /// Initialize the plugin with configuration
-    async fn initialize(&mut self, config: TranscriptionConfig) -> Result<(), SttPluginError>;
+    async fn initialize(&mut self, config: TranscriptionConfig) -> Result<(), ColdVoxError>;
 
     /// Process a batch of audio samples
     /// Returns None if no transcription is ready yet (for streaming mode)
     async fn process_audio(
         &mut self,
         samples: &[i16],
-    ) -> Result<Option<TranscriptionEvent>, SttPluginError>;
+    ) -> Result<Option<TranscriptionEvent>, ColdVoxError>;
 
     /// Finalize and get any remaining transcription
-    async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, SttPluginError>;
+    async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, ColdVoxError>;
 
     /// Reset the plugin state for a new session
-    async fn reset(&mut self) -> Result<(), SttPluginError>;
+    async fn reset(&mut self) -> Result<(), ColdVoxError>;
 
     /// Load a model or connect to service
-    async fn load_model(&mut self, _model_path: Option<&Path>) -> Result<(), SttPluginError> {
+    async fn load_model(&mut self, _model_path: Option<&Path>) -> Result<(), ColdVoxError> {
         // Default implementation for plugins that don't need models
         Ok(())
     }
 
     /// Unload model and free resources
-    /// This is called when the plugin is no longer needed or during garbage collection
-    ///
-    /// # Implementation Guidelines for Plugin Developers:
-    ///
-    /// ## For Model-Based Plugins (Whisper, Coqui, etc.):
-    /// - Drop model instances to free GPU/CPU memory
-    /// - Close any open file handles or network connections
-    /// - Reset internal state to uninitialized
-    /// - Clear any cached data or temporary files
-    ///
-    /// ## For Cloud-Based Plugins:
-    /// - Close HTTP connections and connection pools
-    /// - Invalidate authentication tokens if appropriate
-    /// - Clear any cached responses
-    ///
-    /// ## For All Plugins:
-    /// - Reset metrics and performance counters
-    /// - Set state to Uninitialized
-    /// - Log the unload operation for debugging
-    /// - Handle errors gracefully (don't fail the unload process)
-    ///
-    /// Default implementation is a no-op for plugins that don't need cleanup
-    async fn unload(&mut self) -> Result<(), SttPluginError> {
+    async fn unload(&mut self) -> Result<(), ColdVoxError> {
         Ok(())
     }
 }
@@ -173,13 +106,13 @@ pub trait SttPlugin: Send + Sync + Debug {
 /// Factory for creating STT plugins
 pub trait SttPluginFactory: Send + Sync {
     /// Create a new instance of the plugin
-    fn create(&self) -> Result<Box<dyn SttPlugin>, SttPluginError>;
+    fn create(&self) -> Result<Box<dyn SttPlugin>, ColdVoxError>;
 
     /// Get plugin info without creating an instance
     fn plugin_info(&self) -> PluginInfo;
 
     /// Check if the plugin's requirements are met
-    fn check_requirements(&self) -> Result<(), SttPluginError>;
+    fn check_requirements(&self) -> Result<(), ColdVoxError>;
 }
 
 /// Registry for managing multiple STT plugins
@@ -217,18 +150,21 @@ impl SttPluginRegistry {
     }
 
     /// Create a plugin by ID
-    pub fn create_plugin(&self, id: &str) -> Result<Box<dyn SttPlugin>, SttPluginError> {
+    pub fn create_plugin(&self, id: &str) -> Result<Box<dyn SttPlugin>, ColdVoxError> {
         self.factories
             .iter()
             .find(|f| f.plugin_info().id == id)
-            .ok_or_else(|| SttPluginError::NotAvailable {
-                reason: format!("Plugin '{}' not found", id),
+            .ok_or_else(|| {
+                ColdVoxError::from(SttError::NotAvailable {
+                    plugin: id.to_string(),
+                    reason: format!("Plugin '{}' not found", id),
+                })
             })?
             .create()
     }
 
     /// Create the best available plugin based on preferences
-    pub fn create_best_available(&self) -> Result<Box<dyn SttPlugin>, SttPluginError> {
+    pub fn create_best_available(&self) -> Result<Box<dyn SttPlugin>, ColdVoxError> {
         // First try preferred order
         for plugin_id in &self.preferred_order {
             if let Ok(plugin) = self.create_plugin(plugin_id) {
@@ -245,9 +181,10 @@ impl SttPluginRegistry {
             }
         }
 
-        Err(SttPluginError::NotAvailable {
+        Err(ColdVoxError::from(SttError::NotAvailable {
+            plugin: "any".to_string(),
             reason: "No STT plugins available".to_string(),
-        })
+        }))
     }
 }
 
@@ -356,12 +293,5 @@ impl Default for MetricsConfig {
             log_interval_secs: Some(60), // Log metrics every minute
             debug_dump_events: false,
         }
-    }
-}
-
-// Implement From trait for easy error conversion to SttPluginError::Other
-impl From<Box<dyn std::error::Error + Send + Sync>> for SttPluginError {
-    fn from(error: Box<dyn std::error::Error + Send + Sync>) -> Self {
-        SttPluginError::Other(error)
     }
 }

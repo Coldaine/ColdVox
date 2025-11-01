@@ -1,9 +1,10 @@
 #![allow(unused_imports)]
 
 use crate::injectors::clipboard::ClipboardInjector;
-use crate::types::{InjectionConfig, InjectionError, InjectionResult};
+use crate::types::{InjectionConfig, InjectionResult};
 use crate::TextInjector;
 use async_trait::async_trait;
+use coldvox_foundation::error::InjectionError;
 use std::time::{Duration, Instant};
 use tokio::process::Command;
 use tokio::time::timeout;
@@ -236,8 +237,6 @@ impl ClipboardPasteInjector {
     }
     #[cfg(feature = "atspi")]
     async fn try_atspi_paste(&self) -> InjectionResult<()> {
-        use crate::types::InjectionError;
-
         let conn = AccessibilityConnection::new()
             .await
             .map_err(|e| InjectionError::Other(format!("AT-SPI connect failed: {e}")))?;

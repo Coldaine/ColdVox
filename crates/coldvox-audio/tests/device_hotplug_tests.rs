@@ -136,15 +136,15 @@ mod device_hotplug_tests {
 
     #[test]
     fn test_recovery_strategy_for_device_errors() {
-        use coldvox_foundation::{AppError, AudioError, RecoveryStrategy};
+        use coldvox_foundation::{error::ColdVoxError, error::AudioError, RecoveryStrategy};
 
         // Test recovery strategy for device disconnection
-        let disconnection_error = AppError::Audio(AudioError::DeviceDisconnected);
+        let disconnection_error = ColdVoxError::Audio(AudioError::DeviceDisconnected);
         let strategy = disconnection_error.recovery_strategy();
         assert!(matches!(strategy, RecoveryStrategy::Retry { .. }));
 
         // Test recovery strategy for device not found
-        let not_found_error = AppError::Audio(AudioError::DeviceNotFound {
+        let not_found_error = ColdVoxError::Audio(AudioError::DeviceNotFound {
             name: Some("missing_device".to_string()),
         });
         let strategy = not_found_error.recovery_strategy();
