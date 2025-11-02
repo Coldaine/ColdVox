@@ -9,8 +9,8 @@ use tracing::{debug, info, warn, Level};
 /// Initialize tracing with appropriate configuration for the text injection system
 pub fn init_tracing() {
     // Note: tracing_subscriber is a dev dependency, so this function is only available
-    // when the feature is enabled. In production, use the application's tracing setup.
-    #[cfg(feature = "all-backends")]
+    // in test builds. In production, use the application's tracing setup.
+    #[cfg(test)]
     {
         let subscriber = tracing_subscriber::fmt()
             .with_max_level(Level::INFO)
@@ -34,7 +34,7 @@ pub fn init_tracing() {
 
 /// Initialize tracing with custom configuration
 pub fn init_tracing_with_config(config: LoggingConfig) {
-    #[cfg(feature = "all-backends")]
+    #[cfg(test)]
     {
         let subscriber = tracing_subscriber::fmt()
             .with_max_level(config.tracing_level())

@@ -655,14 +655,32 @@ impl UnifiedClipboardInjector {
             tokio::spawn(async move {
                 tokio::time::sleep(Duration::from_millis(delay_ms)).await;
 
+                // Restore clipboard content regardless of backend
+                let content_len = backup.content.len();
+
                 #[cfg(feature = "wl_clipboard")]
                 {
                     use wl_clipboard_rs::copy::{MimeType, Options, Source};
-                    let content_len = backup.content.len();
-                    let src = Source::Bytes(backup.content.into_boxed_slice());
+                    let src = Source::Bytes(backup.content.clone().into_boxed_slice());
                     let opts = Options::new();
                     let _ = opts.copy(src, MimeType::Text);
-                    debug!("Restored original clipboard ({} chars)", content_len);
+                    debug!(
+                        "Restored original clipboard via wl-clipboard ({} chars)",
+                        content_len
+                    );
+                }
+
+                #[cfg(not(feature = "wl_clipboard"))]
+                {
+                    // Restore via command-line tools for X11/other backends
+                    let restored = Self::write_clipboard(&backup.content).await;
+                    match restored {
+                        Ok(_) => debug!(
+                            "Restored original clipboard via command-line ({} chars)",
+                            content_len
+                        ),
+                        Err(e) => warn!("Failed to restore clipboard: {}", e),
+                    }
                 }
             });
         }

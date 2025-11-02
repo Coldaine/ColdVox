@@ -1080,13 +1080,11 @@ impl SttPluginManager {
                 Err(e) => {
                     tracing::warn!(target: "stt_debug", plugin_id = %plugin_id, error = %e, "plugin_manager.process_audio() error");
                     // Track error and potentially trigger failover
-                    self.total_errors
-                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    self.total_errors.fetch_add(1, Ordering::Relaxed);
                     if let Some(ref sink) = self.metrics_sink {
-                        sink.stt_total_errors
-                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        sink.stt_total_errors.fetch_add(1, Ordering::Relaxed);
                         sink.stt_transcription_failures
-                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            .fetch_add(1, Ordering::Relaxed);
                     }
 
                     let (should_failover, errors_consecutive) = {

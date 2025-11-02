@@ -1060,7 +1060,7 @@ mod tests {
             )
             .await;
 
-        assert_eq!(result.unwrap(), "native_success".to_string());
+        assert_eq!(result.unwrap(), "native_success");
         assert_eq!(result2.unwrap(), 123u64);
     }
 }

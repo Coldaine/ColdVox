@@ -129,9 +129,9 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             device: None,
-            resampler_quality: "".to_string(), // Default handled by builder
+            resampler_quality: "".to_string(), // Empty; config builder sets "balanced" if not overridden
             enable_device_monitor: true,
-            activation_mode: "".to_string(), // Default handled by builder
+            activation_mode: "".to_string(), // Empty; config builder sets "vad" if not overridden
             audio: AudioSettings::default(),
             injection: InjectionSettings::default(),
             stt: SttSettings::default(),

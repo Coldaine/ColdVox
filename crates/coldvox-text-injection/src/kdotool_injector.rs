@@ -1,6 +1,7 @@
-use crate::types::{InjectionConfig, InjectionError, InjectionResult};
+use crate::types::{InjectionConfig, InjectionResult};
 use crate::TextInjector;
 use async_trait::async_trait;
+use coldvox_foundation::error::InjectionError;
 use std::process::Command;
 use std::time::Duration;
 use tokio::time::timeout;
