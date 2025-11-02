@@ -4,6 +4,12 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Configuration
+- Canonicalize STT selection config to `config/plugins.json`. Legacy duplicates like `./plugins.json` and `crates/app/plugins.json` are deprecated and ignored at runtime; a startup warning is logged if detected. Documentation updated to reflect the single source of truth.
+
+### Build & Tooling
+- Python 3.13 note: temporarily support building with Python 3.13 by setting `PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1` (until `pyo3` is upgraded to officially support 3.13).
+
 ### Logging and Observability
 - **Change default log level from DEBUG to INFO** to reduce verbosity in normal operation
 - Downgrade high-frequency logs to appropriate levels:
@@ -74,13 +80,13 @@ Details
 - Complete STT plugin manager with telemetry integration, TUI exposure, and configuration persistence
 - Plugin operations instrumented with lifecycle events, transcription statistics, error tracking, and performance timing
 - TUI dashboard with Plugins tab, plugin status display, interactive controls ([P] toggle, [L] load, [U] unload)
-- Configuration persistence via serde_json to ./plugins.json with load on init and save on changes
+ - Configuration persistence via serde_json to config/plugins.json with load on init and save on changes
 - End-to-end STT pipeline test and concurrent process_audio/GC safety test
 - Updated README.md with STT plugins section and migration notes
 
 Upgrade Notes
 - STT configuration now uses --stt-* flags instead of VOSK_MODEL_PATH
-- Plugin settings are automatically persisted to ./plugins.json
+- Plugin settings are automatically persisted to config/plugins.json
 - TUI now available with --tui flag (requires tui feature)
 
 PRs

@@ -6,6 +6,8 @@ use async_trait::async_trait;
 use std::sync::{Arc, Mutex};
 use tracing::info;
 
+use coldvox_foundation::error::{ColdVoxError, SttError};
+
 /// Configuration for mock transcriptions
 #[derive(Debug, Clone)]
 pub struct MockConfig {
@@ -110,11 +112,11 @@ impl SttPlugin for MockPlugin {
         }
     }
 
-    async fn is_available(&self) -> Result<bool, SttPluginError> {
+    async fn is_available(&self) -> Result<bool, ColdVoxError> {
         Ok(true)
     }
 
-    async fn initialize(&mut self, _config: TranscriptionConfig) -> Result<(), SttPluginError> {
+    async fn initialize(&mut self, _config: TranscriptionConfig) -> Result<(), ColdVoxError> {
         let mut state = self.state.lock().unwrap();
         state.initialized = true;
         Ok(())
@@ -123,7 +125,7 @@ impl SttPlugin for MockPlugin {
     async fn process_audio(
         &mut self,
         _samples: &[i16],
-    ) -> Result<Option<TranscriptionEvent>, SttPluginError> {
+    ) -> Result<Option<TranscriptionEvent>, ColdVoxError> {
         // Get state and check failure conditions
         let should_fail = {
             let mut state = self.state.lock().unwrap();
@@ -137,9 +139,7 @@ impl SttPlugin for MockPlugin {
         };
 
         if should_fail {
-            return Err(SttPluginError::TranscriptionFailed(
-                "Simulated failure".to_string(),
-            ));
+            return Err(SttError::TranscriptionFailed("Simulated failure".to_string()).into());
         }
 
         // Simulate processing delay
@@ -186,7 +186,7 @@ impl SttPlugin for MockPlugin {
         Ok(None)
     }
 
-    async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, SttPluginError> {
+    async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, ColdVoxError> {
         info!("MockPlugin::finalize called");
         let state = self.state.lock().unwrap();
         info!(
@@ -208,7 +208,7 @@ impl SttPlugin for MockPlugin {
         Ok(None)
     }
 
-    async fn reset(&mut self) -> Result<(), SttPluginError> {
+    async fn reset(&mut self) -> Result<(), ColdVoxError> {
         let mut state = self.state.lock().unwrap();
         state.chunks_processed = 0;
         state.calls_made = 0;
@@ -254,7 +254,7 @@ impl Default for MockPluginFactory {
 }
 
 impl SttPluginFactory for MockPluginFactory {
-    fn create(&self) -> Result<Box<dyn SttPlugin>, SttPluginError> {
+    fn create(&self) -> Result<Box<dyn SttPlugin>, ColdVoxError> {
         Ok(Box::new(MockPlugin::new(self.config.clone())))
     }
 
@@ -262,7 +262,7 @@ impl SttPluginFactory for MockPluginFactory {
         MockPlugin::default().info()
     }
 
-    fn check_requirements(&self) -> Result<(), SttPluginError> {
+    fn check_requirements(&self) -> Result<(), ColdVoxError> {
         Ok(())
     }
 }

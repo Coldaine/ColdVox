@@ -1,6 +1,8 @@
 use rtrb::{Consumer, Producer, RingBuffer};
 use tracing::{trace, warn};
 
+use coldvox_foundation::error::{AudioError, ColdVoxError};
+
 /// Audio ring buffer using rtrb (real-time safe)
 pub struct AudioRingBuffer {
     producer: Producer<i16>,
@@ -32,14 +34,9 @@ pub struct AudioProducer {
     producer: Producer<i16>,
 }
 
-#[derive(Debug, PartialEq)]
-pub enum WriteError {
-    BufferFull,
-}
-
 impl AudioProducer {
     /// Write samples from audio callback (non-blocking)
-    pub fn write(&mut self, samples: &[i16]) -> Result<usize, WriteError> {
+    pub fn write(&mut self, samples: &[i16]) -> Result<usize, ColdVoxError> {
         let mut chunk = match self.producer.write_chunk(samples.len()) {
             Ok(chunk) => chunk,
             Err(_) => {
@@ -47,7 +44,10 @@ impl AudioProducer {
                     "Ring buffer overflow: tried to write {} samples, buffer full",
                     samples.len()
                 );
-                return Err(WriteError::BufferFull);
+                return Err(AudioError::BufferOverflow {
+                    count: samples.len(),
+                }
+                .into());
             }
         };
 

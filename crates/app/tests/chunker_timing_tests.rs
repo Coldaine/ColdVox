@@ -1,6 +1,6 @@
 use coldvox_audio::{
-    AudioChunker, SharedAudioFrame as VadFrame, AudioRingBuffer, ChunkerConfig, FrameReader,
-    ResamplerQuality,
+    AudioChunker, AudioRingBuffer, ChunkerConfig, FrameReader, ResamplerQuality,
+    SharedAudioFrame as VadFrame,
 };
 use coldvox_telemetry::pipeline_metrics::PipelineMetrics;
 use std::sync::Arc;

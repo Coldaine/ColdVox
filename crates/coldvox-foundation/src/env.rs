@@ -83,7 +83,12 @@ impl EnvironmentInfo {
             },
             match self.display_protocol {
                 DisplayProtocol::Wayland => "Wayland",
-                DisplayProtocol::X11 => if self.is_xwayland { "XWayland" } else { "X11" },
+                DisplayProtocol::X11 =>
+                    if self.is_xwayland {
+                        "XWayland"
+                    } else {
+                        "X11"
+                    },
                 DisplayProtocol::Unknown => "Unknown",
             },
             self.desktop_environment,
@@ -105,22 +110,21 @@ impl std::fmt::Display for EnvironmentInfo {
 /// identification, and CI/development environment detection across different platforms.
 //
 /// # Quick Start
-//
-/// ```rust
-/// use coldvox_foundation::env::{detect, EnvironmentInfo};
-//
+///
+/// ```ignore
+/// use coldvox_foundation::env::detect;
+///
 /// let env_info = detect();
 /// println!("Environment: {}", env_info);
-//
+///
 /// if env_info.is_wayland_environment() {
-///     println!("Running on Wayland");
-// }
-//
+///     // Running on Wayland
+/// }
+///
 /// if env_info.is_ci_environment() {
-///     println!("Running in CI");
-// }
+///     // Running in CI
+/// }
 /// ```
-
 use std::env;
 use tracing::{debug, warn};
 
@@ -386,8 +390,13 @@ pub fn detect() -> EnvironmentInfo {
     let has_display = has_display();
     debug!("Display available: {}", has_display);
 
-    let env_info = EnvironmentInfo::new(display_protocol, desktop_environment, environment, has_display);
-    
+    let env_info = EnvironmentInfo::new(
+        display_protocol,
+        desktop_environment,
+        environment,
+        has_display,
+    );
+
     debug!("Environment detection complete: {}", env_info);
     env_info
 }
@@ -493,6 +502,7 @@ pub fn get_environment_timeout(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     #[test]
     fn test_display_protocol_is_wayland() {
@@ -517,6 +527,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_detect_display_protocol_unknown() {
         // Clear relevant environment variables
         env::remove_var("XDG_SESSION_TYPE");
@@ -528,6 +539,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_detect_display_protocol_xdg_session_type() {
         // Clear all display-related environment variables first
         env::remove_var("XDG_SESSION_TYPE");
@@ -563,6 +575,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_detect_display_protocol_wayland_display() {
         // Clear all display-related environment variables first
         env::remove_var("XDG_SESSION_TYPE");
@@ -580,6 +593,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_detect_display_protocol_display() {
         // Clear all display-related environment variables first
         env::remove_var("XDG_SESSION_TYPE");
@@ -604,12 +618,14 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_has_display() {
         // Test that the function doesn't panic
         let _ = has_display();
     }
 
     #[test]
+    #[serial]
     fn test_environment_helpers() {
         let _ = is_wayland_environment();
         let _ = is_x11_environment();
@@ -617,6 +633,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_is_ci_environment() {
         // Clear CI-related environment variables first
         for var in [
@@ -647,6 +664,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_is_development_environment() {
         // Clear development-related environment variables first
         for var in ["RUST_BACKTRACE", "DEBUG", "DEV"] {
@@ -668,6 +686,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_detect_environment() {
         // Clear all environment variables first
         for var in [
@@ -701,6 +720,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_get_environment_timeout() {
         use std::time::Duration;
 
@@ -742,7 +762,10 @@ mod tests {
         );
 
         assert_eq!(env_info.display_protocol, DisplayProtocol::Wayland);
-        assert_eq!(env_info.desktop_environment, DesktopEnvironment::GnomeWayland);
+        assert_eq!(
+            env_info.desktop_environment,
+            DesktopEnvironment::GnomeWayland
+        );
         assert_eq!(env_info.environment, Environment::Development);
         assert!(env_info.has_display);
         assert!(env_info.is_wayland);
@@ -823,6 +846,7 @@ mod tests {
 
     // Tests for detect() function
     #[test]
+    #[serial]
     fn test_detect_function_basic() {
         // Clear all environment variables
         for var in [
@@ -846,21 +870,31 @@ mod tests {
         }
 
         let env_info = detect();
-        
+
         // Should detect some environment (even if unknown)
-        assert!(env_info.display_protocol == DisplayProtocol::Unknown ||
-                env_info.display_protocol == DisplayProtocol::Wayland ||
-                env_info.display_protocol == DisplayProtocol::X11);
+        assert!(
+            env_info.display_protocol == DisplayProtocol::Unknown
+                || env_info.display_protocol == DisplayProtocol::Wayland
+                || env_info.display_protocol == DisplayProtocol::X11
+        );
         // Desktop environment can be unknown when no display is available
-        assert!(env_info.desktop_environment == DesktopEnvironment::Unknown ||
-                env_info.has_display);
+        assert!(
+            env_info.desktop_environment == DesktopEnvironment::Unknown || env_info.has_display
+        );
         assert!(env_info.environment == Environment::Production); // Default when no indicators
     }
 
     #[test]
+    #[serial]
     fn test_detect_wayland_environment() {
         // Clear environment variables
-        for var in ["XDG_SESSION_TYPE", "WAYLAND_DISPLAY", "DISPLAY", "CI", "DEBUG"] {
+        for var in [
+            "XDG_SESSION_TYPE",
+            "WAYLAND_DISPLAY",
+            "DISPLAY",
+            "CI",
+            "DEBUG",
+        ] {
             env::remove_var(var);
         }
 
@@ -883,9 +917,16 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_detect_x11_environment() {
         // Clear environment variables
-        for var in ["XDG_SESSION_TYPE", "WAYLAND_DISPLAY", "DISPLAY", "CI", "DEBUG"] {
+        for var in [
+            "XDG_SESSION_TYPE",
+            "WAYLAND_DISPLAY",
+            "DISPLAY",
+            "CI",
+            "DEBUG",
+        ] {
             env::remove_var(var);
         }
 
@@ -908,6 +949,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_detect_ci_environment() {
         // Clear environment variables
         for var in ["CI", "GITHUB_ACTIONS", "DEBUG", "XDG_SESSION_TYPE"] {
@@ -931,6 +973,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_detect_development_environment() {
         // Clear environment variables
         for var in ["CI", "DEBUG", "RUST_BACKTRACE", "XDG_SESSION_TYPE"] {
@@ -954,6 +997,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_detect_priority_ci_over_development() {
         // Clear environment variables
         for var in ["CI", "DEBUG", "XDG_SESSION_TYPE"] {
@@ -977,9 +1021,16 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_detect_no_display_environment() {
         // Clear all display-related environment variables
-        for var in ["XDG_SESSION_TYPE", "WAYLAND_DISPLAY", "DISPLAY", "CI", "DEBUG"] {
+        for var in [
+            "XDG_SESSION_TYPE",
+            "WAYLAND_DISPLAY",
+            "DISPLAY",
+            "CI",
+            "DEBUG",
+        ] {
             env::remove_var(var);
         }
 
@@ -990,9 +1041,16 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_detect_consistency_with_individual_functions() {
         // Set up a known environment
-        for var in ["XDG_SESSION_TYPE", "WAYLAND_DISPLAY", "DISPLAY", "CI", "DEBUG"] {
+        for var in [
+            "XDG_SESSION_TYPE",
+            "WAYLAND_DISPLAY",
+            "DISPLAY",
+            "CI",
+            "DEBUG",
+        ] {
             env::remove_var(var);
         }
 

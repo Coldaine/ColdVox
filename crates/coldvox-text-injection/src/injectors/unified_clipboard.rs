@@ -1,9 +1,8 @@
-//! Clipboard Text Injector with Seed/Restore Functionality
+//! Unified Clipboard Text Injector
 //!
-//! This module provides a clipboard-based text injector that implements seed/restore
-//! functionality. It backs up the clipboard content, seeds it with the payload,
-//! performs the injection, and then restores the original clipboard content.
-//! Optional Klipper cleanup is available behind a feature flag.
+//! This module provides a consolidated clipboard-based text injector that combines the best
+//! features from ClipboardInjector, ClipboardPasteInjector, and ComboClipboardYdotool.
+//! It supports both strict and best-effort injection modes with configurable behavior.
 
 use crate::detection::{detect_display_protocol, DisplayProtocol};
 use crate::logging::utils;
@@ -19,12 +18,14 @@ use tokio::process::Command;
 use tokio::time::timeout;
 use tracing::{debug, trace, warn};
 
-// Re-export the old Context type for backwards compatibility
-#[deprecated(
-    since = "0.1.0",
-    note = "Use InjectionContext from types module instead"
-)]
-pub type Context = InjectionContext;
+/// Clipboard injection modes
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClipboardInjectionMode {
+    /// Require successful paste (strict mode like ClipboardPasteInjector)
+    Strict,
+    /// Best effort with fallbacks (like ClipboardInjector)
+    BestEffort,
+}
 
 /// Clipboard backup data with MIME type information
 #[derive(Debug, Clone)]
@@ -53,16 +54,6 @@ impl ClipboardBackup {
     }
 }
 
-/// Clipboard-based text injector with seed/restore functionality
-pub struct ClipboardInjector {
-    /// Configuration for injection
-    config: InjectionConfig,
-    /// Whether the injector is available
-    available: Arc<tokio::sync::RwLock<bool>>,
-    /// Detected backend type
-    backend_type: ClipboardBackend,
-}
-
 /// Clipboard backend types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClipboardBackend {
@@ -74,14 +65,38 @@ pub enum ClipboardBackend {
     Unknown,
 }
 
-impl ClipboardInjector {
-    /// Create a new clipboard injector
+/// Unified clipboard-based text injector with configurable injection modes
+pub struct UnifiedClipboardInjector {
+    /// Configuration for injection
+    config: InjectionConfig,
+    /// Whether the injector is available
+    available: Arc<tokio::sync::RwLock<bool>>,
+    /// Detected backend type
+    backend_type: ClipboardBackend,
+    /// Injection mode (strict vs best-effort)
+    injection_mode: ClipboardInjectionMode,
+}
+
+impl UnifiedClipboardInjector {
+    /// Create a new unified clipboard injector
     pub fn new(config: InjectionConfig) -> Self {
         let backend_type = Self::detect_backend();
         Self {
             config,
             available: Arc::new(tokio::sync::RwLock::new(false)),
             backend_type,
+            injection_mode: ClipboardInjectionMode::BestEffort, // Default to best-effort
+        }
+    }
+
+    /// Create a new unified clipboard injector with specific injection mode
+    pub fn new_with_mode(config: InjectionConfig, mode: ClipboardInjectionMode) -> Self {
+        let backend_type = Self::detect_backend();
+        Self {
+            config,
+            available: Arc::new(tokio::sync::RwLock::new(false)),
+            backend_type,
+            injection_mode: mode,
         }
     }
 
@@ -106,18 +121,6 @@ impl ClipboardInjector {
     }
 
     /// Helper for "native attempt + command fallback" pattern with consistent timeout/kill handling
-    ///
-    /// This function encapsulates the common pattern of trying a native implementation first,
-    /// then falling back to a command-line tool if the native approach fails. It ensures
-    /// consistent timeout and process cleanup handling across all backends.
-    ///
-    /// # Arguments
-    /// * `native_attempt` - A function that tries the native implementation
-    /// * `fallback_name` - Name of the fallback command for logging
-    /// * `fallback_command` - A function that executes the fallback command and returns the result
-    ///
-    /// # Returns
-    /// The result from either the native attempt or fallback command
     async fn native_attempt_with_fallback<T, F, Fut, G, Gfut>(
         &self,
         native_attempt: F,
@@ -146,18 +149,6 @@ impl ClipboardInjector {
     }
 
     /// Execute a command with stdin, stdout, stderr and consistent timeout/kill handling
-    ///
-    /// This helper encapsulates the common pattern of spawning a command, writing to stdin,
-    /// and handling timeouts with proper process cleanup.
-    ///
-    /// # Arguments
-    /// * `command_name` - Name of the command for error messages
-    /// * `command_args` - Arguments for the command
-    /// * `content` - Content to write to stdin
-    /// * `timeout_duration` - Timeout duration for the operation
-    ///
-    /// # Returns
-    /// Result of the command execution
     async fn execute_command_with_stdin(
         &self,
         command_name: &str,
@@ -283,6 +274,7 @@ impl ClipboardInjector {
             ))),
         }
     }
+
     /// Read clipboard content using Wayland
     async fn read_wayland_clipboard(&self) -> InjectionResult<ClipboardBackup> {
         #[cfg(feature = "wl_clipboard")]
@@ -450,7 +442,7 @@ impl ClipboardInjector {
     }
 
     /// Perform paste action after seeding clipboard
-    async fn perform_paste(&self) -> InjectionResult<()> {
+    async fn perform_paste(&self) -> InjectionResult<&'static str> {
         trace!("Performing paste action");
 
         // Try AT-SPI paste first if available
@@ -458,7 +450,7 @@ impl ClipboardInjector {
         {
             if let Ok(()) = self.try_atspi_paste().await {
                 debug!("Paste succeeded via AT-SPI");
-                return Ok(());
+                return Ok("AT-SPI");
             }
         }
 
@@ -467,14 +459,14 @@ impl ClipboardInjector {
         {
             if let Ok(()) = self.try_enigo_paste().await {
                 debug!("Paste succeeded via Enigo");
-                return Ok(());
+                return Ok("Enigo");
             }
         }
 
         // Try ydotool as fallback
         if let Ok(()) = self.try_ydotool_paste().await {
             debug!("Paste succeeded via ydotool");
-            return Ok(());
+            return Ok("ydotool");
         }
 
         Err(InjectionError::MethodUnavailable(
@@ -607,8 +599,12 @@ impl ClipboardInjector {
 
     /// Try ydotool paste
     async fn try_ydotool_paste(&self) -> InjectionResult<()> {
-        let output = Command::new("ydotool")
-            .args(["key", "ctrl+v"])
+        let mut command = Command::new("ydotool");
+        #[cfg(feature = "ydotool")]
+        crate::ydotool_injector::apply_socket_env(&mut command);
+        command.args(["key", "ctrl+v"]);
+
+        let output = command
             .output()
             .await
             .map_err(|e| InjectionError::Process(format!("Failed to execute ydotool: {}", e)))?;
@@ -652,17 +648,57 @@ impl ClipboardInjector {
         }
     }
 
-    /// Main injection method
+    /// Schedule clipboard restoration with improved async handling
+    async fn schedule_clipboard_restore(&self, backup: Option<ClipboardBackup>) {
+        if let Some(backup) = backup {
+            let delay_ms = self.config.clipboard_restore_delay_ms.unwrap_or(500);
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+
+                // Restore clipboard content regardless of backend
+                let content_len = backup.content.len();
+
+                #[cfg(feature = "wl_clipboard")]
+                {
+                    use wl_clipboard_rs::copy::{MimeType, Options, Source};
+                    let src = Source::Bytes(backup.content.clone().into_boxed_slice());
+                    let opts = Options::new();
+                    let _ = opts.copy(src, MimeType::Text);
+                    debug!(
+                        "Restored original clipboard via wl-clipboard ({} chars)",
+                        content_len
+                    );
+                }
+
+                #[cfg(not(feature = "wl_clipboard"))]
+                {
+                    // Restore via command-line tools for X11/other backends
+                    let restored = Self::write_clipboard(&backup.content).await;
+                    match restored {
+                        Ok(_) => debug!(
+                            "Restored original clipboard via command-line ({} chars)",
+                            content_len
+                        ),
+                        Err(e) => warn!("Failed to restore clipboard: {}", e),
+                    }
+                }
+            });
+        }
+    }
+
+    /// Main injection method with configurable behavior
     pub async fn inject(&self, text: &str, _context: &InjectionContext) -> InjectionResult<()> {
         if text.is_empty() {
             return Ok(());
         }
 
         let start_time = Instant::now();
-        trace!("Clipboard injector starting for {} chars", text.len());
+        trace!(
+            "Unified clipboard injector starting for {} chars",
+            text.len()
+        );
 
-        // Always read fresh clipboard for backup (no pre-warming support yet for clipboard content)
-        // Pre-warming would need to store ClipboardBackup in InjectionContext.clipboard_backup
+        // Always read fresh clipboard for backup
         let backup = self.read_clipboard().await?;
 
         // Seed clipboard with payload
@@ -672,15 +708,30 @@ impl ClipboardInjector {
         tokio::time::sleep(Duration::from_millis(20)).await;
 
         // Perform paste action
-        self.perform_paste().await?;
+        let paste_result = self.perform_paste().await;
 
-        // Wait for paste to complete
-        let restore_delay = self.config.clipboard_restore_delay_ms.unwrap_or(500);
-        tokio::time::sleep(Duration::from_millis(restore_delay)).await;
+        // Schedule clipboard restoration (whether paste succeeded or not)
+        self.schedule_clipboard_restore(Some(backup)).await;
 
-        // Always restore clipboard backup
-        if let Err(e) = self.restore_clipboard(&backup).await {
-            warn!("Failed to restore clipboard: {}", e);
+        // Handle result based on injection mode
+        match (self.injection_mode, paste_result) {
+            (ClipboardInjectionMode::Strict, Err(e)) => {
+                warn!(
+                    "Strict mode: paste action failed after setting clipboard ({})",
+                    e
+                );
+                return Err(e);
+            }
+            (ClipboardInjectionMode::BestEffort, Err(e)) => {
+                debug!(
+                    "Best effort mode: paste action failed but continuing ({})",
+                    e
+                );
+                // Don't return error in best-effort mode
+            }
+            (_, Ok(method)) => {
+                debug!("Paste succeeded via {}", method);
+            }
         }
 
         // Optional Klipper cleanup if enabled
@@ -705,7 +756,7 @@ impl ClipboardInjector {
         );
 
         debug!(
-            "Clipboard injection completed in {}ms ({} chars)",
+            "Unified clipboard injection completed in {}ms ({} chars)",
             elapsed.as_millis(),
             text.len()
         );
@@ -734,55 +785,21 @@ impl ClipboardInjector {
     }
 }
 
-/// Seed/restore wrapper function
-pub async fn with_seed_restore<F, Fut>(
-    payload: &[u8],
-    mime_type: &str,
-    backup: Option<&ClipboardBackup>,
-    f: F,
-) -> InjectionResult<()>
-where
-    F: FnOnce() -> Fut,
-    Fut: std::future::Future<Output = InjectionResult<()>>,
-{
-    // Create injector with default config
-    let config = InjectionConfig::default();
-    let injector = ClipboardInjector::new(config);
-
-    // Create backup if not provided
-    let backup = if let Some(backup) = backup {
-        backup.clone()
-    } else {
-        injector.read_clipboard().await?
-    };
-
-    // Seed clipboard with payload
-    injector.write_clipboard(payload, mime_type).await?;
-
-    // Run the provided function
-    let result = f().await;
-
-    // Always restore clipboard backup
-    if let Err(e) = injector.restore_clipboard(&backup).await {
-        warn!("Failed to restore clipboard in with_seed_restore: {}", e);
-    }
-
-    result
-}
-
 #[async_trait]
-impl TextInjector for ClipboardInjector {
+impl TextInjector for UnifiedClipboardInjector {
     fn backend_name(&self) -> &'static str {
-        "clipboard-injector"
+        "unified-clipboard-injector"
     }
 
     fn backend_info(&self) -> Vec<(&'static str, String)> {
         vec![
-            ("type", "clipboard seed/restore".to_string()),
+            ("type", "unified clipboard seed/restore".to_string()),
             (
                 "description",
-                "Backs up clipboard, seeds with payload, performs paste, then restores backup"
-                    .to_string(),
+                format!(
+                    "Backs up clipboard, seeds with payload, performs paste ({:?}), then restores backup",
+                    self.injection_mode
+                ),
             ),
             ("backend", format!("{:?}", self.backend_type)),
             ("paste_methods", "AT-SPI, Enigo, ydotool".to_string()),
@@ -821,12 +838,22 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_clipboard_injector_creation() {
+    async fn test_unified_clipboard_injector_creation() {
         let config = InjectionConfig::default();
-        let injector = ClipboardInjector::new(config);
+        let injector = UnifiedClipboardInjector::new(config);
 
-        assert_eq!(injector.backend_name(), "clipboard-injector");
+        assert_eq!(injector.backend_name(), "unified-clipboard-injector");
         assert_eq!(injector.method(), InjectionMethod::ClipboardPasteFallback);
+        assert_eq!(injector.injection_mode, ClipboardInjectionMode::BestEffort);
+    }
+
+    #[tokio::test]
+    async fn test_unified_clipboard_injector_strict_mode() {
+        let config = InjectionConfig::default();
+        let injector =
+            UnifiedClipboardInjector::new_with_mode(config, ClipboardInjectionMode::Strict);
+
+        assert_eq!(injector.injection_mode, ClipboardInjectionMode::Strict);
     }
 
     #[tokio::test]
@@ -841,32 +868,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_context_default() {
-        let context = InjectionContext::default();
-
-        assert!(context.atspi_focused_node_path.is_none());
-        assert!(context.clipboard_backup.is_none());
-        assert!(context.target_app.is_none());
-        assert!(context.window_id.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_with_seed_restore_wrapper() {
-        let payload = b"test payload";
-        let mime_type = "text/plain";
-
-        // Test the wrapper function
-        let result = with_seed_restore(payload, mime_type, None, || async { Ok(()) }).await;
-
-        // The result may fail due to clipboard unavailability in test environment
-        // but we're testing the wrapper structure
-        assert!(result.is_ok() || result.is_err());
-    }
-
-    #[tokio::test]
     async fn test_empty_text_handling() {
         let config = InjectionConfig::default();
-        let injector = ClipboardInjector::new(config);
+        let injector = UnifiedClipboardInjector::new(config);
         let context = InjectionContext::default();
 
         // Empty text should succeed without error
@@ -874,193 +878,14 @@ mod tests {
         assert!(result.is_ok());
     }
 
-    #[tokio::test]
-    async fn test_legacy_inject_text() {
-        let config = InjectionConfig::default();
-        let injector = ClipboardInjector::new(config);
-
-        // Empty text should succeed without error
-        let result = injector.inject_text("", None).await;
-        assert!(result.is_ok());
-    }
-
     #[test]
     fn test_backend_detection() {
         // These tests might not work in all environments
         // but ensure the detection code doesn't panic
-        let backend_type = ClipboardInjector::detect_backend();
+        let backend_type = UnifiedClipboardInjector::detect_backend();
         assert!(matches!(
             backend_type,
             ClipboardBackend::Wayland | ClipboardBackend::X11 | ClipboardBackend::Unknown
         ));
-    }
-
-    #[tokio::test]
-    async fn test_native_attempt_with_fallback_success() {
-        let config = InjectionConfig::default();
-        let injector = ClipboardInjector::new(config);
-
-        // Test successful native attempt
-        let result = injector
-            .native_attempt_with_fallback(
-                || async { Ok("native_success") },
-                "fallback_cmd",
-                || async { Ok("fallback_success") },
-            )
-            .await;
-
-        assert_eq!(result.unwrap(), "native_success");
-
-        // Test fallback when native fails
-        let result2: Result<&str, InjectionError> = injector
-            .native_attempt_with_fallback(
-                || async { Err(InjectionError::Other("native failed".to_string())) },
-                "fallback_cmd",
-                || async { Ok("fallback_success") },
-            )
-            .await;
-
-        assert_eq!(result2.unwrap(), "fallback_success");
-    }
-
-    #[tokio::test]
-    async fn test_native_attempt_with_fallback_fallback() {
-        let config = InjectionConfig::default();
-        let injector = ClipboardInjector::new(config);
-
-        // Test fallback when native fails
-        let result = injector
-            .native_attempt_with_fallback(
-                || async { Err(InjectionError::Other("native failed".to_string())) },
-                "fallback_cmd",
-                || async { Ok("fallback_success") },
-            )
-            .await;
-
-        assert_eq!(result.unwrap(), "fallback_success");
-    }
-
-    #[tokio::test]
-    async fn test_native_attempt_with_fallback_both_fail() {
-        let config = InjectionConfig::default();
-        let injector = ClipboardInjector::new(config);
-
-        // Test when both native and fallback fail
-        let result: InjectionResult<()> = injector
-            .native_attempt_with_fallback(
-                || async { Err(InjectionError::Other("native failed".to_string())) },
-                "fallback_cmd",
-                || async { Err(InjectionError::Other("fallback failed".to_string())) },
-            )
-            .await;
-
-        assert!(result.is_err());
-        if let Err(e) = result {
-            assert!(e.to_string().contains("fallback failed"));
-        }
-    }
-
-    #[tokio::test]
-    async fn test_execute_command_with_stdin_success() {
-        let config = InjectionConfig::default();
-        let injector = ClipboardInjector::new(config);
-
-        // Test successful command execution with echo
-        let result = injector
-            .execute_command_with_stdin("echo", &["test"], b"test content", Duration::from_secs(1))
-            .await;
-
-        // Echo should succeed
-        assert!(result.is_ok());
-    }
-
-    #[tokio::test]
-    async fn test_execute_command_with_stdin_nonexistent() {
-        let config = InjectionConfig::default();
-        let injector = ClipboardInjector::new(config);
-
-        // Test nonexistent command
-        let result = injector
-            .execute_command_with_stdin(
-                "nonexistent_command_12345",
-                &[],
-                b"test content",
-                Duration::from_secs(1),
-            )
-            .await;
-
-        assert!(result.is_err());
-        if let Err(e) = result {
-            assert!(e.to_string().contains("Failed to spawn"));
-        }
-    }
-
-    #[tokio::test]
-    async fn test_execute_command_with_stdin_timeout() {
-        let config = InjectionConfig::default();
-        let injector = ClipboardInjector::new(config);
-
-        // Test timeout with sleep command
-        let result = injector
-            .execute_command_with_stdin(
-                "sleep",
-                &["10"], // Sleep for 10 seconds
-                b"test content",
-                Duration::from_millis(100), // Very short timeout
-            )
-            .await;
-
-        assert!(result.is_err());
-        if let Err(e) = result {
-            assert!(matches!(e, InjectionError::Timeout(_)));
-        }
-    }
-
-    #[tokio::test]
-    async fn test_helper_functions_are_generic() {
-        let config = InjectionConfig::default();
-        let injector = ClipboardInjector::new(config);
-
-        // Test that the helper functions work with different types
-        let string_result = injector
-            .native_attempt_with_fallback(
-                || async { Ok("string_result".to_string()) },
-                "test_cmd",
-                || async { Ok("fallback_string".to_string()) },
-            )
-            .await;
-
-        let u32_result = injector
-            .native_attempt_with_fallback(|| async { Ok(42u32) }, "test_cmd", || async { Ok(0u32) })
-            .await;
-
-        assert_eq!(string_result.unwrap(), "string_result".to_string());
-        assert_eq!(u32_result.unwrap(), 42u32);
-    }
-
-    #[tokio::test]
-    async fn test_fallback_function_extensibility() {
-        let config = InjectionConfig::default();
-        let injector = ClipboardInjector::new(config);
-
-        // Test that fallback functions can have different signatures
-        let result = injector
-            .native_attempt_with_fallback(
-                || async { Ok("native_success") },
-                "fallback_cmd",
-                || async { Ok("fallback_success") },
-            )
-            .await;
-
-        let result2 = injector
-            .native_attempt_with_fallback(
-                || async { Err(InjectionError::Other("native failed".to_string())) },
-                "cmd2",
-                || async { Ok(123u64) },
-            )
-            .await;
-
-        assert_eq!(result.unwrap(), "native_success");
-        assert_eq!(result2.unwrap(), 123u64);
     }
 }

@@ -9,7 +9,8 @@ use std::time::{Duration, Instant};
 
 use std::sync::atomic::Ordering;
 
-use coldvox_stt::plugin::{PluginSelectionConfig, SttPlugin, SttPluginError, SttPluginRegistry};
+use coldvox_foundation::error::{ColdVoxError, ConfigError, PluginError, SttError};
+use coldvox_stt::plugin::{PluginSelectionConfig, SttPlugin, SttPluginRegistry};
 use coldvox_stt::TranscriptionConfig;
 use coldvox_telemetry::pipeline_metrics::PipelineMetrics;
 use serde_json;
@@ -54,6 +55,33 @@ impl Default for SttPluginManager {
 }
 
 impl SttPluginManager {
+    /// Warn if legacy or duplicate plugin selection config files are present.
+    /// Canonical location is `config/plugins.json`. Any other copies will be ignored.
+    fn warn_on_duplicate_configs(&self) {
+        use std::fs;
+        let canonical = std::path::Path::new("config/plugins.json");
+        let legacy_paths = [
+            std::path::Path::new("plugins.json"),
+            std::path::Path::new("crates/app/plugins.json"),
+            std::path::Path::new("crates/app/config/plugins.json"),
+        ];
+
+        for p in legacy_paths.iter() {
+            if *p == canonical {
+                continue;
+            }
+            if fs::metadata(p).is_ok() {
+                warn!(
+                    target: "coldvox::stt",
+                    path = %p.display(),
+                    canonical = %canonical.display(),
+                    "Detected legacy plugins.json at '{}' (deprecated, ignored). Use '{}' instead.",
+                    p.display(),
+                    canonical.display()
+                );
+            }
+        }
+    }
     /// Create a new plugin manager with default configuration
     pub fn new() -> Self {
         Self::new_with_config_path(PathBuf::from("config/plugins.json"))
@@ -148,7 +176,7 @@ impl SttPluginManager {
     }
 
     /// Load configuration from disk
-    async fn load_config(&mut self) -> Result<(), SttPluginError> {
+    async fn load_config(&mut self) -> Result<(), ColdVoxError> {
         if !self.config_path.exists() {
             debug!(
                 target: "coldvox::stt",
@@ -157,11 +185,14 @@ impl SttPluginManager {
             );
             return Ok(());
         }
-        let config_data = fs::read_to_string(&self.config_path).await.map_err(|e| {
-            SttPluginError::ConfigurationError(format!("Failed to read config file: {}", e))
-        })?;
+        let config_data = fs::read_to_string(&self.config_path)
+            .await
+            .map_err(|e| ConfigError::MissingField(format!("Failed to read config file: {}", e)))?;
         let config: PluginSelectionConfig = serde_json::from_str(&config_data).map_err(|e| {
-            SttPluginError::ConfigurationError(format!("Failed to parse config: {}", e))
+            ConfigError::Parse(config::ConfigError::Message(format!(
+                "Failed to parse config: {}",
+                e
+            )))
         })?;
         self.selection_config = config.clone();
 
@@ -178,23 +209,27 @@ impl SttPluginManager {
     }
 
     /// Save current configuration to disk
-    async fn save_config(&self) -> Result<(), SttPluginError> {
+    async fn save_config(&self) -> Result<(), ColdVoxError> {
         // Create parent directory if it doesn't exist
         if let Some(parent) = self.config_path.parent() {
-            fs::create_dir_all(parent).await.map_err(|e| {
-                SttPluginError::ConfigurationError(format!(
-                    "Failed to create config directory: {}",
-                    e
-                ))
-            })?;
+            fs::create_dir_all(parent)
+                .await
+                .map_err(|e| ConfigError::Validation {
+                    field: "config".to_string(),
+                    reason: format!("Failed to create config directory: {}", e),
+                })?;
         }
         let config_data = serde_json::to_string_pretty(&self.selection_config).map_err(|e| {
-            SttPluginError::ConfigurationError(format!("Failed to serialize config: {}", e))
+            ConfigError::Parse(config::ConfigError::Message(format!(
+                "Failed to serialize config: {}",
+                e
+            )))
         })?;
         fs::write(&self.config_path, config_data)
             .await
-            .map_err(|e| {
-                SttPluginError::ConfigurationError(format!("Failed to write config file: {}", e))
+            .map_err(|e| ConfigError::Validation {
+                field: "config".to_string(),
+                reason: format!("Failed to write config file: {}", e),
             })?;
         debug!(
             target: "coldvox::stt",
@@ -211,7 +246,7 @@ impl SttPluginManager {
     }
 
     /// Set a new configuration file path and reload if file exists
-    pub async fn set_config_path(&mut self, path: PathBuf) -> Result<(), SttPluginError> {
+    pub async fn set_config_path(&mut self, path: PathBuf) -> Result<(), ColdVoxError> {
         self.config_path = path;
         self.load_config().await
     }
@@ -296,7 +331,7 @@ impl SttPluginManager {
                                             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                                     }
                                 }
-                                Err(SttPluginError::AlreadyUnloaded(_)) => {
+                                Err(ColdVoxError::Plugin(PluginError::Lifecycle { .. })) => {
                                     // Plugin is already unloaded, just clear it
                                     info!(
                                         target: "coldvox::stt",
@@ -356,7 +391,7 @@ impl SttPluginManager {
     }
 
     /// Start the metrics logging task
-    async fn start_metrics_task(&self) -> Result<(), SttPluginError> {
+    async fn start_metrics_task(&self) -> Result<(), ColdVoxError> {
         let metrics_sink = match self.metrics_sink {
             Some(ref m) => m.clone(),
             None => return Ok(()),
@@ -476,7 +511,7 @@ impl SttPluginManager {
                                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             }
                         }
-                        Err(SttPluginError::AlreadyUnloaded(_)) => {
+                        Err(ColdVoxError::Plugin(PluginError::Lifecycle { .. })) => {
                             // Plugin is already unloaded, just clear it
                             debug!(
                                 target: "coldvox::stt",
@@ -547,7 +582,9 @@ impl SttPluginManager {
     }
 
     /// Initialize the plugin manager and select the best available plugin
-    pub async fn initialize(&mut self) -> Result<String, SttPluginError> {
+    pub async fn initialize(&mut self) -> Result<String, ColdVoxError> {
+        // Surface any legacy/duplicate config files to help users consolidate configs
+        self.warn_on_duplicate_configs();
         let registry = self.registry.read().await;
         let init_start = Instant::now();
 
@@ -717,7 +754,7 @@ impl SttPluginManager {
     fn create_fallback_plugin(
         &self,
         registry: &SttPluginRegistry,
-    ) -> Result<Box<dyn SttPlugin>, SttPluginError> {
+    ) -> Result<Box<dyn SttPlugin>, ColdVoxError> {
         // Try fallback plugins in order
         for fallback_id in &self.selection_config.fallback_plugins {
             match registry.create_plugin(fallback_id) {
@@ -741,9 +778,12 @@ impl SttPluginManager {
             Ok(p) => {
                 let id = p.info().id.clone();
                 if id == "noop" {
-                    return Err(SttPluginError::ConfigurationError(
-                        "No real STT plugin available (NoOp is not allowed as fallback)".to_string(),
-                    ));
+                    return Err(ConfigError::Validation {
+                        field: "stt".to_string(),
+                        reason: "No real STT plugin available (NoOp is not allowed as fallback)"
+                            .to_string(),
+                    }
+                    .into());
                 }
                 info!(
                     target: "coldvox::stt",
@@ -755,9 +795,11 @@ impl SttPluginManager {
             }
             Err(_) => {
                 // No fallback to NoOp; require real STT
-                Err(SttPluginError::ConfigurationError(
-                    "No STT plugin available. Ensure required models and libraries are installed.".to_string(),
-                ))
+                Err(ConfigError::Validation{
+                    field: "stt".to_string(),
+                    reason: "No STT plugin available. Ensure required models and libraries are installed.".to_string(),
+                }
+                .into())
             }
         }
     }
@@ -769,7 +811,7 @@ impl SttPluginManager {
     }
 
     /// Switch to a different plugin
-    pub async fn switch_plugin(&mut self, plugin_id: &str) -> Result<(), SttPluginError> {
+    pub async fn switch_plugin(&mut self, plugin_id: &str) -> Result<(), ColdVoxError> {
         let registry = self.registry.read().await;
         let new_plugin = registry.create_plugin(plugin_id)?;
 
@@ -805,7 +847,7 @@ impl SttPluginManager {
                         metrics.stt_active_plugins.store(0, Ordering::Relaxed);
                     }
                 }
-                Err(SttPluginError::AlreadyUnloaded(_)) => {
+                Err(ColdVoxError::Plugin(PluginError::Lifecycle { .. })) => {
                     debug!(
                         target: "coldvox::stt",
                         plugin_id = %old_id,
@@ -846,7 +888,7 @@ impl SttPluginManager {
     }
 
     /// Unload a specific plugin by ID
-    pub async fn unload_plugin(&self, plugin_id: &str) -> Result<(), SttPluginError> {
+    pub async fn unload_plugin(&self, plugin_id: &str) -> Result<(), ColdVoxError> {
         let mut current = self.current_plugin.write().await;
         let mut last_unloaded = self.last_unloaded_plugin_id.write().await;
 
@@ -872,7 +914,7 @@ impl SttPluginManager {
 
                         Ok(())
                     }
-                    Err(SttPluginError::AlreadyUnloaded(_)) => {
+                    Err(ColdVoxError::Plugin(PluginError::Lifecycle { .. })) => {
                         debug!(
                             target: "coldvox::stt",
                             plugin_id = %plugin_id,
@@ -897,9 +939,11 @@ impl SttPluginManager {
                     }
                 }
             } else {
-                Err(SttPluginError::NotAvailable {
+                Err(SttError::NotAvailable {
+                    plugin: plugin_id.to_string(),
                     reason: format!("Plugin '{}' is not currently loaded", plugin_id),
-                })
+                }
+                .into())
             }
         } else {
             // Check if this is an idempotent unload of the last unloaded plugin
@@ -913,20 +957,24 @@ impl SttPluginManager {
                     );
                     Ok(())
                 } else {
-                    Err(SttPluginError::NotAvailable {
+                    Err(SttError::NotAvailable {
+                        plugin: plugin_id.to_string(),
                         reason: "No plugin is currently loaded".to_string(),
-                    })
+                    }
+                    .into())
                 }
             } else {
-                Err(SttPluginError::NotAvailable {
+                Err(SttError::NotAvailable {
+                    plugin: plugin_id.to_string(),
                     reason: "No plugin is currently loaded".to_string(),
-                })
+                }
+                .into())
             }
         }
     }
 
     /// Unload all plugins (for shutdown cleanup)
-    pub async fn unload_all_plugins(&self) -> Result<(), SttPluginError> {
+    pub async fn unload_all_plugins(&self) -> Result<(), ColdVoxError> {
         let mut current = self.current_plugin.write().await;
 
         if let Some(ref mut plugin) = *current {
@@ -950,7 +998,7 @@ impl SttPluginManager {
 
                     Ok(())
                 }
-                Err(SttPluginError::AlreadyUnloaded(_)) => {
+                Err(ColdVoxError::Plugin(PluginError::Lifecycle { .. })) => {
                     info!(
                         target: "coldvox::stt",
                         plugin_id = %plugin_id,
@@ -1032,11 +1080,9 @@ impl SttPluginManager {
                 Err(e) => {
                     tracing::warn!(target: "stt_debug", plugin_id = %plugin_id, error = %e, "plugin_manager.process_audio() error");
                     // Track error and potentially trigger failover
-                    self.total_errors
-                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    self.total_errors.fetch_add(1, Ordering::Relaxed);
                     if let Some(ref sink) = self.metrics_sink {
-                        sink.stt_total_errors
-                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        sink.stt_total_errors.fetch_add(1, Ordering::Relaxed);
                         sink.stt_transcription_failures
                             .fetch_add(1, Ordering::Relaxed);
                     }
@@ -1338,10 +1384,15 @@ mod tests {
 
         // Try to unload a plugin that doesn't exist
         let result = manager.unload_plugin("nonexistent").await;
-        assert!(matches!(
-            result,
-            Err(SttPluginError::NotAvailable { ref reason }) if reason.contains("No plugin is currently loaded")
-        ));
+        assert!(result.is_err());
+
+        // Verify error type
+        match result {
+            Err(ColdVoxError::Stt(SttError::NotAvailable { .. })) => {
+                // Expected
+            }
+            _ => panic!("Expected NotAvailable error"),
+        }
     }
 
     #[tokio::test]

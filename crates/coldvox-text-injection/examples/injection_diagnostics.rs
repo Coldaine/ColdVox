@@ -126,7 +126,7 @@ async fn main() -> Result<()> {
     );
 
     let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
-    let manager = StrategyManager::new(config.clone(), metrics.clone()).await;
+    let mut manager = StrategyManager::new(config.clone(), metrics.clone()).await;
 
     let order_preview = manager.get_method_order_uncached();
     info!(?order_preview, "Computed base fallback order");

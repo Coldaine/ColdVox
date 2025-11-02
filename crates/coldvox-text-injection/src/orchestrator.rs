@@ -8,8 +8,9 @@ use crate::confirm::{text_changed, ConfirmationResult};
 use crate::injectors::atspi::AtspiInjector;
 use crate::prewarm::PrewarmController;
 use crate::session::{InjectionSession, SessionState};
-use crate::types::{InjectionConfig, InjectionError, InjectionMethod, InjectionResult};
+use crate::types::{InjectionConfig, InjectionMethod, InjectionResult};
 use crate::TextInjector;
+use coldvox_foundation::error::InjectionError;
 use std::env;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -17,7 +18,7 @@ use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
 /// Context for AT-SPI injection operations
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AtspiContext {
     /// Pre-warmed AT-SPI connection data
     pub focused_node: Option<String>,
@@ -25,16 +26,6 @@ pub struct AtspiContext {
     pub target_app: Option<String>,
     /// Window identifier
     pub window_id: Option<String>,
-}
-
-impl Default for AtspiContext {
-    fn default() -> Self {
-        Self {
-            focused_node: None,
-            target_app: None,
-            window_id: None,
-        }
-    }
 }
 
 /// Desktop environment types

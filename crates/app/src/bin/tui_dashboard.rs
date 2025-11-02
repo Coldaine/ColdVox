@@ -45,8 +45,7 @@ fn init_logging(cli_level: &str) -> Result<(), Box<dyn std::error::Error>> {
     } else {
         std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string())
     };
-    let env_filter =
-        EnvFilter::try_new(effective_level).unwrap_or_else(|_| EnvFilter::new("info"));
+    let env_filter = EnvFilter::try_new(effective_level).unwrap_or_else(|_| EnvFilter::new("info"));
 
     // Only use file logging for TUI mode to avoid corrupting the display
     let file_layer = fmt::layer()

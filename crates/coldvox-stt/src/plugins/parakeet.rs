@@ -11,6 +11,7 @@ use tracing::warn;
 use crate::plugin::*;
 use crate::plugin_types::*;
 use crate::types::{TranscriptionConfig, TranscriptionEvent};
+use coldvox_foundation::error::{ColdVoxError, SttError};
 
 /// Parakeet model variants
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -174,12 +175,12 @@ impl SttPlugin for ParakeetPlugin {
         }
     }
 
-    async fn is_available(&self) -> Result<bool, SttPluginError> {
+    async fn is_available(&self) -> Result<bool, ColdVoxError> {
         // Parakeet is not yet released
         Ok(false)
     }
 
-    async fn initialize(&mut self, _config: TranscriptionConfig) -> Result<(), SttPluginError> {
+    async fn initialize(&mut self, _config: TranscriptionConfig) -> Result<(), ColdVoxError> {
         warn!("Parakeet plugin is a stub - not yet implemented");
 
         // In the future:
@@ -188,31 +189,34 @@ impl SttPlugin for ParakeetPlugin {
         // 3. Load Parakeet engine
         // 4. Configure VAD if enabled
 
-        Err(SttPluginError::NotAvailable {
+        Err(SttError::NotAvailable {
+            plugin: "parakeet".to_string(),
             reason: "Parakeet is not yet released by Mozilla".to_string(),
-        })
+        }
+        .into())
     }
 
     async fn process_audio(
         &mut self,
         _samples: &[i16],
-    ) -> Result<Option<TranscriptionEvent>, SttPluginError> {
+    ) -> Result<Option<TranscriptionEvent>, ColdVoxError> {
         // Stub implementation
-        Err(SttPluginError::NotAvailable {
+        Err(SttError::NotAvailable {
+            plugin: "parakeet".to_string(),
             reason: "Parakeet plugin not yet implemented".to_string(),
-        })
+        }
+        .into())
     }
 
-    async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, SttPluginError> {
+    async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, ColdVoxError> {
         Ok(None)
     }
 
-    async fn reset(&mut self) -> Result<(), SttPluginError> {
+    async fn reset(&mut self) -> Result<(), ColdVoxError> {
         *self
             .state
             .write()
-            .map_err(|_| SttPluginError::ProcessingError("Lock poisoned".to_string()))? =
-            PluginState::Ready;
+            .map_err(|_| ColdVoxError::Fatal("Lock poisoned".to_string()))? = PluginState::Ready;
         Ok(())
     }
 }
@@ -241,7 +245,7 @@ impl Default for ParakeetPluginFactory {
 }
 
 impl SttPluginFactory for ParakeetPluginFactory {
-    fn create(&self) -> Result<Box<dyn SttPlugin>, SttPluginError> {
+    fn create(&self) -> Result<Box<dyn SttPlugin>, ColdVoxError> {
         Ok(Box::new(ParakeetPlugin::with_config(self.config.clone())))
     }
 
@@ -249,11 +253,13 @@ impl SttPluginFactory for ParakeetPluginFactory {
         ParakeetPlugin::new().info()
     }
 
-    fn check_requirements(&self) -> Result<(), SttPluginError> {
+    fn check_requirements(&self) -> Result<(), ColdVoxError> {
         // Parakeet is not yet available
-        Err(SttPluginError::NotAvailable {
+        Err(SttError::NotAvailable {
+            plugin: "parakeet".to_string(),
             reason: "Parakeet is not yet released".to_string(),
-        })
+        }
+        .into())
     }
 }
 

@@ -1,21 +1,21 @@
+use coldvox_foundation::test_env::TestEnvironment as FoundationTestEnv;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
-use coldvox_foundation::env::{is_ci_environment, has_display};
 
 /// Represents a running instance of a test application.
 ///
-/// This struct manages the lifecycle of the test application process.
-/// When it goes out of scope, its `Drop` implementation ensures the process
+/// This struct manages lifecycle of test application process.
+/// When it goes out of scope, its `Drop` implementation ensures that process
 /// is terminated and any associated temporary files are cleaned up.
 pub struct TestApp {
     /// The running child process.
     pub process: Child,
     /// The process ID.
     pub pid: u32,
-    /// The path to the temporary output file the app writes to.
+    /// The path to temporary output file that app writes to.
     pub output_file: PathBuf,
 }
 
@@ -30,7 +30,7 @@ impl Drop for TestApp {
                 .arg(self.pid.to_string())
                 .output();
 
-            // Give the process a moment to exit gracefully
+            // Give process a moment to exit gracefully
             std::thread::sleep(Duration::from_millis(100));
         }
 
@@ -61,7 +61,7 @@ impl Drop for TestApp {
             }
         }
 
-        // Wait for the process to avoid zombies with a timeout
+        // Wait for process to avoid zombies with a timeout
         let start = Instant::now();
         let wait_timeout = Duration::from_secs(5);
 
@@ -94,14 +94,14 @@ impl Drop for TestApp {
         #[cfg(unix)]
         {
             use std::process::Command;
-            // Kill any child processes in the process group
+            // Kill any child processes in process group
             let _ = Command::new("pkill")
                 .arg("-P") // Parent PID
                 .arg(self.pid.to_string())
                 .output();
         }
 
-        // Clean up the temporary output file.
+        // Clean up temporary output file.
         if self.output_file.exists() {
             if let Err(e) = fs::remove_file(&self.output_file) {
                 eprintln!("Failed to remove temp file {:?}: {}", self.output_file, e);
@@ -116,9 +116,9 @@ impl Drop for TestApp {
 pub struct TestAppManager;
 
 impl TestAppManager {
-    /// Launches the GTK test application.
+    /// Launches GTK test application.
     ///
-    /// The application is expected to have been compiled by the `build.rs` script.
+    /// The application is expected to have been compiled by `build.rs` script.
     pub fn launch_gtk_app() -> Result<TestApp, std::io::Error> {
         let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set, build script did not run?");
         let exe_path = Path::new(&out_dir).join("gtk_test_app");
@@ -134,7 +134,7 @@ impl TestAppManager {
         }
 
         let process = Command::new(&exe_path)
-            .stdout(Stdio::null()) // Prevent the app from polluting test output.
+            .stdout(Stdio::null()) // Prevent app from polluting test output.
             .stderr(Stdio::null())
             .spawn()?;
 
@@ -148,9 +148,9 @@ impl TestAppManager {
         })
     }
 
-    /// Launches the terminal test application.
+    /// Launches terminal test application.
     ///
-    /// The application is expected to have been compiled by the `build.rs` script.
+    /// The application is expected to have been compiled by `build.rs` script.
     pub fn launch_terminal_app() -> Result<TestApp, std::io::Error> {
         let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set, build script did not run?");
         let exe_path = Path::new(&out_dir).join("terminal-test-app");
@@ -195,15 +195,9 @@ pub async fn verify_injection_with_timeout(
     let start = Instant::now();
 
     // Use custom timeout or determine based on environment
-    let timeout = custom_timeout.unwrap_or_else(|| {
-        if is_ci_environment() {
-            // Longer timeout in CI due to potential resource contention
-            Duration::from_millis(2000)
-        } else {
-            // Standard timeout for local development
-            Duration::from_millis(500)
-        }
-    });
+    let env = FoundationTestEnv::detect();
+    let timeout =
+        custom_timeout.unwrap_or_else(|| env.get_test_timeout(Duration::from_millis(500)));
 
     while start.elapsed() < timeout {
         if let Ok(content) = fs::read_to_string(output_file) {
@@ -224,30 +218,46 @@ pub async fn verify_injection_with_timeout(
     ))
 }
 
-/// Provides information about the current test environment to determine
+/// Provides information about current test environment to determine
 /// if real injection tests are feasible to run.
+///
+/// This is now a wrapper around foundation's TestEnvironment
+/// for backward compatibility.
 pub struct TestEnvironment {
     pub has_display: bool,
     pub is_ci: bool,
+    inner: FoundationTestEnv,
 }
 
 impl TestEnvironment {
     /// Creates a new `TestEnvironment` by inspecting environment variables.
     pub fn current() -> Self {
-        // A display server is required for any UI-based injection.
-        let has_display = has_display();
+        let inner = FoundationTestEnv::detect();
 
-        // Use centralized CI detection
-        let is_ci = is_ci_environment();
-
-        Self { has_display, is_ci }
+        Self {
+            has_display: inner.has_display,
+            is_ci: inner.is_ci,
+            inner,
+        }
     }
 
-    /// Determines if the environment is suitable for running real injection tests.
-    ///
-    /// For now, this is simply an alias for checking for a display, but could be
-    /// expanded in the future.
+    /// Determines if environment is suitable for running real injection tests.
     pub fn can_run_real_tests(&self) -> bool {
-        self.has_display
+        self.inner.can_run_gui_tests()
+    }
+
+    /// Check if Wayland-specific tests can run
+    pub fn can_run_wayland_tests(&self) -> bool {
+        self.inner.can_run_wayland_tests()
+    }
+
+    /// Check if X11-specific tests can run
+    pub fn can_run_x11_tests(&self) -> bool {
+        self.inner.can_run_x11_tests()
+    }
+
+    /// Check if daemon-dependent tests can run
+    pub fn can_run_daemon_tests(&self) -> bool {
+        self.inner.can_run_daemon_tests()
     }
 }

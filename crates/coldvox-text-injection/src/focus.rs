@@ -1,5 +1,6 @@
-use crate::types::{InjectionConfig, InjectionError};
+use crate::types::InjectionConfig;
 use async_trait::async_trait;
+use coldvox_foundation::error::InjectionError;
 use std::time::{Duration, Instant};
 use tracing::debug;
 
@@ -30,7 +31,7 @@ pub struct FocusTracker<B: FocusBackend = SystemFocusAdapter> {
 
 impl FocusTracker<SystemFocusAdapter> {
     pub fn new(config: InjectionConfig) -> Self {
-        Self::with_backend(config, SystemFocusAdapter::default())
+        Self::with_backend(config, SystemFocusAdapter)
     }
 }
 

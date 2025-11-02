@@ -52,14 +52,15 @@ pub mod injectors;
 pub mod orchestrator;
 
 // Re-export orchestrator types and injector module
-pub use injectors::{ClipboardBackup, ClipboardContext, ClipboardInjector};
+#[allow(deprecated)]
+pub use injectors::{
+    ClipboardBackup, ClipboardContext, ClipboardInjectionMode, ClipboardInjector,
+    UnifiedClipboardInjector,
+};
 pub use orchestrator::{AtspiContext, DesktopEnvironment, StrategyOrchestrator};
 
 // Re-export modular AT-SPI injector for backward compatibility
 pub use injectors::atspi::AtspiInjector;
-
-#[cfg(feature = "wl_clipboard")]
-pub mod clipboard_paste_injector;
 
 #[cfg(feature = "enigo")]
 pub mod enigo_injector;
@@ -74,13 +75,13 @@ pub mod noop_injector;
 
 // Re-export key components for easy access
 pub use backend::Backend;
+pub use coldvox_foundation::error::InjectionError;
 pub use focus::{FocusProvider, FocusStatus};
 pub use manager::StrategyManager;
 pub use processor::{AsyncInjectionProcessor, InjectionProcessor, ProcessorMetrics};
 pub use session::{InjectionSession, SessionConfig, SessionState};
 pub use types::{
-    InjectionConfig, InjectionContext, InjectionError, InjectionMethod, InjectionMode,
-    InjectionResult,
+    InjectionConfig, InjectionContext, InjectionMethod, InjectionMode, InjectionResult,
 };
 
 /// Trait defining the core text injection interface

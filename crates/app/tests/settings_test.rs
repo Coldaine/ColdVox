@@ -1,4 +1,5 @@
 use coldvox_app::Settings;
+use coldvox_foundation::skip_test_unless;
 use std::env;
 use std::path::PathBuf;
 
@@ -33,14 +34,24 @@ fn test_settings_new_default() {
 }
 
 #[test]
-#[ignore] // TODO: Environment variable overrides not working - pre-existing issue
+#[ignore]
 fn test_settings_new_invalid_env_var_deserial() {
-    let config_path = get_test_config_path();
-    env::set_var("COLDVOX_INJECTION__MAX_TOTAL_LATENCY_MS", "abc"); // Invalid for u64
-    let result = Settings::from_path(&config_path);
+    skip_test_unless!(coldvox_foundation::test_env::TestRequirements::new()
+        .requires_env_var("COLDVOX_TEST_ENV_OVERRIDE"));
+    // Avoid reading files; exercise env-only path
+    env::set_var("COLDVOX_SKIP_CONFIG_DISCOVERY", "1");
+    // New environment parsing uses double-underscore segment separator
+    env::set_var("COLDVOX__INJECTION__MAX_TOTAL_LATENCY_MS", "abc"); // Invalid for u64
+    let result = Settings::new();
     assert!(result.is_err());
-    assert!(result.unwrap_err().contains("deserialize"));
-    env::remove_var("COLDVOX_INJECTION__MAX_TOTAL_LATENCY_MS");
+    let err = result.unwrap_err();
+    assert!(
+        err.contains("invalid digit found in string") || err.contains("deserialize"),
+        "unexpected error message: {}",
+        err
+    );
+    env::remove_var("COLDVOX__INJECTION__MAX_TOTAL_LATENCY_MS");
+    env::remove_var("COLDVOX_SKIP_CONFIG_DISCOVERY");
 }
 
 #[test]
@@ -92,22 +103,30 @@ fn test_settings_validate_zero_validation() {
 }
 
 #[test]
-#[ignore] // TODO: Environment variable overrides not working - pre-existing issue
+#[ignore]
 fn test_settings_new_with_env_override() {
-    let config_path = get_test_config_path();
-    env::set_var("COLDVOX_ACTIVATION_MODE", "hotkey");
-    let settings = Settings::from_path(&config_path).unwrap();
+    skip_test_unless!(coldvox_foundation::test_env::TestRequirements::new()
+        .requires_env_var("COLDVOX_TEST_ENV_OVERRIDE"));
+    env::set_var("COLDVOX_SKIP_CONFIG_DISCOVERY", "1");
+    // New environment parsing uses double-underscore segment separator
+    env::set_var("COLDVOX__ACTIVATION_MODE", "hotkey");
+    let settings = Settings::new().unwrap();
     assert_eq!(settings.activation_mode, "hotkey");
-    env::remove_var("COLDVOX_ACTIVATION_MODE");
+    env::remove_var("COLDVOX__ACTIVATION_MODE");
+    env::remove_var("COLDVOX_SKIP_CONFIG_DISCOVERY");
 }
 
 #[test]
-#[ignore] // TODO: Environment variable overrides not working - pre-existing issue
+#[ignore]
 fn test_settings_new_validation_err() {
-    let config_path = get_test_config_path();
-    env::set_var("COLDVOX_INJECTION__MAX_TOTAL_LATENCY_MS", "0");
-    let result = Settings::from_path(&config_path);
+    skip_test_unless!(coldvox_foundation::test_env::TestRequirements::new()
+        .requires_env_var("COLDVOX_TEST_ENV_OVERRIDE"));
+    env::set_var("COLDVOX_SKIP_CONFIG_DISCOVERY", "1");
+    // New environment parsing uses double-underscore segment separator
+    env::set_var("COLDVOX__INJECTION__MAX_TOTAL_LATENCY_MS", "0");
+    let result = Settings::new();
     assert!(result.is_err());
     assert!(result.unwrap_err().contains("max_total_latency_ms"));
-    env::remove_var("COLDVOX_INJECTION__MAX_TOTAL_LATENCY_MS");
+    env::remove_var("COLDVOX__INJECTION__MAX_TOTAL_LATENCY_MS");
+    env::remove_var("COLDVOX_SKIP_CONFIG_DISCOVERY");
 }

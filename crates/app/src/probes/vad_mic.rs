@@ -1,13 +1,14 @@
 use coldvox_telemetry::pipeline_metrics::PipelineMetrics;
 use std::sync::Arc;
 
-use super::common::{LiveTestResult, TestContext, TestError, TestErrorKind};
+use super::common::{LiveTestResult, TestContext, TestError};
 use crate::audio::vad_processor::VadProcessor;
+use crate::probes::common::TestErrorKind;
 use coldvox_audio::capture::AudioCaptureThread;
 use coldvox_audio::chunker::{AudioChunker, ChunkerConfig, ResamplerQuality};
-use coldvox_audio::SharedAudioFrame;
 use coldvox_audio::frame_reader::FrameReader;
 use coldvox_audio::ring_buffer::AudioRingBuffer;
+use coldvox_audio::SharedAudioFrame;
 use coldvox_foundation::error::AudioConfig;
 use coldvox_vad::config::{UnifiedVadConfig, VadMode};
 use coldvox_vad::types::VadEvent;
@@ -45,12 +46,12 @@ impl VadMicCheck {
         let (audio_producer, audio_consumer) = rb.split();
         let audio_producer = Arc::new(parking_lot::Mutex::new(audio_producer));
         let (capture_thread, dev_cfg, device_cfg_rx, _device_event_rx) =
-            AudioCaptureThread::spawn(config.clone(), audio_producer, device_name, false).map_err(
-                |e| TestError {
+            AudioCaptureThread::spawn(config, audio_producer, device_name, false).map_err(|e| {
+                TestError {
                     kind: TestErrorKind::Setup,
                     message: format!("Failed to create audio capture thread: {}", e),
-                },
-            )?;
+                }
+            })?;
 
         tokio::time::sleep(Duration::from_millis(200)).await; // Give the thread time to start
 
@@ -87,7 +88,7 @@ impl VadMicCheck {
         });
 
         // Set up VAD processing pipeline
-    let (audio_tx, _) = broadcast::channel::<SharedAudioFrame>(200);
+        let (audio_tx, _) = broadcast::channel::<SharedAudioFrame>(200);
         let (event_tx, mut event_rx) = mpsc::channel::<VadEvent>(100);
 
         let chunker_cfg = ChunkerConfig {

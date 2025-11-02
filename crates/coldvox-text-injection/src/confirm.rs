@@ -53,7 +53,8 @@
 //! - `StrategyOrchestrator` - Validates each injection attempt in fast-fail loop
 //! - Future: Could extend to clipboard/enigo fallbacks for cross-method validation
 
-use crate::types::{InjectionConfig, InjectionError, InjectionResult};
+use crate::types::{InjectionConfig, InjectionResult};
+use coldvox_foundation::error::InjectionError;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;

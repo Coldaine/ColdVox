@@ -8,8 +8,8 @@ use tokio::time::{self, Duration};
 use super::capture::DeviceConfig;
 use super::frame_reader::FrameReader;
 use super::resampler::StreamResampler;
-use coldvox_telemetry::{FpsTracker, PipelineMetrics, PipelineStage};
 use crate::SharedAudioFrame;
+use coldvox_telemetry::{FpsTracker, PipelineMetrics, PipelineStage};
 
 // Legacy f32 frame retained for compatibility in some callsites
 #[derive(Debug, Clone)]
@@ -293,7 +293,7 @@ mod tests {
         let rb = AudioRingBuffer::new(1024);
         let (_prod, cons) = rb.split();
         let reader = FrameReader::new(cons, 48_000, 2, 1024, None);
-    let (tx, _rx) = broadcast::channel::<SharedAudioFrame>(8);
+        let (tx, _rx) = broadcast::channel::<SharedAudioFrame>(8);
         let cfg = ChunkerConfig {
             frame_size_samples: 512,
             sample_rate_hz: 16_000,
@@ -327,7 +327,7 @@ mod tests {
         let rb = AudioRingBuffer::new(1024);
         let (_prod, cons) = rb.split();
         let reader = FrameReader::new(cons, 16_000, 2, 1024, None);
-    let (tx, _rx) = broadcast::channel::<SharedAudioFrame>(8);
+        let (tx, _rx) = broadcast::channel::<SharedAudioFrame>(8);
         let cfg = ChunkerConfig {
             frame_size_samples: 512,
             sample_rate_hz: 16_000,

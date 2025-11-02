@@ -342,7 +342,7 @@ impl PrewarmController {
 
         // Check if xdg-desktop-portal is available
         let portal_check = tokio::process::Command::new("busctl")
-            .args(&["--user", "list", "org.freedesktop.portal.Desktop"])
+            .args(["--user", "list", "org.freedesktop.portal.Desktop"])
             .output()
             .await;
 
@@ -545,7 +545,7 @@ pub async fn run_for_method(_ctx: &AtspiContext, method: InjectionMethod) -> Inj
                 }
             }
 
-            if let Ok(_) = event_result {
+            if event_result.is_ok() {
                 info!("Event listener armed for AtspiInsert");
             } else {
                 warn!("Event listener arming failed: {:?}", event_result);
@@ -569,7 +569,7 @@ pub async fn run_for_method(_ctx: &AtspiContext, method: InjectionMethod) -> Inj
                 }
             }
 
-            if let Ok(_) = event_result {
+            if event_result.is_ok() {
                 info!("Event listener armed for ClipboardPasteFallback");
             } else {
                 warn!("Event listener arming failed: {:?}", event_result);

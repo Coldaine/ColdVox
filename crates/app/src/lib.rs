@@ -129,9 +129,9 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             device: None,
-            resampler_quality: "balanced".to_string(),
+            resampler_quality: "".to_string(), // Empty; config builder sets "balanced" if not overridden
             enable_device_monitor: true,
-            activation_mode: "vad".to_string(),
+            activation_mode: "".to_string(), // Empty; config builder sets "vad" if not overridden
             audio: AudioSettings::default(),
             injection: InjectionSettings::default(),
             stt: SttSettings::default(),
@@ -189,7 +189,10 @@ impl Settings {
             .set_default("stt.auto_extract", true)?;
 
         // Allow tests or callers to skip config file discovery entirely
-        let skip_discovery = std::env::var("COLDVOX_SKIP_CONFIG_DISCOVERY").ok().map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false);
+        let skip_discovery = std::env::var("COLDVOX_SKIP_CONFIG_DISCOVERY")
+            .ok()
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
 
         // Check if a config file will be loaded
         let config_file_exists = if skip_discovery {
@@ -211,14 +214,13 @@ impl Settings {
             }
         } else if !skip_discovery {
             if let Some(path) = Self::discover_config_path() {
-            builder = builder.add_source(File::from(path));
+                builder = builder.add_source(File::from(path));
             }
         }
 
         builder = builder.add_source(
             Environment::with_prefix("COLDVOX")
                 .separator("__")
-                .prefix_separator("_")
                 .convert_case(Case::Snake)
                 .try_parsing(true),
         );

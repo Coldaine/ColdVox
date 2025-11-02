@@ -29,7 +29,7 @@ fn init_logging() -> Result<tracing_appender::non_blocking::WorkerGuard, Box<dyn
     std::fs::create_dir_all("logs")?;
     let file_appender = RollingFileAppender::new(Rotation::DAILY, "logs", "coldvox.log");
     let (non_blocking_file, guard) = tracing_appender::non_blocking(file_appender);
-    
+
     // Default to INFO level to reduce verbosity. Use RUST_LOG to override:
     // - RUST_LOG=trace                    # Maximum verbosity (includes all audio chunk logs)
     // - RUST_LOG=debug                    # Verbose debugging (includes silence detection)
@@ -376,8 +376,8 @@ mod tests {
     #[serial]
     fn test_settings_new_default() {
         // Clean up any leftover env vars from previous tests
-        env::remove_var("COLDVOX_INJECTION__MAX_TOTAL_LATENCY_MS");
-        env::remove_var("COLDVOX_ACTIVATION_MODE");
+        env::remove_var("COLDVOX__INJECTION__MAX_TOTAL_LATENCY_MS");
+        env::remove_var("COLDVOX__ACTIVATION_MODE");
         let _guard_skip = EnvVarGuard::set("COLDVOX_SKIP_CONFIG_DISCOVERY", "1");
         // Test default loading without file
         let settings = Settings::new().unwrap();
@@ -391,13 +391,16 @@ mod tests {
     #[serial]
     fn test_settings_new_invalid_env_var_deserial() {
         // Clean up OTHER env vars from previous tests
-        env::remove_var("COLDVOX_ACTIVATION_MODE");
-        let _guard = EnvVarGuard::set("COLDVOX_INJECTION__MAX_TOTAL_LATENCY_MS", "abc"); // Invalid for u64
+        env::remove_var("COLDVOX__ACTIVATION_MODE");
+        let _guard_skip = EnvVarGuard::set("COLDVOX_SKIP_CONFIG_DISCOVERY", "1");
+        let _guard = EnvVarGuard::set("COLDVOX__INJECTION__MAX_TOTAL_LATENCY_MS", "abc"); // Invalid for u64
         let result = Settings::new();
+        // Use a more specific assertion to check for the expected error
         let err = result.expect_err("expected invalid env var to cause error");
-        // Accept either deserialization error or validation error (config lib may default to 0)
         assert!(
-            err.contains("deserialize") || err.contains("max_total_latency_ms"),
+            err.contains("invalid digit found in string")
+                || err.contains("Failed to deserialize settings from config")
+                || err.contains("deserialize"),
             "unexpected error message: {err}"
         );
     }
@@ -415,8 +418,9 @@ mod tests {
     #[serial]
     fn test_settings_validate_invalid_mode() {
         // Clean up any leftover env vars from previous tests
-        env::remove_var("COLDVOX_INJECTION__MAX_TOTAL_LATENCY_MS");
-        env::remove_var("COLDVOX_ACTIVATION_MODE");
+        env::remove_var("COLDVOX__INJECTION__MAX_TOTAL_LATENCY_MS");
+        env::remove_var("COLDVOX__ACTIVATION_MODE");
+        let _guard_skip = EnvVarGuard::set("COLDVOX_SKIP_CONFIG_DISCOVERY", "1");
         let mut settings = Settings::new().unwrap();
         settings.resampler_quality = "invalid".to_string();
         let result = settings.validate();
@@ -428,8 +432,9 @@ mod tests {
     #[serial]
     fn test_settings_validate_invalid_rate() {
         // Clean up any leftover env vars from previous tests
-        env::remove_var("COLDVOX_INJECTION__MAX_TOTAL_LATENCY_MS");
-        env::remove_var("COLDVOX_ACTIVATION_MODE");
+        env::remove_var("COLDVOX__INJECTION__MAX_TOTAL_LATENCY_MS");
+        env::remove_var("COLDVOX__ACTIVATION_MODE");
+        let _guard_skip = EnvVarGuard::set("COLDVOX_SKIP_CONFIG_DISCOVERY", "1");
         let mut settings = Settings::new().unwrap();
         settings.injection.keystroke_rate_cps = 200; // Too high
         let result = settings.validate();
@@ -441,8 +446,9 @@ mod tests {
     #[serial]
     fn test_settings_validate_success_rate() {
         // Clean up any leftover env vars from previous tests
-        env::remove_var("COLDVOX_INJECTION__MAX_TOTAL_LATENCY_MS");
-        env::remove_var("COLDVOX_ACTIVATION_MODE");
+        env::remove_var("COLDVOX__INJECTION__MAX_TOTAL_LATENCY_MS");
+        env::remove_var("COLDVOX__ACTIVATION_MODE");
+        let _guard_skip = EnvVarGuard::set("COLDVOX_SKIP_CONFIG_DISCOVERY", "1");
         let mut settings = Settings::new().unwrap();
         settings.injection.min_success_rate = 1.5;
         let result = settings.validate();
@@ -463,8 +469,9 @@ mod tests {
     #[serial]
     fn test_settings_new_with_env_override() {
         // Clean up any leftover env vars from previous tests
-        env::remove_var("COLDVOX_INJECTION__MAX_TOTAL_LATENCY_MS");
-        let _guard = EnvVarGuard::set("COLDVOX_ACTIVATION_MODE", "hotkey");
+        env::remove_var("COLDVOX__INJECTION__MAX_TOTAL_LATENCY_MS");
+        let _guard_skip = EnvVarGuard::set("COLDVOX_SKIP_CONFIG_DISCOVERY", "1");
+        let _guard = EnvVarGuard::set("COLDVOX__ACTIVATION_MODE", "hotkey");
         let settings = Settings::new().unwrap();
         assert_eq!(settings.activation_mode, "hotkey");
     }
@@ -473,8 +480,9 @@ mod tests {
     #[serial]
     fn test_settings_new_validation_err() {
         // Clean up OTHER env vars from previous tests
-        env::remove_var("COLDVOX_ACTIVATION_MODE");
-        let _guard = EnvVarGuard::set("COLDVOX_INJECTION__MAX_TOTAL_LATENCY_MS", "0");
+        env::remove_var("COLDVOX__ACTIVATION_MODE");
+        let _guard_skip = EnvVarGuard::set("COLDVOX_SKIP_CONFIG_DISCOVERY", "1");
+        let _guard = EnvVarGuard::set("COLDVOX__INJECTION__MAX_TOTAL_LATENCY_MS", "0");
         let result = Settings::new();
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("max_total_latency_ms"));

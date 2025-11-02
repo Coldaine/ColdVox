@@ -11,6 +11,7 @@ use std::sync::Arc;
 use crate::plugin::*;
 use crate::plugin_types::*;
 use crate::types::{TranscriptionConfig, TranscriptionEvent};
+use coldvox_foundation::error::{ColdVoxError, SttError};
 
 /// Silero STT model variants
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -202,37 +203,41 @@ impl SttPlugin for SileroSttPlugin {
         }
     }
 
-    async fn is_available(&self) -> Result<bool, SttPluginError> {
+    async fn is_available(&self) -> Result<bool, ColdVoxError> {
         // Check for ONNX runtime
         // Check for model file
         Ok(false) // Not yet implemented
     }
 
-    async fn initialize(&mut self, _config: TranscriptionConfig) -> Result<(), SttPluginError> {
+    async fn initialize(&mut self, _config: TranscriptionConfig) -> Result<(), ColdVoxError> {
         // Future:
         // 1. Load ONNX model
         // 2. Initialize tokenizer
         // 3. Setup ONNX session
 
-        Err(SttPluginError::NotAvailable {
+        Err(SttError::NotAvailable {
+            plugin: "silero-stt".to_string(),
             reason: "Silero STT integration not yet implemented".to_string(),
-        })
+        }
+        .into())
     }
 
     async fn process_audio(
         &mut self,
         _samples: &[i16],
-    ) -> Result<Option<TranscriptionEvent>, SttPluginError> {
-        Err(SttPluginError::NotAvailable {
+    ) -> Result<Option<TranscriptionEvent>, ColdVoxError> {
+        Err(SttError::NotAvailable {
+            plugin: "silero-stt".to_string(),
             reason: "Silero STT plugin not yet implemented".to_string(),
-        })
+        }
+        .into())
     }
 
-    async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, SttPluginError> {
+    async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, ColdVoxError> {
         Ok(None)
     }
 
-    async fn reset(&mut self) -> Result<(), SttPluginError> {
+    async fn reset(&mut self) -> Result<(), ColdVoxError> {
         Ok(())
     }
 }
@@ -256,7 +261,7 @@ impl SileroSttPluginFactory {
 }
 
 impl SttPluginFactory for SileroSttPluginFactory {
-    fn create(&self) -> Result<Box<dyn SttPlugin>, SttPluginError> {
+    fn create(&self) -> Result<Box<dyn SttPlugin>, ColdVoxError> {
         Ok(Box::new(SileroSttPlugin::with_config(self.config.clone())))
     }
 
@@ -264,10 +269,12 @@ impl SttPluginFactory for SileroSttPluginFactory {
         SileroSttPlugin::new().info()
     }
 
-    fn check_requirements(&self) -> Result<(), SttPluginError> {
-        Err(SttPluginError::NotAvailable {
+    fn check_requirements(&self) -> Result<(), ColdVoxError> {
+        Err(SttError::NotAvailable {
+            plugin: "silero-stt".to_string(),
             reason: "Silero STT not yet integrated".to_string(),
-        })
+        }
+        .into())
     }
 }
 

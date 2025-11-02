@@ -47,6 +47,8 @@ use pyo3::Python;
 #[cfg(feature = "whisper")]
 use tempfile::Builder;
 
+use coldvox_foundation::error::{ColdVoxError, SttError};
+
 /// Static cache for GPU detection result to avoid repeated Python round-trips
 ///
 /// This cache stores the result of GPU detection to avoid repeated shell-outs
@@ -122,7 +124,7 @@ impl WhisperPlugin {
     fn resolve_model_identifier(
         &self,
         config: &TranscriptionConfig,
-    ) -> Result<String, SttPluginError> {
+    ) -> Result<String, ColdVoxError> {
         let path_candidate = if !config.model_path.is_empty() {
             Some(PathBuf::from(&config.model_path))
         } else {
@@ -268,11 +270,11 @@ impl SttPlugin for WhisperPlugin {
         }
     }
 
-    async fn is_available(&self) -> Result<bool, SttPluginError> {
+    async fn is_available(&self) -> Result<bool, ColdVoxError> {
         Ok(check_whisper_available())
     }
 
-    async fn initialize(&mut self, config: TranscriptionConfig) -> Result<(), SttPluginError> {
+    async fn initialize(&mut self, config: TranscriptionConfig) -> Result<(), ColdVoxError> {
         #[cfg(feature = "whisper")]
         {
             let model_id = self.resolve_model_identifier(&config)?;
@@ -301,7 +303,7 @@ impl SttPlugin for WhisperPlugin {
                 self.compute_type.clone(),
                 whisper_config,
             )
-            .map_err(|err| SttPluginError::ModelLoadFailed(err.to_string()))?;
+            .map_err(|err| SttError::LoadFailed(err.to_string()))?;
 
             self.model = Some(model);
             self.audio_buffer.clear();
@@ -317,22 +319,26 @@ impl SttPlugin for WhisperPlugin {
         #[cfg(not(feature = "whisper"))]
         {
             let _ = config;
-            Err(SttPluginError::NotAvailable {
+            Err(SttError::NotAvailable {
+                plugin: "whisper".to_string(),
                 reason: "Whisper feature not compiled".to_string(),
-            })
+            }
+            .into())
         }
     }
 
     async fn process_audio(
         &mut self,
         samples: &[i16],
-    ) -> Result<Option<TranscriptionEvent>, SttPluginError> {
+    ) -> Result<Option<TranscriptionEvent>, ColdVoxError> {
         #[cfg(feature = "whisper")]
         {
             if !self.initialized {
-                return Err(SttPluginError::InitializationFailed(
-                    "Faster Whisper plugin not initialized".to_string(),
-                ));
+                return Err(SttError::NotAvailable {
+                    plugin: "whisper".to_string(),
+                    reason: "Faster Whisper plugin not initialized".to_string(),
+                }
+                .into());
             }
 
             self.audio_buffer.extend_from_slice(samples);
@@ -342,13 +348,15 @@ impl SttPlugin for WhisperPlugin {
         #[cfg(not(feature = "whisper"))]
         {
             let _ = samples;
-            Err(SttPluginError::InitializationFailed(
-                "Whisper feature not compiled".to_string(),
-            ))
+            Err(SttError::NotAvailable {
+                plugin: "whisper".to_string(),
+                reason: "Whisper feature not compiled".to_string(),
+            }
+            .into())
         }
     }
 
-    async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, SttPluginError> {
+    async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, ColdVoxError> {
         #[cfg(feature = "whisper")]
         {
             if !self.initialized {
@@ -363,7 +371,7 @@ impl SttPlugin for WhisperPlugin {
                 .prefix("coldvox-whisper-")
                 .suffix(".wav")
                 .tempfile()
-                .map_err(|err| SttPluginError::ProcessingError(err.to_string()))?;
+                .map_err(|err| SttError::TranscriptionFailed(err.to_string()))?;
             let temp_path = temp.path().to_path_buf();
 
             {
@@ -374,25 +382,25 @@ impl SttPlugin for WhisperPlugin {
                     sample_format: hound::SampleFormat::Int,
                 };
                 let mut writer = hound::WavWriter::create(&temp_path, spec)
-                    .map_err(|err| SttPluginError::ProcessingError(err.to_string()))?;
+                    .map_err(|err| SttError::TranscriptionFailed(err.to_string()))?;
                 for sample in &self.audio_buffer {
                     writer
                         .write_sample(*sample)
-                        .map_err(|err| SttPluginError::ProcessingError(err.to_string()))?;
+                        .map_err(|err| SttError::TranscriptionFailed(err.to_string()))?;
                 }
                 writer
                     .finalize()
-                    .map_err(|err| SttPluginError::ProcessingError(err.to_string()))?;
+                    .map_err(|err| SttError::TranscriptionFailed(err.to_string()))?;
             }
 
             let transcription = self
                 .model
                 .as_ref()
                 .ok_or_else(|| {
-                    SttPluginError::ProcessingError("Faster Whisper model not loaded".to_string())
+                    SttError::TranscriptionFailed("Faster Whisper model not loaded".to_string())
                 })?
                 .transcribe(temp_path.to_string_lossy().to_string())
-                .map_err(|err| SttPluginError::TranscriptionFailed(err.to_string()))?;
+                .map_err(|err| SttError::TranscriptionFailed(err.to_string()))?;
 
             let mut text = transcription.to_string();
             if text.ends_with('\n') {
@@ -441,13 +449,15 @@ impl SttPlugin for WhisperPlugin {
 
         #[cfg(not(feature = "whisper"))]
         {
-            Err(SttPluginError::InitializationFailed(
-                "Whisper feature not compiled".to_string(),
-            ))
+            Err(SttError::NotAvailable {
+                plugin: "whisper".to_string(),
+                reason: "Whisper feature not compiled".to_string(),
+            }
+            .into())
         }
     }
 
-    async fn reset(&mut self) -> Result<(), SttPluginError> {
+    async fn reset(&mut self) -> Result<(), ColdVoxError> {
         #[cfg(feature = "whisper")]
         {
             self.audio_buffer.clear();
@@ -456,20 +466,22 @@ impl SttPlugin for WhisperPlugin {
 
         #[cfg(not(feature = "whisper"))]
         {
-            Err(SttPluginError::InitializationFailed(
-                "Whisper feature not compiled".to_string(),
-            ))
+            Err(SttError::NotAvailable {
+                plugin: "whisper".to_string(),
+                reason: "Whisper feature not compiled".to_string(),
+            }
+            .into())
         }
     }
 
-    async fn load_model(&mut self, model_path: Option<&Path>) -> Result<(), SttPluginError> {
+    async fn load_model(&mut self, model_path: Option<&Path>) -> Result<(), ColdVoxError> {
         if let Some(path) = model_path {
             self.model_path = Some(path.to_path_buf());
         }
         Ok(())
     }
 
-    async fn unload(&mut self) -> Result<(), SttPluginError> {
+    async fn unload(&mut self) -> Result<(), ColdVoxError> {
         #[cfg(feature = "whisper")]
         {
             self.model = None;
@@ -480,9 +492,11 @@ impl SttPlugin for WhisperPlugin {
 
         #[cfg(not(feature = "whisper"))]
         {
-            Err(SttPluginError::InitializationFailed(
-                "Whisper feature not compiled".to_string(),
-            ))
+            Err(SttError::NotAvailable {
+                plugin: "whisper".to_string(),
+                reason: "Whisper feature not compiled".to_string(),
+            }
+            .into())
         }
     }
 }
@@ -519,11 +533,13 @@ impl WhisperPluginFactory {
                 "int8".to_string()
             }
         });
-        
+
         Self {
             model_path: std::env::var("WHISPER_MODEL_PATH").ok().map(PathBuf::from),
             model_size,
-            language: std::env::var("WHISPER_LANGUAGE").ok().or(Some("en".to_string())),
+            language: std::env::var("WHISPER_LANGUAGE")
+                .ok()
+                .or(Some("en".to_string())),
             device,
             compute_type,
         }
@@ -573,7 +589,7 @@ impl WhisperPluginFactory {
                     }
                 }
             }
-            
+
             warn!(target: "coldvox::stt::whisper", "No GPU detected, falling back to CPU");
             "cpu".to_string()
         }).clone()
@@ -679,7 +695,7 @@ impl Default for WhisperPluginFactory {
 }
 
 impl SttPluginFactory for WhisperPluginFactory {
-    fn create(&self) -> Result<Box<dyn SttPlugin>, SttPluginError> {
+    fn create(&self) -> Result<Box<dyn SttPlugin>, ColdVoxError> {
         let mut plugin = WhisperPlugin::new()
             .with_model_size(self.model_size)
             .with_device(self.device.clone())
@@ -704,18 +720,18 @@ impl SttPluginFactory for WhisperPluginFactory {
             .info()
     }
 
-    fn check_requirements(&self) -> Result<(), SttPluginError> {
+    fn check_requirements(&self) -> Result<(), ColdVoxError> {
         if !check_whisper_available() {
-            return Err(SttPluginError::NotAvailable {
+            return Err(SttError::NotAvailable {
+                plugin: "whisper".to_string(),
                 reason: "The faster-whisper Python module is not available. Install the `faster-whisper` package.".to_string(),
-            });
+            }
+            .into());
         }
 
         if let Some(ref path) = self.model_path {
             if !path.exists() {
-                return Err(SttPluginError::NotAvailable {
-                    reason: format!("Model not found at {:?}", path),
-                });
+                return Err(SttError::ModelNotFound { path: path.clone() }.into());
             }
         }
 
@@ -760,26 +776,20 @@ mod tests {
     }
 
     #[test]
-        fn environment_detection() {
-            // Test CI detection
-            env::set_var("CI", "true");
-            assert_eq!(detect_environment(), Environment::CI);
-            env::remove_var("CI");
-    
-            // Test development detection
-            env::set_var("DEBUG", "1");
-            assert_eq!(
-                detect_environment(),
-                Environment::Development
-            );
-            env::remove_var("DEBUG");
-    
-            // Default to production when no indicators are present
-            assert_eq!(
-                detect_environment(),
-                Environment::Production
-            );
-        }
+    fn environment_detection() {
+        // Test CI detection
+        env::set_var("CI", "true");
+        assert_eq!(detect_environment(), Environment::CI);
+        env::remove_var("CI");
+
+        // Test development detection
+        env::set_var("DEBUG", "1");
+        assert_eq!(detect_environment(), Environment::Development);
+        env::remove_var("DEBUG");
+
+        // Default to production when no indicators are present
+        assert_eq!(detect_environment(), Environment::Production);
+    }
 
     #[test]
     fn model_size_for_memory() {
@@ -809,7 +819,10 @@ mod tests {
     #[test]
     fn environment_default_model_sizes() {
         // Test default model sizes for each environment
-        assert_eq!(default_model_size_for_environment(Environment::CI), WhisperModelSize::Tiny);
+        assert_eq!(
+            default_model_size_for_environment(Environment::CI),
+            WhisperModelSize::Tiny
+        );
 
         // Development and production depend on memory, so we can't test exact values
         // without mocking memory detection
@@ -817,45 +830,45 @@ mod tests {
 
     #[test]
     fn development_env_prefers_large_on_beefy_machine() {
-            // Simulate development environment
-            env::set_var("DEBUG", "1");
-            // Simulate a beefy machine with lots of available memory
-            env::set_var("WHISPER_AVAILABLE_MEM_MB", "16384");
-    
-            assert_eq!(detect_environment(), Environment::Development);
-            let chosen = default_model_size_for_environment(Environment::Development);
-            assert_eq!(chosen, WhisperModelSize::LargeV3);
-    
-            env::remove_var("WHISPER_AVAILABLE_MEM_MB");
-            env::remove_var("DEBUG");
+        // Simulate development environment
+        env::set_var("DEBUG", "1");
+        // Simulate a beefy machine with lots of available memory
+        env::set_var("WHISPER_AVAILABLE_MEM_MB", "16384");
+
+        assert_eq!(detect_environment(), Environment::Development);
+        let chosen = default_model_size_for_environment(Environment::Development);
+        assert_eq!(chosen, WhisperModelSize::LargeV3);
+
+        env::remove_var("WHISPER_AVAILABLE_MEM_MB");
+        env::remove_var("DEBUG");
+    }
+
+    #[test]
+    fn production_env_does_not_escalate_to_large_by_default() {
+        // Ensure no CI or dev markers are present
+        for var in [
+            "CI",
+            "CONTINUOUS_INTEGRATION",
+            "GITHUB_ACTIONS",
+            "GITLAB_CI",
+            "TRAVIS",
+            "CIRCLECI",
+            "JENKINS_URL",
+            "BUILDKITE",
+            "RUST_BACKTRACE",
+            "DEBUG",
+            "DEV",
+        ] {
+            env::remove_var(var);
         }
-    
-        #[test]
-        fn production_env_does_not_escalate_to_large_by_default() {
-            // Ensure no CI or dev markers are present
-            for var in [
-                "CI",
-                "CONTINUOUS_INTEGRATION",
-                "GITHUB_ACTIONS",
-                "GITLAB_CI",
-                "TRAVIS",
-                "CIRCLECI",
-                "JENKINS_URL",
-                "BUILDKITE",
-                "RUST_BACKTRACE",
-                "DEBUG",
-                "DEV",
-            ] {
-                env::remove_var(var);
-            }
-    
-            // Simulate lots of memory
-            env::set_var("WHISPER_AVAILABLE_MEM_MB", "16384");
-            assert_eq!(detect_environment(), Environment::Production);
-            let chosen = default_model_size_for_environment(Environment::Production);
-            assert_ne!(chosen, WhisperModelSize::LargeV3);
-            env::remove_var("WHISPER_AVAILABLE_MEM_MB");
-        }
+
+        // Simulate lots of memory
+        env::set_var("WHISPER_AVAILABLE_MEM_MB", "16384");
+        assert_eq!(detect_environment(), Environment::Production);
+        let chosen = default_model_size_for_environment(Environment::Production);
+        assert_ne!(chosen, WhisperModelSize::LargeV3);
+        env::remove_var("WHISPER_AVAILABLE_MEM_MB");
+    }
 
     #[test]
     fn whisper_model_size_env_var() {
@@ -880,16 +893,16 @@ mod tests {
     fn gpu_detection_caching() {
         // Ensure WHISPER_DEVICE is not set to test detection
         env::remove_var("WHISPER_DEVICE");
-        
+
         // First call should trigger detection
         let device1 = WhisperPluginFactory::detect_device();
-        
+
         // Second call should return cached result without re-running detection
         let device2 = WhisperPluginFactory::detect_device();
-        
+
         // Both calls should return the same result
         assert_eq!(device1, device2);
-        
+
         // Verify the device is either "cuda" or "cpu"
         assert!(device1 == "cuda" || device1 == "cpu");
     }
@@ -898,38 +911,34 @@ mod tests {
     fn whisper_device_env_var_overrides_cache() {
         // Set WHISPER_DEVICE to override detection
         env::set_var("WHISPER_DEVICE", "cuda:1");
-        
+
         let factory = WhisperPluginFactory::new();
         assert_eq!(factory.device, "cuda:1");
-        
+
         env::remove_var("WHISPER_DEVICE");
     }
 
     #[test]
     fn gpu_detection_thread_safety() {
         use std::thread;
-        
+
         // Ensure WHISPER_DEVICE is not set to test detection
         env::remove_var("WHISPER_DEVICE");
-        
+
         let handles: Vec<_> = (0..10)
-            .map(|_| {
-                thread::spawn(|| {
-                    WhisperPluginFactory::detect_device()
-                })
-            })
+            .map(|_| thread::spawn(WhisperPluginFactory::detect_device))
             .collect();
-        
+
         // All threads should get the same result
         let results: Vec<String> = handles
             .into_iter()
             .map(|handle| handle.join().unwrap())
             .collect();
-        
+
         // All results should be identical
         let first_result = &results[0];
         assert!(results.iter().all(|r| r == first_result));
-        
+
         // Verify the device is either "cuda" or "cpu"
         assert!(first_result == "cuda" || first_result == "cpu");
     }

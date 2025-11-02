@@ -12,6 +12,7 @@ use tracing::info;
 use crate::plugin::*;
 use crate::plugin_types::*;
 use crate::types::{TranscriptionConfig, TranscriptionEvent};
+use coldvox_foundation::error::{ColdVoxError, SttError};
 
 /// Whisper model types (ggml quantized)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -237,7 +238,7 @@ impl SttPlugin for WhisperCppPlugin {
         }
     }
 
-    async fn is_available(&self) -> Result<bool, SttPluginError> {
+    async fn is_available(&self) -> Result<bool, ColdVoxError> {
         // Check if whisper.cpp library is available
         // In the future, check for:
         // 1. whisper.cpp shared library
@@ -247,7 +248,7 @@ impl SttPlugin for WhisperCppPlugin {
         Ok(false) // Not yet implemented
     }
 
-    async fn initialize(&mut self, _config: TranscriptionConfig) -> Result<(), SttPluginError> {
+    async fn initialize(&mut self, _config: TranscriptionConfig) -> Result<(), ColdVoxError> {
         info!("Whisper.cpp plugin is a stub - not yet implemented");
 
         // Future implementation:
@@ -256,26 +257,31 @@ impl SttPlugin for WhisperCppPlugin {
         // 3. Configure parameters
         // 4. Warm up with test audio
 
-        Err(SttPluginError::NotAvailable {
+        Err(SttError::NotAvailable {
+            plugin: "whisper-cpp".to_string(),
             reason: "Whisper.cpp integration not yet implemented".to_string(),
-        })
+        }
+        .into())
     }
 
     async fn process_audio(
         &mut self,
         _samples: &[i16],
-    ) -> Result<Option<TranscriptionEvent>, SttPluginError> {
-        Err(SttPluginError::NotAvailable {
+    ) -> Result<Option<TranscriptionEvent>, ColdVoxError> {
+        Err(SttError::NotAvailable {
+            plugin: "whisper-cpp".to_string(),
             reason: "Whisper.cpp plugin not yet implemented".to_string(),
-        })
+        }
+        .into())
     }
 
-    async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, SttPluginError> {
+    async fn finalize(&mut self) -> Result<Option<TranscriptionEvent>, ColdVoxError> {
         Ok(None)
     }
 
-    async fn reset(&mut self) -> Result<(), SttPluginError> {
-        *self.state.write() = PluginState::Ready;
+    async fn reset(&mut self) -> Result<(), ColdVoxError> {
+        let mut state = self.state.write();
+        *state = PluginState::Ready;
         Ok(())
     }
 }
@@ -312,7 +318,7 @@ impl Default for WhisperCppPluginFactory {
 }
 
 impl SttPluginFactory for WhisperCppPluginFactory {
-    fn create(&self) -> Result<Box<dyn SttPlugin>, SttPluginError> {
+    fn create(&self) -> Result<Box<dyn SttPlugin>, ColdVoxError> {
         Ok(Box::new(WhisperCppPlugin::with_config(self.config.clone())))
     }
 
@@ -320,14 +326,16 @@ impl SttPluginFactory for WhisperCppPluginFactory {
         WhisperCppPlugin::new().info()
     }
 
-    fn check_requirements(&self) -> Result<(), SttPluginError> {
+    fn check_requirements(&self) -> Result<(), ColdVoxError> {
         // Check for whisper.cpp library
         // Check for model files
         // Check CPU features
 
-        Err(SttPluginError::NotAvailable {
+        Err(SttError::NotAvailable {
+            plugin: "whisper-cpp".to_string(),
             reason: "Whisper.cpp not yet integrated".to_string(),
-        })
+        }
+        .into())
     }
 }
 

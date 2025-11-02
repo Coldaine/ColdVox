@@ -10,7 +10,7 @@ use tokio::task::JoinHandle;
 use tracing::{debug, error, info};
 
 use coldvox_audio::{
-    AudioCaptureThread, AudioChunker, AudioRingBuffer, ChunkerConfig, DeviceConfig, FrameReader, ResamplerQuality,
+    AudioCaptureThread, AudioChunker, AudioRingBuffer, ChunkerConfig, FrameReader, ResamplerQuality,
 };
 use coldvox_foundation::AudioConfig;
 use coldvox_stt::TranscriptionEvent;
@@ -138,9 +138,8 @@ impl AppHandle {
                 return;
             }
         };
-            // Ensure tqdm is enabled to avoid buggy 'disabled_tqdm' stub in some Python envs
-            std::env::set_var("TQDM_DISABLE", "0");
-
+        // Ensure tqdm is enabled to avoid buggy 'disabled_tqdm' stub in some Python envs
+        std::env::set_var("TQDM_DISABLE", "0");
 
         // Stop audio capture first to quiesce the source
         this.audio_capture.stop();
@@ -322,23 +321,25 @@ pub async fn start(
                         thread::sleep(std::time::Duration::from_millis(50));
                     }
                 })
-                .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e))
+                .map_err(Box::<dyn std::error::Error + Send + Sync>::from)
                 .unwrap();
 
             // Use provided test device config if available; else fall back to a sane default.
             let initial_dc = if let Some(dc) = opts.test_device_config.clone() {
                 dc
             } else {
-                DeviceConfig {
+                coldvox_audio::DeviceConfig {
                     sample_rate: SAMPLE_RATE_HZ,
                     channels: 1,
                 }
             };
 
             // Create broadcast channels and emit initial device config
-            let (cfg_tx, cfg_rx) = tokio::sync::broadcast::channel::<DeviceConfig>(16);
+            let (cfg_tx, cfg_rx) =
+                tokio::sync::broadcast::channel::<coldvox_audio::DeviceConfig>(16);
             let _ = cfg_tx.send(initial_dc.clone());
-            let (dev_evt_tx, dev_evt_rx) = tokio::sync::broadcast::channel::<coldvox_foundation::DeviceEvent>(32);
+            let (dev_evt_tx, dev_evt_rx) =
+                tokio::sync::broadcast::channel::<coldvox_foundation::DeviceEvent>(32);
             let _ = dev_evt_tx; // not used in tests here
 
             // Build a dummy AudioCaptureThread
@@ -470,8 +471,21 @@ pub async fn start(
             if let Some(config) = opts.stt_selection.clone() {
                 manager.set_selection_config(config).await;
             }
-            manager.initialize().await?;
-            Some(Arc::new(tokio::sync::RwLock::new(manager)))
+            // Initialize the plugin manager; enforce fail-fast semantics when no STT plugin is available
+            match manager.initialize().await {
+                Ok(plugin_id) => {
+                    info!(
+                        "STT plugin manager initialized successfully with plugin: {}",
+                        plugin_id
+                    );
+                    Some(Arc::new(tokio::sync::RwLock::new(manager)))
+                }
+                Err(e) => {
+                    // Fail startup when STT cannot be initialized (no-op/disabled STT not allowed)
+                    error!("Failed to initialize STT plugin manager: {}", e);
+                    return Err(Box::new(e));
+                }
+            }
         } else {
             None
         };
@@ -865,7 +879,9 @@ mod tests {
             .iter()
             .any(|e| matches!(e, TranscriptionEvent::Partial { .. }));
         if !has_partial {
-            tracing::warn!("No partial events observed; continuing as long as a final was produced");
+            tracing::warn!(
+                "No partial events observed; continuing as long as a final was produced"
+            );
         }
         assert!(
             received_events

@@ -29,7 +29,7 @@ use std::time::Instant;
 /// - sample_rate: sample rate in Hz for the samples buffer
 #[derive(Debug, Clone)]
 pub struct SharedAudioFrame {
-	pub samples: Arc<[i16]>,
-	pub timestamp: Instant,
-	pub sample_rate: u32,
+    pub samples: Arc<[i16]>,
+    pub timestamp: Instant,
+    pub sample_rate: u32,
 }

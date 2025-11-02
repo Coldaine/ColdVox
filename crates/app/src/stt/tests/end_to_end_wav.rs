@@ -9,10 +9,11 @@ use crate::stt::processor::PluginSttProcessor;
 use crate::stt::session::{SessionEvent, SessionSource, Settings};
 use crate::stt::{TranscriptionConfig, TranscriptionEvent};
 use crate::text_injection::{AsyncInjectionProcessor, InjectionConfig};
-use coldvox_audio::SharedAudioFrame as AudioFrame;
 use coldvox_audio::chunker::{AudioChunker, ChunkerConfig};
 use coldvox_audio::ring_buffer::AudioRingBuffer;
 use coldvox_audio::DeviceConfig;
+use coldvox_audio::SharedAudioFrame as AudioFrame;
+use coldvox_foundation::skip_test_unless;
 use coldvox_foundation::AudioConfig;
 use coldvox_vad::config::{UnifiedVadConfig, VadMode};
 use coldvox_vad::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
@@ -95,7 +96,12 @@ async fn open_test_terminal(
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_end_to_end_with_real_injection() {
+    skip_test_unless!(coldvox_foundation::test_env::TestRequirements::new()
+        .requires_gui()
+        .requires_command("ydotool")
+        .requires_daemons());
     // Ensure tqdm is enabled to avoid buggy 'disabled_tqdm' stub in some Python envs
     std::env::set_var("TQDM_DISABLE", "0");
     // NOTE: test_utils not yet implemented
@@ -218,7 +224,9 @@ async fn test_end_to_end_with_real_injection() {
         // Only check for model existence in CI environment
         // Only check if model path is a filesystem path (contains a slash)
         // Model identifiers like "large-v3-turbo" should not be checked as file paths
-        if stt_config.model_path.contains('/') && !std::path::Path::new(&stt_config.model_path).exists() {
+        if stt_config.model_path.contains('/')
+            && !std::path::Path::new(&stt_config.model_path).exists()
+        {
             panic!(
                 "Whisper model or identifier '{}' is not available. \n\nResolution:\n  1. Install the faster-whisper Python package and ensure a model is downloaded.\n  2. Set WHISPER_MODEL_PATH to a valid identifier or model directory.\n  3. Re-run: cargo test -p coldvox-app test_end_to_end_with_real_injection --features whisper,text-injection -- --nocapture\n",
                 stt_config.model_path

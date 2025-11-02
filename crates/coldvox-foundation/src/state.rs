@@ -1,4 +1,4 @@
-use crate::error::AppError;
+use crate::error::ColdVoxError;
 use crossbeam_channel::{Receiver, Sender};
 use parking_lot::RwLock;
 use std::sync::Arc;
@@ -34,7 +34,7 @@ impl StateManager {
         }
     }
 
-    pub fn transition(&self, new_state: AppState) -> Result<(), AppError> {
+    pub fn transition(&self, new_state: AppState) -> Result<(), ColdVoxError> {
         let mut current = self.state.write();
 
         // Validate state transitions
@@ -49,7 +49,7 @@ impl StateManager {
         );
 
         if !valid {
-            return Err(AppError::Fatal(format!(
+            return Err(ColdVoxError::Fatal(format!(
                 "Invalid state transition: {:?} -> {:?}",
                 *current, new_state
             )));

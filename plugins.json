@@ -1,12 +1,9 @@
 {
   "preferred_plugin": "whisper",
-  "fallback_plugins": [
-    "whisper",
-    "mock"
-  ],
+  "fallback_plugins": [],
   "require_local": false,
   "max_memory_mb": null,
-  "required_language": null,
+  "required_language": "en",
   "failover": {
     "failover_threshold": 3,
     "failover_cooldown_secs": 30
