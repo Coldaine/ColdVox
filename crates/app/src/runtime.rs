@@ -735,7 +735,7 @@ mod tests {
     use coldvox_audio::DeviceConfig;
     use coldvox_stt::plugin::{FailoverConfig, GcPolicy, PluginSelectionConfig};
     use coldvox_stt::TranscriptionEvent;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     /// Helper to create default runtime options for testing.
     fn test_opts(activation_mode: ActivationMode) -> AppRuntimeOptions {
@@ -769,6 +769,29 @@ mod tests {
             test_device_config: None,
             #[cfg(test)]
             test_capture_to_dummy: true,
+        }
+    }
+
+    fn summarize_event(event: &TranscriptionEvent) -> String {
+        match event {
+            TranscriptionEvent::Partial { text, .. } => {
+                format!("Partial(len={}, preview={:?})", text.len(), preview(text))
+            }
+            TranscriptionEvent::Final { text, .. } => {
+                format!("Final(len={}, preview={:?})", text.len(), preview(text))
+            }
+            TranscriptionEvent::Error { code, message } => {
+                format!("Error(code={code}, message={:?})", preview(message))
+            }
+        }
+    }
+
+    fn preview(text: &str) -> String {
+        const MAX_PREVIEW: usize = 48;
+        if text.len() <= MAX_PREVIEW {
+            text.to_string()
+        } else {
+            format!("{}…", &text[..MAX_PREVIEW])
         }
     }
 
@@ -826,6 +849,7 @@ mod tests {
         // Wait for transcription events (expecting partial and final)
         let mut received_events = Vec::new();
         let timeout = Duration::from_secs(20);
+        let wait_started = Instant::now();
         let mut final_received = false;
 
         while !final_received {
@@ -836,7 +860,16 @@ mod tests {
                     }
                     received_events.push(event);
                 }
-                _ => panic!("Timed out waiting for transcription events"),
+                Ok(None) | Err(_) => {
+                    let summaries: Vec<String> =
+                        received_events.iter().map(summarize_event).collect();
+                    panic!(
+                        "Timed out after {:?} waiting for transcription events in VAD mode. Received {} events: {:?}",
+                        wait_started.elapsed(),
+                        summaries.len(),
+                        summaries
+                    );
+                }
             }
         }
 
@@ -931,12 +964,30 @@ mod tests {
             .expect("Failed to send Hotkey release event");
 
         // Wait for a final transcription event
-        let mut received_final = false;
         let timeout = Duration::from_secs(20);
-        while let Ok(Some(event)) = tokio::time::timeout(timeout, stt_rx.recv()).await {
-            if matches!(&event, TranscriptionEvent::Final { .. }) {
-                received_final = true;
-                break;
+        let wait_started = Instant::now();
+        let mut received_events = Vec::new();
+        let mut received_final = false;
+        loop {
+            match tokio::time::timeout(timeout, stt_rx.recv()).await {
+                Ok(Some(event)) => {
+                    if matches!(&event, TranscriptionEvent::Final { .. }) {
+                        received_final = true;
+                        break;
+                    }
+                    received_events.push(event);
+                }
+                Ok(None) => break,
+                Err(_) => {
+                    let summaries: Vec<String> =
+                        received_events.iter().map(summarize_event).collect();
+                    panic!(
+                        "Timed out after {:?} waiting for transcription events in hotkey mode. Received {} events: {:?}",
+                        wait_started.elapsed(),
+                        summaries.len(),
+                        summaries
+                    );
+                }
             }
         }
 
