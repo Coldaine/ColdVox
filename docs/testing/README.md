@@ -13,7 +13,7 @@ This directory contains comprehensive documentation on ColdVox's **Pragmatic, La
 
 **Writing a new test?**
 
-- Follow the decision framework in [../dev/TESTING.md](../dev/TESTING.md)
+- Follow the decision framework in [../domains/foundation/testing-guide.md](../domains/foundation/testing-guide.md)
 - Review examples in [TESTING_EXAMPLES.md](TESTING_EXAMPLES.md)
 - Ask yourself the Six Mental Models (below)
 
@@ -62,7 +62,7 @@ Before writing ANY test, ask yourself:
 
 | Document | Purpose |
 |----------|---------|
-| **[../dev/TESTING.md](../dev/TESTING.md)** | Primary testing guide with philosophy and commands |
+| **[../domains/foundation/testing-guide.md](../domains/foundation/testing-guide.md)** | Primary testing guide with philosophy and commands |
 
 ---
 
@@ -213,7 +213,7 @@ When reviewing tests:
 
 ### Internal ColdVox Resources
 
-- [Main Testing Guide](../dev/TESTING.md)
+- [Main Testing Guide](../domains/foundation/testing-guide.md)
 - [Text Injection Testing](../../crates/coldvox-text-injection/TESTING.md)
 - [Project Status](../PROJECT_STATUS.md)
 

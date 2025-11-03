@@ -311,7 +311,7 @@ async fn test_vad_segments_real_speech_from_background_noise() {
 
 ## Documentation Analysis
 
-### `docs/dev/TESTING.md` - **Grade: B+ (85/100)**
+### `docs/domains/foundation/testing-guide.md` - **Grade: B+ (85/100)**
 
 **Strengths**:
 - ✅ **EXCELLENT**: Emphasizes real hardware testing

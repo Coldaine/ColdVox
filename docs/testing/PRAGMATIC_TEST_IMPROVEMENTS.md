@@ -416,9 +416,9 @@ async fn test_pipeline_trace_verifies_latency_budget() {
 
 ## Phase 3: Update Documentation (Immediate)
 
-### 3.1 Update `docs/dev/TESTING.md`
+### 3.1 Update `docs/domains/foundation/testing-guide.md`
 
-**File**: `docs/dev/TESTING.md`
+**File**: `docs/domains/foundation/testing-guide.md`
 **Action**: **ADD SECTION**
 **Time Estimate**: 2 hours
 
