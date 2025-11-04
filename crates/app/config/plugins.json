@@ -1,19 +1,20 @@
 {
-  "preferred_plugin": "noop",
-  "fallback_plugins": [
-    "mock"
-  ],
-  "require_local": true,
+  "preferred_plugin": "whisper",
+  "fallback_plugins": [],
+  "require_local": false,
   "max_memory_mb": null,
-  "required_language": null,
+  "required_language": "en",
   "failover": {
     "failover_threshold": 3,
-    "failover_cooldown_secs": 1
+    "failover_cooldown_secs": 30
   },
   "gc_policy": {
-    "model_ttl_secs": 1,
+    "model_ttl_secs": 300,
     "enabled": true
   },
-  "metrics": null,
-  "auto_extract_model": false
+  "metrics": {
+    "log_interval_secs": 60,
+    "debug_dump_events": false
+  },
+  "auto_extract_model": true
 }

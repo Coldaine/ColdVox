@@ -3,20 +3,21 @@
 //! This test verifies that wl-copy stdin piping fix works correctly
 //! without complex type handling that causes compilation issues.
 
-use crate::injectors::unified_clipboard::UnifiedClipboardInjector;
+use crate::injectors::clipboard::ClipboardInjector;
 use crate::types::InjectionConfig;
 
-use super::test_utils::{command_exists, read_clipboard_with_wl_paste};
-use coldvox_foundation::skip_test_unless;
+use super::test_utils::{command_exists, is_wayland_environment, read_clipboard_with_wl_paste};
 
 /// Test that wl-copy properly receives content via stdin
 /// This is the core test for the stdin piping fix
 #[tokio::test]
+#[ignore] // Requires Wayland environment
 async fn test_wl_copy_stdin_piping_basic() {
-    skip_test_unless!(TestRequirements::new()
-        .requires_wayland()
-        .requires_command("wl-copy")
-        .requires_command("wl-paste"));
+    // Skip if not on Wayland
+    if !is_wayland_environment() {
+        println!("Skipping wl-copy test: Not running on Wayland");
+        return;
+    }
 
     // Skip if wl-copy is not available
     if !command_exists("wl-copy") {
@@ -25,12 +26,9 @@ async fn test_wl_copy_stdin_piping_basic() {
     }
 
     let config = InjectionConfig::default();
-    let injector = UnifiedClipboardInjector::new(config);
+    let injector = ClipboardInjector::new(config);
 
     // Test cases that would fail with command-line argument approach
-    let long_text =
-        "This is a very long text designed to test that the stdin piping works correctly. "
-            .repeat(100);
     let test_cases = vec![
         // Simple text
         "Hello from wl-copy stdin test!",
@@ -43,7 +41,8 @@ async fn test_wl_copy_stdin_piping_basic() {
         // Unicode text
         "Unicode test: 🎤 ColdVox 测试 🚀",
         // Long text that would exceed command line limits
-        &long_text,
+        &"This is a very long text designed to test that stdin piping works correctly. "
+            .repeat(100)[..5000], // Truncate to reasonable length
     ];
 
     for (i, test_text) in test_cases.iter().enumerate() {

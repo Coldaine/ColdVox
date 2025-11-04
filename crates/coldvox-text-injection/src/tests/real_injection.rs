@@ -8,6 +8,8 @@
 //! `cargo test -p coldvox-text-injection --features real-injection-tests`
 
 // NOTE: Using modular injectors from the injectors module
+#[cfg(feature = "wl_clipboard")]
+use crate::clipboard_paste_injector::ClipboardPasteInjector;
 #[cfg(feature = "enigo")]
 use crate::enigo_injector::EnigoInjector;
 #[cfg(feature = "atspi")]
@@ -18,7 +20,6 @@ use crate::ydotool_injector::YdotoolInjector;
 use crate::TextInjector;
 
 use crate::tests::test_harness::{verify_injection, TestApp, TestAppManager, TestEnvironment};
-use coldvox_foundation::skip_test_unless;
 use std::time::Duration;
 
 /// A placeholder test to verify that the test harness, build script, and
@@ -26,7 +27,11 @@ use std::time::Duration;
 #[tokio::test]
 
 async fn harness_self_test_launch_gtk_app() {
-    skip_test_unless!(TestRequirements::new().requires_gui());
+    let env = TestEnvironment::current();
+    if !env.can_run_real_tests() {
+        eprintln!("Skipping real injection test: no display server found.");
+        return;
+    }
 
     println!("Attempting to launch GTK test app...");
     let app_handle = TestAppManager::launch_gtk_app()
@@ -91,12 +96,9 @@ async fn run_atspi_test(test_text: &str) {
             return;
         }
 
-        injector
-            .inject_text(test_text, None)
-            .await
-            .unwrap_or_else(|e| {
-                panic!("AT-SPI injection failed for text '{}': {:?}", test_text, e)
-            });
+        injector.inject_text(test_text).await.unwrap_or_else(|e| {
+            panic!("AT-SPI injection failed for text '{}': {:?}", test_text, e)
+        });
     }
 
     #[cfg(not(feature = "atspi"))]
@@ -149,10 +151,11 @@ async fn test_atspi_special_chars() {
 /// Helper function to run a complete injection and verification test for the ydotool backend.
 /// This test involves setting the clipboard, as ydotool's primary injection method is paste.
 async fn run_ydotool_test(test_text: &str) {
-    skip_test_unless!(TestRequirements::new()
-        .requires_gui()
-        .requires_daemons()
-        .requires_command("ydotool"));
+    let env = TestEnvironment::current();
+    if !env.can_run_real_tests() {
+        eprintln!("Skipping ydotool test: no display server found.");
+        return;
+    }
 
     // ydotool requires a running daemon and access to /dev/uinput.
     // The injector's `is_available` check will handle this.
@@ -181,7 +184,7 @@ async fn run_ydotool_test(test_text: &str) {
 
     // The inject_text for ydotool will trigger a paste (Ctrl+V).
     injector
-        .inject_text(test_text, None)
+        .inject_text(test_text)
         .await
         .unwrap_or_else(|e| panic!("ydotool injection failed for text '{}': {:?}", test_text, e));
 
@@ -230,17 +233,18 @@ async fn test_ydotool_special_chars() {
 /// Helper to test clipboard injection followed by a paste action.
 /// This simulates a realistic clipboard workflow.
 async fn run_clipboard_paste_test(test_text: &str) {
-    skip_test_unless!(TestRequirements::new()
-        .requires_gui()
-        .requires_command("wl-copy")
-        .requires_command("wl-paste"));
+    let env = TestEnvironment::current();
+    if !env.can_run_real_tests() {
+        eprintln!("Skipping clipboard test: no display server found.");
+        return;
+    }
 
     // This test requires both a clipboard manager and a paste mechanism.
     // We use ClipboardInjector (Wayland) and Enigo (cross-platform paste).
     #[cfg(all(feature = "wl_clipboard", feature = "enigo"))]
     {
-        // Use UnifiedClipboardInjector which sets clipboard and attempts a paste (via AT-SPI/ydotool).
-        let clipboard_paste = UnifiedClipboardInjector::new(Default::default());
+        // Use ClipboardPasteInjector which sets clipboard and attempts a paste (via AT-SPI/ydotool).
+        let clipboard_paste = ClipboardPasteInjector::new(Default::default());
         if !clipboard_paste.is_available().await {
             println!("Skipping clipboard test: backend is not available (not on Wayland?).");
             return;
@@ -253,7 +257,7 @@ async fn run_clipboard_paste_test(test_text: &str) {
 
         // Perform clipboard+paste using the combined injector (it will try AT-SPI first then ydotool).
         clipboard_paste
-            .inject_text(test_text, None)
+            .inject_text(test_text)
             .await
             .expect("Clipboard+paste injection failed.");
 
@@ -290,7 +294,11 @@ async fn test_clipboard_unicode_text() {
 
 /// Helper to test the direct typing capability of the Enigo backend.
 async fn run_enigo_typing_test(test_text: &str) {
-    skip_test_unless!(TestRequirements::new().requires_gui());
+    let env = TestEnvironment::current();
+    if !env.can_run_real_tests() {
+        eprintln!("Skipping enigo typing test: no display server found.");
+        return;
+    }
 
     #[cfg(feature = "enigo")]
     {
