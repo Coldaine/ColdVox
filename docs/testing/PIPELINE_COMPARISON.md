@@ -1,7 +1,44 @@
 # Pipeline Wiring Comparison: Test vs Production
 
-**Date**: 2025-11-05
+**Date**: 2025-11-05 (Initial analysis)
+**Updated**: 2025-11-05 (Resolution)
 **Purpose**: Verify that `end_to_end_wav.rs` test pipeline matches production `runtime.rs` pipeline
+
+---
+
+## 🎯 RESOLUTION (2025-11-05)
+
+**Status**: ✅ **CRITICAL ISSUE FIXED**
+
+The most critical mismatch (VAD configuration drift) has been resolved:
+
+### What Was Fixed
+1. **Created `UnifiedVadConfig::production_default()` factory method**
+   - Single source of truth for production VAD configuration
+   - Comprehensive documentation explaining tuned values
+
+2. **Updated production code** (`runtime.rs`)
+   - Both locations now use `production_default()`
+   - Removed 40+ lines of duplicated documentation
+
+3. **Updated E2E test** (`end_to_end_wav.rs`)
+   - Now uses `production_default()` instead of `Default::default()`
+   - Test VAD config **now matches production exactly**
+
+4. **Added regression tests**
+   - Verify production config values don't drift
+   - Ensure production differs from conservative defaults
+
+### Impact
+- ✅ Test and production VAD behavior now **identical**
+- ✅ No more 5x difference in silence duration (500ms production vs 100ms test)
+- ✅ No more 3x difference in threshold (0.1 production vs 0.3 test)
+- ✅ Future config changes automatically propagate to tests
+
+### Remaining Minor Differences
+See comparison below - remaining differences are acceptable:
+- Metrics collection (test doesn't verify metrics - could be improved)
+- Arc/Mutex wrapping (test doesn't need thread-safety)
 
 ---
 

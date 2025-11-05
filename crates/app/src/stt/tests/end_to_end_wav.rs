@@ -178,13 +178,10 @@ async fn test_end_to_end_with_real_injection() {
         AudioChunker::new(frame_reader, audio_tx.clone(), chunker_cfg).with_device_config(cfg_rx);
     let chunker_handle = chunker.spawn();
 
-    // Set up VAD processor
-    let vad_cfg = UnifiedVadConfig {
-        mode: VadMode::Silero,
-        frame_size_samples: FRAME_SIZE_SAMPLES,
-        sample_rate_hz: SAMPLE_RATE_HZ,
-        silero: Default::default(),
-    };
+    // Set up VAD processor with production configuration
+    // CRITICAL: Use production_default() to match production VAD behavior
+    // (threshold=0.1, min_silence=500ms) instead of conservative defaults
+    let vad_cfg = UnifiedVadConfig::production_default();
 
     let (vad_event_tx, vad_event_rx) = mpsc::channel::<VadEvent>(100);
     let vad_audio_rx = audio_tx.subscribe();
