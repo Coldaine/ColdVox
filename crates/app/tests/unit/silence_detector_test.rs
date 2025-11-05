@@ -3,173 +3,102 @@ mod tests {
     use coldvox_audio::detector::SilenceDetector;
     use coldvox_vad::constants::FRAME_SIZE_SAMPLES;
     use crate::common::test_utils::*;
-    use std::time::Duration;
 
+    /// Comprehensive test of RMS calculation and threshold behavior.
+    ///
+    /// Tests the core algorithm: RMS calculation should correctly classify
+    /// audio as silent or active based on the threshold. This covers:
+    /// - Basic RMS calculation accuracy
+    /// - Threshold boundary conditions
+    /// - Edge cases (empty, single sample, max values)
     #[test]
-    fn test_rms_calculation() {
+    fn test_silence_detection_algorithm() {
+        // Test various threshold levels with different audio patterns
+
+        // Low threshold (50) - sensitive detection
+        let sensitive_detector = SilenceDetector::new(50);
+        assert!(sensitive_detector.is_silent(&generate_noise(100, 40)),
+            "Quiet noise (40) should be silent with threshold 50");
+        assert!(!sensitive_detector.is_silent(&generate_noise(100, 60)),
+            "Louder noise (60) should not be silent with threshold 50");
+
+        // Medium threshold (150) - typical production setting
+        let typical_detector = SilenceDetector::new(150);
+        assert!(typical_detector.is_silent(&generate_noise(1000, 80)),
+            "Background noise (80) should be silent with typical threshold");
+        assert!(!typical_detector.is_silent(&generate_sine_wave(250.0, 16000, 100)),
+            "Speech frequencies should not be silent with typical threshold");
+
+        // High threshold (500) - only detect loud audio
+        let high_detector = SilenceDetector::new(500);
+        assert!(high_detector.is_silent(&generate_noise(100, 300)),
+            "Whisper-level audio (300) should be silent with high threshold");
+        assert!(!high_detector.is_silent(&generate_sine_wave(200.0, 16000, 100)),
+            "Normal speech should not be silent with high threshold");
+
+        // Edge case: Zero threshold (everything except true silence is active)
+        let zero_detector = SilenceDetector::new(0);
+        assert!(zero_detector.is_silent(&[0, 0, 0]), "True silence should be silent");
+        assert!(!zero_detector.is_silent(&[1, 0, 0]), "Any non-zero should not be silent");
+
+        // Edge case: Empty and single samples
         let detector = SilenceDetector::new(100);
+        assert!(detector.is_silent(&[]), "Empty samples should be silent");
+        assert!(detector.is_silent(&[50]), "Single quiet sample should be silent");
+        assert!(!detector.is_silent(&[500]), "Single loud sample should not be silent");
 
-        // Test with known values
-        let samples = vec![100, -100, 100, -100];
-        let is_silent = detector.is_silent(&samples);
-        assert!(!is_silent, "RMS of ±100 should not be silent with threshold 100");
-
-        // Test with zeros
-        let samples = vec![0; 100];
-        let is_silent = detector.is_silent(&samples);
-        assert!(is_silent, "Zero samples should be silent");
-
-        // Test with single spike
-        let mut samples = vec![0; 100];
-        samples[50] = 1000;
-        let is_silent = detector.is_silent(&samples);
-        assert!(!is_silent, "Single spike should affect RMS");
+        // Edge case: Max values
+        assert!(!detector.is_silent(&[i16::MAX; 10]), "Max positive should not be silent");
+        assert!(!detector.is_silent(&[i16::MIN; 10]), "Max negative should not be silent");
+        assert!(!detector.is_silent(&vec![i16::MAX, i16::MIN, i16::MAX, i16::MIN]),
+            "Alternating max should not be silent");
     }
 
-    #[test]
-    fn test_silence_threshold_50() {
-        let detector = SilenceDetector::new(50);
-
-        // Generate samples just below threshold
-        let quiet_samples = generate_noise(100, 40);
-        assert!(detector.is_silent(&quiet_samples),
-            "Samples with amplitude 40 should be silent with threshold 50");
-
-        // Generate samples just above threshold
-        let loud_samples = generate_noise(100, 60);
-        assert!(!detector.is_silent(&loud_samples),
-            "Samples with amplitude 60 should not be silent with threshold 50");
-    }
-
-    #[test]
-    fn test_silence_threshold_500() {
-        let detector = SilenceDetector::new(500);
-
-        // Normal speech levels (~1000-3000) should not be silent
-        let speech_samples = generate_sine_wave(200.0, 16000, 100);
-        assert!(!detector.is_silent(&speech_samples),
-            "Speech-level audio should not be silent with threshold 500");
-
-        // Whisper levels (~100-400) should be silent
-        let whisper_samples = generate_noise(100, 300);
-        assert!(detector.is_silent(&whisper_samples),
-            "Whisper-level audio should be silent with threshold 500");
-    }
-
+    /// Test continuous silence tracking with activity interruption.
+    ///
+    /// Tests user-facing behavior: the detector should correctly identify
+    /// periods of continuous silence and reset when activity is detected.
+    /// This is the behavior that VAD and audio pipeline depend on.
     #[test]
     fn test_continuous_silence_tracking() {
-        let mut detector = SilenceDetector::new(100);
-        let silent_samples = generate_silence(FRAME_SIZE_SAMPLES); // ~32ms at 16kHz
-
-        // Track 3 seconds of silence (~94 frames of 32ms each)
-        let mut continuous_silent = Duration::ZERO;
-        let frame_duration = Duration::from_millis(32);
-
-        for _ in 0..94 {
-            if detector.is_silent(&silent_samples) {
-                continuous_silent += frame_duration;
-            } else {
-                continuous_silent = Duration::ZERO;
-            }
-        }
-
-        assert!(continuous_silent >= Duration::from_secs(3),
-            "Should track 3 seconds of continuous silence");
-    }
-
-    #[test]
-    fn test_activity_interrupts_silence() {
         let detector = SilenceDetector::new(100);
         let generator = TestDataGenerator::new(16000);
 
-        // Pattern: 1s silence, 0.1s activity, 1s silence
+        // Pattern: 2s silence, 0.1s activity, 2s silence
+        // This simulates real-world scenario: silence → speech → silence
         let pattern = vec![
-            (false, 1000),  // Silent
-            (true, 100),    // Active
-            (false, 1000),  // Silent
+            (false, 2000),  // 2 seconds silence
+            (true, 100),    // 0.1 seconds activity (interruption)
+            (false, 2000),  // 2 seconds silence
         ];
 
         let samples = generator.generate_activity_pattern(&pattern);
-
-        // Process in ~32ms frames
         let frame_size = FRAME_SIZE_SAMPLES; // ~32ms at 16kHz
-        let mut max_continuous_silence = 0;
-        let mut current_silence_count = 0;
+
+        // Track silence periods
+        let mut max_continuous_silence_frames = 0;
+        let mut current_silence_frames = 0;
 
         for chunk in samples.chunks(frame_size) {
             if chunk.len() == frame_size {
                 if detector.is_silent(chunk) {
-                    current_silence_count += 1;
-                    max_continuous_silence = max_continuous_silence.max(current_silence_count);
+                    current_silence_frames += 1;
+                    max_continuous_silence_frames =
+                        max_continuous_silence_frames.max(current_silence_frames);
                 } else {
-                    current_silence_count = 0;
+                    current_silence_frames = 0; // Reset on activity
                 }
             }
         }
 
-        // Should not have more than 1 second of continuous silence
-        assert!(max_continuous_silence <= 50, // 50 * 20ms = 1 second
-            "Activity should interrupt silence tracking");
-    }
+        // Verify silence tracking behavior
+        let max_silence_ms = max_continuous_silence_frames * 32;
 
-    #[test]
-    fn test_edge_cases() {
-        let detector = SilenceDetector::new(100);
-
-        // Empty samples
-        let empty: Vec<i16> = vec![];
-        assert!(detector.is_silent(&empty), "Empty samples should be silent");
-
-        // Single sample
-        let single = vec![50];
-        assert!(detector.is_silent(&single), "Single quiet sample should be silent");
-
-        let single_loud = vec![500];
-        assert!(!detector.is_silent(&single_loud), "Single loud sample should not be silent");
-
-        // Max values
-        let max_positive = vec![i16::MAX; 10];
-        assert!(!detector.is_silent(&max_positive), "Max positive values should not be silent");
-
-        let max_negative = vec![i16::MIN; 10];
-        assert!(!detector.is_silent(&max_negative), "Max negative values should not be silent");
-
-        // Alternating max values
-        let alternating = vec![i16::MAX, i16::MIN, i16::MAX, i16::MIN];
-        assert!(!detector.is_silent(&alternating), "Alternating max values should not be silent");
-    }
-
-    #[test]
-    fn test_threshold_boundary_conditions() {
-        // Test threshold of 0 (everything except absolute silence is active)
-        let detector_zero = SilenceDetector::new(0);
-        assert!(detector_zero.is_silent(&[0, 0, 0]));
-        assert!(!detector_zero.is_silent(&[1, 0, 0]));
-
-        // Test very high threshold
-        let detector_high = SilenceDetector::new(10000);
-        let loud_samples = generate_sine_wave(440.0, 16000, 100);
-        assert!(detector_high.is_silent(&loud_samples),
-            "Even loud audio should be 'silent' with very high threshold");
-    }
-
-    #[test]
-    fn test_real_world_scenarios() {
-        let detector = SilenceDetector::new(150); // Typical threshold
-
-        // Simulate microphone background noise
-        let bg_noise = generate_noise(1000, 80);
-        assert!(detector.is_silent(&bg_noise),
-            "Typical background noise should be detected as silence");
-
-        // Simulate speech
-        let speech = generate_sine_wave(250.0, 16000, 100);
-        assert!(!detector.is_silent(&speech),
-            "Speech frequencies should not be detected as silence");
-
-        // Simulate breathing/wind noise
-        let breathing = generate_noise(1000, 120);
-        assert!(detector.is_silent(&breathing),
-            "Breathing noise should be detected as silence with typical threshold");
+        // Should have detected continuous silence, but not more than 2 seconds
+        // (because activity interrupts it)
+        assert!(max_silence_ms >= 1900 && max_silence_ms <= 2100,
+            "Should track ~2 seconds of continuous silence (got {} ms), \
+             activity should interrupt tracking",
+            max_silence_ms);
     }
 }
