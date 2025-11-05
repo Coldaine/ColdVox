@@ -177,11 +177,14 @@ jobs:
         id: setup
         run: bash scripts/ci/setup-whisper-cache.sh
       
-      - name: Run Whisper E2E test
+      - name: Run Whisper Golden Master test
         env:
           WHISPER_MODEL_PATH: ${{ steps.setup.outputs.model_path }}
           WHISPER_MODEL_SIZE: ${{ steps.setup.outputs.model_size }}
-        run: cargo test -p coldvox-app --features whisper test_end_to_end_wav_pipeline -- --nocapture
+        run: |
+          pip install faster-whisper
+          export PYTHONPATH=$(python3 -c "import site; print(site.getsitepackages()[0])")
+          cargo test -p coldvox-app --test golden_master -- --nocapture
       
       - name: Skip Whisper E2E
         if: steps.setup.outputs.model_path == ''

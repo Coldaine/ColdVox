@@ -1,6 +1,10 @@
 {
   "preferred_plugin": "whisper",
-  "fallback_plugins": [],
+  "fallback_plugins": [
+    "whisper",
+    "whisper-local",
+    "gcloud"
+  ],
   "require_local": false,
   "max_memory_mb": null,
   "required_language": "en",
@@ -10,7 +14,7 @@
   },
   "gc_policy": {
     "model_ttl_secs": 300,
-    "enabled": true
+    "enabled": false
   },
   "metrics": {
     "log_interval_secs": 60,

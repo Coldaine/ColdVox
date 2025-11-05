@@ -62,6 +62,7 @@ ctrlc = "3.5"
 proptest = "1.9"
 rand = "0.8"
 serial_test = "3.0"
+similar-asserts = "1.5"
 
 [features]
 default = ["silero", "text-injection", "whisper"]

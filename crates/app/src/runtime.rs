@@ -51,7 +51,7 @@ pub struct InjectionOptions {
 }
 
 /// Options for starting the ColdVox runtime
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct AppRuntimeOptions {
     pub device: Option<String>,
     pub resampler_quality: ResamplerQuality,
@@ -64,10 +64,31 @@ pub struct AppRuntimeOptions {
     pub enable_device_monitor: bool,
     /// Capture ring buffer capacity in samples
     pub capture_buffer_samples: usize,
-    #[cfg(test)]
     pub test_device_config: Option<coldvox_audio::DeviceConfig>,
-    #[cfg(test)]
     pub test_capture_to_dummy: bool,
+    pub test_injection_sink: Option<Arc<dyn crate::text_injection::TextInjector>>,
+    pub transcription_config: Option<coldvox_stt::TranscriptionConfig>,
+}
+
+impl std::fmt::Debug for AppRuntimeOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AppRuntimeOptions")
+            .field("device", &self.device)
+            .field("resampler_quality", &self.resampler_quality)
+            .field("activation_mode", &self.activation_mode)
+            .field("stt_selection", &self.stt_selection)
+            .field("injection", &self.injection)
+            .field("enable_device_monitor", &self.enable_device_monitor)
+            .field("capture_buffer_samples", &self.capture_buffer_samples)
+            .field("test_device_config", &self.test_device_config)
+            .field("test_capture_to_dummy", &self.test_capture_to_dummy)
+            .field(
+                "test_injection_sink",
+                &self.test_injection_sink.as_ref().map(|_| "Some(...)"),
+            )
+            .field("transcription_config", &self.transcription_config)
+            .finish()
+    }
 }
 
 impl Default for AppRuntimeOptions {
@@ -81,10 +102,10 @@ impl Default for AppRuntimeOptions {
             injection: None,
             enable_device_monitor: false,
             capture_buffer_samples: 65_536,
-            #[cfg(test)]
             test_device_config: None,
-            #[cfg(test)]
             test_capture_to_dummy: false,
+            test_injection_sink: None,
+            transcription_config: None,
         }
     }
 }
@@ -304,9 +325,7 @@ pub async fn start(
     let (audio_producer, audio_consumer) = ring_buffer.split();
     let audio_producer = Arc::new(Mutex::new(audio_producer));
 
-    // In tests, optionally route capture writes to a dummy buffer to avoid interference
-    #[cfg(test)]
-    let (audio_capture, device_cfg, device_config_rx, _device_event_rx) = {
+    let (audio_capture, device_cfg, device_config_rx, _device_event_rx) =
         if opts.test_capture_to_dummy {
             // In test "dummy" mode, avoid opening any real audio device to prevent ALSA spam.
             // Construct a no-op capture thread and synthesize device config + channels.
@@ -337,10 +356,14 @@ pub async fn start(
             // Create broadcast channels and emit initial device config
             let (cfg_tx, cfg_rx) =
                 tokio::sync::broadcast::channel::<coldvox_audio::DeviceConfig>(16);
-            let _ = cfg_tx.send(initial_dc.clone());
             let (dev_evt_tx, dev_evt_rx) =
                 tokio::sync::broadcast::channel::<coldvox_foundation::DeviceEvent>(32);
             let _ = dev_evt_tx; // not used in tests here
+
+            // **Crucially, send the initial config immediately.**
+            if let Err(e) = cfg_tx.send(initial_dc.clone()) {
+                tracing::warn!("Failed to send initial dummy device config: {}", e);
+            }
 
             // Build a dummy AudioCaptureThread
             let dummy_capture = AudioCaptureThread {
@@ -357,17 +380,7 @@ pub async fn start(
                 opts.device.clone(),
                 opts.enable_device_monitor,
             )?
-        }
-    };
-
-    #[cfg(not(test))]
-    let (audio_capture, device_cfg, device_config_rx, _device_event_rx) =
-        AudioCaptureThread::spawn(
-            audio_config,
-            audio_producer.clone(),
-            opts.device.clone(),
-            opts.enable_device_monitor,
-        )?;
+        };
 
     // 2) Chunker (with resampler)
     let frame_reader = FrameReader::new(
@@ -515,12 +528,12 @@ pub async fn start(
         let (stt_pipeline_tx, stt_pipeline_rx) = mpsc::channel::<TranscriptionEvent>(100);
 
         #[cfg(feature = "whisper")]
-        let stt_config = TranscriptionConfig {
+        let stt_config = opts.transcription_config.clone().unwrap_or_else(|| TranscriptionConfig {
             // This `streaming` flag is now legacy. Behavior is controlled by `Settings`.
             enabled: true,
             streaming: true,
             ..Default::default()
-        };
+        });
 
         #[cfg(feature = "whisper")]
         let processor = PluginSttProcessor::new(
@@ -581,9 +594,25 @@ pub async fn start(
             let mut pipeline_rx = stt_pipeline_rx;
             let stt_tx_forward = stt_tx.clone();
             #[cfg(feature = "text-injection")]
-            let text_injection_tx_forwarder = text_injection_tx.clone();
+            let mut text_injection_tx_forwarder = text_injection_tx.clone();
             #[cfg(feature = "text-injection")]
             let mut injection_active = true;
+
+            // Test-only: If a mock sink is provided, spawn a task to drain events to it.
+            #[cfg(test)]
+            if let Some(mock_sink) = opts.test_injection_sink.clone() {
+                let (mock_tx, mut mock_rx) = mpsc::channel::<TranscriptionEvent>(100);
+                let _mock_handle = tokio::spawn(async move {
+                    while let Some(event) = mock_rx.recv().await {
+                        if let TranscriptionEvent::Final { text, .. } = event {
+                            let _ = mock_sink.inject_text(&text, None).await;
+                        }
+                    }
+                });
+                // Overwrite the forwarder to send to our mock channel instead
+                text_injection_tx_forwarder = mock_tx;
+            }
+
             stt_forward_handle = Some(tokio::spawn(async move {
                 while let Some(event) = pipeline_rx.recv().await {
                     #[cfg(feature = "text-injection")]
@@ -765,10 +794,10 @@ mod tests {
             injection: None,
             enable_device_monitor: false,
             capture_buffer_samples: 65_536,
-            #[cfg(test)]
             test_device_config: None,
-            #[cfg(test)]
             test_capture_to_dummy: true,
+            test_injection_sink: None,
+            transcription_config: None,
         }
     }
 
