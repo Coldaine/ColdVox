@@ -47,7 +47,7 @@ ColdVox has a comprehensive test suite that tests real STT functionality using W
 | **Pure Logic** | 10% | Complex algorithms only | RMS calculation edge cases |
 | **Contract** | 5% | External service boundaries | Whisper model API |
 
-### The Six Mental Models
+### The Seven Mental Models
 
 Before writing any test, ask yourself:
 
@@ -57,6 +57,7 @@ Before writing any test, ask yourself:
 4. **Failure Clarity**: If this fails, will I know behavior is broken (not just code changed)?
 5. **Story**: Does this test tell a complete story about user value?
 6. **No-Mock Challenge**: How can I eliminate every mock in this test?
+7. **Production Alignment**: Does this test use the same configuration and components as production?
 
 ### Decision Framework: When to Write Which Test
 
@@ -108,6 +109,72 @@ async fn test_audio_pipeline_processes_speech_end_to_end() {
     // One test proves the complete feature works
 }
 ```
+
+### Mental Model Deep Dive: Production Alignment
+
+**The Problem**: Tests can pass while using different configurations than production, giving false confidence.
+
+**Example - Configuration Drift**:
+```rust
+// ❌ BAD: Test uses defaults, production uses tuned config
+#[test]
+fn test_vad_detection() {
+    let vad = UnifiedVadConfig {
+        silero: Default::default(),  // threshold=0.3, min_silence=100ms
+        ..
+    };
+    // Test validates DEFAULT behavior, not PRODUCTION behavior
+}
+
+// ✅ GOOD: Test uses production config
+#[test]
+fn test_vad_detection() {
+    let vad = UnifiedVadConfig::production_default();  // threshold=0.1, min_silence=500ms
+    // Test validates ACTUAL production behavior
+}
+```
+
+**Why This Matters**:
+- Production: `min_silence_duration=500ms` (stitches speech segments)
+- Test Default: `min_silence_duration=100ms` (fragments speech)
+- **Result**: Test passes but production behaves fundamentally different
+
+**The Production Alignment Checklist**:
+
+1. **Configuration**: Does test use `production_default()` or equivalent?
+2. **Components**: Does test use production `start()` function or manually wire pipeline?
+3. **Dependencies**: Does test use same libraries/versions as production?
+4. **Feature flags**: Does test enable same features as production?
+5. **Metrics**: Does test verify metrics collection works?
+
+**Pattern: Factory Methods for Production Config**:
+```rust
+// Define production config once
+impl UnifiedVadConfig {
+    pub fn production_default() -> Self {
+        // Single source of truth for production values
+        Self { threshold: 0.1, min_silence: 500, .. }
+    }
+}
+
+// Production uses it
+let vad = UnifiedVadConfig::production_default();
+
+// Tests use it
+#[test]
+fn test_feature() {
+    let vad = UnifiedVadConfig::production_default();  // ✅ Aligned
+}
+```
+
+**Red Flags**:
+- Test constructs pipeline manually (200+ lines) instead of using `runtime::start()`
+- Test uses `Default::default()` for critical configs
+- Test passes `None` for metrics when production uses metrics
+- Test has different resampler quality than production
+- Config is hardcoded in multiple places
+
+**See Also**: [`docs/testing/TEST_AUDIT_REPORT.md`](../testing/TEST_AUDIT_REPORT.md) for detailed analysis of production alignment across test suite.
 
 ### Further Reading
 
