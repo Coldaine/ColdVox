@@ -13,7 +13,7 @@ last_reviewed: 2025-10-19
 
 ColdVox follows a **Pragmatic, Large-Span Testing Philosophy**: one comprehensive test that exercises real behavior beats ten fragmented unit tests. Our testing approach prioritizes **observable outcomes over implementation details** and **integration confidence over isolated verification**.
 
-ColdVox has a comprehensive test suite that tests real STT functionality using Vosk models and actual hardware. Tests are designed to work with actual speech recognition and real audio devices rather than mocks to ensure functional correctness. This guide explains how to run tests and set up the required dependencies.
+ColdVox has a comprehensive test suite that tests real STT functionality using Whisper models and actual hardware. Tests are designed to work with actual speech recognition and real audio devices rather than mocks to ensure functional correctness. This guide explains how to run tests and set up the required dependencies.
 
 ## Testing Philosophy: Large-Span, Behavior-First
 
@@ -45,7 +45,7 @@ ColdVox has a comprehensive test suite that tests real STT functionality using V
 | **Service/Integration** | 70% | Default for all features | Audio capture → VAD → STT flow |
 | **E2E/Trace** | 15% | Critical user journeys | Complete dictation session |
 | **Pure Logic** | 10% | Complex algorithms only | RMS calculation edge cases |
-| **Contract** | 5% | External service boundaries | Vosk model API |
+| **Contract** | 5% | External service boundaries | Whisper model API |
 
 ### The Six Mental Models
 
@@ -119,19 +119,19 @@ async fn test_audio_pipeline_processes_speech_end_to_end() {
 ## Test Categories
 
 ### Core Tests
-**All tests use real Vosk models and hardware for functional validation**
+**All tests use real Whisper models and hardware for functional validation**
 
-- ✅ **Test actual STT functionality** (use real Vosk models)
+- ✅ **Test actual STT functionality** (use real Whisper models)
 - ✅ **Validate end-to-end pipeline behavior**
 - ✅ **Test with real audio hardware** (microphones, speakers)
-- ✅ **Require Vosk model setup** (see setup section below)
+- ✅ **Require Whisper model setup** (see setup section below)
 
 ```bash
-# Run tests with Vosk model (all environments)
-VOSK_MODEL_PATH="$(pwd)/models/vosk-model-small-en-us-0.15" cargo test
+# Run tests with Whisper STT (all environments)
+cargo test --features whisper
 
 # Run tests for specific crate
-VOSK_MODEL_PATH="$(pwd)/models/vosk-model-small-en-us-0.15" cargo test -p coldvox-app
+cargo test -p coldvox-app --features whisper
 ```
 
 ### Integration Tests (Full Hardware & Models)
@@ -158,26 +158,20 @@ cargo test test_candidate_order_default_first
 ### Hardware Requirements
 **All environments must have real hardware available**
 
-All tests use real Vosk models and actual audio hardware to validate functionality. This includes development environments and self-hosted CI runners.
+All tests use real Whisper models and actual audio hardware to validate functionality. This includes development environments and self-hosted CI runners.
 
 ### Required Setup
 
-#### 1. Vosk Model Setup
-All tests require a real Vosk model for STT functionality:
+#### 1. Whisper Model Setup
+All tests require faster-whisper for STT functionality:
 
 ```bash
-# Option A: Use the automated setup script
-./scripts/ci/setup-vosk-cache.sh
+# Install faster-whisper Python package
+pip install faster-whisper
 
-# Option B: Manual setup
-# 1. Download a Vosk model
-wget https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip
-unzip vosk-model-small-en-us-0.15.zip
-mkdir -p models/
-mv vosk-model-small-en-us-0.15 models/
-
-# 2. Set environment variable
-export VOSK_MODEL_PATH="$(pwd)/models/vosk-model-small-en-us-0.15"
+# Models are automatically downloaded on first use
+# Optionally set specific model (default is "base.en")
+export WHISPER_MODEL_PATH="small.en"
 ```
 
 #### 2. Audio Hardware Setup
@@ -210,7 +204,7 @@ sudo usermod -a -G input $USER
 | Crate | Unit Tests | Integration Tests | Notes |
 |-------|------------|-------------------|-------|
 | `coldvox-audio` | Device enumeration, resampling | Real hardware detection | All tests run with real devices |
-| `coldvox-app` | Plugin management, STT logic | End-to-end WAV processing | Vosk model required for all tests |
+| `coldvox-app` | Plugin management, STT logic | End-to-end WAV processing | Whisper model required for STT tests |
 | `coldvox-vad` | VAD algorithms | Real audio processing | Silero ONNX models tested |
 | `coldvox-stt` | Plugin interfaces | Model loading/inference | Real hardware and models used |
 
@@ -220,8 +214,8 @@ sudo usermod -a -G input $USER
 # Audio tests (with real hardware)
 cargo test -p coldvox-audio
 
-# STT tests (with real Vosk models)
-cargo test -p coldvox-app stt --lib
+# STT tests (with real Whisper models)
+cargo test -p coldvox-app --features whisper stt --lib
 
 # Text injection tests (with real injection)
 cargo test -p coldvox-app --features text-injection injection
@@ -230,31 +224,32 @@ cargo test -p coldvox-app --features text-injection injection
 cargo test -p coldvox-vad
 
 # Full pipeline with real models and hardware
-cargo test -p coldvox-app test_end_to_end_wav --features vosk
+cargo test -p coldvox-app --features whisper test_end_to_end_wav
 ```
 
 ## Key Testing Principles
 
 ### Real Hardware Testing
-- **Use real hardware**: All tests run against actual audio devices and Vosk models
+- **Use real hardware**: All tests run against actual audio devices and Whisper models
 - **No mock-only paths**: If mocks are used for unit testing, full real tests must be included in the same test run
 - **Comprehensive**: Test actual functionality end-to-end with real hardware and models
 - **Reliable**: Target hardware is consistently available across environments
 
 ### Test Design
 - **No ignored tests**: All tests run by default in standard test execution
-- **Real dependencies**: Use actual Vosk models and audio hardware for validation
+- **Real dependencies**: Use actual Whisper models and audio hardware for validation
 - **Full validation**: Test complete pipeline from audio capture to text injection
 - **Mock + Real requirement**: Any test suite using mocks must also include corresponding real tests
 
 ## Common Issues & Solutions
 
-### "Failed to locate Vosk model" Errors
+### "Failed to initialize Whisper" Errors
 ```bash
-# Fix: Set up Vosk model
-export VOSK_MODEL_PATH="/path/to/vosk-model-small-en-us-0.15"
-# OR
-./scripts/ci/setup-vosk-cache.sh
+# Fix: Install faster-whisper
+pip install faster-whisper
+
+# Optional: Set specific model
+export WHISPER_MODEL_PATH="small.en"
 ```
 
 ### Audio Device Tests
@@ -269,7 +264,7 @@ cargo test
 ### Test Execution
 All tests are designed to run with real hardware and models:
 
-1. Ensure Vosk model is available at `VOSK_MODEL_PATH`
+1. Ensure faster-whisper is installed (`pip install faster-whisper`)
 2. Verify audio hardware is accessible via `mic_probe`
 3. All tests run by default - no tests should be ignored
 
@@ -289,12 +284,12 @@ cargo check --all-targets                    # Quick compile check
 cargo test --workspace                       # All crates with real hardware
 
 # Environment setup
-./scripts/ci/setup-vosk-cache.sh            # Setup models for all tests
-export VOSK_MODEL_PATH="$(pwd)/models/vosk-model-small-en-us-0.15"
+pip install faster-whisper                   # Install STT engine
+export WHISPER_MODEL_PATH="small.en"         # Optional: Set specific model
 
 # Specific test patterns
 cargo test plugin_manager                    # Plugin management tests
-cargo test --features vosk test_vosk         # Vosk-specific tests
+cargo test --features whisper test_whisper   # Whisper-specific tests
 cargo test audio_device                      # Audio hardware tests (real devices)
 
 # Debug failing tests
@@ -313,4 +308,4 @@ RUST_LOG=debug cargo test test_name          # Enable debug logging
 **Local development:**
 - Run `cargo test` for complete validation (includes all tests)
 - All tests use real hardware and models
-- Use `scripts/ci/setup-vosk-cache.sh` for model setup
+- Install faster-whisper for STT tests (`pip install faster-whisper`)
