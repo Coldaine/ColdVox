@@ -1,5 +1,7 @@
 use crate::audio::wav_file_loader::WavFileLoader;
 use anyhow::Result;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, mpsc};
 use tracing::info;
@@ -15,6 +17,7 @@ use coldvox_audio::DeviceConfig;
 use coldvox_audio::SharedAudioFrame as AudioFrame;
 use coldvox_foundation::skip_test_unless;
 use coldvox_foundation::AudioConfig;
+use coldvox_telemetry::PipelineMetrics;
 use coldvox_vad::config::{UnifiedVadConfig, VadMode};
 use coldvox_vad::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 use coldvox_vad::types::VadEvent;
@@ -142,6 +145,9 @@ async fn test_end_to_end_with_real_injection() {
 
     info!("Starting comprehensive end-to-end test with real injection");
 
+    // Set up pipeline metrics to verify metrics collection works
+    let metrics = Arc::new(PipelineMetrics::default());
+
     // Set up components
     let audio_config = AudioConfig::default();
     let ring_buffer = AudioRingBuffer::new(audio_config.capture_buffer_samples);
@@ -165,7 +171,7 @@ async fn test_end_to_end_with_real_injection() {
         wav_loader.sample_rate(),
         wav_loader.channels(),
         audio_config.capture_buffer_samples,
-        None,
+        Some(metrics.clone()),
     );
 
     let chunker_cfg = ChunkerConfig {
@@ -174,8 +180,9 @@ async fn test_end_to_end_with_real_injection() {
         resampler_quality: coldvox_audio::chunker::ResamplerQuality::Balanced,
     };
 
-    let chunker =
-        AudioChunker::new(frame_reader, audio_tx.clone(), chunker_cfg).with_device_config(cfg_rx);
+    let chunker = AudioChunker::new(frame_reader, audio_tx.clone(), chunker_cfg)
+        .with_metrics(metrics.clone())
+        .with_device_config(cfg_rx);
     let chunker_handle = chunker.spawn();
 
     // Set up VAD processor with production configuration
@@ -189,7 +196,7 @@ async fn test_end_to_end_with_real_injection() {
         vad_cfg,
         vad_audio_rx,
         vad_event_tx,
-        None,
+        Some(metrics.clone()),
     ) {
         Ok(handle) => handle,
         Err(e) => {
@@ -364,6 +371,30 @@ async fn test_end_to_end_with_real_injection() {
     streaming_handle.abort();
 
     info!("Comprehensive end-to-end test completed");
+
+    // Verify pipeline metrics were collected
+    info!("Verifying pipeline metrics collection...");
+    let chunker_frames = metrics.chunker_frames.load(Ordering::Relaxed);
+    let speech_segments = metrics.speech_segments_count.load(Ordering::Relaxed);
+
+    info!(
+        "Metrics collected - chunker_frames: {}, speech_segments: {}",
+        chunker_frames, speech_segments
+    );
+
+    assert!(
+        chunker_frames > 0,
+        "Chunker should have processed frames (got {})",
+        chunker_frames
+    );
+
+    assert!(
+        speech_segments > 0,
+        "VAD should have detected at least one speech segment (got {})",
+        speech_segments
+    );
+
+    info!("✅ Pipeline metrics collection verified");
 
     // Close the terminal
     if let Some(mut term) = terminal {
