@@ -165,13 +165,11 @@ async fn test_wl_copy_timeout_handling() {
         "Expected timeout error, but operation succeeded"
     );
 
-    match result.unwrap_err() {
-        crate::types::InjectionError::Timeout(_) => {
-            println!("✅ Timeout handling works correctly");
-        }
-        other => {
-            println!("⚠️  Got different error than expected timeout: {:?}", other);
-        }
+    let err_string = result.unwrap_err().to_string();
+    if err_string.contains("Timeout") {
+        println!("✅ Timeout handling works correctly");
+    } else {
+        println!("⚠️  Got different error than expected timeout: {}", err_string);
     }
 }
 
