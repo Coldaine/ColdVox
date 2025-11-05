@@ -599,7 +599,8 @@ pub async fn start(
             let mut injection_active = true;
 
             // Test-only: If a mock sink is provided, spawn a task to drain events to it.
-            #[cfg(test)]
+            // Note: We don't use #[cfg(test)] here because integration tests in tests/
+            // need this code, and they compile the library without cfg(test).
             if let Some(mock_sink) = opts.test_injection_sink.clone() {
                 let (mock_tx, mut mock_rx) = mpsc::channel::<TranscriptionEvent>(100);
                 let _mock_handle = tokio::spawn(async move {

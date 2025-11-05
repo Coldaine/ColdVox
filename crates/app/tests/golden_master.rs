@@ -152,14 +152,34 @@ mod tests {
 
     #[tokio::test]
     async fn test_short_phrase_pipeline() {
+        // Initialize tracing for better debugging
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(
+                tracing_subscriber::EnvFilter::from_default_env()
+                    .add_directive("coldvox_app=debug".parse().unwrap())
+                    .add_directive("coldvox_stt=debug".parse().unwrap()),
+            )
+            .with_test_writer()
+            .try_init();
+
         let test_name = "short_phrase";
         let wav_path = "test_data/test_11.wav";
+
+        tracing::info!("Starting golden master test for: {}", test_name);
 
         // 1. Set up the mock injection sink.
         let mock_sink = Arc::new(MockInjectionSink::new());
 
         // 2. Configure the runtime for a black-box test run.
-        let mut wav_loader = WavFileLoader::new(wav_path).unwrap();
+        let mut wav_loader = WavFileLoader::new(wav_path)
+            .unwrap_or_else(|e| panic!("Failed to load WAV file '{}': {}", wav_path, e));
+
+        tracing::info!(
+            "Loaded WAV file: {} Hz, {} channels",
+            wav_loader.sample_rate(),
+            wav_loader.channels()
+        );
+
         let transcription_config = coldvox_stt::TranscriptionConfig {
             model_path: "tiny.en".to_string(),
             ..Default::default()
@@ -185,8 +205,10 @@ mod tests {
         };
 
         // 3. Start the application runtime.
+        tracing::info!("Starting application runtime...");
         let app = start(opts).await.expect("Failed to start app runtime");
         let app = Arc::new(app);
+        tracing::info!("Application runtime started successfully");
 
         // 4. Subscribe to the VAD event channel to capture VAD output.
         let mut vad_rx = app.subscribe_vad();
@@ -195,55 +217,87 @@ mod tests {
 
         let vad_collector_handle = tokio::spawn(async move {
             while let Ok(event) = vad_rx.recv().await {
-                let serializable_event = SerializableVadEvent::from(event);
+                let serializable_event = SerializableVadEvent::from(event.clone());
+                tracing::info!("VAD event captured: {:?}", serializable_event);
                 vad_events_clone.lock().await.push(serializable_event);
             }
+            tracing::info!("VAD collector task finished");
         });
 
         // 5. Stream the WAV file into the pipeline in a background task.
         let audio_producer = app.audio_producer.clone();
-        tokio::spawn(async move {
-            wav_loader
-                .stream_to_ring_buffer_locked(audio_producer)
-                .await
-                .unwrap();
+        let stream_handle = tokio::spawn(async move {
+            tracing::info!("Starting to stream WAV file...");
+            match wav_loader.stream_to_ring_buffer_locked(audio_producer).await {
+                Ok(_) => tracing::info!("WAV streaming completed successfully"),
+                Err(e) => tracing::error!("WAV streaming failed: {}", e),
+            }
         });
 
         // 6. Wait for the pipeline to signal completion.
         let vad_clone = vad_events.clone();
         let injection_clone = mock_sink.injected_text.clone();
-        tokio::time::timeout(Duration::from_secs(60), async move {
+        let completion_result = tokio::time::timeout(Duration::from_secs(60), async move {
+            let mut last_log = std::time::Instant::now();
             loop {
                 let vad_lock = vad_clone.lock().await;
                 let has_speech_end = vad_lock.iter().any(|e| e.kind == "SpeechEnd");
+                let vad_count = vad_lock.len();
                 drop(vad_lock);
 
                 let injection_lock = injection_clone.lock().unwrap();
                 let has_injection = !injection_lock.is_empty();
+                let injection_count = injection_lock.len();
                 drop(injection_lock);
 
-                tracing::info!(
-                    "Waiting for completion: has_speech_end={}, has_injection={}",
-                    has_speech_end,
-                    has_injection
-                );
+                // Log every 2 seconds to reduce spam
+                if last_log.elapsed() >= Duration::from_secs(2) {
+                    tracing::info!(
+                        "Waiting for completion: has_speech_end={}, has_injection={}, vad_events={}, injections={}",
+                        has_speech_end,
+                        has_injection,
+                        vad_count,
+                        injection_count
+                    );
+                    last_log = std::time::Instant::now();
+                }
 
                 if has_speech_end && has_injection {
+                    tracing::info!("Pipeline completion detected!");
                     break;
                 }
                 tokio::time::sleep(Duration::from_millis(500)).await;
             }
         })
-        .await
-        .expect("Test timed out waiting for VAD SpeechEnd and injection event");
+        .await;
+
+        if completion_result.is_err() {
+            let vad_lock = vad_events.lock().await;
+            let injection_lock = mock_sink.injected_text.lock().unwrap();
+            panic!(
+                "Test timed out waiting for VAD SpeechEnd and injection event.\n\
+                 VAD events captured: {:?}\n\
+                 Injections captured: {:?}",
+                *vad_lock, *injection_lock
+            );
+        }
+
+        // Wait a bit longer to ensure all events are processed
+        tokio::time::sleep(Duration::from_millis(500)).await;
 
         // 7. Shut down the pipeline gracefully.
+        tracing::info!("Shutting down pipeline...");
         app.shutdown().await;
+        stream_handle.abort();
         vad_collector_handle.abort();
+        tracing::info!("Pipeline shutdown complete");
 
         // 8. Collect the captured results.
         let final_vad_events = vad_events.lock().await.clone();
         let final_injected_text = mock_sink.injected_text.lock().unwrap().clone();
+
+        tracing::info!("Final VAD events: {:?}", final_vad_events);
+        tracing::info!("Final injected text: {:?}", final_injected_text);
 
         // 9. Assert against the golden masters.
         assert_golden(test_name, "vad", &final_vad_events);
