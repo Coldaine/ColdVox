@@ -397,7 +397,6 @@ pub async fn start(
     };
     let (audio_tx, _) = broadcast::channel::<SharedAudioFrame>(200);
     // In tests, allow overriding the device config to match the injected WAV
-    #[cfg(test)]
     let device_config_rx_for_chunker = if let Some(dc) = opts.test_device_config.clone() {
         let (tx, rx) = broadcast::channel::<coldvox_audio::DeviceConfig>(8);
         let _ = tx.send(dc);
@@ -405,9 +404,6 @@ pub async fn start(
     } else {
         device_config_rx.resubscribe()
     };
-
-    #[cfg(not(test))]
-    let device_config_rx_for_chunker = device_config_rx.resubscribe();
 
     let chunker = AudioChunker::new(frame_reader, audio_tx.clone(), chunker_cfg)
         .with_metrics(metrics.clone())
@@ -599,7 +595,6 @@ pub async fn start(
             let mut injection_active = true;
 
             // Test-only: If a mock sink is provided, spawn a task to drain events to it.
-            #[cfg(test)]
             if let Some(mock_sink) = opts.test_injection_sink.clone() {
                 let (mock_tx, mut mock_rx) = mpsc::channel::<TranscriptionEvent>(100);
                 let _mock_handle = tokio::spawn(async move {
