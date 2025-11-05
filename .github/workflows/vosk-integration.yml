@@ -65,12 +65,14 @@ jobs:
           RUST_TEST_THREADS: 1
         run: |
           cargo nextest run --locked -p coldvox-stt --features whisper
-      - name: Run end-to-end WAV pipeline test
+      - name: Run Golden Master pipeline test
         env:
           WHISPER_MODEL_PATH: ${{ needs.setup-whisper-dependencies.outputs.model_path }}
           WHISPER_MODEL_SIZE: ${{ needs.setup-whisper-dependencies.outputs.model_size }}
         run: |
-          cargo test --locked -p coldvox-app --features whisper test_end_to_end_wav_pipeline -- --ignored --nocapture
+          pip install faster-whisper
+          export PYTHONPATH=$(python3 -c "import site; print(site.getsitepackages()[0])")
+          cargo test -p coldvox-app --test golden_master -- --nocapture
       - name: Test Whisper examples
         env:
           WHISPER_MODEL_PATH: ${{ needs.setup-whisper-dependencies.outputs.model_path }}

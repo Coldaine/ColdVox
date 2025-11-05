@@ -262,16 +262,18 @@ jobs:
       - name: Build main application
         run: cargo build --locked -p coldvox-app
 
-      - name: Run E2E pipeline test
+      - name: Run Golden Master pipeline test
         env:
           WHISPER_MODEL_PATH: ${{ needs.setup-whisper-dependencies.outputs.model_path }}
           WHISPER_MODEL_SIZE: ${{ needs.setup-whisper-dependencies.outputs.model_size }}
         run: |
-          echo "=== E2E Environment Validation ==="
+          echo "=== Golden Master Environment Validation ==="
           echo "WHISPER_MODEL_PATH: $WHISPER_MODEL_PATH"
           echo "WHISPER_MODEL_SIZE: $WHISPER_MODEL_SIZE"
-          echo "=== Running E2E Test ==="
-          cargo test -p coldvox-app --locked test_end_to_end_wav_pipeline -- --nocapture
+          echo "=== Running Golden Master Test ==="
+          pip install faster-whisper
+          export PYTHONPATH=$(python3 -c "import site; print(site.getsitepackages()[0])")
+          cargo test -p coldvox-app --test golden_master -- --nocapture
 
       - name: Upload test artifacts on failure
         if: failure()
