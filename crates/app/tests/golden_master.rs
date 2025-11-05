@@ -152,14 +152,31 @@ mod tests {
 
     #[tokio::test]
     async fn test_short_phrase_pipeline() {
+        // Enable detailed logging for debugging
+        let _ = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .with_test_writer()
+            .try_init();
+
         let test_name = "short_phrase";
         let wav_path = "test_data/test_11.wav";
+
+        tracing::info!("Starting golden master test for: {}", test_name);
+
+        // Enable accelerated playback to speed up the test
+        std::env::set_var("COLDVOX_PLAYBACK_MODE", "accelerated");
+        std::env::set_var("COLDVOX_PLAYBACK_SPEED_MULTIPLIER", "4.0");
 
         // 1. Set up the mock injection sink.
         let mock_sink = Arc::new(MockInjectionSink::new());
 
         // 2. Configure the runtime for a black-box test run.
         let mut wav_loader = WavFileLoader::new(wav_path).unwrap();
+        tracing::info!(
+            "Loaded WAV: {} Hz, {} channels",
+            wav_loader.sample_rate(),
+            wav_loader.channels()
+        );
         let transcription_config = coldvox_stt::TranscriptionConfig {
             model_path: "tiny.en".to_string(),
             ..Default::default()
@@ -185,8 +202,10 @@ mod tests {
         };
 
         // 3. Start the application runtime.
+        tracing::info!("Starting application runtime...");
         let app = start(opts).await.expect("Failed to start app runtime");
         let app = Arc::new(app);
+        tracing::info!("Application runtime started successfully");
 
         // 4. Subscribe to the VAD event channel to capture VAD output.
         let mut vad_rx = app.subscribe_vad();
@@ -195,47 +214,85 @@ mod tests {
 
         let vad_collector_handle = tokio::spawn(async move {
             while let Ok(event) = vad_rx.recv().await {
+                tracing::info!("VAD event collected: {:?}", event);
                 let serializable_event = SerializableVadEvent::from(event);
                 vad_events_clone.lock().await.push(serializable_event);
             }
         });
 
+        // Give the pipeline a moment to fully initialize before streaming audio
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
         // 5. Stream the WAV file into the pipeline in a background task.
+        tracing::info!("Starting WAV streaming...");
         let audio_producer = app.audio_producer.clone();
-        tokio::spawn(async move {
-            wav_loader
+        let stream_handle = tokio::spawn(async move {
+            tracing::info!("WAV streaming task started");
+            let result = wav_loader
                 .stream_to_ring_buffer_locked(audio_producer)
-                .await
-                .unwrap();
+                .await;
+            tracing::info!("WAV streaming completed: {:?}", result);
+            result.unwrap();
         });
 
         // 6. Wait for the pipeline to signal completion.
         let vad_clone = vad_events.clone();
         let injection_clone = mock_sink.injected_text.clone();
-        tokio::time::timeout(Duration::from_secs(60), async move {
+        let wait_result = tokio::time::timeout(Duration::from_secs(60), async move {
+            let mut iteration = 0;
             loop {
+                iteration += 1;
                 let vad_lock = vad_clone.lock().await;
+                let vad_event_count = vad_lock.len();
+                let has_speech_start = vad_lock.iter().any(|e| e.kind == "SpeechStart");
                 let has_speech_end = vad_lock.iter().any(|e| e.kind == "SpeechEnd");
+                let vad_summary: Vec<String> = vad_lock.iter().map(|e| e.kind.clone()).collect();
                 drop(vad_lock);
 
                 let injection_lock = injection_clone.lock().unwrap();
+                let injection_count = injection_lock.len();
                 let has_injection = !injection_lock.is_empty();
+                let injection_preview = if !injection_lock.is_empty() {
+                    format!("{:?}", &injection_lock[0])
+                } else {
+                    "None".to_string()
+                };
                 drop(injection_lock);
 
-                tracing::info!(
-                    "Waiting for completion: has_speech_end={}, has_injection={}",
-                    has_speech_end,
-                    has_injection
-                );
+                if iteration % 4 == 0 || has_speech_start || has_injection {
+                    tracing::info!(
+                        "Iter {}: VAD events: {} {:?}, has_start={}, has_end={}, Injections: {}, preview: {}",
+                        iteration,
+                        vad_event_count,
+                        vad_summary,
+                        has_speech_start,
+                        has_speech_end,
+                        injection_count,
+                        injection_preview
+                    );
+                }
 
                 if has_speech_end && has_injection {
+                    tracing::info!("Pipeline completion detected!");
                     break;
                 }
                 tokio::time::sleep(Duration::from_millis(500)).await;
             }
         })
-        .await
-        .expect("Test timed out waiting for VAD SpeechEnd and injection event");
+        .await;
+
+        // Wait for the streaming task to complete
+        let _ = stream_handle.await;
+
+        if let Err(_) = wait_result {
+            let vad_lock = vad_events.lock().await;
+            let injection_lock = mock_sink.injected_text.lock().unwrap();
+            panic!(
+                "Test timed out! VAD events: {:?}, Injections: {:?}",
+                vad_lock.iter().map(|e| &e.kind).collect::<Vec<_>>(),
+                *injection_lock
+            );
+        }
 
         // 7. Shut down the pipeline gracefully.
         app.shutdown().await;
