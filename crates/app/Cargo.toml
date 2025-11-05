@@ -65,6 +65,7 @@ serial_test = "3.0"
 
 [features]
 default = ["silero", "text-injection", "whisper"]
+headless-test = []
 live-hardware-tests = []
 parakeet = []
 whisper = ["coldvox-stt/whisper"]

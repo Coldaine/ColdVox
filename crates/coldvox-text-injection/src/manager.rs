@@ -183,6 +183,8 @@ pub struct StrategyManager {
     prewarm_controller: Arc<PrewarmController>,
     /// Session state for buffering (when available)
     session: Option<Arc<RwLock<InjectionSession>>>,
+    /// Mock injector for testing
+    mock_injector: Option<Arc<dyn TextInjector>>,
 }
 
 impl StrategyManager {
@@ -192,11 +194,34 @@ impl StrategyManager {
         Self::new_with_focus_provider(config, metrics, focus).await
     }
 
+    /// Create a new strategy manager with a mock injector (for tests)
+    pub async fn new_with_mock(
+        config: InjectionConfig,
+        metrics: Arc<Mutex<InjectionMetrics>>,
+        mock_injector: Arc<dyn TextInjector>,
+    ) -> Self {
+        let mut manager = Self::new(config, metrics).await;
+        manager.mock_injector = Some(mock_injector);
+        manager
+    }
+
     /// Create a new strategy manager with an injected focus provider (for tests)
     pub async fn new_with_focus_provider(
         config: InjectionConfig,
         metrics: Arc<Mutex<InjectionMetrics>>,
         focus_provider: Box<dyn FocusProvider>,
+    ) -> Self {
+        let backend_detector = BackendDetector::new(config.clone());
+        let injectors = InjectorRegistry::build(&config, &backend_detector).await;
+        Self::new_with_injectors(config, metrics, focus_provider, injectors.injectors).await
+    }
+
+    /// Create a new strategy manager with a pre-built set of injectors (for tests)
+    pub async fn new_with_injectors(
+        config: InjectionConfig,
+        metrics: Arc<Mutex<InjectionMetrics>>,
+        focus_provider: Box<dyn FocusProvider>,
+        injectors: HashMap<InjectionMethod, Arc<dyn TextInjector>>,
     ) -> Self {
         let backend_detector = BackendDetector::new(config.clone());
         let log_throttle = Mutex::new(LogThrottle::new());
@@ -280,6 +305,7 @@ impl StrategyManager {
             log_throttle,
             prewarm_controller: Arc::new(PrewarmController::new(config)),
             session: None, // Session management is optional for backward compatibility
+            mock_injector: None,
         }
     }
 
@@ -941,6 +967,10 @@ impl StrategyManager {
 
     /// Try to inject text using the best available method
     pub async fn inject(&mut self, text: &str) -> Result<(), InjectionError> {
+        if let Some(injector) = &self.mock_injector {
+            return injector.inject_text(text, None).await;
+        }
+
         if text.is_empty() {
             return Ok(());
         }

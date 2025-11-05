@@ -64,10 +64,12 @@ pub struct AppRuntimeOptions {
     pub enable_device_monitor: bool,
     /// Capture ring buffer capacity in samples
     pub capture_buffer_samples: usize,
-    #[cfg(test)]
+    #[cfg(feature = "headless-test")]
     pub test_device_config: Option<coldvox_audio::DeviceConfig>,
-    #[cfg(test)]
+    #[cfg(feature = "headless-test")]
     pub test_capture_to_dummy: bool,
+    #[cfg(feature = "headless-test")]
+    pub mock_injection_sender: Option<mpsc::Sender<String>>,
 }
 
 impl Default for AppRuntimeOptions {
@@ -81,10 +83,12 @@ impl Default for AppRuntimeOptions {
             injection: None,
             enable_device_monitor: false,
             capture_buffer_samples: 65_536,
-            #[cfg(test)]
+            #[cfg(feature = "headless-test")]
             test_device_config: None,
-            #[cfg(test)]
+            #[cfg(feature = "headless-test")]
             test_capture_to_dummy: false,
+            #[cfg(feature = "headless-test")]
+            mock_injection_sender: None,
         }
     }
 }
@@ -305,7 +309,7 @@ pub async fn start(
     let audio_producer = Arc::new(Mutex::new(audio_producer));
 
     // In tests, optionally route capture writes to a dummy buffer to avoid interference
-    #[cfg(test)]
+    #[cfg(feature = "headless-test")]
     let (audio_capture, device_cfg, device_config_rx, _device_event_rx) = {
         if opts.test_capture_to_dummy {
             // In test "dummy" mode, avoid opening any real audio device to prevent ALSA spam.
@@ -360,7 +364,7 @@ pub async fn start(
         }
     };
 
-    #[cfg(not(test))]
+    #[cfg(not(feature = "headless-test"))]
     let (audio_capture, device_cfg, device_config_rx, _device_event_rx) =
         AudioCaptureThread::spawn(
             audio_config,
@@ -384,7 +388,7 @@ pub async fn start(
     };
     let (audio_tx, _) = broadcast::channel::<SharedAudioFrame>(200);
     // In tests, allow overriding the device config to match the injected WAV
-    #[cfg(test)]
+    #[cfg(feature = "headless-test")]
     let device_config_rx_for_chunker = if let Some(dc) = opts.test_device_config.clone() {
         let (tx, rx) = broadcast::channel::<coldvox_audio::DeviceConfig>(8);
         let _ = tx.send(dc);
@@ -393,7 +397,7 @@ pub async fn start(
         device_config_rx.resubscribe()
     };
 
-    #[cfg(not(test))]
+    #[cfg(not(feature = "headless-test"))]
     let device_config_rx_for_chunker = device_config_rx.resubscribe();
 
     let chunker = AudioChunker::new(frame_reader, audio_tx.clone(), chunker_cfg)
@@ -673,11 +677,25 @@ pub async fn start(
                 //         .unwrap_or(false);
 
                 let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>(1);
+
+                // Conditionally compile the injection backend for headless testing
+                #[cfg(not(feature = "headless-test"))]
+                let mock_injector = None;
+
+                #[cfg(feature = "headless-test")]
+                let mock_injector = if let Some(sender) = opts.mock_injection_sender.clone() {
+                    let mock_sink = crate::test_utils::mock_injection::MockInjectionSink::new(sender);
+                    Some(Arc::new(mock_sink) as Arc<dyn coldvox_text_injection::TextInjector>)
+                } else {
+                    None
+                };
+
                 let processor = crate::text_injection::AsyncInjectionProcessor::new(
                     config,
                     text_injection_rx,
                     shutdown_rx,
-                    None,
+                    None, // pipeline_metrics
+                    mock_injector,
                 )
                 .await;
 
