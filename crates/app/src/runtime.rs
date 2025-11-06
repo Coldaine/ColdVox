@@ -56,6 +56,8 @@ pub struct AppRuntimeOptions {
     pub device: Option<String>,
     pub resampler_quality: ResamplerQuality,
     pub activation_mode: ActivationMode,
+    /// Optional VAD configuration override (uses defaults if None)
+    pub vad_config: Option<coldvox_vad::config::UnifiedVadConfig>,
     /// STT plugin selection configuration
     pub stt_selection: Option<coldvox_stt::plugin::PluginSelectionConfig>,
     #[cfg(feature = "text-injection")]
@@ -97,6 +99,7 @@ impl Default for AppRuntimeOptions {
             device: None,
             resampler_quality: ResamplerQuality::Balanced,
             activation_mode: ActivationMode::Vad,
+            vad_config: None, // Use VAD defaults
             stt_selection: None,
             #[cfg(feature = "text-injection")]
             injection: None,
@@ -441,7 +444,7 @@ pub async fn start(
             // - **Trade-off:** The primary trade-off is a slight increase in latency,
             //   as the system waits longer to confirm the end of an utterance. For
             //   dictation, this is an acceptable trade-off for the gain in accuracy.
-            let vad_cfg = UnifiedVadConfig {
+            let vad_cfg = opts.vad_config.unwrap_or_else(|| UnifiedVadConfig {
                 mode: VadMode::Silero,
                 frame_size_samples: FRAME_SIZE_SAMPLES,
                 sample_rate_hz: SAMPLE_RATE_HZ,
@@ -451,7 +454,7 @@ pub async fn start(
                     min_silence_duration_ms: 500,
                     window_size_samples: FRAME_SIZE_SAMPLES,
                 },
-            };
+            });
             let vad_audio_rx = audio_tx.subscribe();
             let vad_handle = crate::audio::vad_processor::VadProcessor::spawn(
                 vad_cfg,

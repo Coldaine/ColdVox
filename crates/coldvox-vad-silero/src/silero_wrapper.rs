@@ -111,6 +111,13 @@ impl VadEngine for SileroEngine {
 
         let probability = self.detector.predict(frame.iter().map(|&s| I16Sample(s)));
 
+        tracing::trace!(
+            "Silero VAD: probability={:.4}, threshold={:.4}, state={:?}",
+            probability,
+            self.config.threshold,
+            self.current_state
+        );
+
         self.last_probability = probability;
         self.frames_processed += 1;
 
