@@ -185,8 +185,23 @@ mod tests {
             ..Default::default()
         };
 
+        // Configure VAD with higher threshold for test WAV files
+        // Default threshold (0.3) is too sensitive and detects noise as speech
+        let vad_config = coldvox_vad::config::UnifiedVadConfig {
+            mode: coldvox_vad::config::VadMode::Silero,
+            silero: coldvox_vad::config::SileroConfig {
+                threshold: 0.5, // Higher threshold = less sensitive, better for test WAVs
+                min_speech_duration_ms: 100,  // Reduced from default 250ms
+                min_silence_duration_ms: 300, // Increased from default 100ms for cleaner end detection
+                window_size_samples: 512,
+            },
+            frame_size_samples: 512,
+            sample_rate_hz: 16000,
+        };
+
         let opts = AppRuntimeOptions {
             activation_mode: ActivationMode::Vad,
+            vad_config: Some(vad_config),
             stt_selection: Some(PluginSelectionConfig {
                 preferred_plugin: Some("whisper".to_string()),
                 failover: Some(FailoverConfig::default()),
