@@ -12,14 +12,13 @@ use std::process::Command;
 use std::time::Duration;
 
 use super::test_utils::{
-    command_exists,
-    is_wayland_environment,
-    read_clipboard_with_wl_paste,
+    command_exists, is_wayland_environment, read_clipboard_with_wl_paste,
     read_clipboard_with_wl_paste_with_timeout,
 };
 
 /// Test that wl-copy properly receives content via stdin
 /// This is the core test for the stdin piping fix
+#[cfg(all(unix, feature = "wl_clipboard"))]
 #[tokio::test]
 #[ignore] // Requires Wayland environment
 async fn test_wl_copy_stdin_piping() {
@@ -86,6 +85,13 @@ async fn test_wl_copy_stdin_piping() {
 
         println!("✅ Test case {} passed", i + 1);
     }
+}
+
+// Fallback stub on non-Unix or when wl_clipboard feature is disabled
+#[cfg(not(all(unix, feature = "wl_clipboard")))]
+#[test]
+fn test_wl_copy_stdin_piping() {
+    eprintln!("Skipping wl-copy stdin piping test: not on Unix or wl_clipboard feature disabled",);
 }
 
 /// Test clipboard backup and restore functionality
@@ -169,7 +175,10 @@ async fn test_wl_copy_timeout_handling() {
     if err_string.contains("Timeout") {
         println!("✅ Timeout handling works correctly");
     } else {
-        println!("⚠️  Got different error than expected timeout: {}", err_string);
+        println!(
+            "⚠️  Got different error than expected timeout: {}",
+            err_string
+        );
     }
 }
 

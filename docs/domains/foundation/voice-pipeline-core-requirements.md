@@ -5,13 +5,16 @@ version: 1.0.0
 status: draft
 owners: Documentation Working Group
 last_reviewed: 2025-10-19
+redirect: fdn-voice-pipeline-core-requirements.md
 ---
 
-# Requirements Document
+# Moved: Requirements Document
 
-## Introduction
+Renamed with domain short code prefix. New location:
 
-ColdVox is a modular Rust-based voice-to-text application that provides real-time audio capture, voice activity detection (VAD), speech-to-text (STT) transcription, and cross-platform text injection. The system captures audio from microphones, detects speech, transcribes it to text, and can automatically inject the text into active applications. This document captures the top-level requirements that govern the voice pipeline. Each statement is framed as a "shall" requirement to emphasize expected system behavior.
+- `docs/domains/foundation/fdn-voice-pipeline-core-requirements.md`
+
+Please update any bookmarks or links.
 
 For long-range architectural intent (always-on intelligent listening, tiered STT memory management), see `docs/architecture.md`.
 

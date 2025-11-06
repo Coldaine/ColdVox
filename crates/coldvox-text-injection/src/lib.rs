@@ -68,7 +68,59 @@ pub mod enigo_injector;
 #[cfg(feature = "kdotool")]
 pub mod kdotool_injector;
 
+// Ydotool is Linux-only; provide real module on Unix and a stub elsewhere
+#[cfg(all(unix, feature = "ydotool"))]
 pub mod ydotool_injector;
+
+#[cfg(any(not(unix), not(feature = "ydotool")))]
+pub mod ydotool_injector {
+    //! Windows/Non-Unix stub for ydotool injector to keep builds green on unsupported platforms.
+    use crate::types::{InjectionConfig, InjectionResult};
+    use crate::TextInjector;
+    use async_trait::async_trait;
+
+    /// Stub indicating ydotool is unavailable on this platform
+    pub struct YdotoolInjector {
+        pub(crate) config: InjectionConfig,
+    }
+
+    impl YdotoolInjector {
+        pub fn new(config: InjectionConfig) -> Self {
+            Self { config }
+        }
+
+        pub(crate) fn ydotool_runtime_available() -> bool {
+            false
+        }
+
+        pub(crate) fn apply_socket_env(_command: &mut tokio::process::Command) {}
+    }
+
+    #[async_trait]
+    impl TextInjector for YdotoolInjector {
+        async fn inject_text(
+            &self,
+            _text: &str,
+            _context: Option<&crate::types::InjectionContext>,
+        ) -> InjectionResult<()> {
+            Err(crate::InjectionError::MethodUnavailable(
+                "ydotool is not available on this platform".to_string(),
+            ))
+        }
+
+        async fn is_available(&self) -> bool {
+            false
+        }
+
+        fn backend_name(&self) -> &'static str {
+            "ydotool"
+        }
+
+        fn backend_info(&self) -> Vec<(&'static str, String)> {
+            vec![("platform", std::env::consts::OS.to_string())]
+        }
+    }
+}
 
 // NoOp fallback is always available
 pub mod noop_injector;

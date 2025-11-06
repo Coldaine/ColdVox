@@ -328,62 +328,62 @@ pub async fn start(
     let (audio_producer, audio_consumer) = ring_buffer.split();
     let audio_producer = Arc::new(Mutex::new(audio_producer));
 
-    let (audio_capture, device_cfg, device_config_rx, _device_event_rx) =
-        if opts.test_capture_to_dummy {
-            // In test "dummy" mode, avoid opening any real audio device to prevent ALSA spam.
-            // Construct a no-op capture thread and synthesize device config + channels.
-            use std::sync::atomic::{AtomicBool, Ordering};
-            use std::thread;
-            let shutdown = std::sync::Arc::new(AtomicBool::new(true));
-            let shutdown_clone = shutdown.clone();
-            let handle = thread::Builder::new()
-                .name("audio-capture-dummy".to_string())
-                .spawn(move || {
-                    while shutdown_clone.load(Ordering::Relaxed) {
-                        thread::sleep(std::time::Duration::from_millis(50));
-                    }
-                })
-                .map_err(Box::<dyn std::error::Error + Send + Sync>::from)
-                .unwrap();
-
-            // Use provided test device config if available; else fall back to a sane default.
-            let initial_dc = if let Some(dc) = opts.test_device_config.clone() {
-                dc
-            } else {
-                coldvox_audio::DeviceConfig {
-                    sample_rate: SAMPLE_RATE_HZ,
-                    channels: 1,
+    let (audio_capture, device_cfg, device_config_rx, _device_event_rx) = if opts
+        .test_capture_to_dummy
+    {
+        // In test "dummy" mode, avoid opening any real audio device to prevent ALSA spam.
+        // Construct a no-op capture thread and synthesize device config + channels.
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::thread;
+        let shutdown = std::sync::Arc::new(AtomicBool::new(true));
+        let shutdown_clone = shutdown.clone();
+        let handle = thread::Builder::new()
+            .name("audio-capture-dummy".to_string())
+            .spawn(move || {
+                while shutdown_clone.load(Ordering::Relaxed) {
+                    thread::sleep(std::time::Duration::from_millis(50));
                 }
-            };
+            })
+            .map_err(Box::<dyn std::error::Error + Send + Sync>::from)
+            .unwrap();
 
-            // Create broadcast channels and emit initial device config
-            let (cfg_tx, cfg_rx) =
-                tokio::sync::broadcast::channel::<coldvox_audio::DeviceConfig>(16);
-            let (dev_evt_tx, dev_evt_rx) =
-                tokio::sync::broadcast::channel::<coldvox_foundation::DeviceEvent>(32);
-            let _ = dev_evt_tx; // not used in tests here
-
-            // **Crucially, send the initial config immediately.**
-            if let Err(e) = cfg_tx.send(initial_dc.clone()) {
-                tracing::warn!("Failed to send initial dummy device config: {}", e);
-            }
-
-            // Build a dummy AudioCaptureThread
-            let dummy_capture = AudioCaptureThread {
-                handle,
-                shutdown,
-                device_monitor_handle: None,
-            };
-
-            (dummy_capture, initial_dc, cfg_rx, dev_evt_rx)
+        // Use provided test device config if available; else fall back to a sane default.
+        let initial_dc = if let Some(dc) = opts.test_device_config.clone() {
+            dc
         } else {
-            AudioCaptureThread::spawn(
-                audio_config,
-                audio_producer.clone(),
-                opts.device.clone(),
-                opts.enable_device_monitor,
-            )?
+            coldvox_audio::DeviceConfig {
+                sample_rate: SAMPLE_RATE_HZ,
+                channels: 1,
+            }
         };
+
+        // Create broadcast channels and emit initial device config
+        let (cfg_tx, cfg_rx) = tokio::sync::broadcast::channel::<coldvox_audio::DeviceConfig>(16);
+        let (dev_evt_tx, dev_evt_rx) =
+            tokio::sync::broadcast::channel::<coldvox_foundation::DeviceEvent>(32);
+        let _ = dev_evt_tx; // not used in tests here
+
+        // **Crucially, send the initial config immediately.**
+        if let Err(e) = cfg_tx.send(initial_dc.clone()) {
+            tracing::warn!("Failed to send initial dummy device config: {}", e);
+        }
+
+        // Build a dummy AudioCaptureThread
+        let dummy_capture = AudioCaptureThread {
+            handle,
+            shutdown,
+            device_monitor_handle: None,
+        };
+
+        (dummy_capture, initial_dc, cfg_rx, dev_evt_rx)
+    } else {
+        AudioCaptureThread::spawn(
+            audio_config,
+            audio_producer.clone(),
+            opts.device.clone(),
+            opts.enable_device_monitor,
+        )?
+    };
 
     // 2) Chunker (with resampler)
     let frame_reader = FrameReader::new(
@@ -531,12 +531,15 @@ pub async fn start(
         let (stt_pipeline_tx, stt_pipeline_rx) = mpsc::channel::<TranscriptionEvent>(100);
 
         #[cfg(feature = "whisper")]
-        let stt_config = opts.transcription_config.clone().unwrap_or_else(|| TranscriptionConfig {
-            // This `streaming` flag is now legacy. Behavior is controlled by `Settings`.
-            enabled: true,
-            streaming: true,
-            ..Default::default()
-        });
+        let stt_config = opts
+            .transcription_config
+            .clone()
+            .unwrap_or_else(|| TranscriptionConfig {
+                // This `streaming` flag is now legacy. Behavior is controlled by `Settings`.
+                enabled: true,
+                streaming: true,
+                ..Default::default()
+            });
 
         #[cfg(feature = "whisper")]
         let processor = PluginSttProcessor::new(

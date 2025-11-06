@@ -5,13 +5,16 @@ version: 1.0.0
 status: draft
 owners: Documentation Working Group
 last_reviewed: 2025-10-19
+redirect: vad-modifications.md
 ---
 
-# Modifications from Upstream
+# Moved: Modifications from Upstream
 
-## Why Vendored
-- Need custom ONNX runtime configuration for ColdVox
-- Require specific audio frame handling and integration ergonomics
+Renamed with domain short code prefix. New location:
+
+- `docs/domains/vad/vad-modifications.md`
+
+Please update any bookmarks or links.
 
 ## Changes Made
 

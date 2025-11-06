@@ -1,12 +1,21 @@
 ---
-id: text-injection-overview
-title: Text Injection Overview
-description: Overview and usage guide for the ColdVox text-injection system.
+doc_type: reference
+subsystem: text-injection
+version: 1.0.0
+status: draft
+owners: Text Injection Maintainers
+last_reviewed: 2025-11-06
+redirect: ti-overview.md
 ---
 
-# coldvox-text-injection
+# Moved: Text Injection Overview
 
-Automated text injection system for ColdVox transcribed speech.
+This document was renamed to include the domain short code per the Master Documentation Playbook.
+
+New location:
+- `docs/domains/text-injection/ti-overview.md`
+
+Please update any bookmarks or links.
 
 ## What's New (workspace v2.0.1)
 
@@ -28,12 +37,11 @@ This crate provides text injection capabilities that automatically type transcri
 ## Key Components
 
 ### Text Injection Backends
-- Clipboard: Copy transcription to clipboard and paste
-- AT-SPI: Accessibility API for direct text insertion (if enabled)
-- Combo (Clipboard + Paste): Clipboard set plus AT-SPI paste or `ydotool` fallback
-- YDotool: uinput-based paste or key events (opt-in)
+- AT-SPI: Accessibility API for direct text insertion (preferred on Linux when available)
+- Unified Clipboard: Seed clipboard, then paste via Enigo (if enabled) or `ydotool` fallback
+- YDotool: uinput-based key events (opt-in, primarily Wayland environments)
 - KDotool Assist: KDE/X11 window activation assistance (opt-in)
-- Enigo: Cross-platform input simulation (opt-in)
+- Enigo: Cross-platform key simulation used by the Unified Clipboard paste path (opt-in)
 
 ### Focus Detection
 - Active window detection and application identification
@@ -57,15 +65,17 @@ This crate provides text injection capabilities that automatically type transcri
 - `all-backends`: Enable all available backends
 - `linux-desktop`: Enable recommended Linux desktop backends
 
-## Backend Selection
+## Strategy and Selection Order
 
-The system automatically selects the best available backend for each application:
+The orchestrator uses a fast-fail loop with tight budgets to try methods in order. Defaults:
 
-1. AT-SPI (preferred for accessibility compliance)
-2. Clipboard + Paste (AT-SPI paste when available; `ydotool` fallback)
-3. Clipboard (plain clipboard set)
-4. Input Simulation (YDotool/Enigo as opt-in fallbacks)
-5. KDotool Assist (window activation assistance)
+1. AT-SPI Insert (preferred for reliability, accessibility, and content fidelity)
+2. Unified Clipboard Paste (clipboard seed + paste via Enigo or `ydotool`)
+
+Notes:
+- There is no AT-SPI "paste" fallback path. If AT-SPI direct insert cannot target the widget, the orchestrator falls back to the clipboard-based injector.
+- On Windows/macOS, only the Unified Clipboard path is attempted.
+- KDotool is an assistance mechanism for focus/activation; it is not an injection method by itself.
 
 ## Configuration
 
@@ -136,6 +146,16 @@ Omit `--no-redact` to keep text content hashed in logs.
 - Async runtime support for timeout handling
 
 ## Testing
+## Rationale for Approaches
+
+- AT-SPI direct insert: Best fidelity and least disruptive when supported by the focused control; avoids polluting clipboard and is accessible-first.
+- Unified Clipboard: Broad compatibility via clipboard seeding plus paste action; uses Enigo or `ydotool` for the paste trigger depending on features and OS.
+- No AT-SPI paste: When AT-SPI cannot address the control for direct insertion, invoking an AT-SPI "paste" action does not help and adds overhead. Therefore, the clipboard injector does not attempt AT-SPI operations.
+
+## Confirmation and Prewarming
+
+- Confirmation: After a successful method returns, the orchestrator runs a quick confirmation check (text-changed heuristic) within a tight budget. Non-success does not immediately fail; the next strategy may be attempted.
+- Prewarming: On entering Buffering state, the orchestrator triggers targeted prewarming for the first method in the current strategy order to reduce first-use latency (e.g., establishing AT-SPI context).
 
 All tests use real desktop applications and injection backends with full desktop environments available in all environments:
 
@@ -150,4 +170,4 @@ cargo test -p coldvox-text-injection --no-default-features --locked
 cargo test -p coldvox-text-injection --no-default-features --features regex --locked
 ```
 
-See `docs/domains/text-injection/testing.md` for details on live/CI testing and feature matrices.
+See `docs/domains/text-injection/ti-testing.md` for details on live/CI testing and feature matrices.

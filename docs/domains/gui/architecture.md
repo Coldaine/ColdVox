@@ -5,13 +5,16 @@ version: 1.0.0
 status: draft
 owners: Documentation Working Group
 last_reviewed: 2025-10-19
+redirect: gui-architecture.md
 ---
 
-# ColdVox GUI Architecture
+# Moved: ColdVox GUI Architecture
 
-## Overview
+Renamed with domain short code prefix. New location:
 
-The ColdVox GUI subsystem provides a desktop overlay interface for speech-to-text functionality using Qt 6 and QML with a Rust backend. This document outlines the architecture, requirements, constraints, interfaces, and non-goals for the GUI component.
+- `docs/domains/gui/gui-architecture.md`
+
+Please update any bookmarks or links.
 
 ## System Context
 

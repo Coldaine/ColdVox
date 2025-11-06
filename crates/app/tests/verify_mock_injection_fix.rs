@@ -6,10 +6,10 @@
 //! This is a stripped-down version that doesn't require ALSA or the full
 //! audio pipeline - it just verifies the wiring works.
 
+use async_trait::async_trait;
 use coldvox_app::runtime::AppRuntimeOptions;
 use coldvox_text_injection::{InjectionContext, InjectionResult, TextInjector};
 use std::sync::{Arc, Mutex};
-use async_trait::async_trait;
 
 /// Simple mock injector to verify the fix
 #[derive(Clone, Default)]

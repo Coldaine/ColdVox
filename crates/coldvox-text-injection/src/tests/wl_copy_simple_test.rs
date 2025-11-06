@@ -3,13 +3,17 @@
 //! This test verifies that wl-copy stdin piping fix works correctly
 //! without depending on the complex test harness infrastructure.
 
+#[cfg(all(unix, feature = "wl_clipboard"))]
 use crate::injectors::clipboard::ClipboardInjector;
+#[cfg(all(unix, feature = "wl_clipboard"))]
 use crate::types::InjectionConfig;
 
+#[cfg(all(unix, feature = "wl_clipboard"))]
 use super::test_utils::{command_exists, is_wayland_environment, read_clipboard_with_wl_paste};
 
 /// Test that wl-copy properly receives content via stdin
 /// This is the core test for the stdin piping fix
+#[cfg(all(unix, feature = "wl_clipboard"))]
 #[tokio::test]
 #[ignore] // Requires Wayland environment
 async fn test_wl_copy_stdin_piping_simple() {
@@ -76,6 +80,13 @@ async fn test_wl_copy_stdin_piping_simple() {
 
         println!("✅ Test case {} passed", i + 1);
     }
+}
+
+// Fallback stub on non-Unix or when wl_clipboard feature is disabled
+#[cfg(not(all(unix, feature = "wl_clipboard")))]
+#[test]
+fn test_wl_copy_stdin_piping_simple() {
+    eprintln!("Skipping wl-copy simple test: not on Unix or wl_clipboard feature disabled",);
 }
 
 // helper functions provided by test_utils

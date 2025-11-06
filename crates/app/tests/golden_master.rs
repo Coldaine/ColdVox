@@ -32,8 +32,8 @@
 //! as it separates the act of running the test from the act of verifying the output.
 
 pub mod harness {
-    use serde::Serialize;
     use serde::de::DeserializeOwned;
+    use serde::Serialize;
     use std::fs;
     use std::path::{Path, PathBuf};
 
@@ -77,8 +77,7 @@ pub mod harness {
         // Serialize the received value to its file.
         let received_json = serde_json::to_string_pretty(received_value)
             .expect("Failed to serialize received value");
-        fs::write(&received_path, &received_json)
-            .expect("Failed to write received artifact");
+        fs::write(&received_path, &received_json).expect("Failed to write received artifact");
 
         // Check if the approved file exists.
         if !approved_path.exists() {
@@ -94,12 +93,12 @@ pub mod harness {
         }
 
         // Read the approved file.
-        let approved_json = fs::read_to_string(&approved_path)
-            .expect("Failed to read approved artifact");
+        let approved_json =
+            fs::read_to_string(&approved_path).expect("Failed to read approved artifact");
 
         // Deserialize and compare using similar-asserts for a nice diff.
-        let approved_value: T = serde_json::from_str(&approved_json)
-            .expect("Failed to deserialize approved value");
+        let approved_value: T =
+            serde_json::from_str(&approved_json).expect("Failed to deserialize approved value");
 
         similar_asserts::assert_eq!(
             approved_value,
@@ -120,11 +119,11 @@ mod tests {
     use super::harness::assert_golden;
     use super::test_utils::MockInjectionSink;
     use coldvox_app::audio::wav_file_loader::WavFileLoader;
-    use coldvox_app::runtime::{start, AppRuntimeOptions, ActivationMode};
+    use coldvox_app::runtime::{start, ActivationMode, AppRuntimeOptions};
     use coldvox_audio::DeviceConfig;
-    use coldvox_stt::plugin::{PluginSelectionConfig, FailoverConfig, GcPolicy};
+    use coldvox_stt::plugin::{FailoverConfig, GcPolicy, PluginSelectionConfig};
     use coldvox_vad::VadEvent;
-    use serde::{Serialize, Deserialize};
+    use serde::{Deserialize, Serialize};
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -181,6 +180,7 @@ mod tests {
         );
 
         let transcription_config = coldvox_stt::TranscriptionConfig {
+            enabled: true,
             model_path: "tiny.en".to_string(),
             ..Default::default()
         };
@@ -190,8 +190,8 @@ mod tests {
         let vad_config = coldvox_vad::config::UnifiedVadConfig {
             mode: coldvox_vad::config::VadMode::Silero,
             silero: coldvox_vad::config::SileroConfig {
-                threshold: 0.5, // Higher threshold = less sensitive, better for test WAVs
-                min_speech_duration_ms: 100,  // Reduced from default 250ms
+                threshold: 0.5,              // Higher threshold = less sensitive, better for test WAVs
+                min_speech_duration_ms: 100, // Reduced from default 250ms
                 min_silence_duration_ms: 300, // Increased from default 100ms for cleaner end detection
                 window_size_samples: 512,
             },
@@ -205,7 +205,10 @@ mod tests {
             stt_selection: Some(PluginSelectionConfig {
                 preferred_plugin: Some("whisper".to_string()),
                 failover: Some(FailoverConfig::default()),
-                gc_policy: Some(GcPolicy { enabled: false, ..Default::default() }),
+                gc_policy: Some(GcPolicy {
+                    enabled: false,
+                    ..Default::default()
+                }),
                 ..Default::default()
             }),
             injection: Some(Default::default()),
@@ -243,7 +246,10 @@ mod tests {
         let audio_producer = app.audio_producer.clone();
         let stream_handle = tokio::spawn(async move {
             tracing::info!("Starting to stream WAV file...");
-            match wav_loader.stream_to_ring_buffer_locked(audio_producer).await {
+            match wav_loader
+                .stream_to_ring_buffer_locked(audio_producer)
+                .await
+            {
                 Ok(_) => tracing::info!("WAV streaming completed successfully"),
                 Err(e) => tracing::error!("WAV streaming failed: {}", e),
             }
@@ -322,9 +328,9 @@ mod tests {
 
 #[cfg(test)]
 pub mod test_utils {
+    use async_trait::async_trait;
     use coldvox_text_injection::{InjectionContext, InjectionResult, TextInjector};
     use std::sync::{Arc, Mutex};
-    use async_trait::async_trait;
 
     /// A mock text injection sink that captures injected text for assertions.
     #[derive(Clone, Default)]

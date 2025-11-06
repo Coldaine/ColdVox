@@ -5,11 +5,16 @@ version: 1.0.0
 status: draft
 owners: Documentation Working Group
 last_reviewed: 2025-10-19
+redirect: gui-components.md
 ---
 
-# ColdVox GUI Components Architecture
+# Moved: ColdVox GUI Components Architecture
 
-This document provides a detailed overview of the UI components architecture for the ColdVox Qt Quick/QML implementation. It includes component hierarchy, data flow, and interaction patterns.
+Renamed with domain short code prefix. New location:
+
+- `docs/domains/gui/gui-components.md`
+
+Please update any bookmarks or links.
 
 ## Component Hierarchy
 
