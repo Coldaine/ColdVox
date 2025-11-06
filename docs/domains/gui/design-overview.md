@@ -5,13 +5,16 @@ version: 1.0.0
 status: draft
 owners: Documentation Working Group
 last_reviewed: 2025-10-19
+redirect: gui-design-overview.md
 ---
 
-# ColdVox GUI Design
+# Moved: ColdVox GUI Design
 
-## Overview
+Renamed with domain short code prefix. New location:
 
-This document describes the design decisions and implementation details for the ColdVox GUI subsystem. It explains how the architectural requirements are realized, the tradeoffs made, potential risks, and validation approaches for the Qt Quick/QML overlay UI prototype.
+- `docs/domains/gui/gui-design-overview.md`
+
+Please update any bookmarks or links.
 
 ## Design Realization
 

@@ -5,11 +5,10 @@ version: 1.0.0
 status: draft
 owners: Documentation Working Group
 last_reviewed: 2025-10-19
+domain_code: aud
 ---
 
 # User Configuration Design
-
-## Overview
 
 ColdVox provides comprehensive configuration through CLI arguments and environment variables, allowing users to customize audio capture, speech-to-text processing, and text injection behavior without code changes.
 
@@ -226,19 +225,19 @@ RUST_LOG=info,stt=debug,coldvox_audio=trace
 ### Basic Voice Dictation
 ```bash
 cargo run --features vosk,text-injection -- \
-  --device "USB Microphone" \
-  --activation-mode vad \
-  --enable-text-injection
+	--device "USB Microphone" \
+	--activation-mode vad \
+	--enable-text-injection
 ```
 
 ### High-Quality Recording Setup
 ```bash
 cargo run --features vosk,text-injection -- \
-  --device "HyperX QuadCast" \
-  --resampler-quality quality \
-  --save-transcriptions \
-  --save-audio \
-  --transcript-format json
+	--device "HyperX QuadCast" \
+	--resampler-quality quality \
+	--save-transcriptions \
+	--save-audio \
+	--transcript-format json
 ```
 
 ### Development/Testing Configuration

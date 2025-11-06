@@ -5,11 +5,10 @@ version: 1.0.0
 status: draft
 owners: Documentation Working Group
 last_reviewed: 2025-10-19
+domain_code: aud
 ---
 
 # PipeWire Audio System Integration Design
-
-## Overview
 
 ColdVox integrates with Linux audio systems through a priority-based device selection strategy optimized for modern PipeWire setups while maintaining compatibility with legacy ALSA and PulseAudio configurations.
 
@@ -20,14 +19,14 @@ ColdVox integrates with Linux audio systems through a priority-based device sele
 The system performs runtime checks to determine the audio environment:
 
 1. **PulseAudio/PipeWire Server Detection**
-   - Executes `pactl info` to check for PulseAudio-compatible server
-   - Searches for "pulseaudio" in output (case-insensitive)
-   - PipeWire typically identifies as "PulseAudio (on PipeWire X.Y.Z)"
+	- Executes `pactl info` to check for PulseAudio-compatible server
+	- Searches for "pulseaudio" in output (case-insensitive)
+	- PipeWire typically identifies as "PulseAudio (on PipeWire X.Y.Z)"
 
 2. **ALSA Routing Verification**
-   - Executes `aplay -L` to enumerate ALSA devices
-   - Checks for "pulse" or "pipewire" routing in ALSA output
-   - Verifies ALSA default device routes to PipeWire/Pulse
+	- Executes `aplay -L` to enumerate ALSA devices
+	- Checks for "pulse" or "pipewire" routing in ALSA output
+	- Verifies ALSA default device routes to PipeWire/Pulse
 
 ### Warning System
 

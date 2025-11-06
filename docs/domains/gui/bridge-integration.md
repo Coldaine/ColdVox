@@ -5,11 +5,16 @@ version: 1.0.0
 status: draft
 owners: Documentation Working Group
 last_reviewed: 2025-10-19
+redirect: gui-bridge-integration.md
 ---
 
-# ColdVox Rust-QML Bridge Architecture
+# Moved: ColdVox Rust-QML Bridge Architecture
 
-This document provides a detailed overview of the Rust-QML bridge implementation using CXX-Qt. It covers the architecture, API design, data flow, and integration patterns for connecting the Rust backend with the QML frontend.
+Renamed with domain short code prefix. New location:
+
+- `docs/domains/gui/gui-bridge-integration.md`
+
+Please update any bookmarks or links.
 
 ## Bridge Architecture Overview
 

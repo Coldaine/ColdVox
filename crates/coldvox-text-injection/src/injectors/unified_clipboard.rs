@@ -445,15 +445,6 @@ impl UnifiedClipboardInjector {
     async fn perform_paste(&self) -> InjectionResult<&'static str> {
         trace!("Performing paste action");
 
-        // Try AT-SPI paste first if available
-        #[cfg(feature = "atspi")]
-        {
-            if let Ok(()) = self.try_atspi_paste().await {
-                debug!("Paste succeeded via AT-SPI");
-                return Ok("AT-SPI");
-            }
-        }
-
         // Try key event paste if enigo is available
         #[cfg(feature = "enigo")]
         {
@@ -472,97 +463,6 @@ impl UnifiedClipboardInjector {
         Err(InjectionError::MethodUnavailable(
             "No paste method available".to_string(),
         ))
-    }
-
-    /// Try AT-SPI paste
-    #[cfg(feature = "atspi")]
-    async fn try_atspi_paste(&self) -> InjectionResult<()> {
-        use atspi::{
-            connection::AccessibilityConnection, proxy::action::ActionProxy,
-            proxy::collection::CollectionProxy, Interface, MatchType, ObjectMatchRule, SortOrder,
-            State,
-        };
-
-        let conn = AccessibilityConnection::new()
-            .await
-            .map_err(|e| InjectionError::Other(format!("AT-SPI connect failed: {e}")))?;
-        let zbus_conn = conn.connection();
-
-        let collection = CollectionProxy::builder(zbus_conn)
-            .destination("org.a11y.atspi.Registry")
-            .map_err(|e| InjectionError::Other(format!("CollectionProxy destination failed: {e}")))?
-            .path("/org/a11y/atspi/accessible/root")
-            .map_err(|e| InjectionError::Other(format!("CollectionProxy path failed: {e}")))?
-            .build()
-            .await
-            .map_err(|e| InjectionError::Other(format!("CollectionProxy build failed: {e}")))?;
-
-        let mut rule = ObjectMatchRule::default();
-        rule.states = State::Focused.into();
-        rule.states_mt = MatchType::All;
-        rule.ifaces = Interface::Action.into();
-        rule.ifaces_mt = MatchType::Any;
-
-        let mut matches = collection
-            .get_matches(rule, SortOrder::Canonical, 1, false)
-            .await
-            .map_err(|e| InjectionError::Other(format!("Collection.get_matches failed: {e}")))?;
-
-        if matches.is_empty() {
-            let mut rule2 = ObjectMatchRule::default();
-            rule2.states = State::Focused.into();
-            rule2.states_mt = MatchType::All;
-            rule2.ifaces = Interface::EditableText.into();
-            rule2.ifaces_mt = MatchType::Any;
-
-            matches = collection
-                .get_matches(rule2, SortOrder::Canonical, 1, false)
-                .await
-                .map_err(|e| {
-                    InjectionError::Other(format!(
-                        "Collection.get_matches (EditableText) failed: {e}"
-                    ))
-                })?;
-        }
-
-        let obj_ref = matches
-            .into_iter()
-            .next()
-            .ok_or_else(|| InjectionError::MethodUnavailable("No focused element".to_string()))?;
-
-        let action = ActionProxy::builder(zbus_conn)
-            .destination(obj_ref.name.clone())
-            .map_err(|e| InjectionError::Other(format!("ActionProxy destination failed: {e}")))?
-            .path(obj_ref.path.clone())
-            .map_err(|e| InjectionError::Other(format!("ActionProxy path failed: {e}")))?
-            .build()
-            .await
-            .map_err(|e| InjectionError::Other(format!("ActionProxy build failed: {e}")))?;
-
-        let actions = action
-            .get_actions()
-            .await
-            .map_err(|e| InjectionError::Other(format!("Action.get_actions failed: {e}")))?;
-
-        let paste_index = actions
-            .iter()
-            .position(|a| {
-                let n = a.name.to_ascii_lowercase();
-                let d = a.description.to_ascii_lowercase();
-                n.contains("paste") || d.contains("paste")
-            })
-            .ok_or_else(|| {
-                InjectionError::MethodUnavailable(
-                    "No paste action found on focused element".to_string(),
-                )
-            })?;
-
-        action
-            .do_action(paste_index as i32)
-            .await
-            .map_err(|e| InjectionError::Other(format!("Action.do_action failed: {e}")))?;
-
-        Ok(())
     }
 
     /// Try Enigo paste
@@ -652,16 +552,19 @@ impl UnifiedClipboardInjector {
     async fn schedule_clipboard_restore(&self, backup: Option<ClipboardBackup>) {
         if let Some(backup) = backup {
             let delay_ms = self.config.clipboard_restore_delay_ms.unwrap_or(500);
+            // Move only data needed into the task to avoid capturing &self
+            let content = backup.content.clone();
+            let content_len = content.len();
+
             tokio::spawn(async move {
                 tokio::time::sleep(Duration::from_millis(delay_ms)).await;
 
                 // Restore clipboard content regardless of backend
-                let content_len = backup.content.len();
 
                 #[cfg(feature = "wl_clipboard")]
                 {
                     use wl_clipboard_rs::copy::{MimeType, Options, Source};
-                    let src = Source::Bytes(backup.content.clone().into_boxed_slice());
+                    let src = Source::Bytes(content.clone().into_boxed_slice());
                     let opts = Options::new();
                     let _ = opts.copy(src, MimeType::Text);
                     debug!(
@@ -672,8 +575,8 @@ impl UnifiedClipboardInjector {
 
                 #[cfg(not(feature = "wl_clipboard"))]
                 {
-                    // Restore via command-line tools for X11/other backends
-                    let restored = Self::write_clipboard(&backup.content).await;
+                    // Restore via command-line tools for X11/other backends without borrowing self
+                    let restored = Self::restore_clipboard_direct(content.clone()).await;
                     match restored {
                         Ok(_) => debug!(
                             "Restored original clipboard via command-line ({} chars)",
@@ -685,6 +588,68 @@ impl UnifiedClipboardInjector {
             });
         }
     }
+
+    /// Helper to restore clipboard content without borrowing &self
+    /// Uses wl-copy if available (feature-enabled path handled earlier), otherwise xclip.
+    async fn restore_clipboard_direct(content: Vec<u8>) -> InjectionResult<()> {
+        // Try wl-copy first if present at runtime
+        let wl_copy_ok = tokio::process::Command::new("which")
+            .arg("wl-copy")
+            .output()
+            .await
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+
+        if wl_copy_ok {
+            let mut child = tokio::process::Command::new("wl-copy")
+                .stdin(Stdio::piped())
+                .spawn()
+                .map_err(|e| InjectionError::Process(format!("Failed to spawn wl-copy: {}", e)))?;
+            if let Some(mut stdin) = child.stdin.take() {
+                timeout(Duration::from_millis(1000), stdin.write_all(&content))
+                    .await
+                    .map_err(|_| InjectionError::Timeout(1000))
+                    .and_then(|r| {
+                        r.map_err(|e| InjectionError::Process(format!("wl-copy stdin: {}", e)))
+                    })?;
+            }
+            let status = child
+                .wait()
+                .await
+                .map_err(|e| InjectionError::Process(format!("wl-copy wait: {}", e)))?;
+            return if status.success() {
+                Ok(())
+            } else {
+                Err(InjectionError::Process("wl-copy failed".into()))
+            };
+        }
+
+        // Fallback to xclip
+        let mut child = tokio::process::Command::new("xclip")
+            .args(["-selection", "clipboard"])
+            .stdin(Stdio::piped())
+            .spawn()
+            .map_err(|e| InjectionError::Process(format!("Failed to spawn xclip: {}", e)))?;
+        if let Some(mut stdin) = child.stdin.take() {
+            timeout(Duration::from_millis(1000), stdin.write_all(&content))
+                .await
+                .map_err(|_| InjectionError::Timeout(1000))
+                .and_then(|r| {
+                    r.map_err(|e| InjectionError::Process(format!("xclip stdin: {}", e)))
+                })?;
+        }
+        let status = child
+            .wait()
+            .await
+            .map_err(|e| InjectionError::Process(format!("xclip wait: {}", e)))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(InjectionError::Process("xclip failed".into()))
+        }
+    }
+
+    // ...existing code...
 
     /// Main injection method with configurable behavior
     pub async fn inject(&self, text: &str, _context: &InjectionContext) -> InjectionResult<()> {

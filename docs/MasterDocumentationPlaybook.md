@@ -119,6 +119,33 @@ Notes:
 - ADRs live under `docs/architecture/adr-XXXX.md` with incrementing numeric IDs and MUST be linked from `docs/architecture.md`.
 - `docs/agents.md` and `CLAUDE.md` MUST both contain the full assistant orientation (overview, workspace map, key commands, feature flags). Keep the contents synchronized, include links to this playbook and `docs/standards.md`, and retain these files at the documented paths.
 
+### 4.1 Domain Identifiers (Short Codes) and Filenames
+
+To keep domain file names readable yet unambiguous, each domain MUST define a short identifier ("domain code").
+
+- Definition: 2–4 lowercase letters, unique within the repo (e.g., `ti` for Text Injection, `stt` for Speech‑to‑Text)
+- Declaration: Add `domain_code: <code>` to frontmatter of the domain’s overview index (e.g., `docs/domains/text-injection/ti-overview.md`).
+- Filenames under `docs/domains/<domain>/` MUST include the domain code using one of these forms (prefer A):
+  - A) Prefix: `<code>-<topic>.md` (e.g., `ti-overview.md`, `ti-unified-clipboard.md`)
+  - B) Suffix: `<topic>-<code>.md` (e.g., `overview-ti.md`) — allowed, but prefix is preferred for sorting/grouping
+- Do NOT use parentheses in filenames (e.g., `text-injection-(ti)` is prohibited).
+- Folder names remain descriptive (e.g., `docs/domains/text-injection/`), the short code disambiguates files within the folder and across search results.
+
+Recommended examples for Text Injection (`domain_code: ti`):
+
+```
+docs/
+  domains/
+    text-injection/
+      ti-overview.md
+      ti-unified-clipboard.md
+      ti-testing.md
+      troubleshooting/
+        ti-clipboard-timeouts.md
+```
+
+Optional CI rule: Lint that files under `docs/domains/<domain>/` include the declared domain code in the filename.
+
 ## 5) Lifecycle & Retention Policies
 
 Define the default lifecycle for transient documentation and where it should live.
@@ -206,6 +233,29 @@ Authoritative details live in `docs/playbooks/organizational/pr_playbook.md`. Su
 3. Relocate troubleshooting to domain folders.
 4. Triage legacy “reports/logs” into `research/` and apply retention policy.
 5. Create or update `docs/todo.md` and link any supporting materials in `docs/tasks/`.
+
+#### 10.2.1 Domain Short Code Prefix Migration Flow
+
+Goal: Ensure all domain documents in `docs/domains/<domain>/` include the domain short code in the filename (prefix) and that each domain declares its code in the overview frontmatter.
+
+Generic steps:
+1) Define short codes for each domain (2–4 lowercase letters; unique repo‑wide).
+2) Add `domain_code: <code>` to the domain’s overview frontmatter (e.g., `docs/domains/<domain>/<code>-overview.md`).
+3) Rename domain files to the code‑prefixed form `<code>-<topic>.md`.
+4) Leave a redirect stub at the old path with frontmatter:
+   - `redirect: <new-filename.md>`
+   - Minimal body indicating the new location.
+5) Update internal links to the new filenames across docs.
+6) Add/enable a CI lint that validates naming and the presence of `domain_code`.
+
+Validator (example):
+- A simple repository script can check that files in `docs/domains/<domain>/` start with the declared `domain_code` or include a `redirect:` frontmatter during migration. Example implementation lives in `scripts/validate_domain_docs_naming.py` in this repo.
+
+Example (from this repository):
+- Text Injection (`domain_code: ti`)
+  - Renamed: `overview.md` → `ti-overview.md`, `unified_clipboard.md` → `ti-unified-clipboard.md`, `testing.md` → `ti-testing.md`.
+  - Old files now contain redirect stubs to the new names.
+  - References in `docs/standards.md` and planning docs were updated.
 
 ## 11) Examples
 

@@ -5,13 +5,16 @@ version: 1.0.0
 status: draft
 owners: Documentation Working Group
 last_reviewed: 2025-10-19
+redirect: fdn-voice-pipeline-core-design.md
 ---
 
-# Voice Pipeline Core - Design
+# Moved: Voice Pipeline Core - Design
 
-## Purpose
+Renamed with domain short code prefix. New location:
 
-Implementation details for the voice pipeline. Read this before modifying audio capture, VAD, STT, or text injection code.
+- `docs/domains/foundation/fdn-voice-pipeline-core-design.md`
+
+Please update any bookmarks or links.
 
 ## Components
 

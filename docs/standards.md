@@ -58,6 +58,14 @@ last_reviewed: YYYY-MM-DD
   - `gui` - User interface, TUI dashboard
   - `stt` - Speech-to-text engine and plugins
   - `text-injection` - Keyboard/clipboard automation
+## Domain Documentation Cross-links
+
+Canonical strategy and behavior for the text injection system are documented under:
+- `docs/domains/text-injection/ti-overview.md` – injector approaches, strategy order, rationale
+- `docs/domains/text-injection/ti-unified-clipboard.md` – implementation details of the clipboard-based injector
+- `docs/domains/text-injection/ti-testing.md` – live testing requirements and procedures
+
+Teams should update these documents when changing injection ordering, adding/removing backends, or altering confirmation/prewarm behavior.
   - `vad` - Voice activity detection
 
 - **version**: Document version following semantic versioning
@@ -100,6 +108,15 @@ The auto-fixer will:
 - Set `last_reviewed` to today's date
 
 **Always review auto-generated frontmatter** and adjust as needed before committing.
+
+### Domain Filename Convention Enforcement
+
+All domain documents under `docs/domains/<domain>/` must include the domain short code in the filename (prefix), e.g. `ti-overview.md`.
+
+Pre-commit/CI enforcement:
+- Run `python3 scripts/validate_domain_docs_naming.py` to validate naming.
+- Old filenames may remain temporarily only if their frontmatter contains a `redirect:` key pointing to the new code-prefixed file.
+- Each domain's overview MUST declare `domain_code: <code>` in its frontmatter.
 
 ## Documentation Placement
 

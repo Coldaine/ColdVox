@@ -5,17 +5,11 @@ version: 1.0.0
 status: draft
 owners: Text Injection Maintainers
 last_reviewed: 2025-11-06
-redirect: ti-testing.md
 ---
 
-# Moved: Testing the ColdVox Text Injection Crate
+# Testing the ColdVox Text Injection Crate
 
-This document was renamed to include the domain short code per the Master Documentation Playbook.
-
-New location:
-- `docs/domains/text-injection/ti-testing.md`
-
-Please update any bookmarks or links.
+This document outlines the testing strategy for the `coldvox-text-injection` crate, using real text injection testing with actual desktop applications.
 
 ## Test Architecture
 

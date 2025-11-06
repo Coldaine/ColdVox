@@ -366,7 +366,7 @@ If you encounter issues not covered here:
 
 1. **Check the ColdVox documentation**:
    - [ColdVox Error Reference](../reference/crates/coldvox-foundation.md)
-   - [Foundation Design Guide](../domains/foundation/voice-pipeline-core-design.md)
+    - [Foundation Design Guide](../domains/foundation/fdn-voice-pipeline-core-design.md)
 
 2. **Reach out to the team**:
    - Create an issue in the ColdVox repository

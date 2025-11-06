@@ -5,17 +5,29 @@ version: 1.0.0
 status: draft
 owners: Text Injection Maintainers
 last_reviewed: 2025-11-06
-redirect: ti-unified-clipboard.md
 ---
 
-# Moved: Unified Clipboard Injector
+# Unified Clipboard Injector
 
-This document was renamed to include the domain short code per the Master Documentation Playbook.
+This document describes the unified clipboard injector implementation that consolidates
+functionality from the previous `ClipboardInjector`, `ClipboardPasteInjector`, and `ComboClipboardYdotool` implementations.
 
-New location:
-- `docs/domains/text-injection/ti-unified-clipboard.md`
+## Overview
 
-Please update any bookmarks or links.
+The `UnifiedClipboardInjector` provides a single, configurable implementation for clipboard-based text injection
+that supports both strict and best-effort modes. It consolidates the best features from the three
+previous implementations while eliminating code duplication.
+
+## Features
+
+### Platform Support
+- **Wayland**: Native support via `wl-clipboard-rs` with fallback to `wl-copy`/`wl-paste`
+- **X11**: Support via `xclip` command
+- **Paste methods**: Enigo (if enabled) or `ydotool` (if available). This injector does not attempt AT-SPI operations.
+
+### Injection Modes
+- **BestEffort**: Attempts paste but continues even if paste fails (default behavior)
+- **Strict**: Requires successful paste and returns error if paste fails
 
 ### Clipboard Management
 - Automatic backup and restore of clipboard content

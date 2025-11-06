@@ -5,17 +5,16 @@ version: 1.0.0
 status: draft
 owners: Text Injection Maintainers
 last_reviewed: 2025-11-06
-redirect: ti-overview.md
+# additional fields preserved for navigation/UX
+id: text-injection-overview
+title: Text Injection Overview
+description: Overview and usage guide for the ColdVox text-injection system.
+domain_code: ti
 ---
 
-# Moved: Text Injection Overview
+# coldvox-text-injection
 
-This document was renamed to include the domain short code per the Master Documentation Playbook.
-
-New location:
-- `docs/domains/text-injection/ti-overview.md`
-
-Please update any bookmarks or links.
+Automated text injection system for ColdVox transcribed speech.
 
 ## What's New (workspace v2.0.1)
 

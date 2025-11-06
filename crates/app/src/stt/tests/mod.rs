@@ -6,7 +6,6 @@ pub mod timeout_utils;
 pub mod wer_utils;
 
 #[cfg(feature = "whisper")]
-
 #[cfg(test)]
 mod stt_core_tests {
     use crate::stt::*;

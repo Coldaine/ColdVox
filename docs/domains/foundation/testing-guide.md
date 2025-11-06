@@ -150,20 +150,23 @@ cargo test -p coldvox-app test_end_to_end_wav --features vosk
 ```bash
 # Fix: Set up Vosk model
 export VOSK_MODEL_PATH="/path/to/vosk-model-small-en-us-0.15"
-# OR
-./scripts/ci/setup-vosk-cache.sh
-```
+---
+doc_type: architecture
+subsystem: foundation
+version: 1.0.0
+status: draft
+owners: Documentation Working Group
+last_reviewed: 2025-10-19
+redirect: fdn-testing-guide.md
+---
 
-### Audio Device Tests
-```bash
-# Check available devices (should always have devices in all environments)
-cargo run --bin mic_probe
+# Moved: Testing Guide
 
-# All tests run against real hardware
-cargo test
-```
+Renamed with domain short code prefix. New location:
 
-### Test Execution
+- `docs/domains/foundation/fdn-testing-guide.md`
+
+Please update any bookmarks or links.
 All tests are designed to run with real hardware and models:
 
 1. Ensure Vosk model is available at `VOSK_MODEL_PATH`

@@ -31,7 +31,9 @@ test-full:
         cargo test --workspace --locked
     else
         echo "Whisper model not found, running without E2E tests"
-        cargo test --workspace --locked
+        cargo test --workspace --locked -- \
+            --skip test_end_to_end_wav_pipeline \
+            --skip test_short_phrase_pipeline
     fi
 
 # Build all crates
