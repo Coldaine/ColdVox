@@ -9,6 +9,8 @@ last_reviewed: 2025-11-07
 
 # Documentation Analysis Enhancement Plan
 
+> STUB NOTICE: This plan documents intended future work. The implementation is not complete. Treat current analyzer outputs as provisional for cross-reference only. Do not rely on lag/coverage/stale metrics until this plan is implemented and validated. A tracking issue has been opened to complete this work.
+
 ## Goal
 Evolve the documentation analysis tooling beyond simple temporal correlations to produce actionable metrics: documentation lag per feature/PR, coverage scores, stale/abandoned feature detection, and reduced noise in doc↔code correlations.
 

@@ -9,6 +9,22 @@ This script extends the basic documentation history analysis by:
 4. Identifying patterns between codebase changes and documentation updates
 """
 
+# ---------------------------------------------------------------------------
+# STUB IMPLEMENTATION NOTICE
+# This analyzer currently provides only:
+#   - Documentation & code commit history aggregation
+#   - PR metadata enrichment for documentation commits referencing PR numbers
+#   - Temporal correlation (time-window based) charts
+# The following planned features are NOT yet implemented and any references
+# in the plan should be considered placeholders:
+#   * Precise documentation lag per PR (merge vs first doc update)
+#   * Symbol-level extraction & coverage ratios
+#   * Stale / undocumented symbol detection
+#   * PR-based filtered correlation scoring
+# Until those features land, treat outputs as baseline metrics only.
+# Tracking Issue: https://github.com/Coldaine/ColdVox/issues/215
+# ---------------------------------------------------------------------------
+
 import os
 import subprocess
 import json
