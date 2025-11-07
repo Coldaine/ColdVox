@@ -88,6 +88,11 @@ docs/
 
 Any additional exception requires DWG approval and must be documented in `docs/standards.md` under “Exceptions”.
 
+### 2.2) Development and Production Documentation
+
+- **Development Documentation:** Documentation related to the development process, such as testing strategies, CI/CD pipelines, and runner setup, should be placed in the `docs/dev/` directory.
+- **Production Documentation:** Documentation related to the production environment, such as deployment guides and operational playbooks, should also be placed in the `docs/dev/` directory.
+
 ## 3) Required Metadata Header (All Markdown)
 
 Every Markdown file under `/docs` MUST begin with this front matter:
