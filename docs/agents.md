@@ -15,10 +15,6 @@ This repository aligns with the organization-wide Master Documentation Playbook 
 - Consult [`docs/MasterDocumentationPlaybook.md`](./MasterDocumentationPlaybook.md) for canonical structure expectations.
 - Record every actionable task exclusively in [`docs/todo.md`](./todo.md) and link to supporting specs in `docs/tasks/`.
 
-## AI Assistant Response Guidelines
-
-**Prompt Response Format** – When asked to create a prompt for another agent, return **only** the prompt content without commentary, explanation, or wrappers.
-
 ## ColdVox Overview
 
 ColdVox is a Rust-based voice AI pipeline that captures audio, detects speech activity, transcribes to text, and injects the text into the focused application. The default configuration uses a VAD-gated STT flow with multiple text-injection strategies for Linux desktops.

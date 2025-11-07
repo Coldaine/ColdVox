@@ -1,10 +1,10 @@
 ---
 doc_type: playbook
 subsystem: general
-version: 1.0.0
+version: 1.0.1
 status: draft
 owners: Documentation Working Group
-last_reviewed: 2025-10-22
+last_reviewed: 2025-11-06
 ---
 
 # Master Documentation Playbook (Org‑wide)
@@ -124,12 +124,14 @@ Notes:
 To keep domain file names readable yet unambiguous, each domain MUST define a short identifier ("domain code").
 
 - Definition: 2–4 lowercase letters, unique within the repo (e.g., `ti` for Text Injection, `stt` for Speech‑to‑Text)
-- Declaration: Add `domain_code: <code>` to frontmatter of the domain’s overview index (e.g., `docs/domains/text-injection/ti-overview.md`).
+- Declaration: Add `domain_code: <code>` to frontmatter of the domain's overview index (e.g., `docs/domains/text-injection/ti-overview.md`).
+- **Overview requirement**: Every domain folder under `docs/domains/<domain>/` MUST contain an overview document (typically `<code>-overview.md`) that links to all other documentation in that domain.
 - Filenames under `docs/domains/<domain>/` MUST include the domain code using one of these forms (prefer A):
   - A) Prefix: `<code>-<topic>.md` (e.g., `ti-overview.md`, `ti-unified-clipboard.md`)
   - B) Suffix: `<topic>-<code>.md` (e.g., `overview-ti.md`) — allowed, but prefix is preferred for sorting/grouping
 - Do NOT use parentheses in filenames (e.g., `text-injection-(ti)` is prohibited).
 - Folder names remain descriptive (e.g., `docs/domains/text-injection/`), the short code disambiguates files within the folder and across search results.
+- **Subdirectory rule**: Subdirectories within a domain folder (one level deep, e.g., `troubleshooting/`) should only be created when the domain contains more than 5 markdown files. Deeper nesting is discouraged unless absolutely necessary.
 
 Recommended examples for Text Injection (`domain_code: ti`):
 
@@ -144,7 +146,7 @@ docs/
         ti-clipboard-timeouts.md
 ```
 
-Optional CI rule: Lint that files under `docs/domains/<domain>/` include the declared domain code in the filename.
+**Enforcement**: A pre-push hook MUST validate that files under `docs/domains/<domain>/` include the declared domain code in the filename. Example validator implementation: `scripts/validate_domain_docs_naming.py`.
 
 ## 5) Lifecycle & Retention Policies
 
@@ -182,6 +184,10 @@ Define the default lifecycle for transient documentation and where it should liv
 - Append CSV entries to `docs/revision_log.csv` with fields:
   - `timestamp, actor, path, action, summary`
 - Minimal spec is documented here; implementation details live alongside CI (see PR playbook / CI/CD playbook).
+
+### 6.1.1 Pre-push Hooks
+- **Domain naming validation**: Pre-push hook MUST run `scripts/validate_domain_docs_naming.py` (or equivalent) to ensure all files under `docs/domains/<domain>/` include the declared domain code prefix.
+- Hook should reject pushes if validation fails.
 
 ### 6.2 CI Validation
 - Reject PRs if any changed Markdown under `/docs` is missing the required header.
@@ -240,21 +246,23 @@ Goal: Ensure all domain documents in `docs/domains/<domain>/` include the domain
 
 Generic steps:
 1) Define short codes for each domain (2–4 lowercase letters; unique repo‑wide).
-2) Add `domain_code: <code>` to the domain’s overview frontmatter (e.g., `docs/domains/<domain>/<code>-overview.md`).
-3) Rename domain files to the code‑prefixed form `<code>-<topic>.md`.
-4) Leave a redirect stub at the old path with frontmatter:
+2) Add `domain_code: <code>` to the domain's overview frontmatter (e.g., `docs/domains/<domain>/<code>-overview.md`).
+3) Ensure each domain has an overview document that links to all other domain documentation.
+4) Rename domain files to the code‑prefixed form `<code>-<topic>.md`.
+5) Leave a redirect stub at the old path with frontmatter:
    - `redirect: <new-filename.md>`
    - Minimal body indicating the new location.
-5) Update internal links to the new filenames across docs.
-6) Add/enable a CI lint that validates naming and the presence of `domain_code`.
+6) Update internal links to the new filenames across docs.
+7) Install pre-push hook that validates naming and the presence of `domain_code`.
 
-Validator (example):
-- A simple repository script can check that files in `docs/domains/<domain>/` start with the declared `domain_code` or include a `redirect:` frontmatter during migration. Example implementation lives in `scripts/validate_domain_docs_naming.py` in this repo.
+Validator (required):
+- Repository MUST include a validator script (e.g., `scripts/validate_domain_docs_naming.py`) that checks files in `docs/domains/<domain>/` start with the declared `domain_code` or include a `redirect:` frontmatter during migration.
+- This validator MUST be run as a pre-push hook (see §6.1.1).
 
 Example (from this repository):
 - Text Injection (`domain_code: ti`)
   - Renamed: `overview.md` → `ti-overview.md`, `unified_clipboard.md` → `ti-unified-clipboard.md`, `testing.md` → `ti-testing.md`.
-  - Old files now contain redirect stubs to the new names.
+  - Git history preserved using copy→delete→git-mv workflow.
   - References in `docs/standards.md` and planning docs were updated.
 
 ## 11) Examples
@@ -326,5 +334,10 @@ A: Yes—for domains, operations, or other areas. Exception: do NOT create proje
 
 ## Appendix A — Playbook Change Log
 
+- 1.0.1 (2025‑11‑06)
+  - Made domain naming validation mandatory with pre-push hook enforcement (§4.1, §6.1.1)
+  - Added requirement for domain overview documents (§4.1)
+  - Added subdirectory creation rule: one-level-deep subdirectories only when >5 files exist (§4.1)
+  - Updated migration flow to reflect mandatory validation (§10.2.1)
 - 1.0.0 (2025‑10‑19)
   - Initial canonical version: structure, headers, placement rules, retention, PR hygiene, tasks backlog policy, file watcher + CI enforcement.
