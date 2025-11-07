@@ -1,4 +1,4 @@
-# Requirements for Documentation History Analyzer
+# Minimal third-party requirements for the Documentation History / Cross-Reference analyzers
 # Install with: pip install -r docs_analysis_requirements.txt
 
 # Data processing
@@ -10,29 +10,10 @@ matplotlib>=3.5.0
 # Git interaction (optional, for more advanced git operations)
 GitPython>=3.1.0
 
-# Command line argument parsing
-argparse  # Usually included with Python standard library
+# HTTP requests used by cross-reference analyzer
+requests>=2.28.0
 
-# Path handling
-pathlib  # Usually included with Python standard library
-
-# Date handling
-datetime  # Usually included with Python standard library
-
-# Collections
-collections  # Usually included with Python standard library
-
-# Regular expressions
-re  # Usually included with Python standard library
-
-# CSV handling
-csv  # Usually included with Python standard library
-
-# JSON handling
-json  # Usually included with Python standard library
-
-# OS interaction
-os  # Usually included with Python standard library
-
-# Subprocess handling
-subprocess  # Usually included with Python standard library
+# Notes:
+# - The analyzers import many Python standard-library modules (argparse, pathlib, datetime,
+#   collections, re, csv, json, os, subprocess, difflib, time). Those should NOT be listed
+#   here — only third-party packages belong in this file.

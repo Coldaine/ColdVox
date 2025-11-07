@@ -35,10 +35,11 @@ GITHUB_API_URL = "https://api.github.com"
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", None)
 
 class DocumentationCrossReferenceAnalyzer:
-    def __init__(self, repo_path, repo_owner=None, repo_name=None):
+    def __init__(self, repo_path, repo_owner=None, repo_name=None, since=None):
         self.repo_path = Path(repo_path)
         self.repo_owner = repo_owner
         self.repo_name = repo_name
+        self.since = since
         self.git_history = []
         self.file_history = defaultdict(list)
         self.pr_data = []
@@ -79,7 +80,10 @@ class DocumentationCrossReferenceAnalyzer:
     def extract_file_history(self, file_path):
         """Extract git history for a specific file"""
         cmd = ["log", "--follow", "--pretty=format:%H|%an|%ad|%s", 
-               "--date=short", "--stat", "--", file_path]
+               "--date=short", "--stat"]
+        if self.since:
+            cmd.extend(["--since", self.since])
+        cmd.extend(["--", file_path])
         output = self.run_git_command(cmd)
         
         if not output:
@@ -213,7 +217,58 @@ class DocumentationCrossReferenceAnalyzer:
         
         self.pr_data = pr_data
         print(f"Found {len(pr_data)} PR references in documentation commits")
-        return pr_data
+        
+        if GITHUB_TOKEN and self.repo_owner and self.repo_name:
+            self.enrich_pr_data_with_github()
+            
+        return self.pr_data
+
+    def enrich_pr_data_with_github(self):
+        """Enrich PR data with information from GitHub API"""
+        print("Enriching PR data with GitHub API...")
+        enriched_pr_data = []
+        
+        headers = {
+            "Authorization": f"token {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github.v3+json"
+        }
+        
+        # Get unique PR numbers
+        pr_numbers = sorted(list(set(pr['pr_number'] for pr in self.pr_data)))
+        
+        for pr_num in pr_numbers:
+            url = f"{GITHUB_API_URL}/repos/{self.repo_owner}/{self.repo_name}/pulls/{pr_num}"
+            try:
+                response = requests.get(url, headers=headers)
+                response.raise_for_status()
+                
+                pr_details = response.json()
+                
+                # Find all commits associated with this PR
+                for pr_commit_data in self.pr_data:
+                    if pr_commit_data['pr_number'] == pr_num:
+                        enriched_pr_data.append({
+                            **pr_commit_data,
+                            'pr_title': pr_details.get('title', ''),
+                            'pr_author': pr_details.get('user', {}).get('login', ''),
+                            'pr_state': pr_details.get('state', ''),
+                            'pr_url': pr_details.get('html_url', '')
+                        })
+                
+                print(f"Enriched data for PR #{pr_num}")
+                
+            except requests.exceptions.RequestException as e:
+                print(f"Error fetching data for PR #{pr_num}: {e}")
+                # Add without enrichment if API fails
+                for pr_commit_data in self.pr_data:
+                    if pr_commit_data['pr_number'] == pr_num:
+                        enriched_pr_data.append(pr_commit_data)
+
+            # Rate limit handling
+            time.sleep(1)
+
+        self.pr_data = enriched_pr_data
+        print("Finished enriching PR data.")
     
     def correlate_doc_code_changes(self, days_window=7):
         """Find correlations between documentation and code changes"""
@@ -373,8 +428,21 @@ class DocumentationCrossReferenceAnalyzer:
                 pr_counts = Counter(pr['pr_number'] for pr in self.pr_data)
                 f.write(f"- Total PRs referenced in documentation: {len(pr_counts)}\n")
                 f.write("\n### Most Referenced PRs\n\n")
+                # Create a map of PR number to details for easy lookup
+                pr_details_map = {}
+                for pr in self.pr_data:
+                    if pr['pr_number'] not in pr_details_map:
+                        pr_details_map[pr['pr_number']] = {
+                            'title': pr.get('pr_title', ''),
+                            'author': pr.get('pr_author', ''),
+                            'state': pr.get('pr_state', '')
+                        }
+
                 for pr_num, count in pr_counts.most_common(10):
-                    f.write(f"- PR #{pr_num}: {count} documentation commits\n")
+                    details = pr_details_map.get(pr_num, {})
+                    title = details.get('title', '[Title not fetched]')
+                    author = details.get('author', 'N/A')
+                    f.write(f"- PR #{pr_num}: {count} documentation commits - *{title}* (by @{author})\n")
             
             # Release analysis
             if self.release_data:
@@ -454,11 +522,12 @@ def main():
     parser.add_argument('--repo', default=str(REPO_ROOT), help='Path to the repository')
     parser.add_argument('--owner', help='Repository owner (for GitHub API)')
     parser.add_argument('--name', help='Repository name (for GitHub API)')
+    parser.add_argument('--since', help='Start date for git history analysis (e.g., YYYY-MM-DD)')
     
     args = parser.parse_args()
     
     analyzer = DocumentationCrossReferenceAnalyzer(
-        args.repo, args.owner, args.name
+        args.repo, args.owner, args.name, args.since
     )
     results = analyzer.run_full_analysis()
     

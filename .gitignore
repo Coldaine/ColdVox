@@ -23,6 +23,8 @@ flamegraph.svg
 .env
 .env.local
 .venv/
+docs_analysis_output/
+docs_cross_reference_output/
 
 # Logs
 logs/
