@@ -440,7 +440,7 @@ match error {
 ## Additional Resources
 
 - [ColdVox Error Reference](../reference/crates/coldvox-foundation.md)
-- [Error Handling Best Practices](../domains/foundation/voice-pipeline-core-design.md)
+- [Error Handling Best Practices](../domains/foundation/fdn-voice-pipeline-core-design.md)
 - [Troubleshooting Guide](../troubleshooting/)
 - [API Documentation](https://docs.rs/coldvox-foundation/latest/coldvox_foundation/error/)
 
