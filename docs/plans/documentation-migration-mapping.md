@@ -37,7 +37,7 @@ Phase 1 and the majority of Phase 2–3 migrations have been executed. Remaining
 | crates/coldvox-stt-vosk/README.md | docs/reference/crates/coldvox-stt-vosk.md | move | Thin index linking back. |
 | crates/voice-activity-detector/MODIFICATIONS.md | docs/domains/vad/modifications.md | move | Normalize filename + frontmatter. |
 | crates/coldvox-telemetry/README.md | docs/reference/crates/coldvox-telemetry.md | move | Thin index. |
-| crates/coldvox-text-injection/TESTING.md | docs/domains/text-injection/testing.md | move | Add frontmatter and align with standards. |
+| crates/coldvox-text-injection/TESTING.md | docs/domains/text-injection/ti-testing.md | move | Add frontmatter and align with standards. |
 | crates/coldvox-text-injection/README.md | docs/reference/crates/coldvox-text-injection.md | move | Thin index. |
 | crates/coldvox-stt/README.md | docs/reference/crates/coldvox-stt.md | move | Thin index. |
 | crates/coldvox-audio/docs/design-pipewire.md | docs/domains/audio/pipewire-design.md | move | Add frontmatter; ensure domain placement. |
