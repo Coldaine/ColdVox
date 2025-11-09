@@ -81,6 +81,7 @@ pub mod ydotool_injector {
 
     /// Stub indicating ydotool is unavailable on this platform
     pub struct YdotoolInjector {
+        #[allow(dead_code)]
         pub(crate) config: InjectionConfig,
     }
 
@@ -89,10 +90,12 @@ pub mod ydotool_injector {
             Self { config }
         }
 
+        #[allow(dead_code)]
         pub(crate) fn ydotool_runtime_available() -> bool {
             false
         }
 
+        #[allow(dead_code)]
         pub(crate) fn apply_socket_env(_command: &mut tokio::process::Command) {}
     }
 

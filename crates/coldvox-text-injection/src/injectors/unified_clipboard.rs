@@ -121,6 +121,7 @@ impl UnifiedClipboardInjector {
     }
 
     /// Helper for "native attempt + command fallback" pattern with consistent timeout/kill handling
+    #[allow(dead_code)]
     async fn native_attempt_with_fallback<T, F, Fut, G, Gfut>(
         &self,
         native_attempt: F,
@@ -388,12 +389,12 @@ impl UnifiedClipboardInjector {
     async fn write_wayland_clipboard(
         &self,
         content: &[u8],
-        mime_type: &str,
+        _mime_type: &str,
     ) -> InjectionResult<()> {
         #[cfg(feature = "wl_clipboard")]
         {
             self.native_attempt_with_fallback(
-                || self.write_wayland_clipboard_native(content, mime_type),
+                || self.write_wayland_clipboard_native(content, _mime_type),
                 "wl-copy",
                 || self.write_wayland_clipboard_fallback(content),
             )

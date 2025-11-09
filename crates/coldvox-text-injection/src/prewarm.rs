@@ -9,11 +9,10 @@ use crate::types::{InjectionConfig, InjectionMethod, InjectionResult};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, RwLock};
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, info, warn, trace, error};
 
 /// TTL for cached pre-warmed data (3 seconds)
 const CACHE_TTL: Duration = Duration::from_secs(3);
-
 /// Tiny timeout for individual pre-warming steps (50ms)
 const STEP_TIMEOUT: Duration = Duration::from_millis(50);
 
@@ -96,6 +95,7 @@ pub struct VirtualKeyboardData {
 
 /// Pre-warming controller that manages all pre-warming operations
 pub struct PrewarmController {
+    #[allow(dead_code)]
     config: InjectionConfig,
 
     // Cached data with TTL
@@ -161,7 +161,7 @@ impl PrewarmController {
 
     /// Pre-warm AT-SPI connection and snapshot focused element
     async fn prewarm_atspi(&self) -> Result<AtspiData, String> {
-        let start_time = Instant::now();
+    let start_time = Instant::now();
         debug!("Starting AT-SPI pre-warming");
 
         #[cfg(feature = "atspi")]
@@ -246,7 +246,7 @@ impl PrewarmController {
 
     /// Arm the event listener for text change confirmation
     async fn arm_event_listener(&self) -> Result<bool, String> {
-        let start_time = Instant::now();
+    let start_time = Instant::now();
         debug!("Arming event listener for text change confirmation");
 
         #[cfg(feature = "atspi")]
@@ -577,7 +577,7 @@ pub async fn run_for_method(_ctx: &AtspiContext, method: InjectionMethod) -> Inj
         }
         _ => {
             // For other methods, just arm the event listener
-            if let Ok(_) = controller.arm_event_listener().await {
+            if controller.arm_event_listener().await.is_ok() {
                 info!("Event listener armed for {:?}", method);
             }
         }

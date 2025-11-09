@@ -8,6 +8,9 @@ use crate::types::{
     InjectionConfig, InjectionContext, InjectionMethod, InjectionMetrics, InjectionMode,
 };
 use crate::TextInjector;
+
+/// Type alias for cached method ordering: (app_id, methods)
+type CachedMethodOrder = Option<(String, Vec<InjectionMethod>)>;
 use coldvox_foundation::error::InjectionError;
 
 // Import injectors
@@ -170,7 +173,7 @@ pub struct StrategyManager {
     /// Registry of available injectors
     injectors: Arc<InjectorRegistry>,
     /// Cached method ordering for the current app_id
-    cached_method_order: Arc<RwLock<Option<(String, Vec<InjectionMethod>)>>>,
+    cached_method_order: Arc<RwLock<CachedMethodOrder>>,
     /// Cached compiled allowlist regex patterns
     #[cfg(feature = "regex")]
     allowlist_regexes: Vec<regex::Regex>,

@@ -86,6 +86,30 @@ pub fn detect_display_protocol() -> DisplayProtocol {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
+
+    fn save_env() -> (Option<String>, Option<String>, Option<String>) {
+        (
+            env::var("XDG_SESSION_TYPE").ok(),
+            env::var("WAYLAND_DISPLAY").ok(),
+            env::var("DISPLAY").ok(),
+        )
+    }
+
+    fn restore_env(xdg: Option<String>, wayland: Option<String>, display: Option<String>) {
+        match xdg {
+            Some(v) => env::set_var("XDG_SESSION_TYPE", v),
+            None => env::remove_var("XDG_SESSION_TYPE"),
+        }
+        match wayland {
+            Some(v) => env::set_var("WAYLAND_DISPLAY", v),
+            None => env::remove_var("WAYLAND_DISPLAY"),
+        }
+        match display {
+            Some(v) => env::set_var("DISPLAY", v),
+            None => env::remove_var("DISPLAY"),
+        }
+    }
 
     #[test]
     fn test_display_protocol_is_wayland() {
@@ -102,29 +126,42 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_display_protocol_is_xwayland() {
-        // Test without environment variables
-        assert!(!DisplayProtocol::Wayland.is_xwayland());
-        assert!(!DisplayProtocol::X11.is_xwayland()); // No Wayland indicators
-        assert!(!DisplayProtocol::Unknown.is_xwayland());
+        let (xdg, wayland, display) = save_env();
+
+        // X11 only
+        env::set_var("XDG_SESSION_TYPE", "x11");
+        env::remove_var("WAYLAND_DISPLAY");
+        env::set_var("DISPLAY", ":0");
+        assert!(!DisplayProtocol::X11.is_xwayland());
+
+        // XWayland (DISPLAY + WAYLAND_DISPLAY)
+        env::set_var("WAYLAND_DISPLAY", "wayland-0");
+        assert!(DisplayProtocol::X11.is_xwayland());
+
+        restore_env(xdg, wayland, display);
     }
 
     #[test]
+    #[serial]
     fn test_detect_display_protocol_unknown() {
-        // Clear relevant environment variables
+        let (xdg, wayland, display) = save_env();
         env::remove_var("XDG_SESSION_TYPE");
         env::remove_var("WAYLAND_DISPLAY");
         env::remove_var("DISPLAY");
-
         assert_eq!(detect_display_protocol(), DisplayProtocol::Unknown);
+        restore_env(xdg, wayland, display);
     }
 
     #[test]
+    #[serial]
     fn test_detect_display_protocol_xdg_session_type() {
-        env::set_var("XDG_SESSION_TYPE", "wayland");
+        let (xdg, wayland, display) = save_env();
         env::remove_var("WAYLAND_DISPLAY");
         env::remove_var("DISPLAY");
 
+        env::set_var("XDG_SESSION_TYPE", "wayland");
         assert_eq!(detect_display_protocol(), DisplayProtocol::Wayland);
 
         env::set_var("XDG_SESSION_TYPE", "x11");
@@ -133,28 +170,32 @@ mod tests {
         env::set_var("XDG_SESSION_TYPE", "unknown");
         assert_eq!(detect_display_protocol(), DisplayProtocol::Unknown);
 
-        env::remove_var("XDG_SESSION_TYPE");
+        restore_env(xdg, wayland, display);
     }
 
     #[test]
+    #[serial]
     fn test_detect_display_protocol_wayland_display() {
+        let (xdg, wayland, display) = save_env();
         env::remove_var("XDG_SESSION_TYPE");
         env::set_var("WAYLAND_DISPLAY", "wayland-0");
         env::remove_var("DISPLAY");
 
         assert_eq!(detect_display_protocol(), DisplayProtocol::Wayland);
 
-        env::remove_var("WAYLAND_DISPLAY");
+        restore_env(xdg, wayland, display);
     }
 
     #[test]
+    #[serial]
     fn test_detect_display_protocol_display() {
+        let (xdg, wayland, display) = save_env();
         env::remove_var("XDG_SESSION_TYPE");
         env::remove_var("WAYLAND_DISPLAY");
         env::set_var("DISPLAY", ":0");
 
         assert_eq!(detect_display_protocol(), DisplayProtocol::X11);
 
-        env::remove_var("DISPLAY");
+        restore_env(xdg, wayland, display);
     }
 }

@@ -31,7 +31,7 @@ async fn test_wl_copy_stdin_piping_basic() {
     // Test cases that would fail with command-line argument approach
     let long_text =
         "This is a very long text designed to test that stdin piping works correctly. ".repeat(100);
-    let test_cases = vec![
+    let test_cases = [
         // Simple text
         "Hello from wl-copy stdin test!",
         // Text with special characters that would break command line
