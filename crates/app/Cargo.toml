@@ -65,7 +65,7 @@ serial_test = "3.0"
 similar-asserts = "1.5"
 
 [features]
-default = ["silero", "text-injection"]
+default = ["silero", "text-injection", "whisper"]
 live-hardware-tests = []
 parakeet = ["coldvox-stt/parakeet"]
 whisper = ["coldvox-stt/whisper"]
