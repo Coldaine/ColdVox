@@ -35,7 +35,7 @@ pub mod harness {
     use serde::de::DeserializeOwned;
     use serde::Serialize;
     use std::fs;
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
 
     /// Returns the path to the directory where test artifacts are stored.
     ///
@@ -121,7 +121,7 @@ pub mod harness {
                                 if kind_a == "SpeechEnd" {
                                     let da = ao.get("duration_ms").and_then(|v| v.as_u64()).unwrap_or(0);
                                     let db = bo.get("duration_ms").and_then(|v| v.as_u64()).unwrap_or(0);
-                                    let diff = if da > db { da - db } else { db - da };
+                                    let diff = da.abs_diff(db);
                                     if diff > 128 { all_ok = false; break; }
                                 } else if kind_a == "SpeechStart" {
                                     // SpeechStart has no duration, ignore

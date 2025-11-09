@@ -1,7 +1,6 @@
 use coldvox_audio::ring_buffer::AudioProducer;
 use coldvox_audio::SharedAudioFrame;
 use std::sync::Arc;
-use std::time::Instant;
 
 use parking_lot::Mutex;
 use tokio::signal;
@@ -24,7 +23,6 @@ use crate::stt::plugin_manager::SttPluginManager;
 use crate::stt::processor::PluginSttProcessor;
 #[cfg(feature = "whisper")]
 use crate::stt::session::Settings;
-use crate::stt::session::{SessionEvent, SessionSource};
 #[cfg(feature = "whisper")]
 use coldvox_stt::TranscriptionConfig;
 
@@ -444,7 +442,7 @@ pub async fn start(
             // - **Trade-off:** The primary trade-off is a slight increase in latency,
             //   as the system waits longer to confirm the end of an utterance. For
             //   dictation, this is an acceptable trade-off for the gain in accuracy.
-            let vad_cfg = opts.vad_config.unwrap_or_else(|| UnifiedVadConfig {
+            let vad_cfg = opts.vad_config.unwrap_or(UnifiedVadConfig {
                 mode: VadMode::Silero,
                 frame_size_samples: FRAME_SIZE_SAMPLES,
                 sample_rate_hz: SAMPLE_RATE_HZ,
@@ -772,11 +770,11 @@ pub async fn start(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::audio::wav_file_loader::WavFileLoader;
-    use coldvox_audio::DeviceConfig;
+    
+    
     use coldvox_stt::plugin::{FailoverConfig, GcPolicy, PluginSelectionConfig};
     use coldvox_stt::TranscriptionEvent;
-    use std::time::{Duration, Instant};
+    
 
     /// Helper to create default runtime options for testing.
     fn test_opts(activation_mode: ActivationMode) -> AppRuntimeOptions {

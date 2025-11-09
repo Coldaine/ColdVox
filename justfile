@@ -9,6 +9,8 @@ default:
 ci:
     ./scripts/local_ci.sh
 
+# Run local CI with Whisper enabled (uses venv + cargo features)
+
 # Run pre-commit hooks manually
 check:
     pre-commit run --all-files
@@ -16,25 +18,23 @@ check:
 # Quick development checks (format, clippy, check)
 lint:
     cargo fmt --all
-    cargo clippy --all-targets --locked -- -D warnings
+    cargo clippy --fix --all-targets --locked --allow-dirty --allow-staged -- -D warnings
     cargo check --workspace --all-targets --locked
+
+# Auto-fix linter issues where possible
+fix:
+    cargo fmt --all
+    cargo clippy --fix --all-targets --locked --allow-dirty --allow-staged
 
 # Run all tests
 test:
     cargo test --workspace --locked
 
-# Run tests with Whisper model if available
 test-full:
-    #!/usr/bin/env bash
-    if [[ -d "models/whisper-base.en" ]]; then
-        export WHISPER_MODEL_PATH="models/whisper-base.en"
-        cargo test --workspace --locked
-    else
-        echo "Whisper model not found, running without E2E tests"
-        cargo test --workspace --locked -- \
-            --skip test_end_to_end_wav_pipeline \
-            --skip test_short_phrase_pipeline
-    fi
+    cargo test --workspace --locked
+
+# Run tests with whisper feature and auto venv activation
+## Whisper-specific helpers removed pending new backend
 
 # Build all crates
 build:
