@@ -28,6 +28,7 @@
 
 use crate::plugin::*;
 use crate::types::{TranscriptionConfig, TranscriptionEvent};
+#[cfg(feature = "whisper")]
 use crate::WordInfo;
 use async_trait::async_trait;
 use coldvox_foundation::env::{detect_environment, Environment};
@@ -68,6 +69,7 @@ pub struct WhisperPlugin {
     language: Option<String>,
     device: String,
     compute_type: String,
+    #[allow(dead_code)]
     initialized: bool,
     #[cfg(feature = "whisper")]
     model: Option<WhisperModel>,
@@ -168,9 +170,10 @@ impl Default for WhisperPlugin {
 }
 
 /// Available Whisper model sizes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum WhisperModelSize {
     Tiny,
+    #[default]
     Base,
     Small,
     Medium,
@@ -190,6 +193,7 @@ impl WhisperModelSize {
         }
     }
 
+    #[allow(dead_code)]
     fn model_identifier(&self) -> String {
         match self {
             Self::Tiny => "tiny".to_string(),
@@ -200,12 +204,6 @@ impl WhisperModelSize {
             Self::LargeV2 => "large-v2".to_string(),
             Self::LargeV3 => "large-v3".to_string(),
         }
-    }
-}
-
-impl Default for WhisperModelSize {
-    fn default() -> Self {
-        Self::Base
     }
 }
 
