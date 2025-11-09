@@ -523,9 +523,10 @@ pub async fn start(
     let mut stt_forward_handle: Option<JoinHandle<()>> = None;
     #[allow(unused_variables)]
     let (stt_handle, vad_fanout_handle) = if let Some(pm) = plugin_manager.clone() {
-        // This is the single, unified path for STT processing.
-        let (session_tx, session_rx) = mpsc::channel::<SessionEvent>(100);
-        let stt_audio_rx = audio_tx.subscribe();
+    // This is the single, unified path for STT processing.
+    #[cfg(feature = "whisper")]
+    let (session_tx, session_rx) = mpsc::channel::<SessionEvent>(100);
+    let stt_audio_rx = audio_tx.subscribe();
 
         #[cfg(feature = "whisper")]
         let (stt_pipeline_tx, stt_pipeline_rx) = mpsc::channel::<TranscriptionEvent>(100);
@@ -551,8 +552,8 @@ pub async fn start(
             Settings::default(), // Use default settings for now
         );
 
-        let vad_bcast_tx_clone = vad_bcast_tx.clone();
-        let activation_mode = opts.activation_mode;
+    let vad_bcast_tx_clone = vad_bcast_tx.clone();
+    let activation_mode = opts.activation_mode;
 
         // This task is the new "translator" from VAD/Hotkey events to generic SessionEvents.
         let vad_fanout_handle = tokio::spawn(async move {
@@ -561,28 +562,32 @@ pub async fn start(
                 // Forward the raw VAD event for UI purposes
                 let _ = vad_bcast_tx_clone.send(ev);
 
-                // Translate to SessionEvent for the STT processor
-                let session_event = match ev {
-                    VadEvent::SpeechStart { .. } => {
-                        let source = match activation_mode {
-                            ActivationMode::Vad => SessionSource::Vad,
-                            ActivationMode::Hotkey => SessionSource::Hotkey,
-                        };
-                        Some(SessionEvent::Start(source, Instant::now()))
-                    }
-                    VadEvent::SpeechEnd { .. } => {
-                        let source = match activation_mode {
-                            ActivationMode::Vad => SessionSource::Vad,
-                            ActivationMode::Hotkey => SessionSource::Hotkey,
-                        };
-                        Some(SessionEvent::End(source, Instant::now()))
-                    }
-                };
+                // Translate to SessionEvent for the STT processor (only in whisper builds)
+                #[cfg(feature = "whisper")]
+                {
+                    let session_event = match ev {
+                        VadEvent::SpeechStart { .. } => {
+                            let source = match activation_mode {
+                                ActivationMode::Vad => SessionSource::Vad,
+                                ActivationMode::Hotkey => SessionSource::Hotkey,
+                            };
+                            Some(SessionEvent::Start(source, Instant::now()))
+                        }
+                        VadEvent::SpeechEnd { .. } => {
+                            let source = match activation_mode {
+                                ActivationMode::Vad => SessionSource::Vad,
+                                ActivationMode::Hotkey => SessionSource::Hotkey,
+                            };
+                            Some(SessionEvent::End(source, Instant::now()))
+                        }
+                    };
 
-                if let Some(event) = session_event {
-                    if session_tx.send(event).await.is_err() {
-                        // STT processor channel closed, probably shutting down.
-                        break;
+                    if let Some(event) = session_event {
+                        if session_tx.send(event).await.is_err() {
+                            // STT processor channel closed, probably shutting down.
+                            // Continue forwarding VAD events for UI rather than exiting.
+                            continue;
+                        }
                     }
                 }
             }
@@ -779,6 +784,7 @@ mod tests {
             device: None,
             resampler_quality: ResamplerQuality::Balanced,
             activation_mode,
+            vad_config: None,
             stt_selection: Some(PluginSelectionConfig {
                 preferred_plugin: Some("whisper".to_string()),
                 // Do not allow fallback to NoOp in tests; fail loudly if whisper unavailable

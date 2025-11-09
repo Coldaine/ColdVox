@@ -1,5 +1,5 @@
 {
-  "preferred_plugin": "whisper",
+  "preferred_plugin": "mock",
   "fallback_plugins": [
     "whisper",
     "whisper-local",
