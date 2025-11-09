@@ -54,6 +54,7 @@ pub struct InjectionProcessor {
     /// Text injector for performing the actual injection
     injector: StrategyManager,
     /// Configuration
+    #[allow(dead_code)]
     config: InjectionConfig,
     /// Metrics for telemetry
     metrics: Arc<Mutex<ProcessorMetrics>>,

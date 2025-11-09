@@ -13,7 +13,6 @@ use std::time::Duration;
 
 use super::test_utils::{
     command_exists, is_wayland_environment, read_clipboard_with_wl_paste,
-    read_clipboard_with_wl_paste_with_timeout,
 };
 
 /// Test that wl-copy properly receives content via stdin
@@ -42,7 +41,7 @@ async fn test_wl_copy_stdin_piping() {
         "This is a very long text designed to test that the stdin piping works correctly. ";
     let long_text = long_text_base.repeat(100);
 
-    let test_cases = vec![
+    let test_cases = [
         // Simple text
         "Hello from wl-copy stdin test!",
         // Text with special characters that would break command line
@@ -152,9 +151,11 @@ async fn test_wl_copy_timeout_handling() {
     }
 
     // Create config with very short timeout to force timeout
-    let mut config = InjectionConfig::default();
-    config.per_method_timeout_ms = 10; // Very short timeout
-    config.paste_action_timeout_ms = 10; // Very short timeout
+    let config = InjectionConfig {
+        per_method_timeout_ms: 10, // Very short timeout
+        paste_action_timeout_ms: 10, // Very short timeout
+        ..Default::default()
+    };
 
     let injector = ClipboardInjector::new(config);
 

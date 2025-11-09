@@ -118,6 +118,7 @@ impl ClipboardInjector {
     ///
     /// # Returns
     /// The result from either the native attempt or fallback command
+    #[allow(dead_code)]
     async fn native_attempt_with_fallback<T, F, Fut, G, Gfut>(
         &self,
         native_attempt: F,
@@ -396,12 +397,12 @@ impl ClipboardInjector {
     async fn write_wayland_clipboard(
         &self,
         content: &[u8],
-        mime_type: &str,
+        _mime_type: &str,
     ) -> InjectionResult<()> {
         #[cfg(feature = "wl_clipboard")]
         {
             self.native_attempt_with_fallback(
-                || self.write_wayland_clipboard_native(content, mime_type),
+                || self.write_wayland_clipboard_native(content, _mime_type),
                 "wl-copy",
                 || self.write_wayland_clipboard_fallback(content),
             )
@@ -965,12 +966,12 @@ mod tests {
         let config = InjectionConfig::default();
         let injector = ClipboardInjector::new(config);
 
-        // Test successful command execution with echo
+        // Test successful command execution with `cat` which echoes stdin to stdout and exits 0
         let result = injector
-            .execute_command_with_stdin("echo", &["test"], b"test content", Duration::from_secs(1))
+            .execute_command_with_stdin("cat", &[], b"test content", Duration::from_secs(1))
             .await;
 
-        // Echo should succeed
+        // Command should succeed
         assert!(result.is_ok());
     }
 

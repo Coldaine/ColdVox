@@ -5,8 +5,6 @@
 //! while providing the new TextInjector trait interface.
 
 use crate::confirm::{create_confirmation_context, ConfirmationContext};
-use crate::log_throttle::log_atspi_connection_failure;
-use crate::logging::utils;
 use crate::types::{
     InjectionConfig, InjectionContext, InjectionMethod, InjectionMode, InjectionResult,
 };
@@ -15,6 +13,8 @@ use async_trait::async_trait;
 use coldvox_foundation::error::InjectionError;
 use std::time::Instant;
 use tracing::{debug, trace, warn};
+use crate::log_throttle::log_atspi_connection_failure;
+use crate::logging::utils;
 
 // Re-export the old Context type for backwards compatibility
 #[deprecated(
@@ -28,6 +28,7 @@ pub struct AtspiInjector {
     /// Configuration for injection
     config: InjectionConfig,
     /// Confirmation context for injection verification
+    #[allow(dead_code)]
     confirmation_context: ConfirmationContext,
 }
 
@@ -412,6 +413,7 @@ impl AtspiInjector {
     }
 
     /// Set clipboard content for paste operations
+    #[allow(dead_code)]
     async fn set_clipboard_content(&self, text: &str) -> InjectionResult<()> {
         #[cfg(feature = "wl_clipboard")]
         {
@@ -454,6 +456,7 @@ impl AtspiInjector {
     }
 
     /// Trigger paste using key events as a fallback
+    #[allow(dead_code)]
     async fn trigger_paste_key_event(&self) -> InjectionResult<()> {
         #[cfg(feature = "enigo")]
         {
