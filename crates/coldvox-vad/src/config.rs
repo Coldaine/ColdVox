@@ -2,17 +2,12 @@ use serde::{Deserialize, Serialize};
 
 use super::constants::{FRAME_SIZE_SAMPLES, SAMPLE_RATE_HZ};
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
 pub enum VadMode {
+    // INTENTIONAL: Silero is the default VAD mode
+    // Level3 (energy-based) VAD is disabled by default - see Level3Config.enabled
+    #[default]
     Silero, // ML-based VAD using ONNX - DEFAULT ACTIVE VAD
-}
-
-impl Default for VadMode {
-    fn default() -> Self {
-        // INTENTIONAL: Silero is the default VAD mode
-        // Level3 (energy-based) VAD is disabled by default - see Level3Config.enabled
-        Self::Silero
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
