@@ -1,0 +1,4 @@
+[env]
+# Ensure PyO3 uses the repo-local virtualenv Python, independent of shell activation.
+# The relative path keeps this portable across machines.
+PYO3_PYTHON = { value = "./.venv/bin/python", relative = true }

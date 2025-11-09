@@ -1,4 +1,4 @@
-name: Whisper Integration Tests
+name: (disabled) Whisper Integration Tests
 
 on:
   pull_request:
@@ -20,7 +20,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  _disabled_notice:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Whisper integration workflow disabled due to backend pivot; see PR for details."
+  # The following jobs are intentionally disabled pending the new pure-Rust backend
+  # to avoid Python/venv and model-cache dependencies in CI.
+  # Original content retained below for history; guarded by always-false condition.
   setup-whisper-dependencies:
+    if: false
     name: Setup Whisper Dependencies
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
     env:
@@ -35,6 +43,7 @@ jobs:
         run: bash scripts/ci/setup-whisper-cache.sh
 
   whisper-tests:
+    if: false
     name: Whisper STT Integration
     needs: [setup-whisper-dependencies]
     runs-on: [self-hosted, Linux, X64, fedora, nobara]

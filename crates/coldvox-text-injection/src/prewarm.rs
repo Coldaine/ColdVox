@@ -9,7 +9,7 @@ use crate::types::{InjectionConfig, InjectionMethod, InjectionResult};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, RwLock};
-use tracing::{debug, info, warn, trace, error};
+use tracing::{debug, info, warn, trace};
 
 /// TTL for cached pre-warmed data (3 seconds)
 const CACHE_TTL: Duration = Duration::from_secs(3);

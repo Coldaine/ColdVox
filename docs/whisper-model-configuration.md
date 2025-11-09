@@ -1,6 +1,12 @@
-# Whisper Model Size Configuration Guide
+# Whisper Backend (Legacy)
 
-This document explains how to configure Whisper model sizes for different environments in ColdVox.
+The previous Python-dependent Whisper backend and its model-size guidance have been removed as part of a backend pivot.
+
+Next steps:
+- A new pure-Rust Whisper backend will replace the legacy one.
+- Until then, select `mock` or another available STT plugin in `config/plugins.json`.
+
+This page will be replaced with updated configuration guidance when the new backend lands.
 
 ## Overview
 

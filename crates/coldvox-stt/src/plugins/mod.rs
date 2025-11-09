@@ -2,7 +2,8 @@
 
 pub mod mock;
 pub mod noop;
-pub mod whisper_plugin;
+// whisper backend temporarily removed; will be reintroduced as pure Rust implementation
+// pub mod whisper_plugin;
 
 #[cfg(feature = "parakeet")]
 pub mod parakeet;
@@ -22,7 +23,7 @@ pub mod silero_stt;
 // Re-export commonly used plugins
 pub use mock::MockPlugin;
 pub use noop::NoOpPlugin;
-pub use whisper_plugin::{WhisperPlugin, WhisperPluginFactory};
+// pub use whisper_plugin::{WhisperPlugin, WhisperPluginFactory};
 
 #[cfg(feature = "parakeet")]
 pub use parakeet::ParakeetPluginFactory;
