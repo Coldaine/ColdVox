@@ -13,8 +13,6 @@ use async_trait::async_trait;
 use coldvox_foundation::error::InjectionError;
 use std::time::Instant;
 use tracing::{debug, trace, warn};
-use crate::log_throttle::log_atspi_connection_failure;
-use crate::logging::utils;
 
 // Re-export the old Context type for backwards compatibility
 #[deprecated(

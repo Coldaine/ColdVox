@@ -57,8 +57,7 @@ use crate::types::{InjectionConfig, InjectionResult};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
-use tracing::{info, warn, debug, trace, error};
-use coldvox_foundation::error::InjectionError;
+use tracing::{info, warn};
 use unicode_segmentation::UnicodeSegmentation;
 
 /// Confirmation result for text injection

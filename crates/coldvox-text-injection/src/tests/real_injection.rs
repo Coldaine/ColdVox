@@ -14,6 +14,8 @@ use crate::clipboard_paste_injector::ClipboardPasteInjector;
 use crate::enigo_injector::EnigoInjector;
 #[cfg(feature = "atspi")]
 use crate::injectors::atspi::AtspiInjector;
+#[cfg(feature = "kdotool")]
+use crate::kdotool_injector::KdotoolInjector;
 #[cfg(feature = "ydotool")]
 use crate::ydotool_injector::YdotoolInjector;
 // Bring trait into scope so async trait methods (inject_text, is_available) resolve.
@@ -353,4 +355,49 @@ async fn test_enigo_typing_special_chars() {
     run_enigo_typing_test("Enigo types\nnew lines and\ttabs.").await;
 }
 
-// TODO(#40): Add tests for kdotool, combo injectors etc.
+//--- Kdotool Tests ---
+#[cfg(feature = "kdotool")]
+/// Helper function to run a complete injection and verification test for the kdotool backend.
+async fn run_kdotool_test(test_text: &str) {
+    let env = TestEnvironment::current();
+    if !env.can_run_real_tests() {
+        eprintln!("Skipping kdotool test: no display server found.");
+        return;
+    }
+
+    let injector = KdotoolInjector::new(Default::default());
+    if !injector.is_available().await {
+        println!("Skipping kdotool test: backend is not available (is kdotool running?).");
+        return;
+    }
+
+    let app = TestAppManager::launch_gtk_app().expect("Failed to launch GTK app.");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    wait_for_app_ready(&app).await;
+
+    injector
+        .inject_text(test_text)
+        .await
+        .unwrap_or_else(|e| panic!("kdotool injection failed for text '{}': {:?}", test_text, e));
+
+    verify_injection(&app.output_file, test_text)
+        .await
+        .unwrap_or_else(|e| {
+            panic!(
+                "Verification failed for kdotool with text '{}': {}",
+                test_text, e
+            )
+        });
+}
+
+#[tokio::test]
+#[cfg(feature = "kdotool")]
+async fn test_kdotool_simple_text() {
+    run_kdotool_test("Hello from kdotool!").await;
+}
+
+#[tokio::test]
+#[cfg(feature = "kdotool")]
+async fn test_kdotool_unicode_text() {
+    run_kdotool_test("Hello ColdVox 🎤 测试 (via kdotool)").await;
+}
