@@ -11,9 +11,7 @@ use crate::types::{InjectionConfig, InjectionContext};
 use std::process::Command;
 use std::time::Duration;
 
-use super::test_utils::{
-    command_exists, is_wayland_environment, read_clipboard_with_wl_paste,
-};
+use super::test_utils::{command_exists, is_wayland_environment, read_clipboard_with_wl_paste};
 
 /// Test that wl-copy properly receives content via stdin
 /// This is the core test for the stdin piping fix
@@ -152,7 +150,7 @@ async fn test_wl_copy_timeout_handling() {
 
     // Create config with very short timeout to force timeout
     let config = InjectionConfig {
-        per_method_timeout_ms: 10, // Very short timeout
+        per_method_timeout_ms: 10,   // Very short timeout
         paste_action_timeout_ms: 10, // Very short timeout
         ..Default::default()
     };

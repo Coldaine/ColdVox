@@ -53,6 +53,7 @@ fn candidate_socket_paths() -> Vec<PathBuf> {
 }
 
 fn locate_existing_socket() -> Option<PathBuf> {
+    #[allow(clippy::manual_find)]
     for candidate in candidate_socket_paths() {
         if Path::new(&candidate).exists() {
             return Some(candidate);

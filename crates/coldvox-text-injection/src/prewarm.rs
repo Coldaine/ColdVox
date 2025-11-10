@@ -9,7 +9,7 @@ use crate::types::{InjectionConfig, InjectionMethod, InjectionResult};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, RwLock};
-use tracing::{debug, info, warn, trace};
+use tracing::{debug, info, trace, warn};
 
 /// TTL for cached pre-warmed data (3 seconds)
 const CACHE_TTL: Duration = Duration::from_secs(3);
@@ -161,7 +161,7 @@ impl PrewarmController {
 
     /// Pre-warm AT-SPI connection and snapshot focused element
     async fn prewarm_atspi(&self) -> Result<AtspiData, String> {
-    let start_time = Instant::now();
+        let start_time = Instant::now();
         debug!("Starting AT-SPI pre-warming");
 
         #[cfg(feature = "atspi")]
@@ -246,7 +246,7 @@ impl PrewarmController {
 
     /// Arm the event listener for text change confirmation
     async fn arm_event_listener(&self) -> Result<bool, String> {
-    let start_time = Instant::now();
+        let start_time = Instant::now();
         debug!("Arming event listener for text change confirmation");
 
         #[cfg(feature = "atspi")]
