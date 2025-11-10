@@ -560,16 +560,13 @@ impl StrategyManager {
         );
     }
 
-    /// Update cooldown state for a failed method (legacy method for compatibility)
-    fn update_cooldown(&self, method: InjectionMethod, error: &str) {
-        // TODO(#38): This should use actual app_id from get_current_app_id()
-        let app_id = "unknown_app";
+    /// Update cooldown state for a failed method
+    fn update_cooldown(&self, app_id: &str, method: InjectionMethod, error: &str) {
         self.apply_cooldown(app_id, method, error);
     }
 
     /// Clear cooldown for a method (e.g., after successful use)
-    fn clear_cooldown(&self, method: InjectionMethod) {
-        let app_id = "unknown_app"; // Placeholder - would be from get_current_app_id
+    fn clear_cooldown(&self, app_id: &str, method: InjectionMethod) {
         let key = (app_id.to_string(), method);
         let mut cooldowns = self.cooldowns.lock().unwrap();
         cooldowns.remove(&key);
@@ -1169,7 +1166,7 @@ impl StrategyManager {
                         m.record_success(method, duration_ms);
                     }
                     self.update_success_record(&app_id, method, true);
-                    self.clear_cooldown(method);
+                    self.clear_cooldown(&app_id, method);
                     let total_elapsed = total_start.elapsed();
                     info!(
                         app_id = %app_id,
@@ -1212,7 +1209,7 @@ impl StrategyManager {
                         m.record_failure(method, duration_ms, error_string.clone());
                     }
                     self.update_success_record(&app_id, method, false);
-                    self.update_cooldown(method, &error_string);
+                    self.update_cooldown(&app_id, method, &error_string);
                     debug!("Continuing to next method in fallback chain");
                     // Continue to next method
                 }
@@ -1487,8 +1484,9 @@ mod tests {
         let manager = StrategyManager::new(config.clone(), metrics).await;
 
         // First failure
-        manager.update_cooldown(InjectionMethod::AtspiInsert, "test error");
-        let key = ("unknown_app".to_string(), InjectionMethod::AtspiInsert);
+        let test_app_id = "test_app";
+        manager.update_cooldown(test_app_id, InjectionMethod::AtspiInsert, "test error");
+        let key = (test_app_id.to_string(), InjectionMethod::AtspiInsert);
         {
             let cooldowns = manager.cooldowns.lock().unwrap();
             let cooldown = cooldowns.get(&key).unwrap();
@@ -1496,7 +1494,7 @@ mod tests {
         }
 
         // Second failure - backoff level should increase
-        manager.update_cooldown(InjectionMethod::AtspiInsert, "test error");
+        manager.update_cooldown(test_app_id, InjectionMethod::AtspiInsert, "test error");
         let cooldowns = manager.cooldowns.lock().unwrap();
         let cooldown = cooldowns.get(&key).unwrap();
         assert_eq!(cooldown.backoff_level, 2);
