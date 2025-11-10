@@ -18,3 +18,6 @@ last_reviewed: 2025-10-19
 - [ ] Normalize content metadata and retention banners (Phase 3 follow-up).
 - [ ] Cross-link tasks and specs per playbook policy (Phase 4).
 - [ ] Finalize documentation governance updates in root README and standards.
+
+## Epic: Testing Strategy
+- [x] Develop playbook for debugging test failures with LLMs ([playbook](./playbooks/testing/llm-test-debugging-playbook.md)).
