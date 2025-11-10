@@ -1,3 +1,12 @@
+---
+doc_type: reference
+subsystem: stt
+version: 1.0.0
+status: draft
+owners: STT Team
+last_reviewed: 2025-11-09
+---
+
 # Whisper Backend (Legacy)
 
 The previous Python-dependent Whisper backend and its model-size guidance have been removed as part of a backend pivot.
