@@ -705,6 +705,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "coldvox-foundation",
+ "coldvox-telemetry",
  "dirs",
  "parking_lot",
  "serde",
