@@ -117,20 +117,36 @@ pub mod harness {
                             (Value::Object(ao), Value::Object(bo)) => {
                                 let kind_a = ao.get("kind").and_then(|v| v.as_str()).unwrap_or("");
                                 let kind_b = bo.get("kind").and_then(|v| v.as_str()).unwrap_or("");
-                                if kind_a != kind_b { all_ok = false; break; }
+                                if kind_a != kind_b {
+                                    all_ok = false;
+                                    break;
+                                }
                                 if kind_a == "SpeechEnd" {
-                                    let da = ao.get("duration_ms").and_then(|v| v.as_u64()).unwrap_or(0);
-                                    let db = bo.get("duration_ms").and_then(|v| v.as_u64()).unwrap_or(0);
+                                    let da =
+                                        ao.get("duration_ms").and_then(|v| v.as_u64()).unwrap_or(0);
+                                    let db =
+                                        bo.get("duration_ms").and_then(|v| v.as_u64()).unwrap_or(0);
                                     let diff = da.abs_diff(db);
-                                    if diff > 128 { all_ok = false; break; }
+                                    if diff > 128 {
+                                        all_ok = false;
+                                        break;
+                                    }
                                 } else if kind_a == "SpeechStart" {
                                     // SpeechStart has no duration, ignore
                                 } else {
                                     // Unknown kind fallback to strict equality
-                                    if av != bv { all_ok = false; break; }
+                                    if av != bv {
+                                        all_ok = false;
+                                        break;
+                                    }
                                 }
                             }
-                            _ => { if av != bv { all_ok = false; break; } }
+                            _ => {
+                                if av != bv {
+                                    all_ok = false;
+                                    break;
+                                }
+                            }
                         }
                     }
                     all_ok
