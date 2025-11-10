@@ -183,6 +183,7 @@ pub struct WhisperEngine {
     cached_filters: Option<Arc<Vec<f32>>>,
     audio_config: WhisperAudioConfig,
     device_info: DeviceInfo,
+    last_detected_language: Option<String>,
 }
 
 /// Information about the device being used for inference.
@@ -320,6 +321,7 @@ impl WhisperEngine {
             cached_filters,
             audio_config,
             device_info,
+            last_detected_language: None,
         })
     }
 
@@ -342,6 +344,9 @@ impl WhisperEngine {
         // Use the existing advanced decoder
         let transcript = self.decoder.decode(audio)
             .map_err(|e| WhisperEngineError::TranscriptionFailed(e.to_string()))?;
+
+        // Store the detected language
+        self.last_detected_language = transcript.language.clone();
 
         tracing::info!(
             "Transcription completed: {} segments, language: {:?}",
@@ -369,8 +374,7 @@ impl WhisperEngine {
 
     /// Get the current language hint.
     pub fn language(&self) -> Option<String> {
-        // Language detection is not implemented yet
-        None
+        self.last_detected_language.clone()
     }
 
     /// Update suppression tokens at runtime.
@@ -427,21 +431,17 @@ impl WhisperEngine {
             DevicePreference::Cuda => {
                 if Self::is_cuda_available() {
                     tracing::info!("Using CUDA device as requested");
-                    // For now, fall back to CPU to avoid device initialization issues
-                    tracing::warn!("CUDA requested but falling back to CPU for compatibility");
-                    Ok(Device::Cpu)
+                    Device::new_cuda(0).map_err(|e| WhisperEngineError::DeviceInit(e.to_string()))
                 } else {
                     Err(WhisperEngineError::DeviceInit(
-                        "CUDA requested but not available".to_string()
+                        "CUDA requested but not available".to_string(),
                     ))
                 }
             }
             DevicePreference::Auto => {
                 if Self::is_cuda_available() {
                     tracing::info!("Auto-selecting CUDA device (available)");
-                    // For now, fall back to CPU to avoid device initialization issues
-                    tracing::warn!("CUDA available but falling back to CPU for compatibility");
-                    Ok(Device::Cpu)
+                    Device::new_cuda(0).map_err(|e| WhisperEngineError::DeviceInit(e.to_string()))
                 } else {
                     tracing::info!("Auto-selecting CPU device (CUDA not available)");
                     Ok(Device::Cpu)
@@ -452,15 +452,17 @@ impl WhisperEngine {
 
     /// Check if CUDA is available on this system.
     fn is_cuda_available() -> bool {
-        // For now, assume CUDA is not available to avoid initialization issues
-        // In a real implementation, you'd check CUDA driver availability
-        false
+        candle_core::utils::cuda_is_available()
     }
 
     /// Create device information for the initialized device.
-    fn create_device_info(_device: &Device, is_quantized: bool) -> DeviceInfo {
-        // For now, all devices are treated as CPU for compatibility
-        DeviceInfo::cpu(is_quantized)
+    fn create_device_info(device: &Device, is_quantized: bool) -> DeviceInfo {
+        if device.is_cuda() {
+            // TODO: Implement actual memory usage reporting for CUDA devices
+            DeviceInfo::cuda(is_quantized, None)
+        } else {
+            DeviceInfo::cpu(is_quantized)
+        }
     }
 
     /// Validate audio format and content.

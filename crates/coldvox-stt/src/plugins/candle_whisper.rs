@@ -94,13 +94,17 @@ impl CandleWhisperPlugin {
     }
 
     /// Convert internal transcript to TranscriptionEvent
-    fn convert_transcript(&self, transcript: Transcript, utterance_id: u64, include_words: bool) -> TranscriptionEvent {
+    fn convert_transcript(&self, transcript: Transcript, utterance_id: u64, include_words: bool, is_final: bool) -> Option<TranscriptionEvent> {
         if transcript.segments.is_empty() {
-            return TranscriptionEvent::Final {
-                utterance_id,
-                text: String::new(),
-                words: None,
-            };
+            if is_final {
+                return Some(TranscriptionEvent::Final {
+                    utterance_id,
+                    text: String::new(),
+                    words: None,
+                });
+            } else {
+                return None;
+            }
         }
 
         // For now, concatenate all segments into a single text
@@ -134,10 +138,18 @@ impl CandleWhisperPlugin {
             None
         };
 
-        TranscriptionEvent::Final {
-            utterance_id,
-            text,
-            words,
+        if is_final {
+            Some(TranscriptionEvent::Final {
+                utterance_id,
+                text,
+                words,
+            })
+        } else {
+            Some(TranscriptionEvent::Partial {
+                utterance_id,
+                text,
+                words,
+            })
         }
     }
 }
@@ -237,10 +249,27 @@ impl SttPlugin for CandleWhisperPlugin {
             .map(|&sample| (sample as f32) / 32768.0) // Normalize to [-1.0, 1.0]
             .collect();
 
-        self.audio_buffer.lock().unwrap().extend_from_slice(&float_samples);
+        let mut audio_buffer = self.audio_buffer.lock().unwrap();
+        audio_buffer.extend_from_slice(&float_samples);
 
-        // For streaming mode, we could provide partial results here
-        // For now, return None to accumulate audio until finalize
+        // Simple streaming: process every 5 seconds of audio
+        const CHUNK_SIZE: usize = 5 * 16000; // 5 seconds at 16kHz
+        if audio_buffer.len() >= CHUNK_SIZE {
+            let audio_to_process = audio_buffer.clone();
+            audio_buffer.clear();
+
+            let engine = self.engine.as_mut().ok_or_else(|| {
+                ColdVoxError::Stt(SttError::TranscriptionFailed("Engine not available".to_string()))
+            })?;
+
+            let transcript = engine.transcribe(&audio_to_process)
+                .map_err(|e| ColdVoxError::Stt(SttError::TranscriptionFailed(e.to_string())))?;
+
+            let include_words = self.active_config.as_ref().map(|c| c.include_words).unwrap_or(false);
+
+            return Ok(self.convert_transcript(transcript, 0, include_words, false));
+        }
+
         Ok(None)
     }
 
@@ -279,7 +308,7 @@ impl SttPlugin for CandleWhisperPlugin {
             .unwrap_or(false);
 
         // Convert to TranscriptionEvent
-        Ok(Some(self.convert_transcript(transcript, 0, include_words)))
+        Ok(self.convert_transcript(transcript, 0, include_words, true))
     }
 
     async fn reset(&mut self) -> Result<(), ColdVoxError> {

@@ -569,10 +569,27 @@ impl Decoder {
         for (i, segment) in segments.iter().enumerate() {
             tracing::debug!("Segment {}: {}", i, segment.summary());
         }
+
+        // Language detection from the initial tokens
+        let language = tokens.get(1) // Typically the second token after SOT
+            .and_then(|&token_id| self.components.tokenizer.id_to_token(token_id))
+            .and_then(|token_str| {
+                if token_str.starts_with("<|") && token_str.ends_with("|>") && token_str.len() > 4 {
+                    let lang_code = &token_str[2..token_str.len() - 2];
+                    if lang_code.len() == 2 { // Basic check for two-letter language code
+                        tracing::info!("Detected language: {}", lang_code);
+                        Some(lang_code.to_string())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            });
         
         Ok(Transcript {
             segments,
-            language: None, // Could be enhanced to detect language from segments
+            language,
         })
     }
 }
