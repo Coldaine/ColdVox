@@ -107,10 +107,8 @@ This document provides atomic, step-by-step instructions to systematically clear
 
 ## Priority Tier 2: Quick Wins (High ROI)
 
-### Issue #171: Complete AT-SPI Focus Backend
+### Issue #171: Complete AT-SPI Focus Backend #jules
 **Priority**: P2
-**Owner**: Joules
-**Tags**: focus, accessibility, injection, Joules
 **Time Estimate**: 30-45 minutes
 **Complexity**: Small
 
