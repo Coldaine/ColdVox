@@ -13,13 +13,19 @@ thiserror = "2.0"
 dirs = "5.0"
 serde = { version = "1.0", features = ["derive"] }
 coldvox-foundation = { path = "../coldvox-foundation" }
-## Removed Python-dependent faster-whisper backend; will replace with pure Rust implementation
+sha2 = "0.10"
+serde_json = "1.0"
+pyo3 = { version = "0.20", features = ["auto-initialize"], optional = true }
+faster-whisper-rs = { git = "https://github.com/gmt-happy/faster-whisper-rs", rev = "319e719", optional = true }
 
+[dev-dependencies]
+tempfile = "3.8"
+hound = "3.5"
 
 [features]
 default = []
 parakeet = []
-whisper = [] # Placeholder until new backend is implemented
+whisper = ["dep:pyo3", "dep:faster-whisper-rs"]
 coqui = []
 leopard = []
 silero-stt = []

@@ -19,6 +19,7 @@ pub use coldvox_foundation::error::ColdVoxError;
 pub use plugin::SttPlugin;
 pub use plugin_adapter::PluginAdapter; // adapter for plugin → StreamingStt
 pub use types::{TranscriptionConfig, TranscriptionEvent, WordInfo};
+pub mod validation;
 
 /// Generates unique utterance IDs
 static UTTERANCE_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
