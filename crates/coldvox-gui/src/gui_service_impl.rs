@@ -23,6 +23,8 @@ pub struct GuiServiceImpl {
 #[cfg(feature = "backend-integration")]
 impl GuiServiceImpl {
     pub fn new() -> Self { Self::default() }
+
+    pub fn current_state(&self) -> ServiceState { self.state.clone() }
 }
 
 #[cfg(feature = "backend-integration")]
