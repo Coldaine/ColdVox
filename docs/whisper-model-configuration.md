@@ -188,6 +188,14 @@ If transcription accuracy is insufficient:
 2. Ensure audio quality is good (clear speech, minimal background noise)
 3. Check that the correct language is configured
 
+## Future Migration to Candle
+
+ColdVox is planning a migration from the current `faster-whisper-rs` implementation to the Candle ML framework's Whisper implementation. This migration aims to leverage Candle's performance, Rust-native ecosystem, and flexibility.
+
+For detailed information about this migration plan, see: [Candle Whisper Integration Plan](plans/stt-candle-whisper-migration.md)
+
+The migration will not affect the model configuration options described in this document, as the new implementation will maintain compatibility with the existing configuration system.
+
 ## Advanced Configuration
 
 ### Custom Model Path

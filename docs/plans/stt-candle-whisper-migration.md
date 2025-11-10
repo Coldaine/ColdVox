@@ -151,3 +151,17 @@ Our code review confirms that the core model only predicts timestamp *tokens*. T
 3.  **External Aligners (Future Work):** If token-level aggregation is insufficient, schedule a follow-up research spike to evaluate external forced-alignment models as a post-processing step. This will not be part of the initial migration.
 
 **Follow-up Action:** The initial implementation will focus on porting the segment-level timestamp logic. A separate task will be created in `docs/todo.md` to track the investigation into word-level timestamps.
+
+## Relationship to Current Configuration System
+
+This migration will replace the current `faster-whisper-rs` implementation while maintaining full compatibility with ColdVox's existing model configuration system. The new Candle-based implementation will support all current configuration options:
+
+- Environment-based model size selection (via `WHISPER_MODEL_SIZE`)
+- Memory-based model size selection
+- Environment-specific defaults (CI, development, production)
+- Custom model paths and device selection
+- Compute type configuration (int8, float16, float32)
+
+For current model configuration details, see: [Whisper Model Configuration Guide](../whisper-model-configuration.md)
+
+The migration is designed to be transparent to users while providing improved performance and a more maintainable codebase.
