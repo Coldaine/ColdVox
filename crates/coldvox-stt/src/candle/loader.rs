@@ -67,12 +67,42 @@ pub fn load_model(
 }
 
 /// Load model from SafeTensors format
+///
+/// # UNSAFE: Memory-mapped file loading
+///
+/// This function uses `unsafe` memory-mapped file loading via `from_mmaped_safetensors`.
+///
+/// ## Why memory mapping?
+/// 1. **Performance**: Avoids loading entire model (1-3GB) into memory at once
+/// 2. **OS optimization**: Let the kernel handle paging and caching
+/// 3. **Startup time**: Much faster than reading the entire file into RAM
+///
+/// ## Safety considerations:
+/// 1. The file must not be modified while mapped (immutable borrow contract)
+/// 2. The file must be a valid SafeTensors file (validated by Candle)
+/// 3. The memory layout must match SafeTensors format (validated at runtime)
+///
+/// ## Why it's safe in practice:
+/// 1. Model files are read-only after download
+/// 2. SafeTensors format includes checksums and validation
+/// 3. Candle validates the file structure before using data
+/// 4. The OS enforces memory protection (SIGSEGV if file deleted/truncated)
+///
+/// # DType Selection
+///
+/// Currently hardcoded to F32 (32-bit float) because:
+/// 1. Most Whisper models are published in F32 format
+/// 2. F16 (16-bit float) requires explicit conversion and GPU support
+/// 3. Mixed precision (F16/F32) is not yet implemented
+///
+/// TODO: Support F16 models for lower memory usage on supported hardware
 #[cfg(feature = "whisper")]
 fn load_safetensors(
     model_path: &Path,
     config: Config,
     device: &Device,
 ) -> Result<Whisper> {
+    // SAFETY: Model file is immutable, SafeTensors format is validated by Candle
     let vb = unsafe {
         candle_nn::VarBuilder::from_mmaped_safetensors(
             &[model_path.to_path_buf()],
@@ -117,6 +147,34 @@ pub fn load_tokenizer(tokenizer_path: &Path) -> Result<Tokenizer> {
 }
 
 /// Helper to download model from HuggingFace Hub
+///
+/// # Async/Blocking Interaction
+///
+/// This function uses `tokio::task::block_in_place` to bridge async HuggingFace Hub API
+/// with potentially synchronous calling contexts.
+///
+/// ## Why block_in_place?
+/// 1. The HuggingFace Hub API is async-only
+/// 2. Model loading often happens in sync contexts (e.g., `WhisperEngine::new`)
+/// 3. `block_in_place` tells Tokio to move the blocking operation off the async worker thread
+///
+/// ## Deadlock prevention:
+/// - `block_in_place` is **safe** when called from within a Tokio runtime
+/// - It **will panic** if called outside a runtime
+/// - It moves the current task to a blocking thread, preventing worker starvation
+/// - The inner `block_on` runs the async download without blocking the async executor
+///
+/// ## When this could deadlock:
+/// - If called from a single-threaded runtime (`current_thread` runtime) - WILL PANIC
+/// - If called from outside any Tokio runtime - WILL PANIC
+/// - If the runtime is shutting down - may hang
+///
+/// ## Usage note:
+/// Prefer calling this from async contexts by using `repo.get().await` directly.
+/// This function exists for compatibility with sync initialization code.
+///
+/// TODO: Consider requiring this to be called only from async contexts to avoid
+/// the block_in_place complexity entirely.
 #[cfg(feature = "whisper")]
 pub fn download_model_from_hub(
     model_id: &str,
@@ -133,7 +191,8 @@ pub fn download_model_from_hub(
         repo
     };
 
-    // Download model files
+    // Bridge async HuggingFace API with sync calling context
+    // SAFETY: Only safe when called from within a multi-threaded Tokio runtime
     let model_file = tokio::task::block_in_place(|| {
         tokio::runtime::Handle::current().block_on(async {
             repo.get("model.safetensors").await
@@ -149,20 +208,150 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_format_detection() {
+    fn test_format_detection_safetensors() {
         let safetensors_path = Path::new("model.safetensors");
-        assert_eq!(
-            ModelFormat::from_path(safetensors_path).unwrap(),
-            ModelFormat::SafeTensors
-        );
-
-        let gguf_path = Path::new("model.gguf");
-        assert_eq!(
-            ModelFormat::from_path(gguf_path).unwrap(),
-            ModelFormat::Gguf
-        );
-
-        let invalid_path = Path::new("model.bin");
-        assert!(ModelFormat::from_path(invalid_path).is_err());
+        let format = ModelFormat::from_path(safetensors_path);
+        assert!(format.is_ok());
+        assert_eq!(format.unwrap(), ModelFormat::SafeTensors);
     }
+
+    #[test]
+    fn test_format_detection_gguf() {
+        let gguf_path = Path::new("model.gguf");
+        let format = ModelFormat::from_path(gguf_path);
+        assert!(format.is_ok());
+        assert_eq!(format.unwrap(), ModelFormat::Gguf);
+    }
+
+    #[test]
+    fn test_format_detection_invalid_extension() {
+        let invalid_extensions = vec![
+            "model.bin",
+            "model.pt",
+            "model.pth",
+            "model.onnx",
+            "model.h5",
+            "model.txt",
+            "model",
+        ];
+
+        for path_str in invalid_extensions {
+            let path = Path::new(path_str);
+            let result = ModelFormat::from_path(path);
+            assert!(
+                result.is_err(),
+                "Expected error for path: {}, got: {:?}",
+                path_str,
+                result
+            );
+        }
+    }
+
+    #[test]
+    fn test_format_detection_no_extension() {
+        let no_ext_path = Path::new("model");
+        let result = ModelFormat::from_path(no_ext_path);
+        assert!(result.is_err(), "Should fail on files without extension");
+    }
+
+    #[test]
+    fn test_format_detection_uppercase() {
+        // Test case sensitivity
+        let upper_safetensors = Path::new("MODEL.SAFETENSORS");
+        let result = ModelFormat::from_path(upper_safetensors);
+        // This will fail because extension check is case-sensitive
+        assert!(result.is_err(), "Extension matching is case-sensitive");
+    }
+
+    #[test]
+    fn test_format_detection_with_path() {
+        let nested_safetensors = Path::new("/models/whisper/base/model.safetensors");
+        let format = ModelFormat::from_path(nested_safetensors);
+        assert!(format.is_ok());
+        assert_eq!(format.unwrap(), ModelFormat::SafeTensors);
+
+        let nested_gguf = Path::new("../../whisper-base.gguf");
+        let format = ModelFormat::from_path(nested_gguf);
+        assert!(format.is_ok());
+        assert_eq!(format.unwrap(), ModelFormat::Gguf);
+    }
+
+    #[test]
+    fn test_load_tokenizer_from_file() {
+        // This test requires an actual tokenizer file
+        // It's a placeholder for integration testing with real model files
+        use std::fs;
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let tokenizer_path = dir.path().join("tokenizer.json");
+
+        // Test missing file
+        let result = load_tokenizer(&tokenizer_path);
+        assert!(result.is_err(), "Should fail on missing tokenizer file");
+    }
+
+    #[test]
+    fn test_load_tokenizer_from_directory() {
+        // Test directory-based tokenizer loading
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+        let result = load_tokenizer(dir.path());
+        // Should fail because tokenizer.json doesn't exist in temp dir
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_model_missing_file() {
+        let device = Device::Cpu;
+        let model_path = Path::new("/nonexistent/model.safetensors");
+        let config_path = Path::new("/nonexistent/config.json");
+
+        let result = load_model(model_path, config_path, &device);
+        assert!(result.is_err(), "Should fail on missing model file");
+    }
+
+    #[test]
+    fn test_load_model_invalid_format() {
+        let device = Device::Cpu;
+        let model_path = Path::new("/tmp/model.invalid");
+        let config_path = Path::new("/tmp/config.json");
+
+        let result = load_model(model_path, config_path, &device);
+        assert!(result.is_err(), "Should fail on invalid format");
+    }
+
+    #[test]
+    fn test_model_format_equality() {
+        assert_eq!(ModelFormat::SafeTensors, ModelFormat::SafeTensors);
+        assert_eq!(ModelFormat::Gguf, ModelFormat::Gguf);
+        assert_ne!(ModelFormat::SafeTensors, ModelFormat::Gguf);
+    }
+
+    // Note: The following tests require actual model files and cannot run in CI
+    // They are documented here for manual testing:
+    //
+    // #[test]
+    // #[ignore] // Requires model files
+    // fn test_load_safetensors_real_model() {
+    //     // Test with actual model file from HuggingFace
+    //     let model_path = Path::new("tests/fixtures/whisper-tiny/model.safetensors");
+    //     let config_path = Path::new("tests/fixtures/whisper-tiny/config.json");
+    //     let device = Device::Cpu;
+    //     let result = load_model(model_path, config_path, &device);
+    //     assert!(result.is_ok());
+    // }
+    //
+    // #[test]
+    // #[ignore] // Requires network access
+    // fn test_download_model_from_hub() {
+    //     // Test downloading from HuggingFace Hub
+    //     // Requires Tokio runtime
+    //     let rt = tokio::runtime::Runtime::new().unwrap();
+    //     let result = rt.block_on(async {
+    //         download_model_from_hub("openai/whisper-tiny", None)
+    //     });
+    //     assert!(result.is_ok());
+    // }
 }

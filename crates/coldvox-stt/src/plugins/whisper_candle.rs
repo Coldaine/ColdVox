@@ -2,6 +2,13 @@
 //!
 //! This plugin provides a local transcription backend powered by the Candle ML framework.
 //! It replaces the previous Python-based faster-whisper implementation with a pure-Rust solution.
+//!
+//! # Memory Management
+//!
+//! The plugin buffers incoming audio in `audio_buffer` until `finalize()` is called.
+//! To prevent unbounded memory growth, the buffer is limited to MAX_AUDIO_BUFFER_SAMPLES.
+//! At 16kHz, this represents approximately 10 minutes of audio (9.6 million samples ~= 18MB).
+//! If the buffer limit is exceeded, older samples are discarded (ring buffer behavior).
 
 use crate::plugin::*;
 use crate::types::{TranscriptionConfig, TranscriptionEvent};
@@ -10,6 +17,10 @@ use coldvox_foundation::error::{ColdVoxError, SttError};
 use std::path::{Path, PathBuf};
 #[allow(unused_imports)]
 use tracing::{debug, info, warn};
+
+/// Maximum audio buffer size in samples (16-bit i16 samples at 16kHz)
+/// ~10 minutes of audio = 9,600,000 samples = ~18MB of memory
+const MAX_AUDIO_BUFFER_SAMPLES: usize = 9_600_000;
 
 #[cfg(feature = "whisper")]
 use crate::candle::{
@@ -250,8 +261,30 @@ impl SttPlugin for WhisperCandlePlugin {
                 .into());
             }
 
-            // Buffer audio for batch processing
-            self.audio_buffer.extend_from_slice(samples);
+            // Buffer audio for batch processing with size limit
+            // If adding these samples would exceed the limit, keep only the most recent samples
+            let new_total = self.audio_buffer.len() + samples.len();
+            if new_total > MAX_AUDIO_BUFFER_SAMPLES {
+                let overflow = new_total - MAX_AUDIO_BUFFER_SAMPLES;
+                // Remove oldest samples to make room
+                if overflow >= self.audio_buffer.len() {
+                    // If the new samples alone exceed the limit, take only the last MAX_AUDIO_BUFFER_SAMPLES
+                    self.audio_buffer.clear();
+                    let start = samples.len().saturating_sub(MAX_AUDIO_BUFFER_SAMPLES);
+                    self.audio_buffer.extend_from_slice(&samples[start..]);
+                } else {
+                    // Remove overflow amount from the beginning
+                    self.audio_buffer.drain(..overflow);
+                    self.audio_buffer.extend_from_slice(samples);
+                }
+                warn!(
+                    target: "coldvox::stt::whisper_candle",
+                    discarded_samples = overflow,
+                    "Audio buffer size limit reached, discarding oldest samples"
+                );
+            } else {
+                self.audio_buffer.extend_from_slice(samples);
+            }
             Ok(None)
         }
 
@@ -310,6 +343,18 @@ impl SttPlugin for WhisperCandlePlugin {
                 .join(" ");
 
             // Convert segments to word info if timestamps are enabled
+            //
+            // NAMING INCONSISTENCY: Segments vs Words
+            // - The Candle implementation produces "segments" (sentence-level)
+            // - WordInfo is named "words" suggesting word-level granularity
+            // - This is a deliberate compromise: word-level timestamps require
+            //   additional processing that's not yet implemented
+            // - For now, we treat segments as "pseudo-words" to maintain API compatibility
+            //
+            // TODO: Implement true word-level timestamps by:
+            // 1. Analyzing attention weights to align tokens to audio frames
+            // 2. Merging subword tokens (BPE) into full words
+            // 3. Detecting word boundaries in the token sequence
             let words = if opts.enable_timestamps && !transcript.segments.is_empty() {
                 Some(
                     transcript
@@ -329,6 +374,11 @@ impl SttPlugin for WhisperCandlePlugin {
 
             self.audio_buffer.clear();
 
+            // UTTERANCE_ID: Always 0
+            // TODO: Implement proper utterance tracking
+            // - Should increment for each finalize() call
+            // - Useful for distinguishing multiple utterances in a session
+            // - Currently hardcoded to 0 as a placeholder
             Ok(Some(TranscriptionEvent::Final {
                 utterance_id: 0,
                 text,
@@ -479,5 +529,138 @@ impl SttPluginFactory for WhisperCandlePluginFactory {
             }
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_max_audio_buffer_constant() {
+        // Verify buffer limit is reasonable (10 minutes at 16kHz)
+        assert_eq!(MAX_AUDIO_BUFFER_SAMPLES, 9_600_000);
+        assert_eq!(MAX_AUDIO_BUFFER_SAMPLES / 16000, 600); // 600 seconds = 10 minutes
+    }
+
+    #[test]
+    fn test_whisper_model_size_memory() {
+        assert_eq!(WhisperModelSize::Tiny.memory_usage_mb(), 100);
+        assert_eq!(WhisperModelSize::Base.memory_usage_mb(), 200);
+        assert_eq!(WhisperModelSize::Small.memory_usage_mb(), 500);
+        assert_eq!(WhisperModelSize::Medium.memory_usage_mb(), 1500);
+        assert_eq!(WhisperModelSize::Large.memory_usage_mb(), 3000);
+        assert_eq!(WhisperModelSize::LargeV2.memory_usage_mb(), 3000);
+        assert_eq!(WhisperModelSize::LargeV3.memory_usage_mb(), 3000);
+    }
+
+    #[test]
+    fn test_whisper_model_size_default() {
+        assert_eq!(WhisperModelSize::default(), WhisperModelSize::Base);
+    }
+
+    #[test]
+    fn test_plugin_default() {
+        let plugin = WhisperCandlePlugin::default();
+        assert!(!plugin.initialized);
+        assert_eq!(plugin.device, "cpu");
+        assert_eq!(plugin.model_size, WhisperModelSize::Base);
+    }
+
+    #[test]
+    fn test_plugin_builder() {
+        use std::path::PathBuf;
+
+        let plugin = WhisperCandlePlugin::new()
+            .with_model_size(WhisperModelSize::Small)
+            .with_language("es".to_string())
+            .with_model_path(PathBuf::from("/tmp/model"))
+            .with_device("cuda:0");
+
+        assert_eq!(plugin.model_size, WhisperModelSize::Small);
+        assert_eq!(plugin.language, Some("es".to_string()));
+        assert_eq!(plugin.model_path, Some(PathBuf::from("/tmp/model")));
+        assert_eq!(plugin.device, "cuda:0");
+    }
+
+    #[cfg(feature = "whisper")]
+    #[test]
+    fn test_parse_device_cpu() {
+        let plugin = WhisperCandlePlugin::new().with_device("cpu");
+        let device = plugin.parse_device();
+        assert_eq!(device, WhisperDevice::Cpu);
+    }
+
+    #[cfg(feature = "whisper")]
+    #[test]
+    fn test_parse_device_cuda() {
+        let plugin = WhisperCandlePlugin::new().with_device("cuda");
+        let device = plugin.parse_device();
+        assert_eq!(device, WhisperDevice::Cuda(0));
+
+        let plugin = WhisperCandlePlugin::new().with_device("cuda:2");
+        let device = plugin.parse_device();
+        assert_eq!(device, WhisperDevice::Cuda(2));
+    }
+
+    #[cfg(feature = "whisper")]
+    #[test]
+    fn test_parse_device_metal() {
+        let plugin = WhisperCandlePlugin::new().with_device("metal");
+        let device = plugin.parse_device();
+        assert_eq!(device, WhisperDevice::Metal);
+    }
+
+    #[test]
+    fn test_plugin_info() {
+        let plugin = WhisperCandlePlugin::new();
+        let info = plugin.info();
+
+        assert_eq!(info.id, "whisper-candle");
+        assert_eq!(info.name, "Whisper (Candle)");
+        assert!(!info.requires_network);
+        assert!(info.is_local);
+        assert!(info.supported_languages.contains(&"en".to_string()));
+    }
+
+    #[test]
+    fn test_plugin_capabilities() {
+        let plugin = WhisperCandlePlugin::new();
+        let caps = plugin.capabilities();
+
+        assert!(!caps.streaming, "Candle implementation is batch-only");
+        assert!(caps.batch);
+        assert!(!caps.word_timestamps, "Word-level timestamps not yet implemented");
+        assert!(caps.confidence_scores);
+        assert!(caps.auto_punctuation);
+        assert!(!caps.speaker_diarization);
+        assert!(!caps.custom_vocabulary);
+    }
+
+    #[test]
+    fn test_factory_default() {
+        std::env::remove_var("WHISPER_MODEL_PATH");
+        std::env::remove_var("WHISPER_LANGUAGE");
+        std::env::remove_var("WHISPER_DEVICE");
+
+        let factory = WhisperCandlePluginFactory::default();
+        assert_eq!(factory.device, "cpu");
+        assert_eq!(factory.model_size, WhisperModelSize::Base);
+    }
+
+    #[test]
+    fn test_factory_builder() {
+        use std::path::PathBuf;
+
+        let factory = WhisperCandlePluginFactory::new()
+            .with_model_path(PathBuf::from("/models/whisper"))
+            .with_model_size(WhisperModelSize::Medium)
+            .with_language("fr".to_string())
+            .with_device("cuda:1");
+
+        assert_eq!(factory.model_path, Some(PathBuf::from("/models/whisper")));
+        assert_eq!(factory.model_size, WhisperModelSize::Medium);
+        assert_eq!(factory.language, Some("fr".to_string()));
+        assert_eq!(factory.device, "cuda:1");
     }
 }

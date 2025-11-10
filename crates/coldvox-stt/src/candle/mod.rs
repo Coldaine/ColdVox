@@ -67,6 +67,20 @@ impl WhisperEngine {
     ///
     /// This loads the model, tokenizer, and configuration from the specified paths.
     ///
+    /// # Duplicate Config Loading
+    ///
+    /// NOTE: Config is loaded twice here:
+    /// 1. In `loader::load_model()` - needed to construct the Whisper model
+    /// 2. In this function - needed to store in the engine for later use
+    ///
+    /// Why?
+    /// - The `loader::load_model()` function needs the config to build the model architecture
+    /// - The `Decoder` needs the config for model-specific parameters
+    /// - The config file is small (~1KB), so double-loading is acceptable
+    /// - Refactoring to load once and pass around would complicate the API
+    ///
+    /// TODO: Consider caching the config or restructuring to load only once
+    ///
     /// # Arguments
     /// * `init` - Initialization configuration
     ///
@@ -77,7 +91,7 @@ impl WhisperEngine {
         let device = init.device.to_candle_device()
             .context("Failed to initialize device")?;
 
-        // Load model
+        // Load model (also loads config internally)
         let model = loader::load_model(&init.model_path, &init.config_path, &device)
             .context("Failed to load Whisper model")?;
 
@@ -85,7 +99,7 @@ impl WhisperEngine {
         let tokenizer = loader::load_tokenizer(&init.tokenizer_path)
             .context("Failed to load tokenizer")?;
 
-        // Load config
+        // Load config (second time - see note above)
         let config_str = std::fs::read_to_string(&init.config_path)
             .context("Failed to read model config")?;
         let config: Config = serde_json::from_str(&config_str)
@@ -113,12 +127,20 @@ impl WhisperEngine {
             .context("Failed to compute mel spectrogram")?;
 
         // Create decoder
+        //
+        // HARDCODED SEED: Why 42?
+        // - Used for reproducible temperature sampling when temperature > 0
+        // - With temperature = 0 (greedy decoding), the seed doesn't matter
+        // - 42 is a common choice (Hitchhiker's Guide reference)
+        // - For truly random sampling, would need to use a time-based seed
+        //
+        // TODO: Make seed configurable via TranscribeOptions
         let mut decoder = decode::Decoder::new(
             &self.model,
             &self.tokenizer,
             &self.config,
             &self.device,
-            42, // Random seed for sampling
+            42, // Random seed for sampling (only affects temperature > 0)
         );
 
         // Encode audio
