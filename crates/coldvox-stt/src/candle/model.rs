@@ -9,7 +9,7 @@ use tokenizers::Tokenizer;
 
 use super::loader::ModelArtifacts;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum WhisperModel {
     Normal(whisper::model::Whisper),
     Quantized(whisper::quantized_model::Whisper),
@@ -50,7 +50,7 @@ impl WhisperModel {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WhisperComponents {
     pub model: WhisperModel,
     pub config: WhisperConfig,

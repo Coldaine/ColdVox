@@ -27,6 +27,7 @@ rand = "0.8"
 default = []
 parakeet = []
 whisper = [] # Placeholder until new backend is implemented
+candle-whisper = [] # Pure Rust Candle Whisper implementation
 coqui = []
 leopard = []
 silero-stt = []

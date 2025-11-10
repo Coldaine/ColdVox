@@ -82,6 +82,7 @@ impl Default for DecoderConfig {
 }
 
 /// Advanced decoder that implements token suppression and temperature-based sampling
+#[derive(Debug)]
 pub struct Decoder {
     components: WhisperComponents,
     config: DecoderConfig,

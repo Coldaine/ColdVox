@@ -28,11 +28,14 @@ ColdVox is a modular Rust workspace providing real‑time audio capture, VAD, ST
 
 **For Voice Dictation (Recommended):**
 ```bash
-# Run with default Faster-Whisper STT and text injection (model auto-discovered)
-cargo run --features text-injection
+# Run with default Candle Whisper STT (pure Rust, no Python) and text injection
+cargo run --features "text-injection,candle-whisper"
+
+# Alternative: Run with Python-based Faster-Whisper STT
+cargo run --features "text-injection,whisper"
 
 # With specific microphone device
-cargo run --features text-injection -- --device "HyperX QuadCast"
+cargo run --features "text-injection,candle-whisper" -- --device "HyperX QuadCast"
 
 # TUI Dashboard with controls
 cargo run --bin tui_dashboard --features tui
@@ -49,23 +52,34 @@ cargo run --bin mic_probe -- list-devices
 
 > Audio dumps: The TUI dashboard now records raw audio to `logs/audio_dumps/` by default. Pass `--dump-audio=false` to disable persistent capture.
 
-**Note on Defaults**: Faster-Whisper STT is the default feature (enabled automatically), ensuring real speech recognition in the app and tests. This prevents fallback to the mock plugin, which skips transcription. Override with `--stt-preferred mock` or env `COLDVOX_STT_PREFERRED=mock` if needed for testing. For other STT backends, enable their features and set preferred accordingly.
+**Note on Defaults**: The Candle Whisper backend (pure Rust, no Python dependencies) is recommended for new deployments. Enable with `--features candle-whisper`. The Python-based Faster-Whisper (`--features whisper`) remains available for compatibility. Override with `--stt-preferred mock` or env `COLDVOX_STT_PREFERRED=mock` if needed for testing. For other STT backends, enable their features and set preferred accordingly.
 
 ### Configuration (Canonical Path)
 - Canonical STT selection config lives at `config/plugins.json`.
 - Any legacy duplicates like `./plugins.json` or `crates/app/plugins.json` are deprecated and ignored at runtime. A warning is logged on startup if they exist. Please migrate changes into `config/plugins.json` only.
 - Some defaults can also be set in `config/default.toml`, but `config/plugins.json` is the source of truth for STT plugin selection.
 
-### Whisper Model Setup
-- **Python Package**: Install the `faster-whisper` Python package via pip
-- **Models**: Whisper models are automatically downloaded on first use
-- **Model Identifiers**: Use standard Whisper model names (e.g., "tiny.en", "base.en", "small.en", "medium.en")
-- **Manual Path**: Set `WHISPER_MODEL_PATH` to specify a model identifier or custom model directory
-- **Common Models**:
-  - "tiny.en" (~39MB) - Fastest, lower accuracy
-  - "base.en" (~142MB) - Good balance of speed and accuracy
-  - "small.en" (~466MB) - Better accuracy
-  - "medium.en" (~1.5GB) - High accuracy
+### STT Backend Options
+
+**Candle Whisper (Recommended - Pure Rust):**
+- No Python dependencies, 100% Rust implementation
+- Enable with `--features candle-whisper`
+- Model setup: Same as Python Whisper but no package installation needed
+- GPU acceleration via CUDA when available
+- Supported models: "openai/whisper-tiny", "openai/whisper-base.en", "openai/whisper-small.en", etc.
+
+**Faster-Whisper (Python-based):**
+- Requires Python and `faster-whisper` package installation
+- Enable with `--features whisper`
+- Models are automatically downloaded on first use
+- Model identifiers: "tiny.en", "base.en", "small.en", "medium.en"
+- Manual path: Set `WHISPER_MODEL_PATH` to specify custom model directory
+
+**Common Model Sizes:**
+- "tiny" (~39MB) - Fastest, lower accuracy
+- "base" (~142MB) - Good balance of speed and accuracy
+- "small" (~466MB) - Better accuracy
+- "medium" (~1.5GB) - High accuracy
 
 ## How It Works
 1. **Always-on pipeline**: Audio capture, VAD, STT, and text-injection buffering run continuously by default. Raw 16 kHz mono audio is recorded to `logs/audio_dumps/` for later review.
