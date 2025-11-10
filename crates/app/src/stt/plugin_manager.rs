@@ -1477,12 +1477,14 @@ mod tests {
         );
     }
 
+    #[allow(dead_code)]
     struct EnvVarGuard {
         key: &'static str,
         original: Option<String>,
     }
 
     impl EnvVarGuard {
+        #[allow(dead_code)]
         fn set(key: &'static str, value: &str) -> Self {
             let original = std::env::var(key).ok();
             std::env::set_var(key, value);
