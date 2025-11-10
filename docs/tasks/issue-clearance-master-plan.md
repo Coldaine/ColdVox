@@ -140,7 +140,7 @@ This document provides atomic, step-by-step instructions to systematically clear
 
 ## Priority Tier 3: Documentation & Testing
 
-### Issue #224: Update README.md (Remove Faster-Whisper)
+### Issue #224: Update README.md (Remove Faster-Whisper) #jules
 **Priority**: P2
 **Blocks**: None
 **Depends On**: #221 completion
@@ -178,7 +178,7 @@ This document provides atomic, step-by-step instructions to systematically clear
 
 ---
 
-### Issue #222: Build Benchmarking Harness
+### Issue #222: Build Benchmarking Harness #jules
 **Priority**: P2
 **Depends On**: #221 completion
 **Time Estimate**: 1 week
@@ -221,7 +221,7 @@ This document provides atomic, step-by-step instructions to systematically clear
 
 ---
 
-### Issue #223: Research Word-Level Timestamps
+### Issue #223: Research Word-Level Timestamps #jules
 **Priority**: P2
 **Depends On**: #221 completion
 **Time Estimate**: 3-5 days (research + prototype)
@@ -255,7 +255,7 @@ This document provides atomic, step-by-step instructions to systematically clear
 
 ---
 
-### Issue #40: Platform-Specific Text Injection Testing
+### Issue #40: Platform-Specific Text Injection Testing #jules
 **Priority**: P2
 **Time Estimate**: 2-3 weeks (ongoing)
 **Complexity**: Large
@@ -288,7 +288,7 @@ This document provides atomic, step-by-step instructions to systematically clear
 
 ---
 
-### Issue #162: Testing Infrastructure
+### Issue #162: Testing Infrastructure #jules
 **Priority**: P2
 **Time Estimate**: Ongoing (epic)
 **Complexity**: Large
@@ -337,7 +337,7 @@ This document provides atomic, step-by-step instructions to systematically clear
 
 ---
 
-### Issue #173: VM-Based Compositor Testing Matrix
+### Issue #173: VM-Based Compositor Testing Matrix #jules
 **Priority**: P2
 **Time Estimate**: 2-3 weeks
 **Complexity**: Large
@@ -379,7 +379,7 @@ This document provides atomic, step-by-step instructions to systematically clear
 
 ## Priority Tier 4: Enhancements (Future Work)
 
-### Issue #42: Long Utterance Processing
+### Issue #42: Long Utterance Processing #jules
 **Priority**: P3
 **Time Estimate**: 1-2 weeks
 **Depends On**: #221, #222
@@ -407,7 +407,7 @@ This document provides atomic, step-by-step instructions to systematically clear
 
 ---
 
-### Issue #44: STT Performance Metrics
+### Issue #44: STT Performance Metrics #jules
 **Priority**: P3
 **Time Estimate**: 3-5 days
 
@@ -436,7 +436,7 @@ This document provides atomic, step-by-step instructions to systematically clear
 
 ---
 
-### Issue #45: Optimize Audio Format Conversions
+### Issue #45: Optimize Audio Format Conversions #jules
 **Priority**: P3
 **Time Estimate**: 2-3 days
 
@@ -463,7 +463,7 @@ This document provides atomic, step-by-step instructions to systematically clear
 
 ---
 
-### Issue #46: Harden STT Model Loading
+### Issue #46: Harden STT Model Loading #jules
 **Priority**: P3
 **Time Estimate**: 2-3 days
 
@@ -494,7 +494,7 @@ This document provides atomic, step-by-step instructions to systematically clear
 
 ---
 
-### Issue #47: Async Processing for Non-Blocking STT
+### Issue #47: Async Processing for Non-Blocking STT #jules
 **Priority**: P3
 **Time Estimate**: 3-5 days
 
@@ -522,7 +522,7 @@ This document provides atomic, step-by-step instructions to systematically clear
 
 ## Priority Tier 5: Documentation & CI
 
-### Issue #208: Refactor Tests to New Paradigm
+### Issue #208: Refactor Tests to New Paradigm #jules
 **Priority**: P3
 **Time Estimate**: 1-2 weeks
 
@@ -549,7 +549,7 @@ This document provides atomic, step-by-step instructions to systematically clear
 
 ---
 
-### Issue #209: Improve Logging (Verifiable & Context-Aware)
+### Issue #209: Improve Logging (Verifiable & Context-Aware) #jules
 **Priority**: P3
 **Time Estimate**: 3-5 days
 
@@ -577,7 +577,7 @@ This document provides atomic, step-by-step instructions to systematically clear
 
 ---
 
-### Issue #210: LLM-Assisted Test Debugging Strategy
+### Issue #210: LLM-Assisted Test Debugging Strategy #jules
 **Priority**: P3
 **Time Estimate**: 2-3 days (research + doc)
 
@@ -605,7 +605,7 @@ This document provides atomic, step-by-step instructions to systematically clear
 
 ---
 
-### Issue #211: Add Code Coverage Job to CI
+### Issue #211: Add Code Coverage Job to CI #jules
 **Priority**: P3
 **Time Estimate**: 1 day
 
@@ -632,7 +632,7 @@ This document provides atomic, step-by-step instructions to systematically clear
 
 ---
 
-### Issue #212: Explore Test Parallelization
+### Issue #212: Explore Test Parallelization #jules
 **Priority**: P3
 **Time Estimate**: 1-2 days
 
@@ -662,7 +662,7 @@ This document provides atomic, step-by-step instructions to systematically clear
 
 ---
 
-### Issue #213: Use GitHub-Hosted Runners for Certain Jobs
+### Issue #213: Use GitHub-Hosted Runners for Certain Jobs #jules
 **Priority**: P3
 **Time Estimate**: 1 day
 
@@ -688,7 +688,7 @@ This document provides atomic, step-by-step instructions to systematically clear
 
 ---
 
-### Issue #215: Enhance Docs Cross-Reference Analyzer
+### Issue #215: Enhance Docs Cross-Reference Analyzer #jules
 **Priority**: P3
 **Time Estimate**: 2-3 days
 
@@ -720,19 +720,19 @@ This document provides atomic, step-by-step instructions to systematically clear
 
 ## Priority Tier 6: Roadmap Items (Defer)
 
-### Issue #226: GUI Integration Roadmap
+### Issue #226: GUI Integration Roadmap #jules
 **Priority**: P4 (Future)
 **Complexity**: Epic
 
 **Action**: This is a large multi-milestone roadmap. Keep open as planning doc. No immediate action needed until backend work stabilizes.
 
-### Issue #228: CI/CD Workflow Enhancements
+### Issue #228: CI/CD Workflow Enhancements #jules
 **Priority**: P3
 **Time Estimate**: 1-2 weeks
 
 **Action**: Break into sub-issues as needed. Many items may already be addressed by other issues (#211, #212, #213).
 
-### Issue #229: Dependency Audit and Update
+### Issue #229: Dependency Audit and Update #jules
 **Priority**: P3
 **Time Estimate**: 1 day recurring
 
@@ -750,7 +750,7 @@ This document provides atomic, step-by-step instructions to systematically clear
 6. Set up monthly reminder (GitHub Actions schedule)
 ```
 
-### Issue #230: Developer Onboarding Documentation
+### Issue #230: Developer Onboarding Documentation #jules
 **Priority**: P3
 **Time Estimate**: 2-3 days
 
