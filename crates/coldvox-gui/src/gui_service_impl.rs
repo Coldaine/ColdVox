@@ -57,8 +57,9 @@ impl GuiService for GuiServiceImpl {
     }
 
     fn get_audio_devices(&self) -> Result<Vec<coldvox_audio::DeviceInfo>, ServiceError> {
-        // Temporary stub returning empty list.
-        Ok(vec![])
+        let mgr = coldvox_audio::DeviceManager::new()
+            .map_err(|e| ServiceError::Audio(format!("{}", e)))?;
+        Ok(mgr.enumerate_devices())
     }
 
     fn set_audio_device(&mut self, _device_id: String) -> Result<(), ServiceError> {
