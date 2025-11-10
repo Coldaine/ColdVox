@@ -1,6 +1,8 @@
 {
-  "preferred_plugin": "mock",
-  "fallback_plugins": [],
+  "preferred_plugin": "noop",
+  "fallback_plugins": [
+    "mock"
+  ],
   "require_local": true,
   "max_memory_mb": null,
   "required_language": null,
@@ -9,9 +11,9 @@
     "failover_cooldown_secs": 1
   },
   "gc_policy": {
-    "model_ttl_secs": 30,
-    "enabled": false
+    "model_ttl_secs": 1,
+    "enabled": true
   },
   "metrics": null,
-  "auto_extract_model": true
+  "auto_extract_model": false
 }
