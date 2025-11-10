@@ -706,6 +706,7 @@ dependencies = [
  "async-trait",
  "coldvox-foundation",
  "dirs",
+ "dtw",
  "parking_lot",
  "serde",
  "thiserror 2.0.17",
@@ -1459,6 +1460,15 @@ name = "downcast-rs"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
+
+[[package]]
+name = "dtw"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7774a50f5cde1abf2457ffcc73512a9171701586912609e42367cdd057bb14ba"
+dependencies = [
+ "num-traits",
+]
 
 [[package]]
 name = "either"
