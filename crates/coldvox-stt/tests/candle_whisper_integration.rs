@@ -39,10 +39,10 @@ mod basic_tests {
     fn test_environment_model_path() {
         // Test that environment variable is respected
         std::env::set_var("WHISPER_MODEL_PATH", "/env/model");
-        
+
         let config = TranscriptionConfig::default();
         assert_eq!(config.model_path, "/env/model");
-        
+
         std::env::remove_var("WHISPER_MODEL_PATH");
     }
 
@@ -57,7 +57,12 @@ mod basic_tests {
         };
 
         match partial_event {
-            TranscriptionEvent::Partial { utterance_id, text, t0, t1 } => {
+            TranscriptionEvent::Partial {
+                utterance_id,
+                text,
+                t0,
+                t1,
+            } => {
                 assert_eq!(utterance_id, 1);
                 assert_eq!(text, "Hello");
                 assert_eq!(t0, Some(0.0));
@@ -79,7 +84,11 @@ mod basic_tests {
         };
 
         match final_event {
-            TranscriptionEvent::Final { utterance_id, text, words } => {
+            TranscriptionEvent::Final {
+                utterance_id,
+                text,
+                words,
+            } => {
                 assert_eq!(utterance_id, 1);
                 assert_eq!(text, "Hello world");
                 assert!(words.is_some());
@@ -108,15 +117,15 @@ mod basic_tests {
 // Tests for plugin compilation and basic functionality
 #[cfg(feature = "candle-whisper")]
 mod feature_tests {
+    use coldvox_stt::plugin::{PluginInfo, SttPlugin, SttPluginFactory, SttPluginRegistry};
     use coldvox_stt::plugins::candle_whisper::{CandleWhisperPlugin, CandleWhisperPluginFactory};
-    use coldvox_stt::plugin::{SttPluginRegistry, PluginInfo, SttPlugin, SttPluginFactory};
     use coldvox_stt::types::TranscriptionConfig;
 
     #[test]
     fn test_plugin_creation_with_feature() {
         let plugin = CandleWhisperPlugin::new();
         let info = plugin.info();
-        
+
         assert_eq!(info.id, "candle-whisper");
         assert_eq!(info.name, "Candle Whisper");
         assert!(info.is_local);
@@ -127,7 +136,7 @@ mod feature_tests {
     fn test_factory_creation_with_feature() {
         let factory = CandleWhisperPluginFactory::new();
         let plugin_result = factory.create();
-        
+
         assert!(plugin_result.is_ok());
         let plugin = plugin_result.unwrap();
         let info = plugin.info();
@@ -138,7 +147,7 @@ mod feature_tests {
     fn test_plugin_capabilities() {
         let plugin = CandleWhisperPlugin::new();
         let capabilities = plugin.capabilities();
-        
+
         assert!(capabilities.streaming);
         assert!(capabilities.batch);
         assert!(capabilities.word_timestamps);
@@ -152,20 +161,20 @@ mod feature_tests {
     fn test_plugin_registry_integration() {
         let mut registry = SttPluginRegistry::new();
         let factory = CandleWhisperPluginFactory::new();
-        
+
         // Register the factory
         registry.register(Box::new(factory));
-        
+
         // Get available plugins
         let available_plugins = registry.available_plugins();
         assert!(!available_plugins.is_empty());
-        
+
         // Check if our plugin is in the list
         let candle_plugin_info: Option<PluginInfo> = available_plugins
             .iter()
             .find(|info| info.id == "candle-whisper")
             .cloned();
-        
+
         assert!(candle_plugin_info.is_some());
         let info = candle_plugin_info.unwrap();
         assert_eq!(info.id, "candle-whisper");
@@ -282,18 +291,18 @@ mod audio_processing_tests {
     fn test_audio_sample_conversion() {
         // Test that i16 samples are correctly converted to f32
         let i16_samples = vec![-32768i16, -16384i16, 0i16, 16384i16, 32767i16];
-        
+
         // This simulates the conversion logic used in the plugin
         let f32_samples: Vec<f32> = i16_samples
             .iter()
             .map(|&sample| (sample as f32) / 32768.0)
             .collect();
-        
+
         // Verify conversion is within expected range
         for &sample in &f32_samples {
             assert!(sample >= -1.0 && sample <= 1.0);
         }
-        
+
         // Verify specific conversions
         assert!((f32_samples[0] - (-1.0)).abs() < 0.001);
         assert!((f32_samples[2] - 0.0).abs() < 0.001);
@@ -311,12 +320,12 @@ mod environment_tests {
         // Test CANDLE_WHISPER_DEVICE environment variable handling
         std::env::set_var("CANDLE_WHISPER_DEVICE", "cpu");
         std::env::set_var("WHISPER_LANGUAGE", "es");
-        
+
         // Factory should respect environment variables
         // Note: This test just verifies the environment variables are set
         assert_eq!(std::env::var("CANDLE_WHISPER_DEVICE").unwrap(), "cpu");
         assert_eq!(std::env::var("WHISPER_LANGUAGE").unwrap(), "es");
-        
+
         std::env::remove_var("CANDLE_WHISPER_DEVICE");
         std::env::remove_var("WHISPER_LANGUAGE");
     }

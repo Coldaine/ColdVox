@@ -36,13 +36,13 @@ impl Segment {
         let mut segment = Self::new(start, end, text);
         segment.words = Some(words.clone());
         segment.word_count = words.len();
-        
+
         // Calculate average confidence from words if available
         if !words.is_empty() {
             let total_confidence: f32 = words.iter().map(|w| w.confidence).sum();
             segment.confidence = total_confidence / words.len() as f32;
         }
-        
+
         segment
     }
 

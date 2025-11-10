@@ -97,10 +97,12 @@ impl SegmentBuilder {
     ) -> Result<Segment, ColdVoxError> {
         // Convert tokens to text
         let text = if !self.text_tokens.is_empty() {
-            tokenizer.decode(&self.text_tokens, true)
-                .map_err(|e| ColdVoxError::Stt(SttError::InvalidConfig(
-                    format!("Failed to decode tokens: {}", e)
-                )))?
+            tokenizer.decode(&self.text_tokens, true).map_err(|e| {
+                ColdVoxError::Stt(SttError::InvalidConfig(format!(
+                    "Failed to decode tokens: {}",
+                    e
+                )))
+            })?
         } else {
             String::new()
         };
@@ -108,11 +110,12 @@ impl SegmentBuilder {
         // Calculate timing with fallbacks
         let start_time = self.start_time.unwrap_or(0.0);
         let end_time = self.end_time.unwrap_or_else(|| {
-            start_time + if self.word_count > 0 {
-                self.word_count as f32 * default_duration
-            } else {
-                default_duration
-            }
+            start_time
+                + if self.word_count > 0 {
+                    self.word_count as f32 * default_duration
+                } else {
+                    default_duration
+                }
         });
 
         // Calculate average confidence
@@ -126,7 +129,11 @@ impl SegmentBuilder {
         let (start, end) = if end_time >= start_time {
             (start_time, end_time)
         } else {
-            tracing::warn!("Invalid segment timing: start={} >= end={}, correcting", start_time, end_time);
+            tracing::warn!(
+                "Invalid segment timing: start={} >= end={}, correcting",
+                start_time,
+                end_time
+            );
             (start_time, start_time + default_duration.max(0.1))
         };
 
@@ -167,57 +174,62 @@ pub fn is_timestamp_token(token: u32) -> bool {
 }
 
 /// Convert a timestamp token to time in seconds with mathematical precision.
-/// 
+///
 /// # Arguments
 /// * `token` - Whisper timestamp token (>= 50000)
 /// * `config` - Whisper model configuration
-/// 
+///
 /// # Returns
 /// Time in seconds as f32, with ~100ms tolerance for frame-based timing
 pub fn token_to_time(token: u32, config: &WhisperConfig) -> Result<f32, ColdVoxError> {
     if !is_timestamp_token(token) {
-        return Err(ColdVoxError::Stt(SttError::InvalidConfig(
-            format!("Token {} is not a valid timestamp token", token)
-        )));
+        return Err(ColdVoxError::Stt(SttError::InvalidConfig(format!(
+            "Token {} is not a valid timestamp token",
+            token
+        ))));
     }
-    
+
     // Calculate frame offset from Whisper timestamp threshold
     let frame_offset = token.saturating_sub(WHISPER_TIMESTAMP_THRESHOLD) as f32;
-    
+
     // Ensure we don't exceed the maximum source positions
     if frame_offset >= config.max_source_positions as f32 {
-        return Err(ColdVoxError::Stt(SttError::InvalidConfig(
-            format!("Token {} exceeds max source positions {}", token, config.max_source_positions)
-        )));
+        return Err(ColdVoxError::Stt(SttError::InvalidConfig(format!(
+            "Token {} exceeds max source positions {}",
+            token, config.max_source_positions
+        ))));
     }
-    
+
     // Convert to time: frame_offset * frame_duration
     // Whisper uses 20ms frames, giving us ~100ms tolerance
     let time_seconds = frame_offset * WHISPER_FRAME_DURATION;
-    
+
     Ok(time_seconds)
 }
 
 /// Extract timestamp pairs from token sequence.
-/// 
+///
 /// # Arguments
 /// * `tokens` - Token sequence that may contain timestamp tokens
 /// * `config` - Whisper model configuration
-/// 
+///
 /// # Returns
 /// Vector of (start_time, end_time) pairs in seconds
-pub fn extract_timestamps(tokens: &[u32], config: &WhisperConfig) -> Result<Vec<(f32, f32)>, ColdVoxError> {
+pub fn extract_timestamps(
+    tokens: &[u32],
+    config: &WhisperConfig,
+) -> Result<Vec<(f32, f32)>, ColdVoxError> {
     let mut timestamps = Vec::new();
     let mut current_start: Option<f32> = None;
     let mut last_timestamp: Option<f32> = None;
     let mut text_token_count = 0;
-    
+
     let frame_duration = WHISPER_FRAME_DURATION;
-    
+
     for &token in tokens {
         if is_timestamp_token(token) {
             let current_time = token_to_time(token, config)?;
-            
+
             // If we have accumulated text tokens and a start time, create a timestamp pair
             if text_token_count > 0 && current_start.is_some() {
                 // Estimate end time based on text length and frame duration
@@ -229,16 +241,19 @@ pub fn extract_timestamps(tokens: &[u32], config: &WhisperConfig) -> Result<Vec<
                     // Estimate based on token count: ~0.02s per token
                     current_start.unwrap() + (text_token_count as f32 * frame_duration * 0.5)
                 };
-                
-                timestamps.push((current_start.unwrap(), estimated_end.max(current_start.unwrap())));
-                
+
+                timestamps.push((
+                    current_start.unwrap(),
+                    estimated_end.max(current_start.unwrap()),
+                ));
+
                 // Clear for next segment
                 text_token_count = 0;
             }
-            
+
             // Update tracking variables
             last_timestamp = Some(current_time);
-            
+
             // Only set new start if we don't have one or this is clearly a new segment
             if current_start.is_none() || current_time >= current_start.unwrap() + frame_duration {
                 current_start = Some(current_time);
@@ -248,7 +263,7 @@ pub fn extract_timestamps(tokens: &[u32], config: &WhisperConfig) -> Result<Vec<
             text_token_count += 1;
         }
     }
-    
+
     // Handle remaining text at the end
     if text_token_count > 0 && current_start.is_some() {
         let start_time = current_start.unwrap();
@@ -257,20 +272,20 @@ pub fn extract_timestamps(tokens: &[u32], config: &WhisperConfig) -> Result<Vec<
         } else {
             start_time + (text_token_count as f32 * frame_duration)
         };
-        
+
         timestamps.push((start_time, end_time));
     }
-    
+
     Ok(timestamps)
 }
 
 /// Advanced timestamp extraction with validation and error handling.
-/// 
+///
 /// This function performs comprehensive timestamp extraction including:
 /// - Malformed token sequence detection
 /// - Temporal ordering validation
 /// - Gap detection and handling
-/// 
+///
 /// # Arguments
 /// * `tokens` - Token sequence from decoder output
 /// * `config` - Whisper model configuration
@@ -279,42 +294,47 @@ pub fn extract_timestamps(tokens: &[u32], config: &WhisperConfig) -> Result<Vec<
 /// # Returns
 /// Validated vector of (start_time, end_time) pairs
 pub fn extract_timestamps_advanced(
-    tokens: &[u32], 
+    tokens: &[u32],
     config: &WhisperConfig,
-    max_gap_ms: u32
+    max_gap_ms: u32,
 ) -> Result<Vec<(f32, f32)>, ColdVoxError> {
     let basic_timestamps = extract_timestamps(tokens, config)?;
-    
+
     if basic_timestamps.is_empty() {
         return Ok(Vec::new());
     }
-    
+
     let max_gap_seconds = max_gap_ms as f32 / 1000.0;
     let frame_duration = WHISPER_FRAME_DURATION;
-    
+
     // Validate and filter timestamps
     let mut validated_timestamps = Vec::new();
     let mut previous_end: Option<f32> = None;
-    
+
     for (start, end) in basic_timestamps {
         // Validate temporal ordering
         if end < start {
-            tracing::warn!("Invalid timestamp ordering: end {:?} < start {:?}", end, start);
+            tracing::warn!(
+                "Invalid timestamp ordering: end {:?} < start {:?}",
+                end,
+                start
+            );
             continue;
         }
-        
+
         // Check for reasonable segment duration (not too short or too long)
         let duration = end - start;
         if duration < frame_duration {
             tracing::debug!("Skipping too-short segment: {:?}s", duration);
             continue;
         }
-        
-        if duration > 30.0 { // Max 30 seconds per segment
+
+        if duration > 30.0 {
+            // Max 30 seconds per segment
             tracing::warn!("Skipping too-long segment: {:?}s", duration);
             continue;
         }
-        
+
         // Check for gaps (if we have a previous end time)
         if let Some(prev_end) = previous_end {
             let gap = start - prev_end;
@@ -322,28 +342,28 @@ pub fn extract_timestamps_advanced(
                 tracing::debug!("Large gap detected: {:?}s, continuing", gap);
             }
         }
-        
+
         validated_timestamps.push((start, end));
         previous_end = Some(end);
     }
-    
+
     // Ensure timestamps are sorted
     validated_timestamps.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-    
+
     Ok(validated_timestamps)
 }
 
 /// Build segments from a mixed token sequence containing timestamps with enhanced processing.
-/// 
+///
 /// This function provides direct integration with the decoder output by combining
 /// timestamp extraction with token-to-text conversion using the tokenizer. It handles
 /// Whisper's token pairing format, special tokens, and provides confidence scores.
-/// 
+///
 /// # Arguments
 /// * `tokens` - Token sequence from decoder (may contain timestamp tokens)
 /// * `config` - Whisper model configuration
 /// * `tokenizer` - Tokenizer for converting tokens to text
-/// 
+///
 /// # Returns
 /// Vector of Segment objects with enhanced timing information, confidence scores, and text
 pub fn segments_from_tokens(
@@ -367,7 +387,7 @@ pub fn segments_from_tokens(
                     continue;
                 }
             };
-            
+
             // Create segment from accumulated text tokens
             if !text_tokens.is_empty() && current_start.is_some() {
                 let segment = build_segment_from_tokens(
@@ -377,7 +397,7 @@ pub fn segments_from_tokens(
                     tokenizer,
                     frame_duration,
                 )?;
-                
+
                 if !segment.text.trim().is_empty() {
                     segments.push(segment);
                 }
@@ -400,14 +420,9 @@ pub fn segments_from_tokens(
             start + text_tokens.len() as f32 * frame_duration
         };
 
-        let segment = build_segment_from_tokens(
-            &text_tokens,
-            start,
-            end,
-            tokenizer,
-            frame_duration,
-        )?;
-        
+        let segment =
+            build_segment_from_tokens(&text_tokens, start, end, tokenizer, frame_duration)?;
+
         if !segment.text.trim().is_empty() {
             segments.push(segment);
         }
@@ -415,18 +430,18 @@ pub fn segments_from_tokens(
 
     // Post-process segments for merging and validation
     let merged_segments = merge_adjacent_segments(segments, frame_duration)?;
-    
+
     tracing::info!(
         "Processed {} tokens into {} segments",
         tokens.len(),
         merged_segments.len()
     );
-    
+
     Ok(merged_segments)
 }
 
 /// Build a single segment from token sequence with proper text reconstruction.
-/// 
+///
 /// This function handles Whisper's token pairing format, special token filtering,
 /// and provides confidence score estimation based on token characteristics.
 fn build_segment_from_tokens(
@@ -438,7 +453,7 @@ fn build_segment_from_tokens(
 ) -> Result<Segment, ColdVoxError> {
     // Filter out special tokens that shouldn't appear in final text
     let filtered_tokens = filter_special_tokens(tokens, tokenizer)?;
-    
+
     let text = if !filtered_tokens.is_empty() {
         match tokenizer.decode(&filtered_tokens, true) {
             Ok(decoded) => {
@@ -456,10 +471,10 @@ fn build_segment_from_tokens(
 
     // Estimate confidence based on token characteristics
     let confidence = estimate_segment_confidence(tokens, &text, frame_duration);
-    
+
     // Calculate word count
     let word_count = text.split_whitespace().count();
-    
+
     Ok(Segment {
         start,
         end: end.max(start),
@@ -471,7 +486,7 @@ fn build_segment_from_tokens(
 }
 
 /// Handle Whisper's token pairing format during sequence processing.
-/// 
+///
 /// Whisper sometimes uses token pairs where two tokens represent one semantic unit.
 /// This function detects and handles these pairs appropriately.
 fn handle_token_sequence(
@@ -490,12 +505,9 @@ fn handle_token_sequence(
 }
 
 /// Filter out special tokens that shouldn't appear in final transcribed text.
-fn filter_special_tokens(
-    tokens: &[u32],
-    tokenizer: &Tokenizer,
-) -> Result<Vec<u32>, ColdVoxError> {
+fn filter_special_tokens(tokens: &[u32], tokenizer: &Tokenizer) -> Result<Vec<u32>, ColdVoxError> {
     let mut filtered = Vec::new();
-    
+
     for &token in tokens {
         // Get token string to check if it's a special token
         if let Some(token_str) = tokenizer.id_to_token(token) {
@@ -508,22 +520,22 @@ fn filter_special_tokens(
             filtered.push(token);
         }
     }
-    
+
     Ok(filtered)
 }
 
 /// Check if a token string represents a special token.
 fn is_special_token(token_str: &str) -> bool {
-    token_str.starts_with("<|") || 
-    token_str.starts_with('<') && token_str.ends_with('>') ||
-    token_str == "<unk>" ||
-    token_str == "<pad>" ||
-    token_str == "[UNK]" ||
-    token_str == "[PAD]"
+    token_str.starts_with("<|")
+        || token_str.starts_with('<') && token_str.ends_with('>')
+        || token_str == "<unk>"
+        || token_str == "<pad>"
+        || token_str == "[UNK]"
+        || token_str == "[PAD]"
 }
 
 /// Basic token pair detection for Whisper formatting.
-/// 
+///
 /// This is a simplified implementation that could be enhanced with
 /// more sophisticated token relationship analysis.
 fn is_potential_token_pair(token: u32, tokenizer: &Tokenizer) -> bool {
@@ -531,10 +543,13 @@ fn is_potential_token_pair(token: u32, tokenizer: &Tokenizer) -> bool {
     if token > 50000 {
         return true;
     }
-    
+
     // Check if token decodes to punctuation or formatting
     if let Some(token_str) = tokenizer.id_to_token(token) {
-        matches!(token_str.as_str(), "," | "." | "!" | "?" | ":" | ";" | "-" | "...")
+        matches!(
+            token_str.as_str(),
+            "," | "." | "!" | "?" | ":" | ";" | "-" | "..."
+        )
     } else {
         false
     }
@@ -543,56 +558,46 @@ fn is_potential_token_pair(token: u32, tokenizer: &Tokenizer) -> bool {
 /// Clean and format decoded text for better readability.
 fn clean_decoded_text(text: &str) -> String {
     let mut cleaned = text.to_string();
-    
+
     // Remove extra spaces
-    cleaned = cleaned
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
-    
+    cleaned = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
+
     // Add space after punctuation if missing (basic rule)
     cleaned = cleaned
         .replace(",", ", ")
         .replace(".", ". ")
         .replace("!", "! ")
         .replace("?", "? ");
-    
+
     // Clean up multiple spaces
-    cleaned = cleaned
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
-    
+    cleaned = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
+
     // Trim final result
     cleaned.trim().to_string()
 }
 
 /// Estimate confidence score for a segment based on token characteristics.
-/// 
+///
 /// This provides a basic confidence estimation. In a full implementation,
 /// this would use actual model confidence scores from the decoder.
-fn estimate_segment_confidence(
-    tokens: &[u32],
-    text: &str,
-    frame_duration: f32,
-) -> f32 {
+fn estimate_segment_confidence(tokens: &[u32], text: &str, frame_duration: f32) -> f32 {
     let mut confidence: f32 = 0.7; // Base confidence
-    
+
     // Higher confidence for longer segments (more stable)
     if tokens.len() > 5 {
         confidence += 0.1;
     }
-    
+
     // Lower confidence for very short segments
     if tokens.len() < 2 {
         confidence -= 0.2;
     }
-    
+
     // Higher confidence for segments with proper punctuation
     if text.contains('.') || text.contains('!') || text.contains('?') {
         confidence += 0.1;
     }
-    
+
     // Adjust based on segment duration (very short or very long segments less confident)
     let estimated_duration = tokens.len() as f32 * frame_duration;
     if estimated_duration < 0.5 {
@@ -600,7 +605,7 @@ fn estimate_segment_confidence(
     } else if estimated_duration > 10.0 {
         confidence -= 0.1;
     }
-    
+
     confidence.max(0.0_f32).min(1.0_f32)
 }
 
@@ -612,15 +617,15 @@ fn merge_adjacent_segments(
     if segments.len() <= 1 {
         return Ok(segments);
     }
-    
+
     let mut merged = Vec::new();
     let mut current = segments[0].clone();
-    
+
     for next in segments.into_iter().skip(1) {
         // Check if segments should be merged
         let gap = next.start - current.end;
         let should_merge = gap < frame_duration * 2.0; // Less than 40ms gap
-        
+
         if should_merge {
             // Merge segments
             let merged_text = if !current.text.is_empty() && !next.text.is_empty() {
@@ -628,7 +633,7 @@ fn merge_adjacent_segments(
             } else {
                 format!("{}{}", current.text, next.text)
             };
-            
+
             current = Segment {
                 start: current.start,
                 end: next.end,
@@ -643,23 +648,23 @@ fn merge_adjacent_segments(
             current = next;
         }
     }
-    
+
     // Add the final segment
     merged.push(current);
-    
+
     Ok(merged)
 }
 
 /// Integration function for decoder pipeline.
-/// 
+///
 /// This function extracts timestamps and returns them in a format suitable for
 /// integration with the ColdVox transcript system.
-/// 
+///
 /// # Arguments
 /// * `tokens` - Raw token output from decoder
 /// * `config` - Whisper model configuration
 /// * `include_validation` - Whether to perform advanced validation
-/// 
+///
 /// # Returns
 /// Vector of (start_time, end_time) pairs ready for transcript integration
 pub fn extract_decoder_timestamps(
@@ -675,13 +680,13 @@ pub fn extract_decoder_timestamps(
 }
 
 /// Get timing statistics from a token sequence.
-/// 
+///
 /// This function provides insights into the temporal structure of decoded tokens.
-/// 
+///
 /// # Arguments
 /// * `tokens` - Token sequence to analyze
 /// * `config` - Whisper model configuration
-/// 
+///
 /// # Returns
 /// Timing statistics including duration, segment count, and gaps
 pub fn analyze_timing_structure(
@@ -689,7 +694,7 @@ pub fn analyze_timing_structure(
     config: &WhisperConfig,
 ) -> Result<TimingStats, ColdVoxError> {
     let timestamps = extract_timestamps(tokens, config)?;
-    
+
     if timestamps.is_empty() {
         return Ok(TimingStats {
             total_duration: 0.0,
@@ -699,26 +704,27 @@ pub fn analyze_timing_structure(
             has_timestamps: false,
         });
     }
-    
+
     let total_duration = timestamps
         .iter()
         .map(|(_, end)| *end)
         .fold(0.0_f32, f32::max);
-    
+
     let segment_count = timestamps.len();
     let average_segment_duration = timestamps
         .iter()
         .map(|(start, end)| end - start)
-        .sum::<f32>() / segment_count as f32;
-    
+        .sum::<f32>()
+        / segment_count as f32;
+
     let mut max_gap = 0.0f32;
     for i in 1..timestamps.len() {
-        let gap = timestamps[i].0 - timestamps[i-1].1;
+        let gap = timestamps[i].0 - timestamps[i - 1].1;
         if gap > max_gap {
             max_gap = gap;
         }
     }
-    
+
     Ok(TimingStats {
         total_duration,
         segment_count,
@@ -746,21 +752,18 @@ pub struct TimingStats {
 impl TimingStats {
     /// Check if the timing structure is healthy
     pub fn is_healthy(&self) -> bool {
-        self.has_timestamps && 
-        self.segment_count > 0 && 
-        self.total_duration > 0.0 &&
-        self.average_segment_duration > 0.0 &&
-        self.average_segment_duration < 30.0 // Reasonable segment duration
+        self.has_timestamps
+            && self.segment_count > 0
+            && self.total_duration > 0.0
+            && self.average_segment_duration > 0.0
+            && self.average_segment_duration < 30.0 // Reasonable segment duration
     }
-    
+
     /// Get a human-readable summary of timing statistics
     pub fn summary(&self) -> String {
         format!(
             "Duration: {:.1}s, Segments: {}, Avg: {:.1}s, Max gap: {:.1}s",
-            self.total_duration,
-            self.segment_count,
-            self.average_segment_duration,
-            self.max_gap
+            self.total_duration, self.segment_count, self.average_segment_duration, self.max_gap
         )
     }
 }
@@ -812,15 +815,15 @@ mod tests {
     #[test]
     fn token_to_time_conversion() {
         let cfg = test_config();
-        
+
         // Test first timestamp token
         let time = token_to_time(WHISPER_TIMESTAMP_THRESHOLD, &cfg).unwrap();
         assert!((time - 0.0).abs() < 0.001);
-        
+
         // Test token offset by 50 positions (1 second at 20ms per frame)
         let time = token_to_time(WHISPER_TIMESTAMP_THRESHOLD + 50, &cfg).unwrap();
         assert!((time - 1.0).abs() < 0.001);
-        
+
         // Test invalid token
         assert!(token_to_time(1000, &cfg).is_err());
     }
@@ -829,12 +832,15 @@ mod tests {
     fn extract_basic_timestamps() {
         let cfg = test_config();
         let tokens = vec![
-            1, 2, 3, // text tokens
+            1,
+            2,
+            3,                           // text tokens
             WHISPER_TIMESTAMP_THRESHOLD, // timestamp 0s
-            4, 5, // more text
+            4,
+            5,                                // more text
             WHISPER_TIMESTAMP_THRESHOLD + 50, // timestamp 1s
         ];
-        
+
         let timestamps = extract_timestamps(&tokens, &cfg).unwrap();
         assert_eq!(timestamps.len(), 1);
         assert!((timestamps[0].0 - 0.0).abs() < 0.01); // start at 0s
@@ -862,11 +868,14 @@ mod tests {
         let cfg = test_config();
         let tokens = vec![
             WHISPER_TIMESTAMP_THRESHOLD,
-            1, 2, 3,
+            1,
+            2,
+            3,
             WHISPER_TIMESTAMP_THRESHOLD + 50,
-            4, 5,
+            4,
+            5,
         ];
-        
+
         let stats = analyze_timing_structure(&tokens, &cfg).unwrap();
         assert!(stats.has_timestamps);
         assert_eq!(stats.segment_count, 2); // Two segments: 0-1s and 1s-end
@@ -876,14 +885,15 @@ mod tests {
     #[test]
     fn advanced_timestamp_validation() {
         let cfg = test_config();
-        
+
         // Test with invalid sequence (out of order)
         let invalid_tokens = vec![
             WHISPER_TIMESTAMP_THRESHOLD + 50, // end before start
             WHISPER_TIMESTAMP_THRESHOLD,
-            1, 2,
+            1,
+            2,
         ];
-        
+
         let timestamps = extract_timestamps_advanced(&invalid_tokens, &cfg, 1000).unwrap();
         // Should handle gracefully
         assert!(timestamps.len() >= 0);
@@ -893,16 +903,16 @@ mod tests {
     fn test_segment_builder_basic() {
         let cfg = test_config();
         let tokenizer = make_tokenizer();
-        
+
         let builder = SegmentBuilder::new()
             .with_start_time(0.5)
             .with_end_time(2.0)
             .with_text_tokens(&[1, 2])
             .with_word("test")
             .with_confidence(0.8);
-            
+
         let segment = builder.build(&tokenizer, 0.1).unwrap();
-        
+
         assert_eq!(segment.start, 0.5);
         assert_eq!(segment.end, 2.0);
         assert!(segment.text.contains("hi") || segment.text.contains("there"));
@@ -914,14 +924,14 @@ mod tests {
     fn test_segment_builder_with_fallbacks() {
         let cfg = test_config();
         let tokenizer = make_tokenizer();
-        
+
         // Test with no start time (should fallback to 0.0)
         let builder = SegmentBuilder::new()
             .with_text_tokens(&[1, 2])
             .with_confidence(0.7);
-            
+
         let segment = builder.build(&tokenizer, 0.2).unwrap();
-        
+
         assert_eq!(segment.start, 0.0);
         assert!(segment.end > 0.0);
         assert!(!segment.text.is_empty());
@@ -931,17 +941,19 @@ mod tests {
     fn test_enhanced_segments_from_tokens() {
         let cfg = test_config();
         let tokenizer = make_tokenizer();
-        
+
         let tokens = vec![
             WHISPER_TIMESTAMP_THRESHOLD, // timestamp 0s
-            1, 2, // "hi there"
+            1,
+            2,                                // "hi there"
             WHISPER_TIMESTAMP_THRESHOLD + 25, // 0.5s
-            2, 1, // reversed order
+            2,
+            1,                                // reversed order
             WHISPER_TIMESTAMP_THRESHOLD + 50, // 1.0s
         ];
-        
+
         let segments = segments_from_tokens(&tokens, &cfg, &tokenizer).unwrap();
-        
+
         assert!(segments.len() > 0);
         for segment in &segments {
             assert!(segment.start >= 0.0);
@@ -955,15 +967,16 @@ mod tests {
     fn test_text_reconstruction_with_special_tokens() {
         let cfg = test_config();
         let tokenizer = make_tokenizer();
-        
+
         let tokens = vec![
             WHISPER_TIMESTAMP_THRESHOLD,
-            1, 2, // normal tokens
-            // Add some special tokens that should be filtered
+            1,
+            2, // normal tokens
+               // Add some special tokens that should be filtered
         ];
-        
+
         let segments = segments_from_tokens(&tokens, &cfg, &tokenizer).unwrap();
-        
+
         assert_eq!(segments.len(), 1);
         let segment = &segments[0];
         assert!(!segment.text.is_empty());
@@ -974,7 +987,7 @@ mod tests {
     fn test_segment_merging() {
         let cfg = test_config();
         let tokenizer = make_tokenizer();
-        
+
         // Create segments with very small gaps that should be merged
         let tokens = vec![
             WHISPER_TIMESTAMP_THRESHOLD,
@@ -982,9 +995,9 @@ mod tests {
             WHISPER_TIMESTAMP_THRESHOLD + 1, // 20ms later
             2,
         ];
-        
+
         let segments = segments_from_tokens(&tokens, &cfg, &tokenizer).unwrap();
-        
+
         // Should potentially merge or keep separate depending on merge logic
         assert!(segments.len() >= 1);
     }
@@ -993,11 +1006,11 @@ mod tests {
     fn test_empty_token_handling() {
         let cfg = test_config();
         let tokenizer = make_tokenizer();
-        
+
         // Test with empty token sequence
         let segments = segments_from_tokens(&[], &cfg, &tokenizer).unwrap();
         assert!(segments.is_empty());
-        
+
         // Test with only timestamp tokens
         let tokens = vec![WHISPER_TIMESTAMP_THRESHOLD];
         let segments = segments_from_tokens(&tokens, &cfg, &tokenizer).unwrap();
@@ -1009,26 +1022,31 @@ mod tests {
     fn test_confidence_estimation() {
         let cfg = test_config();
         let tokenizer = make_tokenizer();
-        
+
         // Test with long segment (should have higher confidence)
         let long_tokens = vec![
             WHISPER_TIMESTAMP_THRESHOLD,
-            1, 1, 1, 1, 1, 1, // many tokens
+            1,
+            1,
+            1,
+            1,
+            1,
+            1, // many tokens
             WHISPER_TIMESTAMP_THRESHOLD + 50,
         ];
-        
+
         let segments = segments_from_tokens(&long_tokens, &cfg, &tokenizer).unwrap();
         assert_eq!(segments.len(), 1);
         // Long segments should have base confidence + bonus, which is > 0.7
         assert!(segments[0].confidence > 0.6); // Adjusted expectation
-        
+
         // Test with short segment (should have lower confidence)
         let short_tokens = vec![
             WHISPER_TIMESTAMP_THRESHOLD,
             1, // single token
             WHISPER_TIMESTAMP_THRESHOLD + 1,
         ];
-        
+
         let segments = segments_from_tokens(&short_tokens, &cfg, &tokenizer).unwrap();
         assert_eq!(segments.len(), 1);
         // Short segments should have base confidence - penalty, which is < 0.8
@@ -1039,13 +1057,13 @@ mod tests {
     fn test_invalid_token_handling() {
         let cfg = test_config();
         let tokenizer = make_tokenizer();
-        
+
         // Test with invalid timestamp token
         let tokens = vec![
             1000, // not a timestamp token
             1, 2,
         ];
-        
+
         let segments = segments_from_tokens(&tokens, &cfg, &tokenizer).unwrap();
         // Should handle gracefully without crashing
         assert!(segments.len() >= 0);
@@ -1054,7 +1072,7 @@ mod tests {
     #[test]
     fn test_word_timing_struct() {
         let word = WordTiming::new("test".to_string(), 0.5, 1.0, 0.8);
-        
+
         assert_eq!(word.text, "test");
         assert_eq!(word.start, 0.5);
         assert_eq!(word.end, 1.0);
@@ -1067,7 +1085,7 @@ mod tests {
     fn test_segment_summary() {
         let segment = Segment::new(0.0, 2.5, "Hello world".to_string());
         let summary = segment.summary();
-        
+
         assert!(summary.contains("0.0s-2.5s"));
         assert!(summary.contains("Hello world"));
         assert!(summary.contains("confidence"));

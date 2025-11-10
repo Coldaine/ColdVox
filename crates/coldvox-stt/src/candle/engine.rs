@@ -152,20 +152,20 @@ impl WhisperEngineInit {
     pub fn validate(&self) -> Result<(), ColdVoxError> {
         if self.model_id.trim().is_empty() {
             return Err(ColdVoxError::Stt(SttError::InvalidConfig(
-                "Model ID cannot be empty".to_string()
+                "Model ID cannot be empty".to_string(),
             )));
         }
 
         if self.revision.trim().is_empty() {
             return Err(ColdVoxError::Stt(SttError::InvalidConfig(
-                "Model revision cannot be empty".to_string()
+                "Model revision cannot be empty".to_string(),
             )));
         }
 
         if let Some(ref path) = self.local_path {
             if !path.exists() {
                 return Err(ColdVoxError::Stt(SttError::ModelNotFound {
-                    path: path.clone()
+                    path: path.clone(),
                 }));
             }
         }
@@ -255,8 +255,7 @@ impl WhisperEngine {
         );
 
         // Validate configuration
-        init.validate()
-            .map_err(WhisperEngineError::Config)?;
+        init.validate().map_err(WhisperEngineError::Config)?;
 
         // Initialize device based on preference
         let device = Self::initialize_device(&init.device_preference)?;
@@ -275,21 +274,21 @@ impl WhisperEngine {
             revision: init.revision.clone(),
             local_path: init.local_path.clone(),
         };
-        let loader = ModelLoader::new(loader_cfg)
-            .map_err(WhisperEngineError::Loader)?;
+        let loader = ModelLoader::new(loader_cfg).map_err(WhisperEngineError::Loader)?;
 
         // Load model artifacts
-        let artifacts = loader.load_safetensors(&device)
+        let artifacts = loader
+            .load_safetensors(&device)
             .map_err(WhisperEngineError::Loader)?;
 
         // Build model components
-        let components = build_from_artifacts(artifacts, &device)
-            .map_err(WhisperEngineError::Model)?;
+        let components =
+            build_from_artifacts(artifacts, &device).map_err(WhisperEngineError::Model)?;
 
         // Pre-load mel filters for efficient audio processing
         let cached_filters = Some(Arc::new(
             mel_filters(components.config.num_mel_bins)
-                .map_err(|e| WhisperEngineError::AudioProcessing(e.to_string()))?
+                .map_err(|e| WhisperEngineError::AudioProcessing(e.to_string()))?,
         ));
 
         // Initialize audio configuration
@@ -303,7 +302,7 @@ impl WhisperEngine {
         decoder_config.max_tokens = init.max_tokens;
         decoder_config.temperature = init.temperature;
         decoder_config.generate_timestamps = init.generate_timestamps;
-        
+
         // Create decoder with configuration
         let decoder = Decoder::new(components.clone(), device.clone(), decoder_config)
             .map_err(|e| WhisperEngineError::Decoder(e.to_string()))?;
@@ -342,7 +341,9 @@ impl WhisperEngine {
         self.validate_audio_format(audio)?;
 
         // Use the existing advanced decoder
-        let transcript = self.decoder.decode(audio)
+        let transcript = self
+            .decoder
+            .decode(audio)
             .map_err(|e| WhisperEngineError::TranscriptionFailed(e.to_string()))?;
 
         // Store the detected language
@@ -412,12 +413,13 @@ impl WhisperEngine {
         // This is a simplified estimation - in practice you'd want more precise tracking
         let vocab_size = self.components.config.vocab_size;
         let d_model = self.components.config.d_model;
-        let num_layers = self.components.config.encoder_layers + self.components.config.decoder_layers;
-        
+        let num_layers =
+            self.components.config.encoder_layers + self.components.config.decoder_layers;
+
         // Rough estimation: vocab_size * d_model * 4 bytes for f32 + overhead
         let estimated_bytes = (vocab_size * d_model * 4) as u64;
         let layer_overhead = (num_layers * d_model * d_model * 4) as u64;
-        
+
         Ok(estimated_bytes + layer_overhead)
     }
 
@@ -469,21 +471,24 @@ impl WhisperEngine {
     fn validate_audio_format(&self, audio: &[f32]) -> Result<(), WhisperEngineError> {
         if audio.is_empty() {
             return Err(WhisperEngineError::AudioProcessing(
-                "Empty audio buffer".to_string()
+                "Empty audio buffer".to_string(),
             ));
         }
 
         // Check for NaN or infinite values
         for (i, &sample) in audio.iter().enumerate() {
             if !sample.is_finite() {
-                return Err(WhisperEngineError::AudioProcessing(
-                    format!("Non-finite value at sample {}: {}", i, sample)
-                ));
+                return Err(WhisperEngineError::AudioProcessing(format!(
+                    "Non-finite value at sample {}: {}",
+                    i, sample
+                )));
             }
         }
 
         // Check amplitude range (should be roughly -1.0 to 1.0 for normalized audio)
-        let max_amplitude = audio.iter().fold(0.0_f32, |max, &sample| max.max(sample.abs()));
+        let max_amplitude = audio
+            .iter()
+            .fold(0.0_f32, |max, &sample| max.max(sample.abs()));
         if max_amplitude > 2.0 {
             tracing::warn!(
                 "Audio amplitude ({}) seems unusually high, may need normalization",
@@ -506,8 +511,8 @@ impl Drop for WhisperEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
     use std::collections::HashSet;
+    use tempfile::tempdir;
 
     fn make_test_init() -> WhisperEngineInit {
         WhisperEngineInit::new()
@@ -601,7 +606,7 @@ mod tests {
     fn test_audio_validation() {
         // Create a mock engine for testing audio validation
         let init = make_test_init();
-        
+
         // Note: This test will fail during actual engine creation due to model loading,
         // but we can test the validation logic separately
         // For now, just test the validation methods exist
@@ -634,7 +639,7 @@ mod tests {
     #[test]
     fn test_init_defaults() {
         let init = WhisperEngineInit::new();
-        
+
         assert_eq!(init.model_id, "openai/whisper-base.en");
         assert_eq!(init.revision, "main");
         assert_eq!(init.device_preference, DevicePreference::Auto);
@@ -649,9 +654,8 @@ mod tests {
     fn test_local_path_validation() {
         let dir = tempdir().unwrap();
         let path = dir.path().to_path_buf();
-        
-        let init = WhisperEngineInit::new()
-            .with_local_path(&path);
+
+        let init = WhisperEngineInit::new().with_local_path(&path);
 
         // Should be valid since path exists
         assert!(init.validate().is_ok());
@@ -660,9 +664,8 @@ mod tests {
     #[test]
     fn test_non_existent_local_path_validation() {
         let path = std::path::PathBuf::from("/non/existent/path");
-        
-        let init = WhisperEngineInit::new()
-            .with_local_path(path);
+
+        let init = WhisperEngineInit::new().with_local_path(path);
 
         // Should fail validation since path doesn't exist
         assert!(init.validate().is_err());
@@ -671,7 +674,9 @@ mod tests {
     #[test]
     fn test_whisper_engine_error_types() {
         // Test that different error types can be created
-        let error1 = WhisperEngineError::Config(ColdVoxError::Stt(SttError::InvalidConfig("test".to_string())));
+        let error1 = WhisperEngineError::Config(ColdVoxError::Stt(SttError::InvalidConfig(
+            "test".to_string(),
+        )));
         assert!(!error1.to_string().is_empty());
 
         let error2 = WhisperEngineError::DeviceInit("test error".to_string());

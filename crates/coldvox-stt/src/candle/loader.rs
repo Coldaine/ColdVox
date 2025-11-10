@@ -10,7 +10,10 @@ use std::path::{Path, PathBuf};
 
 use candle_core::Device;
 use candle_transformers::models::whisper::Config as WhisperConfig;
-use hf_hub::{api::sync::{Api, ApiRepo}, Repo, RepoType};
+use hf_hub::{
+    api::sync::{Api, ApiRepo},
+    Repo, RepoType,
+};
 use tokenizers::Tokenizer;
 
 const CONFIG_FILE: &str = "config.json";
@@ -215,9 +218,7 @@ mod tests {
         };
 
         let loader = ModelLoader::new(cfg).expect("loader");
-        let artifacts = loader
-            .load_safetensors(&Device::Cpu)
-            .expect("artifacts");
+        let artifacts = loader.load_safetensors(&Device::Cpu).expect("artifacts");
 
         assert_eq!(artifacts.config.vocab_size, 51865);
         assert!(artifacts.weights_path.ends_with(WEIGHTS_FILE));

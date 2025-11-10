@@ -5,10 +5,10 @@
 //! full local processing without Python dependencies, GPU acceleration
 //! support, and comprehensive audio processing capabilities.
 
+use crate::candle::engine::{DevicePreference, WhisperEngine, WhisperEngineInit};
+use crate::candle::types::Transcript;
 use crate::plugin::*;
 use crate::types::{TranscriptionConfig, TranscriptionEvent};
-use crate::candle::engine::{WhisperEngine, WhisperEngineInit, DevicePreference};
-use crate::candle::types::Transcript;
 use async_trait::async_trait;
 use coldvox_foundation::error::{ColdVoxError, SttError};
 use std::path::{Path, PathBuf};
@@ -58,7 +58,7 @@ impl CandleWhisperPlugin {
     /// Convert TranscriptionConfig to WhisperEngineInit
     fn build_engine_init(&self, config: &TranscriptionConfig) -> WhisperEngineInit {
         let model_id = self.resolve_model_identifier(config);
-        
+
         let mut init = WhisperEngineInit::new()
             .with_model_id(model_id)
             .with_device_preference(self.device_preference)
@@ -94,7 +94,13 @@ impl CandleWhisperPlugin {
     }
 
     /// Convert internal transcript to TranscriptionEvent
-    fn convert_transcript(&self, transcript: Transcript, utterance_id: u64, include_words: bool, is_final: bool) -> Option<TranscriptionEvent> {
+    fn convert_transcript(
+        &self,
+        transcript: Transcript,
+        utterance_id: u64,
+        include_words: bool,
+        is_final: bool,
+    ) -> Option<TranscriptionEvent> {
         if transcript.segments.is_empty() {
             if is_final {
                 return Some(TranscriptionEvent::Final {
@@ -108,7 +114,8 @@ impl CandleWhisperPlugin {
         }
 
         // For now, concatenate all segments into a single text
-        let text = transcript.segments
+        let text = transcript
+            .segments
             .iter()
             .map(|segment| segment.text.clone())
             .collect::<Vec<_>>()
@@ -166,7 +173,8 @@ impl SttPlugin for CandleWhisperPlugin {
         PluginInfo {
             id: "candle-whisper".to_string(),
             name: "Candle Whisper".to_string(),
-            description: "Local transcription via pure Rust Candle Whisper implementation".to_string(),
+            description: "Local transcription via pure Rust Candle Whisper implementation"
+                .to_string(),
             requires_network: false,
             is_local: true,
             is_available: true, // Always available when feature is enabled
@@ -205,14 +213,13 @@ impl SttPlugin for CandleWhisperPlugin {
 
     async fn initialize(&mut self, config: TranscriptionConfig) -> Result<(), ColdVoxError> {
         debug!("Initializing Candle Whisper plugin");
-        
+
         // Build engine configuration
         let init = self.build_engine_init(&config);
-        
+
         debug!(
             "Initializing WhisperEngine with model_id={}, device_preference={:?}",
-            init.model_id,
-            init.device_preference
+            init.model_id, init.device_preference
         );
 
         // Initialize the engine
@@ -259,13 +266,20 @@ impl SttPlugin for CandleWhisperPlugin {
             audio_buffer.clear();
 
             let engine = self.engine.as_mut().ok_or_else(|| {
-                ColdVoxError::Stt(SttError::TranscriptionFailed("Engine not available".to_string()))
+                ColdVoxError::Stt(SttError::TranscriptionFailed(
+                    "Engine not available".to_string(),
+                ))
             })?;
 
-            let transcript = engine.transcribe(&audio_to_process)
+            let transcript = engine
+                .transcribe(&audio_to_process)
                 .map_err(|e| ColdVoxError::Stt(SttError::TranscriptionFailed(e.to_string())))?;
 
-            let include_words = self.active_config.as_ref().map(|c| c.include_words).unwrap_or(false);
+            let include_words = self
+                .active_config
+                .as_ref()
+                .map(|c| c.include_words)
+                .unwrap_or(false);
 
             return Ok(self.convert_transcript(transcript, 0, include_words, false));
         }
@@ -288,13 +302,15 @@ impl SttPlugin for CandleWhisperPlugin {
         }
 
         // Get the engine reference
-        let engine = self.engine.as_mut()
-            .ok_or_else(|| ColdVoxError::Stt(SttError::TranscriptionFailed(
-                "Engine not available".to_string()
-            )))?;
+        let engine = self.engine.as_mut().ok_or_else(|| {
+            ColdVoxError::Stt(SttError::TranscriptionFailed(
+                "Engine not available".to_string(),
+            ))
+        })?;
 
         // Transcribe the audio
-        let transcript = engine.transcribe(&audio_buffer)
+        let transcript = engine
+            .transcribe(&audio_buffer)
             .map_err(|e| ColdVoxError::Stt(SttError::TranscriptionFailed(e.to_string())))?;
 
         // Clear the buffer for next session
@@ -379,8 +395,7 @@ impl Default for CandleWhisperPluginFactory {
 
 impl SttPluginFactory for CandleWhisperPluginFactory {
     fn create(&self) -> Result<Box<dyn SttPlugin>, ColdVoxError> {
-        let mut plugin = CandleWhisperPlugin::new()
-            .with_device_preference(self.device_preference);
+        let mut plugin = CandleWhisperPlugin::new().with_device_preference(self.device_preference);
 
         if let Some(ref path) = self.model_path {
             plugin = plugin.with_model_path(path.clone());
@@ -437,8 +452,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let path = dir.path().to_path_buf();
 
-        let factory = CandleWhisperPluginFactory::new()
-            .with_model_path(path.clone());
+        let factory = CandleWhisperPluginFactory::new().with_model_path(path.clone());
 
         assert!(factory.check_requirements().is_ok());
     }
@@ -447,8 +461,7 @@ mod tests {
     fn test_non_existent_model_path() {
         let path = std::path::PathBuf::from("/non/existent/path");
 
-        let factory = CandleWhisperPluginFactory::new()
-            .with_model_path(path);
+        let factory = CandleWhisperPluginFactory::new().with_model_path(path);
 
         assert!(factory.check_requirements().is_err());
     }
@@ -457,7 +470,7 @@ mod tests {
     fn test_plugin_info() {
         let plugin = CandleWhisperPlugin::new();
         let info = plugin.info();
-        
+
         assert_eq!(info.id, "candle-whisper");
         assert_eq!(info.name, "Candle Whisper");
         assert!(info.is_local);
@@ -469,7 +482,7 @@ mod tests {
     fn test_capabilities() {
         let plugin = CandleWhisperPlugin::new();
         let capabilities = plugin.capabilities();
-        
+
         assert!(capabilities.streaming);
         assert!(capabilities.batch);
         assert!(capabilities.word_timestamps);

@@ -52,11 +52,7 @@ pub fn mel_filters(num_mel_bins: usize) -> Result<Vec<f32>, ColdVoxError> {
 }
 
 /// Convert raw PCM samples (normalized f32) into a log-mel spectrogram.
-pub fn pcm_to_mel(
-    cfg: &WhisperAudioConfig,
-    samples: &[f32],
-    filters: &[f32],
-) -> Vec<f32> {
+pub fn pcm_to_mel(cfg: &WhisperAudioConfig, samples: &[f32], filters: &[f32]) -> Vec<f32> {
     log_mel_spectrogram(
         samples,
         filters,
@@ -113,8 +109,7 @@ fn fft(inp: &[f32]) -> Vec<f32> {
         out[2 * k + 1] = even_fft[2 * k + 1] + re * im_odd + im * re_odd;
 
         out[2 * (k + n / 2)] = even_fft[2 * k] - re * re_odd + im * im_odd;
-        out[2 * (k + n / 2) + 1] =
-            even_fft[2 * k + 1] - re * im_odd - im * re_odd;
+        out[2 * (k + n / 2) + 1] = even_fft[2 * k + 1] - re * im_odd - im * re_odd;
     }
     out
 }
@@ -183,8 +178,7 @@ fn log_mel_spectrogram_worker(
         let mut fft_out = fft(&fft_in);
 
         for j in 0..fft_size {
-            fft_out[j] = fft_out[2 * j] * fft_out[2 * j]
-                + fft_out[2 * j + 1] * fft_out[2 * j + 1];
+            fft_out[j] = fft_out[2 * j] * fft_out[2 * j] + fft_out[2 * j + 1] * fft_out[2 * j + 1];
         }
         for j in 1..fft_size / 2 {
             let v = fft_out[fft_size - j];
@@ -193,8 +187,7 @@ fn log_mel_spectrogram_worker(
 
         if speed_up {
             for j in 0..n_fft {
-                fft_out[j] =
-                    0.5 * (fft_out[2 * j] + fft_out[2 * j + 1]);
+                fft_out[j] = 0.5 * (fft_out[2 * j] + fft_out[2 * j + 1]);
             }
         }
 
@@ -264,16 +257,8 @@ fn log_mel_spectrogram(
                 let filters = Arc::clone(&filters);
                 scope.spawn(move || {
                     log_mel_spectrogram_worker(
-                        thread_id,
-                        &hann,
-                        &samples,
-                        &filters,
-                        fft_size,
-                        fft_step,
-                        speed_up,
-                        n_len,
-                        n_mel,
-                        n_threads,
+                        thread_id, &hann, &samples, &filters, fft_size, fft_step, speed_up, n_len,
+                        n_mel, n_threads,
                     )
                 })
             })
@@ -295,10 +280,7 @@ fn log_mel_spectrogram(
         }
     }
 
-    let mut mmax = mel
-        .iter()
-        .copied()
-        .fold(f32::NEG_INFINITY, f32::max);
+    let mut mmax = mel.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     if mmax.is_finite() {
         mmax -= 8.0;
     } else {

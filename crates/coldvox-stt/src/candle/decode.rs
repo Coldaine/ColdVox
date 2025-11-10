@@ -44,7 +44,10 @@ pub struct Decoder {
 
 impl Decoder {
     pub fn new(tokenizer: Tokenizer, settings: DecoderSettings) -> Self {
-        Self { tokenizer, settings }
+        Self {
+            tokenizer,
+            settings,
+        }
     }
 
     pub fn tokenizer(&self) -> &Tokenizer {
@@ -104,12 +107,7 @@ mod tests {
         let decoder = Decoder::new(tokenizer, DecoderSettings::default());
         let transcript = decoder.decode_tokens(&[1, 2, 3]).unwrap();
         assert_eq!(transcript.segments.len(), 1);
-        assert!(
-            transcript.segments[0]
-                .text
-                .to_lowercase()
-                .contains("hello")
-        );
+        assert!(transcript.segments[0].text.to_lowercase().contains("hello"));
     }
 
     #[test]
@@ -120,9 +118,7 @@ mod tests {
         let decoder = Decoder::new(tokenizer, settings);
         let transcript = decoder.decode_tokens(&[1, 2, 3]).unwrap();
         assert!(
-            !transcript.segments[0]
-                .text
-                .contains(","),
+            !transcript.segments[0].text.contains(","),
             "Suppressed commas should be absent"
         );
     }

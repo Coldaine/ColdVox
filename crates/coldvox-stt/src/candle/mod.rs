@@ -5,14 +5,16 @@
 //! GPU acceleration support, and comprehensive audio processing capabilities.
 
 pub mod audio;
-pub mod loader;
 pub mod decode;
-pub mod types;
-pub mod timestamps;
-pub mod model;
-pub mod engine;
 pub mod decoder;
+pub mod engine;
+pub mod loader;
+pub mod model;
+pub mod timestamps;
+pub mod types;
 
 // Re-export the main components for public use
-pub use engine::{WhisperEngine, WhisperEngineInit, DevicePreference, DeviceInfo, WhisperEngineError};
-pub use types::{Segment, WordTiming, Transcript};
+pub use engine::{
+    DeviceInfo, DevicePreference, WhisperEngine, WhisperEngineError, WhisperEngineInit,
+};
+pub use types::{Segment, Transcript, WordTiming};

@@ -11,12 +11,12 @@ use tokenizers::Tokenizer;
 use coldvox_foundation::error::ColdVoxError;
 use coldvox_foundation::error::SttError;
 
-use super::audio::{pcm_to_mel, WhisperAudioConfig, mel_filters};
-use super::model::WhisperComponents;
-use super::types::Transcript;
+use super::audio::{mel_filters, pcm_to_mel, WhisperAudioConfig};
 use super::decode::Decoder as TokenDecoder;
 use super::decode::DecoderSettings;
+use super::model::WhisperComponents;
 use super::timestamps::{segments_from_tokens, WHISPER_TIMESTAMP_THRESHOLD};
+use super::types::Transcript;
 
 /// Configuration for the decoder pipeline
 #[derive(Debug, Clone)]
@@ -64,19 +64,19 @@ impl Default for DecoderConfig {
             generate_timestamps: false,
             sample_rate: 16000,
             special_tokens: SpecialTokens {
-                eos_token: 50256, // <|endoftext|>
-                sot_token: 50257, // <|startoftranscript|>
-                pad_token: 50273, // <pad>
-                unk_token: 0,     // <unk>
-                prev_token: 50300, // <|prev|>
-                translate_token: 50358, // <|translate|>
+                eos_token: 50256,        // <|endoftext|>
+                sot_token: 50257,        // <|startoftranscript|>
+                pad_token: 50273,        // <pad>
+                unk_token: 0,            // <unk>
+                prev_token: 50300,       // <|prev|>
+                translate_token: 50358,  // <|translate|>
                 transcribe_token: 50359, // <|transcribe|>
             },
             whisper_suppression: WhisperSuppression {
                 language_tokens: true,
                 no_timestamps: true,
                 timestamp_begin: 50360, // <|time_.*|>
-            }
+            },
         }
     }
 }
@@ -101,7 +101,7 @@ impl Decoder {
         config: DecoderConfig,
     ) -> Result<Self, ColdVoxError> {
         let vocab_size = components.config.vocab_size;
-        
+
         let token_decoder = TokenDecoder::new(
             components.tokenizer.clone(),
             DecoderSettings {
@@ -116,11 +116,8 @@ impl Decoder {
         };
 
         // Initialize suppression tensor
-        let suppress_tokens_tensor = Self::create_suppress_tokens_tensor(
-            &device,
-            vocab_size,
-            &config,
-        )?;
+        let suppress_tokens_tensor =
+            Self::create_suppress_tokens_tensor(&device, vocab_size, &config)?;
 
         Ok(Self {
             components,
@@ -140,7 +137,7 @@ impl Decoder {
         config: &DecoderConfig,
     ) -> Result<Option<Tensor>, ColdVoxError> {
         let mut suppress_mask = vec![0.0f32; vocab_size];
-        
+
         // Add explicitly configured suppress tokens
         for &token_id in &config.suppress_tokens {
             if (token_id as usize) < vocab_size {
@@ -152,8 +149,9 @@ impl Decoder {
         if config.whisper_suppression.no_timestamps {
             for i in 0..vocab_size {
                 // Suppress timestamp tokens (50360-50399 range)
-                if i >= config.whisper_suppression.timestamp_begin as usize && 
-                   i < config.whisper_suppression.timestamp_begin as usize + 40 {
+                if i >= config.whisper_suppression.timestamp_begin as usize
+                    && i < config.whisper_suppression.timestamp_begin as usize + 40
+                {
                     suppress_mask[i] = f32::NEG_INFINITY;
                 }
             }
@@ -163,7 +161,8 @@ impl Decoder {
             // Suppress common language detection tokens for simplicity
             for i in 0..vocab_size {
                 // This is a simplified approach - in practice, you'd have a specific list
-                if i > 50399 && i < 50400 { // Language token range
+                if i > 50399 && i < 50400 {
+                    // Language token range
                     suppress_mask[i] = f32::NEG_INFINITY;
                 }
             }
@@ -183,7 +182,7 @@ impl Decoder {
     /// Decode audio samples into a transcript using advanced decoding
     pub fn decode(&mut self, audio_samples: &[f32]) -> Result<Transcript, ColdVoxError> {
         let _span = tracing::debug_span!("whisper_decode").entered();
-        
+
         tracing::info!(
             "Starting decode with temperature={}, max_tokens={}, suppress_count={}",
             self.config.temperature,
@@ -194,58 +193,67 @@ impl Decoder {
         // Preprocess audio to mel spectrogram
         let filters = mel_filters(self.audio_config.num_mel_bins)
             .map_err(|e| ColdVoxError::Stt(SttError::InvalidConfig(e.to_string())))?;
-        
+
         let mel_spectrogram = pcm_to_mel(&self.audio_config, audio_samples, &filters);
-        
+
         // Convert to tensor and add batch dimension
         let mel_tensor = Tensor::from_slice(
             &mel_spectrogram,
-            (1, self.audio_config.num_mel_bins, mel_spectrogram.len() / self.audio_config.num_mel_bins),
-            &self.device
-        ).map_err(|e| ColdVoxError::Stt(SttError::TranscriptionFailed(e.to_string())))?;
-        
+            (
+                1,
+                self.audio_config.num_mel_bins,
+                mel_spectrogram.len() / self.audio_config.num_mel_bins,
+            ),
+            &self.device,
+        )
+        .map_err(|e| ColdVoxError::Stt(SttError::TranscriptionFailed(e.to_string())))?;
+
         // Get encoder context
         let encoder_context = self.encode(&mel_tensor)?;
-        
+
         // Run advanced decoding with temperature and token suppression
         let tokens = self.advanced_decode(&encoder_context)?;
-        
+
         // Convert tokens to transcript with optional timestamp extraction
         let transcript = if self.config.generate_timestamps {
             self.decode_tokens_with_enhanced_timestamps(&tokens)?
         } else {
-            self.token_decoder.decode_tokens(&tokens)
+            self.token_decoder
+                .decode_tokens(&tokens)
                 .map_err(|e| ColdVoxError::Stt(SttError::TranscriptionFailed(e.to_string())))?
         };
-        
-        tracing::info!("Decoding completed successfully, generated {} tokens", tokens.len());
+
+        tracing::info!(
+            "Decoding completed successfully, generated {} tokens",
+            tokens.len()
+        );
         Ok(transcript)
     }
 
     /// Encode mel spectrogram through the Whisper encoder
     fn encode(&mut self, mel_spectrogram: &Tensor) -> Result<Tensor, ColdVoxError> {
         let _span = tracing::debug_span!("whisper_encode").entered();
-        
+
         match &mut self.components.model {
-            super::model::WhisperModel::Normal(model) => {
-                model.encoder.forward(mel_spectrogram, true)
-                    .map_err(|e| ColdVoxError::Stt(SttError::TranscriptionFailed(e.to_string())))
-            }
-            super::model::WhisperModel::Quantized(model) => {
-                model.encoder.forward(mel_spectrogram, true)
-                    .map_err(|e| ColdVoxError::Stt(SttError::TranscriptionFailed(e.to_string())))
-            }
+            super::model::WhisperModel::Normal(model) => model
+                .encoder
+                .forward(mel_spectrogram, true)
+                .map_err(|e| ColdVoxError::Stt(SttError::TranscriptionFailed(e.to_string()))),
+            super::model::WhisperModel::Quantized(model) => model
+                .encoder
+                .forward(mel_spectrogram, true)
+                .map_err(|e| ColdVoxError::Stt(SttError::TranscriptionFailed(e.to_string()))),
         }
     }
 
     /// Advanced decoding loop with temperature and token suppression
     fn advanced_decode(&mut self, encoder_context: &Tensor) -> Result<Vec<u32>, ColdVoxError> {
         let _span = tracing::debug_span!("whisper_advanced_decode").entered();
-        
+
         let special = self.config.special_tokens.clone(); // Clone to avoid borrow conflict
         let mut tokens = vec![special.sot_token];
         let mut iteration = 0;
-        
+
         tracing::debug!(
             "Starting advanced decoding loop with temperature={}",
             self.config.temperature
@@ -254,43 +262,45 @@ impl Decoder {
         // Main decoding loop
         while iteration < self.config.max_tokens {
             iteration += 1;
-            
+
             // Create input tensor for current token sequence
-            let input_tensor = Tensor::from_slice(
-                &tokens,
-                (1, tokens.len()),
-                &self.device
-            ).map_err(|e| ColdVoxError::Stt(SttError::TranscriptionFailed(e.to_string())))?;
+            let input_tensor = Tensor::from_slice(&tokens, (1, tokens.len()), &self.device)
+                .map_err(|e| ColdVoxError::Stt(SttError::TranscriptionFailed(e.to_string())))?;
 
             // Forward pass through decoder
-            let decoder_output = self.forward_decoder(&input_tensor, encoder_context, iteration == 1)?;
-            
+            let decoder_output =
+                self.forward_decoder(&input_tensor, encoder_context, iteration == 1)?;
+
             // Get logits from final linear layer
             let logits = self.get_logits(&decoder_output)?;
-            
+
             // Apply token suppression
             let suppressed_logits = self.apply_token_suppression(&logits)?;
-            
+
             // Select next token based on temperature
             let next_token = self.select_next_token(&suppressed_logits, iteration == 1)?;
-            
+
             tracing::debug!("Iteration {}: selected token {}", iteration, next_token);
-            
+
             // Check for end conditions
             if next_token == special.eos_token {
                 tracing::debug!("EOS token reached at iteration {}", iteration);
                 break;
             }
-            
+
             // Add the new token
             tokens.push(next_token);
-            
+
             // Special handling for temperature = 0.0 (greedy decoding optimization)
             if self.config.temperature == 0.0 && tokens.len() > 1 {
                 // For greedy decoding, we can stop early if we get reasonable confidence
-                if let Some(confidence) = self.get_token_confidence(&suppressed_logits, next_token) {
+                if let Some(confidence) = self.get_token_confidence(&suppressed_logits, next_token)
+                {
                     if confidence > 0.9 && next_token != special.prev_token {
-                        tracing::debug!("High confidence reached ({:.2}), stopping early", confidence);
+                        tracing::debug!(
+                            "High confidence reached ({:.2}), stopping early",
+                            confidence
+                        );
                         break;
                     }
                 }
@@ -309,14 +319,14 @@ impl Decoder {
         flush: bool,
     ) -> Result<Tensor, ColdVoxError> {
         match &mut self.components.model {
-            super::model::WhisperModel::Normal(model) => {
-                model.decoder.forward(input, encoder_context, flush)
-                    .map_err(|e| ColdVoxError::Stt(SttError::TranscriptionFailed(e.to_string())))
-            }
-            super::model::WhisperModel::Quantized(model) => {
-                model.decoder.forward(input, encoder_context, flush)
-                    .map_err(|e| ColdVoxError::Stt(SttError::TranscriptionFailed(e.to_string())))
-            }
+            super::model::WhisperModel::Normal(model) => model
+                .decoder
+                .forward(input, encoder_context, flush)
+                .map_err(|e| ColdVoxError::Stt(SttError::TranscriptionFailed(e.to_string()))),
+            super::model::WhisperModel::Quantized(model) => model
+                .decoder
+                .forward(input, encoder_context, flush)
+                .map_err(|e| ColdVoxError::Stt(SttError::TranscriptionFailed(e.to_string()))),
         }
     }
 
@@ -327,16 +337,22 @@ impl Decoder {
         let last_token_logits = decoder_output
             .narrow(1, decoder_output.dims()[1] - 1, 1)
             .map_err(|e| ColdVoxError::Stt(SttError::TranscriptionFailed(e.to_string())))?;
-        
+
         match &self.components.model {
             super::model::WhisperModel::Normal(model) => {
-                model.decoder.final_linear(&last_token_logits.squeeze(1)
-                    .map_err(|e| ColdVoxError::Stt(SttError::TranscriptionFailed(e.to_string())))?)
+                model
+                    .decoder
+                    .final_linear(&last_token_logits.squeeze(1).map_err(|e| {
+                        ColdVoxError::Stt(SttError::TranscriptionFailed(e.to_string()))
+                    })?)
                     .map_err(|e| ColdVoxError::Stt(SttError::TranscriptionFailed(e.to_string())))
             }
             super::model::WhisperModel::Quantized(model) => {
-                model.decoder.final_linear(&last_token_logits.squeeze(1)
-                    .map_err(|e| ColdVoxError::Stt(SttError::TranscriptionFailed(e.to_string())))?)
+                model
+                    .decoder
+                    .final_linear(&last_token_logits.squeeze(1).map_err(|e| {
+                        ColdVoxError::Stt(SttError::TranscriptionFailed(e.to_string()))
+                    })?)
                     .map_err(|e| ColdVoxError::Stt(SttError::TranscriptionFailed(e.to_string())))
             }
         }
@@ -356,7 +372,11 @@ impl Decoder {
     }
 
     /// Select next token based on temperature
-    fn select_next_token(&self, logits: &Tensor, is_first_token: bool) -> Result<u32, ColdVoxError> {
+    fn select_next_token(
+        &self,
+        logits: &Tensor,
+        is_first_token: bool,
+    ) -> Result<u32, ColdVoxError> {
         let logits_vec = logits
             .to_vec1::<f32>()
             .map_err(|e| ColdVoxError::Stt(SttError::TranscriptionFailed(e.to_string())))?;
@@ -369,7 +389,7 @@ impl Decoder {
                 .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
                 .map(|(idx, _)| idx)
                 .unwrap_or(0);
-            
+
             Ok(max_idx as u32)
         } else {
             // Temperature-based sampling
@@ -378,10 +398,15 @@ impl Decoder {
     }
 
     /// Temperature-based probabilistic sampling
-    fn temperature_sample(&self, logits: &[f32], _is_first_token: bool) -> Result<u32, ColdVoxError> {
+    fn temperature_sample(
+        &self,
+        logits: &[f32],
+        _is_first_token: bool,
+    ) -> Result<u32, ColdVoxError> {
         // Apply temperature
         let temp_logits: Vec<f32> = if self.config.temperature > 0.0 {
-            logits.iter()
+            logits
+                .iter()
                 .map(|&logit| logit / self.config.temperature)
                 .collect()
         } else {
@@ -389,23 +414,20 @@ impl Decoder {
         };
 
         // Compute softmax
-        let max_logit = temp_logits.iter()
-            .fold(f32::NEG_INFINITY, |a, &b| a.max(b));
-        
+        let max_logit = temp_logits.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+
         let exp_logits: Vec<f32> = temp_logits
             .iter()
             .map(|&logit| (logit - max_logit).exp())
             .collect();
-        
+
         let sum_exp: f32 = exp_logits.iter().sum();
-        let probs: Vec<f32> = exp_logits.iter()
-            .map(|&exp| exp / sum_exp)
-            .collect();
+        let probs: Vec<f32> = exp_logits.iter().map(|&exp| exp / sum_exp).collect();
 
         // Sample from distribution
         let mut rng = rand::thread_rng();
         let random: f32 = rand::Rng::gen(&mut rng);
-        
+
         let mut cumsum = 0.0;
         for (i, &prob) in probs.iter().enumerate() {
             cumsum += prob;
@@ -413,9 +435,10 @@ impl Decoder {
                 return Ok(i as u32);
             }
         }
-        
+
         // Fallback to argmax
-        Ok(probs.iter()
+        Ok(probs
+            .iter()
             .enumerate()
             .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(idx, _)| idx as u32)
@@ -427,7 +450,8 @@ impl Decoder {
         let logits_vec = logits.to_vec1::<f32>().ok()?;
         if (token as usize) < logits_vec.len() {
             let max_logit = logits_vec.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
-            let exp_logits: Vec<f32> = logits_vec.iter()
+            let exp_logits: Vec<f32> = logits_vec
+                .iter()
                 .map(|&logit| (logit - max_logit).exp())
                 .collect();
             let sum_exp: f32 = exp_logits.iter().sum();
@@ -439,13 +463,13 @@ impl Decoder {
     }
 
     /// Update suppression configuration at runtime
-    pub fn update_suppression(&mut self, new_suppress_tokens: HashSet<u32>) -> Result<(), ColdVoxError> {
+    pub fn update_suppression(
+        &mut self,
+        new_suppress_tokens: HashSet<u32>,
+    ) -> Result<(), ColdVoxError> {
         self.config.suppress_tokens = new_suppress_tokens;
-        self.suppress_tokens_tensor = Self::create_suppress_tokens_tensor(
-            &self.device,
-            self.vocab_size,
-            &self.config,
-        )?;
+        self.suppress_tokens_tensor =
+            Self::create_suppress_tokens_tensor(&self.device, self.vocab_size, &self.config)?;
         Ok(())
     }
 
@@ -476,15 +500,15 @@ impl Decoder {
     }
 
     /// Extract timestamps from a token sequence.
-    /// 
+    ///
     /// This function provides direct access to timestamp extraction functionality
     /// without requiring full audio decoding. Useful for analyzing token sequences
     /// from other sources or for testing timestamp extraction logic.
-    /// 
+    ///
     /// # Arguments
     /// * `tokens` - Token sequence that may contain timestamp tokens
     /// * `include_validation` - Whether to perform advanced validation
-    /// 
+    ///
     /// # Returns
     /// Vector of (start_time, end_time) pairs in seconds
     pub fn extract_timestamps_from_tokens(
@@ -500,14 +524,14 @@ impl Decoder {
     }
 
     /// Get timing statistics for a token sequence.
-    /// 
+    ///
     /// This function analyzes the temporal structure of tokens and provides
     /// statistics useful for understanding the timing characteristics of
     /// the decoded content.
-    /// 
+    ///
     /// # Arguments
     /// * `tokens` - Token sequence to analyze
-    /// 
+    ///
     /// # Returns
     /// Timing statistics including duration, segment count, and gaps
     pub fn analyze_token_timing(
@@ -518,14 +542,14 @@ impl Decoder {
     }
 
     /// Get enhanced segments with confidence scores and advanced processing.
-    /// 
+    ///
     /// This method provides access to the enhanced segment processing functionality
     /// introduced in Phase 4.2, including confidence scores, token pairing, and
     /// advanced text reconstruction.
-    /// 
+    ///
     /// # Arguments
     /// * `tokens` - Token sequence from decoder
-    /// 
+    ///
     /// # Returns
     /// Enhanced segments with confidence scores and detailed processing
     pub fn get_enhanced_segments(
@@ -535,15 +559,16 @@ impl Decoder {
         super::timestamps::segments_from_tokens(
             tokens,
             &self.components.config,
-            &self.components.tokenizer
-        ).map_err(|e| ColdVoxError::Stt(SttError::TranscriptionFailed(e.to_string())))
+            &self.components.tokenizer,
+        )
+        .map_err(|e| ColdVoxError::Stt(SttError::TranscriptionFailed(e.to_string())))
     }
 
     /// Create a new segment builder for incremental construction.
-    /// 
+    ///
     /// This method provides access to the SegmentBuilder pattern for creating
     /// segments with proper validation and fallback handling.
-    /// 
+    ///
     /// # Returns
     /// A new SegmentBuilder instance
     pub fn create_segment_builder(&self) -> super::timestamps::SegmentBuilder {
@@ -551,32 +576,35 @@ impl Decoder {
     }
 
     /// Decode tokens with enhanced timestamp extraction and segment processing
-    fn decode_tokens_with_enhanced_timestamps(&self, tokens: &[u32]) -> Result<Transcript, ColdVoxError> {
+    fn decode_tokens_with_enhanced_timestamps(
+        &self,
+        tokens: &[u32],
+    ) -> Result<Transcript, ColdVoxError> {
         // Use the enhanced segments_from_tokens function with proper token processing
-        let segments = segments_from_tokens(
-            tokens,
-            &self.components.config,
-            &self.components.tokenizer
-        ).map_err(|e| ColdVoxError::Stt(SttError::TranscriptionFailed(e.to_string())))?;
-        
+        let segments =
+            segments_from_tokens(tokens, &self.components.config, &self.components.tokenizer)
+                .map_err(|e| ColdVoxError::Stt(SttError::TranscriptionFailed(e.to_string())))?;
+
         tracing::info!(
             "Enhanced decode: processed {} tokens into {} segments with confidence scores",
             tokens.len(),
             segments.len()
         );
-        
+
         // Log segment summaries for debugging
         for (i, segment) in segments.iter().enumerate() {
             tracing::debug!("Segment {}: {}", i, segment.summary());
         }
 
         // Language detection from the initial tokens
-        let language = tokens.get(1) // Typically the second token after SOT
+        let language = tokens
+            .get(1) // Typically the second token after SOT
             .and_then(|&token_id| self.components.tokenizer.id_to_token(token_id))
             .and_then(|token_str| {
                 if token_str.starts_with("<|") && token_str.ends_with("|>") && token_str.len() > 4 {
                     let lang_code = &token_str[2..token_str.len() - 2];
-                    if lang_code.len() == 2 { // Basic check for two-letter language code
+                    if lang_code.len() == 2 {
+                        // Basic check for two-letter language code
                         tracing::info!("Detected language: {}", lang_code);
                         Some(lang_code.to_string())
                     } else {
@@ -586,11 +614,8 @@ impl Decoder {
                     None
                 }
             });
-        
-        Ok(Transcript {
-            segments,
-            language,
-        })
+
+        Ok(Transcript { segments, language })
     }
 }
 
@@ -634,14 +659,14 @@ mod tests {
                 "unk_token": "<unk>"
             }
         }"#;
-        
+
         let dir = tempfile::tempdir().unwrap();
         let tokenizer_path = dir.path().join("tokenizer.json");
         std::fs::write(&tokenizer_path, tokenizer_data).unwrap();
         let tokenizer = Tokenizer::from_file(tokenizer_path).unwrap();
 
         let weights_path = PathBuf::new();
-        
+
         WhisperComponents {
             model: super::super::model::WhisperModel::Normal(
                 candle_transformers::models::whisper::model::Whisper::load(
@@ -650,7 +675,8 @@ mod tests {
                         &Device::Cpu,
                     ),
                     config.clone(),
-                ).expect("Failed to create test model")
+                )
+                .expect("Failed to create test model"),
             ),
             config,
             tokenizer,
@@ -663,7 +689,7 @@ mod tests {
         let components = make_test_components();
         let config = DecoderConfig::default();
         let device = Device::Cpu;
-        
+
         let decoder = Decoder::new(components, device, config);
         assert!(decoder.is_ok());
     }
@@ -672,7 +698,7 @@ mod tests {
     fn test_token_suppression() {
         let mut config = DecoderConfig::default();
         config.suppress_tokens.insert(2); // Suppress "world" token
-        
+
         let components = make_test_components();
         let decoder = Decoder::new(components, Device::Cpu, config);
         assert!(decoder.is_ok());
@@ -683,10 +709,10 @@ mod tests {
         let components = make_test_components();
         let config = DecoderConfig::default();
         let mut decoder = Decoder::new(components, Device::Cpu, config).unwrap();
-        
+
         decoder.update_temperature(0.5);
         assert_eq!(decoder.config().temperature, 0.5);
-        
+
         decoder.update_temperature(-1.0); // Should be clamped to 0.0
         assert_eq!(decoder.config().temperature, 0.0);
     }
@@ -696,17 +722,20 @@ mod tests {
         let components = make_test_components();
         let config = DecoderConfig::default();
         let device = Device::Cpu;
-        
+
         let decoder = Decoder::new(components, device, config).unwrap();
-        
+
         // Test token sequence with timestamp tokens
         let tokens = vec![
             WHISPER_TIMESTAMP_THRESHOLD,
-            1, 2, // "hello world"
+            1,
+            2,                                // "hello world"
             WHISPER_TIMESTAMP_THRESHOLD + 50, // 1 second later
         ];
-        
-        let timestamps = decoder.extract_timestamps_from_tokens(&tokens, false).unwrap();
+
+        let timestamps = decoder
+            .extract_timestamps_from_tokens(&tokens, false)
+            .unwrap();
         assert_eq!(timestamps.len(), 1);
         assert!((timestamps[0].0 - 0.0).abs() < 0.01); // Start at 0
         assert!((timestamps[0].1 - 1.0).abs() < 0.1); // End around 1s
@@ -717,16 +746,15 @@ mod tests {
         let components = make_test_components();
         let config = DecoderConfig::default();
         let device = Device::Cpu;
-        
+
         let decoder = Decoder::new(components, device, config).unwrap();
-        
+
         // Test with validation enabled
-        let tokens = vec![
-            WHISPER_TIMESTAMP_THRESHOLD,
-            1, 2, 3,
-        ];
-        
-        let timestamps = decoder.extract_timestamps_from_tokens(&tokens, true).unwrap();
+        let tokens = vec![WHISPER_TIMESTAMP_THRESHOLD, 1, 2, 3];
+
+        let timestamps = decoder
+            .extract_timestamps_from_tokens(&tokens, true)
+            .unwrap();
         assert!(timestamps.len() >= 0); // Should handle gracefully
     }
 
@@ -735,17 +763,19 @@ mod tests {
         let components = make_test_components();
         let config = DecoderConfig::default();
         let device = Device::Cpu;
-        
+
         let decoder = Decoder::new(components, device, config).unwrap();
-        
+
         // Test timing analysis
         let tokens = vec![
             crate::candle::timestamps::WHISPER_TIMESTAMP_THRESHOLD,
-            1, 2,
+            1,
+            2,
             crate::candle::timestamps::WHISPER_TIMESTAMP_THRESHOLD + 25, // 0.5s
-            3, 4,
+            3,
+            4,
         ];
-        
+
         let stats = decoder.analyze_token_timing(&tokens).unwrap();
         assert!(stats.has_timestamps);
         assert_eq!(stats.segment_count, 2); // Two segments: 0-0.5s and 0.5s-end
@@ -758,9 +788,9 @@ mod tests {
         let mut config = DecoderConfig::default();
         config.generate_timestamps = true;
         let device = Device::Cpu;
-        
+
         let decoder = Decoder::new(components, device, config).unwrap();
-        
+
         // Test that timestamp generation is enabled in config
         assert!(decoder.config().generate_timestamps);
     }
@@ -771,13 +801,13 @@ mod tests {
         let mut config = DecoderConfig::default();
         config.temperature = 0.0; // Greedy decoding
         let device = Device::Cpu;
-        
+
         let mut decoder = Decoder::new(components, device, config).unwrap();
-        
+
         // Test with a small audio sample
         let audio_samples = vec![0.0; 1600]; // 100ms of silence at 16kHz
         let result = decoder.decode(&audio_samples);
-        
+
         match result {
             Ok(transcript) => {
                 // Should get a transcript even from silence
@@ -796,16 +826,17 @@ mod tests {
         let components = make_test_components();
         let config = DecoderConfig::default();
         let device = Device::Cpu;
-        
+
         let decoder = Decoder::new(components, device, config).unwrap();
-        
+
         // Test enhanced segment extraction
         let tokens = vec![
             WHISPER_TIMESTAMP_THRESHOLD,
-            1, 2, // "hello world"
+            1,
+            2,                                // "hello world"
             WHISPER_TIMESTAMP_THRESHOLD + 50, // 1 second later
         ];
-        
+
         let segments = decoder.get_enhanced_segments(&tokens).unwrap();
         assert_eq!(segments.len(), 1);
         assert!(segments[0].confidence >= 0.0);
@@ -818,9 +849,9 @@ mod tests {
         let components = make_test_components();
         let config = DecoderConfig::default();
         let device = Device::Cpu;
-        
+
         let decoder = Decoder::new(components, device, config).unwrap();
-        
+
         // Test segment builder creation
         let builder = decoder.create_segment_builder();
         assert!(builder.is_empty()); // Should be empty initially (corrected expectation)
@@ -832,22 +863,25 @@ mod tests {
         let mut config = DecoderConfig::default();
         config.generate_timestamps = true; // Enable enhanced processing
         let device = Device::Cpu;
-        
+
         let mut decoder = Decoder::new(components, device, config).unwrap();
-        
+
         // Test with tokens that would produce enhanced segments
         let tokens = vec![
             WHISPER_TIMESTAMP_THRESHOLD,
-            1, 2, 3, // multiple tokens
+            1,
+            2,
+            3,                                // multiple tokens
             WHISPER_TIMESTAMP_THRESHOLD + 25, // 0.5s
-            4, 5, // more tokens
+            4,
+            5, // more tokens
         ];
-        
+
         // This would normally be called internally during decode,
         // but we can test the method directly
         let segments = decoder.get_enhanced_segments(&tokens).unwrap();
         assert!(segments.len() > 0);
-        
+
         // Verify segments have enhanced features
         for segment in &segments {
             assert!(segment.start >= 0.0);
