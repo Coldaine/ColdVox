@@ -246,8 +246,8 @@ impl SttPlugin for WhisperPlugin {
     fn info(&self) -> PluginInfo {
         PluginInfo {
             id: "whisper".to_string(),
-            name: "Faster Whisper".to_string(),
-            description: "Local transcription via faster-whisper".to_string(),
+            name: "Candle Whisper".to_string(),
+            description: "Local transcription via Candle Whisper".to_string(),
             requires_network: false,
             is_local: true,
             is_available: check_whisper_available(),
@@ -722,7 +722,7 @@ impl SttPluginFactory for WhisperPluginFactory {
         if !check_whisper_available() {
             return Err(SttError::NotAvailable {
                 plugin: "whisper".to_string(),
-                reason: "The faster-whisper Python module is not available. Install the `faster-whisper` package.".to_string(),
+                reason: "The Candle Whisper implementation is not available.".to_string(),
             }
             .into());
         }
