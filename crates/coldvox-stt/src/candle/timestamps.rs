@@ -250,4 +250,113 @@ mod tests {
         assert_eq!(segments[2].start, Some(3.0)); // Filled in missing start
         assert_eq!(segments[2].end, Some(4.0));
     }
+
+    #[test]
+    fn test_token_to_seconds_range() {
+        // Test various timestamp tokens
+        assert_eq!(token_to_seconds(50364), Some(0.0));
+        assert_eq!(token_to_seconds(50414), Some(1.0)); // 50 tokens = 1 second
+        assert_eq!(token_to_seconds(50464), Some(2.0)); // 100 tokens = 2 seconds
+        assert_eq!(token_to_seconds(51364), Some(20.0)); // 1000 tokens = 20 seconds
+    }
+
+    #[test]
+    fn test_apply_timestamp_rules_single_segment() {
+        let mut segments = vec![DecodedSegment {
+            tokens: vec![],
+            start: Some(0.0),
+            end: Some(2.5),
+        }];
+
+        apply_timestamp_rules(&mut segments);
+
+        assert_eq!(segments[0].start, Some(0.0));
+        assert_eq!(segments[0].end, Some(2.5));
+    }
+
+    #[test]
+    fn test_apply_timestamp_rules_inverted_times() {
+        let mut segments = vec![DecodedSegment {
+            tokens: vec![],
+            start: Some(3.0),
+            end: Some(2.0), // End before start
+        }];
+
+        apply_timestamp_rules(&mut segments);
+
+        // Should fix inverted times
+        assert_eq!(segments[0].start, Some(3.0));
+        assert!(segments[0].end.unwrap() > 3.0);
+    }
+
+    #[test]
+    fn test_apply_timestamp_rules_equal_times() {
+        let mut segments = vec![DecodedSegment {
+            tokens: vec![],
+            start: Some(2.0),
+            end: Some(2.0), // Equal times
+        }];
+
+        apply_timestamp_rules(&mut segments);
+
+        // Should add small duration
+        assert_eq!(segments[0].start, Some(2.0));
+        assert_eq!(segments[0].end, Some(2.1));
+    }
+
+    #[test]
+    fn test_apply_timestamp_rules_all_missing() {
+        let mut segments = vec![
+            DecodedSegment {
+                tokens: vec![],
+                start: None,
+                end: None,
+            },
+            DecodedSegment {
+                tokens: vec![],
+                start: None,
+                end: None,
+            },
+        ];
+
+        apply_timestamp_rules(&mut segments);
+
+        // Should fill in reasonable defaults
+        assert!(segments[0].start.is_some());
+        assert!(segments[0].end.is_some());
+        assert!(segments[1].start.is_some());
+        assert!(segments[1].end.is_some());
+
+        // Second segment should start after first
+        assert!(segments[1].start.unwrap() >= segments[0].end.unwrap());
+    }
+
+    #[test]
+    fn test_extract_segments_empty() {
+        let tokens: Vec<u32> = vec![];
+        let tokenizer = create_dummy_tokenizer();
+        let logprobs: Vec<f64> = vec![];
+        let no_speech_probs: Vec<f64> = vec![];
+
+        let segments = extract_segments(&tokens, &tokenizer, &logprobs, &no_speech_probs);
+
+        assert_eq!(segments.len(), 0);
+    }
+
+    // Helper to create a dummy tokenizer for testing
+    fn create_dummy_tokenizer() -> tokenizers::Tokenizer {
+        use tokenizers::models::bpe::BPE;
+
+        let bpe = BPE::default();
+        tokenizers::Tokenizer::new(bpe)
+    }
+
+    #[test]
+    fn test_is_timestamp_token_boundary() {
+        // Test boundary values
+        assert!(!is_timestamp_token(50363));
+        assert!(is_timestamp_token(50364));
+        assert!(is_timestamp_token(50365));
+        assert!(is_timestamp_token(u32::MAX));
+    }
 }

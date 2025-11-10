@@ -213,6 +213,23 @@ mod tests {
     }
 
     #[test]
+    fn test_hz_mel_conversion_zero() {
+        let hz = 0.0;
+        let mel = hz_to_mel(hz);
+        assert_eq!(mel, 0.0);
+        let hz_back = mel_to_hz(mel);
+        assert!((hz - hz_back).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_hz_mel_conversion_nyquist() {
+        let hz = 8000.0; // Nyquist for 16kHz
+        let mel = hz_to_mel(hz);
+        let hz_back = mel_to_hz(mel);
+        assert!((hz - hz_back).abs() < 0.1);
+    }
+
+    #[test]
     fn test_pcm16_to_f32() {
         let pcm16 = vec![0i16, i16::MAX, i16::MIN];
         let pcm_f32 = pcm16_to_f32(&pcm16);
@@ -221,5 +238,77 @@ mod tests {
         assert!((pcm_f32[0] - 0.0).abs() < 1e-6);
         assert!((pcm_f32[1] - 1.0).abs() < 0.01);
         assert!((pcm_f32[2] + 1.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_pcm16_to_f32_range() {
+        let pcm16 = vec![16384, -16384, 8192, -8192]; // Various levels
+        let pcm_f32 = pcm16_to_f32(&pcm16);
+
+        assert_eq!(pcm_f32.len(), 4);
+        // All values should be in [-1, 1] range
+        for &val in &pcm_f32 {
+            assert!(val >= -1.0 && val <= 1.0, "Value {} out of range", val);
+        }
+    }
+
+    #[test]
+    fn test_pcm16_to_f32_empty() {
+        let pcm16: Vec<i16> = vec![];
+        let pcm_f32 = pcm16_to_f32(&pcm16);
+        assert_eq!(pcm_f32.len(), 0);
+    }
+
+    #[test]
+    fn test_constants() {
+        // Verify Whisper audio constants match expected values
+        assert_eq!(SAMPLE_RATE, 16000);
+        assert_eq!(N_FFT, 400);
+        assert_eq!(N_MELS, 80);
+        assert_eq!(HOP_LENGTH, 160);
+        assert_eq!(CHUNK_LENGTH, 30);
+        assert_eq!(N_SAMPLES, 480000); // 30 * 16000
+    }
+
+    #[test]
+    fn test_hann_window_cpu() {
+        let device = Device::Cpu;
+        let window = hann_window(128, &device).expect("Failed to create Hann window");
+
+        // Check shape
+        assert_eq!(window.dims(), &[128]);
+
+        // Get values and verify properties
+        let values = window.to_vec1::<f32>().expect("Failed to convert to vec");
+
+        // Hann window should start and end at 0
+        assert!((values[0] - 0.0).abs() < 1e-6);
+        assert!((values[127] - 0.0).abs() < 1e-6);
+
+        // Peak should be near the middle
+        let max_val = values.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
+        assert!(max_val > 0.9 && max_val <= 1.0);
+    }
+
+    #[test]
+    fn test_compute_mel_filterbank_cpu() {
+        let device = Device::Cpu;
+        let filterbank = compute_mel_filterbank(&device).expect("Failed to create mel filterbank");
+
+        // Check shape: (N_MELS, N_FFT/2+1)
+        assert_eq!(filterbank.dims(), &[N_MELS, N_FFT / 2 + 1]);
+
+        // Get values and verify they're non-negative
+        let values = filterbank.flatten_all().expect("Failed to flatten")
+            .to_vec1::<f32>().expect("Failed to convert to vec");
+
+        // All filterbank values should be non-negative
+        for (i, &val) in values.iter().enumerate() {
+            assert!(val >= 0.0, "Negative filterbank value at index {}: {}", i, val);
+        }
+
+        // At least some values should be non-zero
+        let non_zero_count = values.iter().filter(|&&v| v > 1e-6).count();
+        assert!(non_zero_count > 0, "Mel filterbank is all zeros");
     }
 }

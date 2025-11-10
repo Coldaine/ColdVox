@@ -103,3 +103,160 @@ impl Transcript {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_whisper_task_equality() {
+        assert_eq!(WhisperTask::Transcribe, WhisperTask::Transcribe);
+        assert_eq!(WhisperTask::Translate, WhisperTask::Translate);
+        assert_ne!(WhisperTask::Transcribe, WhisperTask::Translate);
+    }
+
+    #[test]
+    fn test_transcribe_options_default() {
+        let opts = TranscribeOptions::default();
+        assert_eq!(opts.language, None);
+        assert_eq!(opts.task, WhisperTask::Transcribe);
+        assert_eq!(opts.temperature, 0.0);
+        assert!(opts.enable_timestamps);
+    }
+
+    #[test]
+    fn test_transcribe_options_custom() {
+        let opts = TranscribeOptions {
+            language: Some("es".to_string()),
+            task: WhisperTask::Translate,
+            temperature: 0.8,
+            enable_timestamps: false,
+        };
+
+        assert_eq!(opts.language.as_deref(), Some("es"));
+        assert_eq!(opts.task, WhisperTask::Translate);
+        assert_eq!(opts.temperature, 0.8);
+        assert!(!opts.enable_timestamps);
+    }
+
+    #[test]
+    fn test_segment_creation() {
+        let segment = Segment {
+            start_seconds: 0.0,
+            end_seconds: 2.5,
+            text: "Hello world".to_string(),
+            avg_logprob: -0.5,
+            no_speech_prob: 0.01,
+        };
+
+        assert_eq!(segment.start_seconds, 0.0);
+        assert_eq!(segment.end_seconds, 2.5);
+        assert_eq!(segment.text, "Hello world");
+        assert_eq!(segment.avg_logprob, -0.5);
+        assert_eq!(segment.no_speech_prob, 0.01);
+    }
+
+    #[test]
+    fn test_transcript_single_segment() {
+        let segments = vec![Segment {
+            start_seconds: 0.0,
+            end_seconds: 2.5,
+            text: "Hello world".to_string(),
+            avg_logprob: -0.5,
+            no_speech_prob: 0.01,
+        }];
+
+        let transcript = Transcript::new(segments, Some("en".to_string()));
+
+        assert_eq!(transcript.text, "Hello world");
+        assert_eq!(transcript.language.as_deref(), Some("en"));
+        assert_eq!(transcript.segments.len(), 1);
+    }
+
+    #[test]
+    fn test_transcript_multiple_segments() {
+        let segments = vec![
+            Segment {
+                start_seconds: 0.0,
+                end_seconds: 2.5,
+                text: "Hello world".to_string(),
+                avg_logprob: -0.5,
+                no_speech_prob: 0.01,
+            },
+            Segment {
+                start_seconds: 2.5,
+                end_seconds: 5.0,
+                text: "How are you".to_string(),
+                avg_logprob: -0.3,
+                no_speech_prob: 0.02,
+            },
+        ];
+
+        let transcript = Transcript::new(segments, Some("en".to_string()));
+
+        assert_eq!(transcript.text, "Hello world How are you");
+        assert_eq!(transcript.segments.len(), 2);
+    }
+
+    #[test]
+    fn test_transcript_trimming() {
+        let segments = vec![
+            Segment {
+                start_seconds: 0.0,
+                end_seconds: 2.5,
+                text: "  Hello  ".to_string(),
+                avg_logprob: -0.5,
+                no_speech_prob: 0.01,
+            },
+            Segment {
+                start_seconds: 2.5,
+                end_seconds: 5.0,
+                text: "  world  ".to_string(),
+                avg_logprob: -0.3,
+                no_speech_prob: 0.02,
+            },
+        ];
+
+        let transcript = Transcript::new(segments, None);
+
+        assert_eq!(transcript.text, "Hello world");
+    }
+
+    #[test]
+    fn test_transcript_empty_segments() {
+        let segments = vec![];
+        let transcript = Transcript::new(segments, None);
+
+        assert_eq!(transcript.text, "");
+        assert_eq!(transcript.language, None);
+        assert_eq!(transcript.segments.len(), 0);
+    }
+
+    #[test]
+    fn test_whisper_device_clone() {
+        let cpu = WhisperDevice::Cpu;
+        let cpu2 = cpu.clone();
+
+        let cuda = WhisperDevice::Cuda(0);
+        let cuda2 = cuda.clone();
+
+        // Just verify cloning works
+        drop(cpu2);
+        drop(cuda2);
+    }
+
+    #[test]
+    fn test_whisper_engine_init_clone() {
+        let init = WhisperEngineInit {
+            model_path: PathBuf::from("/path/to/model"),
+            tokenizer_path: PathBuf::from("/path/to/tokenizer"),
+            config_path: PathBuf::from("/path/to/config"),
+            quantized: false,
+            device: WhisperDevice::Cpu,
+        };
+
+        let init2 = init.clone();
+        assert_eq!(init.model_path, init2.model_path);
+        assert_eq!(init.quantized, init2.quantized);
+    }
+}
