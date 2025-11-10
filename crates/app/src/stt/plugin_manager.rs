@@ -566,11 +566,11 @@ impl SttPluginManager {
             registry.register(Box::new(MockPluginFactory::default()));
         }
 
-        // Register Faster-Whisper plugin when the whisper feature is enabled.
+        // Register Candle-based Whisper plugin when the whisper feature is enabled.
         #[cfg(feature = "whisper")]
         {
-            use coldvox_stt::plugins::whisper_plugin::WhisperPluginFactory;
-            registry.register(Box::new(WhisperPluginFactory::new()));
+            use coldvox_stt::plugins::whisper_candle::WhisperCandlePluginFactory;
+            registry.register(Box::new(WhisperCandlePluginFactory::new()));
         }
 
         // Register Parakeet plugin if the parakeet feature is enabled
@@ -1509,7 +1509,7 @@ mod tests {
     #[cfg(all(test, feature = "whisper"))]
     #[tokio::test]
     async fn test_whisper_plugin_transcribes_when_model_available() {
-        use coldvox_stt::plugins::whisper_plugin::WhisperPluginFactory;
+        use coldvox_stt::plugins::whisper_candle::WhisperCandlePluginFactory;
         use hound::WavReader;
 
         let Some(model_path) = resolved_test_whisper_model() else {
