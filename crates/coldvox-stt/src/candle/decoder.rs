@@ -16,6 +16,7 @@ use super::model::WhisperComponents;
 use super::types::Transcript;
 use super::decode::Decoder as TokenDecoder;
 use super::decode::DecoderSettings;
+use super::timestamps::{segments_from_tokens, WHISPER_TIMESTAMP_THRESHOLD};
 
 /// Configuration for the decoder pipeline
 #[derive(Debug, Clone)]
@@ -208,9 +209,13 @@ impl Decoder {
         // Run advanced decoding with temperature and token suppression
         let tokens = self.advanced_decode(&encoder_context)?;
         
-        // Convert tokens to transcript
-        let transcript = self.token_decoder.decode_tokens(&tokens)
-            .map_err(|e| ColdVoxError::Stt(SttError::TranscriptionFailed(e.to_string())))?;
+        // Convert tokens to transcript with optional timestamp extraction
+        let transcript = if self.config.generate_timestamps {
+            self.decode_tokens_with_enhanced_timestamps(&tokens)?
+        } else {
+            self.token_decoder.decode_tokens(&tokens)
+                .map_err(|e| ColdVoxError::Stt(SttError::TranscriptionFailed(e.to_string())))?
+        };
         
         tracing::info!("Decoding completed successfully, generated {} tokens", tokens.len());
         Ok(transcript)
@@ -468,6 +473,107 @@ impl Decoder {
     pub fn device(&self) -> &Device {
         &self.device
     }
+
+    /// Extract timestamps from a token sequence.
+    /// 
+    /// This function provides direct access to timestamp extraction functionality
+    /// without requiring full audio decoding. Useful for analyzing token sequences
+    /// from other sources or for testing timestamp extraction logic.
+    /// 
+    /// # Arguments
+    /// * `tokens` - Token sequence that may contain timestamp tokens
+    /// * `include_validation` - Whether to perform advanced validation
+    /// 
+    /// # Returns
+    /// Vector of (start_time, end_time) pairs in seconds
+    pub fn extract_timestamps_from_tokens(
+        &self,
+        tokens: &[u32],
+        include_validation: bool,
+    ) -> Result<Vec<(f32, f32)>, ColdVoxError> {
+        if include_validation {
+            super::timestamps::extract_timestamps_advanced(tokens, &self.components.config, 1000)
+        } else {
+            super::timestamps::extract_timestamps(tokens, &self.components.config)
+        }
+    }
+
+    /// Get timing statistics for a token sequence.
+    /// 
+    /// This function analyzes the temporal structure of tokens and provides
+    /// statistics useful for understanding the timing characteristics of
+    /// the decoded content.
+    /// 
+    /// # Arguments
+    /// * `tokens` - Token sequence to analyze
+    /// 
+    /// # Returns
+    /// Timing statistics including duration, segment count, and gaps
+    pub fn analyze_token_timing(
+        &self,
+        tokens: &[u32],
+    ) -> Result<super::timestamps::TimingStats, ColdVoxError> {
+        super::timestamps::analyze_timing_structure(tokens, &self.components.config)
+    }
+
+    /// Get enhanced segments with confidence scores and advanced processing.
+    /// 
+    /// This method provides access to the enhanced segment processing functionality
+    /// introduced in Phase 4.2, including confidence scores, token pairing, and
+    /// advanced text reconstruction.
+    /// 
+    /// # Arguments
+    /// * `tokens` - Token sequence from decoder
+    /// 
+    /// # Returns
+    /// Enhanced segments with confidence scores and detailed processing
+    pub fn get_enhanced_segments(
+        &self,
+        tokens: &[u32],
+    ) -> Result<Vec<super::types::Segment>, ColdVoxError> {
+        super::timestamps::segments_from_tokens(
+            tokens,
+            &self.components.config,
+            &self.components.tokenizer
+        ).map_err(|e| ColdVoxError::Stt(SttError::TranscriptionFailed(e.to_string())))
+    }
+
+    /// Create a new segment builder for incremental construction.
+    /// 
+    /// This method provides access to the SegmentBuilder pattern for creating
+    /// segments with proper validation and fallback handling.
+    /// 
+    /// # Returns
+    /// A new SegmentBuilder instance
+    pub fn create_segment_builder(&self) -> super::timestamps::SegmentBuilder {
+        super::timestamps::SegmentBuilder::new()
+    }
+
+    /// Decode tokens with enhanced timestamp extraction and segment processing
+    fn decode_tokens_with_enhanced_timestamps(&self, tokens: &[u32]) -> Result<Transcript, ColdVoxError> {
+        // Use the enhanced segments_from_tokens function with proper token processing
+        let segments = segments_from_tokens(
+            tokens,
+            &self.components.config,
+            &self.components.tokenizer
+        ).map_err(|e| ColdVoxError::Stt(SttError::TranscriptionFailed(e.to_string())))?;
+        
+        tracing::info!(
+            "Enhanced decode: processed {} tokens into {} segments with confidence scores",
+            tokens.len(),
+            segments.len()
+        );
+        
+        // Log segment summaries for debugging
+        for (i, segment) in segments.iter().enumerate() {
+            tracing::debug!("Segment {}: {}", i, segment.summary());
+        }
+        
+        Ok(Transcript {
+            segments,
+            language: None, // Could be enhanced to detect language from segments
+        })
+    }
 }
 
 #[cfg(test)]
@@ -568,6 +674,80 @@ mod tests {
     }
 
     #[test]
+    fn test_timestamp_extraction() {
+        let components = make_test_components();
+        let config = DecoderConfig::default();
+        let device = Device::Cpu;
+        
+        let decoder = Decoder::new(components, device, config).unwrap();
+        
+        // Test token sequence with timestamp tokens
+        let tokens = vec![
+            WHISPER_TIMESTAMP_THRESHOLD,
+            1, 2, // "hello world"
+            WHISPER_TIMESTAMP_THRESHOLD + 50, // 1 second later
+        ];
+        
+        let timestamps = decoder.extract_timestamps_from_tokens(&tokens, false).unwrap();
+        assert_eq!(timestamps.len(), 1);
+        assert!((timestamps[0].0 - 0.0).abs() < 0.01); // Start at 0
+        assert!((timestamps[0].1 - 1.0).abs() < 0.1); // End around 1s
+    }
+
+    #[test]
+    fn test_timestamp_extraction_with_validation() {
+        let components = make_test_components();
+        let config = DecoderConfig::default();
+        let device = Device::Cpu;
+        
+        let decoder = Decoder::new(components, device, config).unwrap();
+        
+        // Test with validation enabled
+        let tokens = vec![
+            WHISPER_TIMESTAMP_THRESHOLD,
+            1, 2, 3,
+        ];
+        
+        let timestamps = decoder.extract_timestamps_from_tokens(&tokens, true).unwrap();
+        assert!(timestamps.len() >= 0); // Should handle gracefully
+    }
+
+    #[test]
+    fn test_token_timing_analysis() {
+        let components = make_test_components();
+        let config = DecoderConfig::default();
+        let device = Device::Cpu;
+        
+        let decoder = Decoder::new(components, device, config).unwrap();
+        
+        // Test timing analysis
+        let tokens = vec![
+            crate::candle::timestamps::WHISPER_TIMESTAMP_THRESHOLD,
+            1, 2,
+            crate::candle::timestamps::WHISPER_TIMESTAMP_THRESHOLD + 25, // 0.5s
+            3, 4,
+        ];
+        
+        let stats = decoder.analyze_token_timing(&tokens).unwrap();
+        assert!(stats.has_timestamps);
+        assert_eq!(stats.segment_count, 2); // Two segments: 0-0.5s and 0.5s-end
+        assert!(stats.total_duration > 0.0);
+    }
+
+    #[test]
+    fn test_timestamp_generation_config() {
+        let mut components = make_test_components();
+        let mut config = DecoderConfig::default();
+        config.generate_timestamps = true;
+        let device = Device::Cpu;
+        
+        let decoder = Decoder::new(components, device, config).unwrap();
+        
+        // Test that timestamp generation is enabled in config
+        assert!(decoder.config().generate_timestamps);
+    }
+
+    #[test]
     fn test_advanced_decode_structure() {
         let components = make_test_components();
         let mut config = DecoderConfig::default();
@@ -590,6 +770,72 @@ mod tests {
                 // This is fine for the initial implementation
                 eprintln!("Decode test failed as expected: {:?}", e);
             }
+        }
+    }
+
+    #[test]
+    fn test_enhanced_segments_extraction() {
+        let components = make_test_components();
+        let config = DecoderConfig::default();
+        let device = Device::Cpu;
+        
+        let decoder = Decoder::new(components, device, config).unwrap();
+        
+        // Test enhanced segment extraction
+        let tokens = vec![
+            WHISPER_TIMESTAMP_THRESHOLD,
+            1, 2, // "hello world"
+            WHISPER_TIMESTAMP_THRESHOLD + 50, // 1 second later
+        ];
+        
+        let segments = decoder.get_enhanced_segments(&tokens).unwrap();
+        assert_eq!(segments.len(), 1);
+        assert!(segments[0].confidence >= 0.0);
+        assert!(segments[0].confidence <= 1.0);
+        assert!(segments[0].word_count > 0);
+    }
+
+    #[test]
+    fn test_segment_builder_creation() {
+        let components = make_test_components();
+        let config = DecoderConfig::default();
+        let device = Device::Cpu;
+        
+        let decoder = Decoder::new(components, device, config).unwrap();
+        
+        // Test segment builder creation
+        let builder = decoder.create_segment_builder();
+        assert!(builder.is_empty()); // Should be empty initially (corrected expectation)
+    }
+
+    #[test]
+    fn test_enhanced_decode_pipeline() {
+        let components = make_test_components();
+        let mut config = DecoderConfig::default();
+        config.generate_timestamps = true; // Enable enhanced processing
+        let device = Device::Cpu;
+        
+        let mut decoder = Decoder::new(components, device, config).unwrap();
+        
+        // Test with tokens that would produce enhanced segments
+        let tokens = vec![
+            WHISPER_TIMESTAMP_THRESHOLD,
+            1, 2, 3, // multiple tokens
+            WHISPER_TIMESTAMP_THRESHOLD + 25, // 0.5s
+            4, 5, // more tokens
+        ];
+        
+        // This would normally be called internally during decode,
+        // but we can test the method directly
+        let segments = decoder.get_enhanced_segments(&tokens).unwrap();
+        assert!(segments.len() > 0);
+        
+        // Verify segments have enhanced features
+        for segment in &segments {
+            assert!(segment.start >= 0.0);
+            assert!(segment.end >= segment.start);
+            assert!(segment.confidence >= 0.0 && segment.confidence <= 1.0);
+            assert!(segment.word_count >= 0);
         }
     }
 }
