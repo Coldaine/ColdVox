@@ -6,6 +6,7 @@
 
 use crate::confirm::{text_changed, ConfirmationResult};
 use crate::injectors::atspi::AtspiInjector;
+use crate::injectors::unified_clipboard::UnifiedClipboardInjector;
 use crate::prewarm::PrewarmController;
 use crate::session::{InjectionSession, SessionState};
 use crate::types::{InjectionConfig, InjectionMethod, InjectionResult};
@@ -80,6 +81,8 @@ pub struct StrategyOrchestrator {
     prewarm_controller: Arc<PrewarmController>,
     /// AT-SPI injector instance
     atspi_injector: Option<AtspiInjector>,
+    /// Clipboard-based injector fallback
+    clipboard_fallback: Option<UnifiedClipboardInjector>,
     /// Session state for buffering
     session: Arc<RwLock<InjectionSession>>,
     /// Last known app context
@@ -94,12 +97,13 @@ impl StrategyOrchestrator {
 
         let prewarm_controller = Arc::new(PrewarmController::new(config.clone()));
 
-        // Create AT-SPI injector if available
+        // Create injectors based on features
         let atspi_injector = if cfg!(feature = "atspi") {
             Some(AtspiInjector::new(config.clone()))
         } else {
             None
         };
+        let clipboard_fallback = Some(UnifiedClipboardInjector::new(config.clone()));
 
         // Create session with default config
         let session_config = crate::session::SessionConfig::default();
@@ -113,6 +117,7 @@ impl StrategyOrchestrator {
             desktop_env,
             prewarm_controller,
             atspi_injector,
+            clipboard_fallback,
             session,
             last_context: Arc::new(RwLock::new(None)),
         }
@@ -276,14 +281,10 @@ impl StrategyOrchestrator {
                     }
                 }
                 InjectionMethod::ClipboardPasteFallback => {
-                    // For now, we'll use AT-SPI paste as a fallback
-                    if let Some(ref injector) = self.atspi_injector {
-                        tokio::time::timeout(
-                            stage_budget,
-                            injector.inject_text(text, Some(&context)),
-                        )
-                        .await
-                        .map_err(|_| InjectionError::Timeout(stage_budget.as_millis() as u64))?
+                    if let Some(ref injector) = self.clipboard_fallback {
+                        tokio::time::timeout(stage_budget, injector.inject(text, &context))
+                            .await
+                            .map_err(|_| InjectionError::Timeout(stage_budget.as_millis() as u64))?
                     } else {
                         continue;
                     }
@@ -454,6 +455,7 @@ mod tests {
                 desktop_env: env,
                 prewarm_controller: Arc::new(PrewarmController::new(config.clone())),
                 atspi_injector: None,
+                clipboard_fallback: Some(UnifiedClipboardInjector::new(config.clone())),
                 session: Arc::new(RwLock::new(InjectionSession::new(
                     crate::session::SessionConfig::default(),
                     Arc::new(std::sync::Mutex::new(

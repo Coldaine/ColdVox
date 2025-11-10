@@ -12,14 +12,12 @@ use std::process::Command;
 use std::time::Duration;
 
 use super::test_utils::{
-    command_exists,
-    is_wayland_environment,
-    read_clipboard_with_wl_paste,
-    read_clipboard_with_wl_paste_with_timeout,
+    command_exists, is_wayland_environment, read_clipboard_with_wl_paste,
 };
 
 /// Test that wl-copy properly receives content via stdin
 /// This is the core test for the stdin piping fix
+#[cfg(all(unix, feature = "wl_clipboard"))]
 #[tokio::test]
 #[ignore] // Requires Wayland environment
 async fn test_wl_copy_stdin_piping() {
@@ -43,7 +41,7 @@ async fn test_wl_copy_stdin_piping() {
         "This is a very long text designed to test that the stdin piping works correctly. ";
     let long_text = long_text_base.repeat(100);
 
-    let test_cases = vec![
+    let test_cases = [
         // Simple text
         "Hello from wl-copy stdin test!",
         // Text with special characters that would break command line
@@ -86,6 +84,13 @@ async fn test_wl_copy_stdin_piping() {
 
         println!("✅ Test case {} passed", i + 1);
     }
+}
+
+// Fallback stub on non-Unix or when wl_clipboard feature is disabled
+#[cfg(not(all(unix, feature = "wl_clipboard")))]
+#[test]
+fn test_wl_copy_stdin_piping() {
+    eprintln!("Skipping wl-copy stdin piping test: not on Unix or wl_clipboard feature disabled",);
 }
 
 /// Test clipboard backup and restore functionality
@@ -146,9 +151,11 @@ async fn test_wl_copy_timeout_handling() {
     }
 
     // Create config with very short timeout to force timeout
-    let mut config = InjectionConfig::default();
-    config.per_method_timeout_ms = 10; // Very short timeout
-    config.paste_action_timeout_ms = 10; // Very short timeout
+    let config = InjectionConfig {
+        per_method_timeout_ms: 10, // Very short timeout
+        paste_action_timeout_ms: 10, // Very short timeout
+        ..Default::default()
+    };
 
     let injector = ClipboardInjector::new(config);
 
@@ -165,13 +172,14 @@ async fn test_wl_copy_timeout_handling() {
         "Expected timeout error, but operation succeeded"
     );
 
-    match result.unwrap_err() {
-        crate::types::InjectionError::Timeout(_) => {
-            println!("✅ Timeout handling works correctly");
-        }
-        other => {
-            println!("⚠️  Got different error than expected timeout: {:?}", other);
-        }
+    let err_string = result.unwrap_err().to_string();
+    if err_string.contains("Timeout") {
+        println!("✅ Timeout handling works correctly");
+    } else {
+        println!(
+            "⚠️  Got different error than expected timeout: {}",
+            err_string
+        );
     }
 }
 

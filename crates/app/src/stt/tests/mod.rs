@@ -6,8 +6,6 @@ pub mod timeout_utils;
 pub mod wer_utils;
 
 #[cfg(feature = "whisper")]
-pub mod end_to_end_wav;
-
 #[cfg(test)]
 mod stt_core_tests {
     use crate::stt::*;

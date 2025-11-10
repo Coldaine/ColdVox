@@ -1,7 +1,6 @@
 use coldvox_audio::ring_buffer::AudioProducer;
 use coldvox_audio::SharedAudioFrame;
 use std::sync::Arc;
-use std::time::Instant;
 
 use parking_lot::Mutex;
 use tokio::signal;
@@ -24,7 +23,6 @@ use crate::stt::plugin_manager::SttPluginManager;
 use crate::stt::processor::PluginSttProcessor;
 #[cfg(feature = "whisper")]
 use crate::stt::session::Settings;
-use crate::stt::session::{SessionEvent, SessionSource};
 #[cfg(feature = "whisper")]
 use coldvox_stt::TranscriptionConfig;
 
@@ -51,11 +49,13 @@ pub struct InjectionOptions {
 }
 
 /// Options for starting the ColdVox runtime
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct AppRuntimeOptions {
     pub device: Option<String>,
     pub resampler_quality: ResamplerQuality,
     pub activation_mode: ActivationMode,
+    /// Optional VAD configuration override (uses defaults if None)
+    pub vad_config: Option<coldvox_vad::config::UnifiedVadConfig>,
     /// STT plugin selection configuration
     pub stt_selection: Option<coldvox_stt::plugin::PluginSelectionConfig>,
     #[cfg(feature = "text-injection")]
@@ -64,10 +64,31 @@ pub struct AppRuntimeOptions {
     pub enable_device_monitor: bool,
     /// Capture ring buffer capacity in samples
     pub capture_buffer_samples: usize,
-    #[cfg(test)]
     pub test_device_config: Option<coldvox_audio::DeviceConfig>,
-    #[cfg(test)]
     pub test_capture_to_dummy: bool,
+    pub test_injection_sink: Option<Arc<dyn crate::text_injection::TextInjector>>,
+    pub transcription_config: Option<coldvox_stt::TranscriptionConfig>,
+}
+
+impl std::fmt::Debug for AppRuntimeOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AppRuntimeOptions")
+            .field("device", &self.device)
+            .field("resampler_quality", &self.resampler_quality)
+            .field("activation_mode", &self.activation_mode)
+            .field("stt_selection", &self.stt_selection)
+            .field("injection", &self.injection)
+            .field("enable_device_monitor", &self.enable_device_monitor)
+            .field("capture_buffer_samples", &self.capture_buffer_samples)
+            .field("test_device_config", &self.test_device_config)
+            .field("test_capture_to_dummy", &self.test_capture_to_dummy)
+            .field(
+                "test_injection_sink",
+                &self.test_injection_sink.as_ref().map(|_| "Some(...)"),
+            )
+            .field("transcription_config", &self.transcription_config)
+            .finish()
+    }
 }
 
 impl Default for AppRuntimeOptions {
@@ -76,15 +97,16 @@ impl Default for AppRuntimeOptions {
             device: None,
             resampler_quality: ResamplerQuality::Balanced,
             activation_mode: ActivationMode::Vad,
+            vad_config: None, // Use VAD defaults
             stt_selection: None,
             #[cfg(feature = "text-injection")]
             injection: None,
             enable_device_monitor: false,
             capture_buffer_samples: 65_536,
-            #[cfg(test)]
             test_device_config: None,
-            #[cfg(test)]
             test_capture_to_dummy: false,
+            test_injection_sink: None,
+            transcription_config: None,
         }
     }
 }
@@ -304,70 +326,62 @@ pub async fn start(
     let (audio_producer, audio_consumer) = ring_buffer.split();
     let audio_producer = Arc::new(Mutex::new(audio_producer));
 
-    // In tests, optionally route capture writes to a dummy buffer to avoid interference
-    #[cfg(test)]
-    let (audio_capture, device_cfg, device_config_rx, _device_event_rx) = {
-        if opts.test_capture_to_dummy {
-            // In test "dummy" mode, avoid opening any real audio device to prevent ALSA spam.
-            // Construct a no-op capture thread and synthesize device config + channels.
-            use std::sync::atomic::{AtomicBool, Ordering};
-            use std::thread;
-            let shutdown = std::sync::Arc::new(AtomicBool::new(true));
-            let shutdown_clone = shutdown.clone();
-            let handle = thread::Builder::new()
-                .name("audio-capture-dummy".to_string())
-                .spawn(move || {
-                    while shutdown_clone.load(Ordering::Relaxed) {
-                        thread::sleep(std::time::Duration::from_millis(50));
-                    }
-                })
-                .map_err(Box::<dyn std::error::Error + Send + Sync>::from)
-                .unwrap();
-
-            // Use provided test device config if available; else fall back to a sane default.
-            let initial_dc = if let Some(dc) = opts.test_device_config.clone() {
-                dc
-            } else {
-                coldvox_audio::DeviceConfig {
-                    sample_rate: SAMPLE_RATE_HZ,
-                    channels: 1,
+    let (audio_capture, device_cfg, device_config_rx, _device_event_rx) = if opts
+        .test_capture_to_dummy
+    {
+        // In test "dummy" mode, avoid opening any real audio device to prevent ALSA spam.
+        // Construct a no-op capture thread and synthesize device config + channels.
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::thread;
+        let shutdown = std::sync::Arc::new(AtomicBool::new(true));
+        let shutdown_clone = shutdown.clone();
+        let handle = thread::Builder::new()
+            .name("audio-capture-dummy".to_string())
+            .spawn(move || {
+                while shutdown_clone.load(Ordering::Relaxed) {
+                    thread::sleep(std::time::Duration::from_millis(50));
                 }
-            };
+            })
+            .map_err(Box::<dyn std::error::Error + Send + Sync>::from)
+            .unwrap();
 
-            // Create broadcast channels and emit initial device config
-            let (cfg_tx, cfg_rx) =
-                tokio::sync::broadcast::channel::<coldvox_audio::DeviceConfig>(16);
-            let _ = cfg_tx.send(initial_dc.clone());
-            let (dev_evt_tx, dev_evt_rx) =
-                tokio::sync::broadcast::channel::<coldvox_foundation::DeviceEvent>(32);
-            let _ = dev_evt_tx; // not used in tests here
-
-            // Build a dummy AudioCaptureThread
-            let dummy_capture = AudioCaptureThread {
-                handle,
-                shutdown,
-                device_monitor_handle: None,
-            };
-
-            (dummy_capture, initial_dc, cfg_rx, dev_evt_rx)
+        // Use provided test device config if available; else fall back to a sane default.
+        let initial_dc = if let Some(dc) = opts.test_device_config.clone() {
+            dc
         } else {
-            AudioCaptureThread::spawn(
-                audio_config,
-                audio_producer.clone(),
-                opts.device.clone(),
-                opts.enable_device_monitor,
-            )?
-        }
-    };
+            coldvox_audio::DeviceConfig {
+                sample_rate: SAMPLE_RATE_HZ,
+                channels: 1,
+            }
+        };
 
-    #[cfg(not(test))]
-    let (audio_capture, device_cfg, device_config_rx, _device_event_rx) =
+        // Create broadcast channels and emit initial device config
+        let (cfg_tx, cfg_rx) = tokio::sync::broadcast::channel::<coldvox_audio::DeviceConfig>(16);
+        let (dev_evt_tx, dev_evt_rx) =
+            tokio::sync::broadcast::channel::<coldvox_foundation::DeviceEvent>(32);
+        let _ = dev_evt_tx; // not used in tests here
+
+        // **Crucially, send the initial config immediately.**
+        if let Err(e) = cfg_tx.send(initial_dc.clone()) {
+            tracing::warn!("Failed to send initial dummy device config: {}", e);
+        }
+
+        // Build a dummy AudioCaptureThread
+        let dummy_capture = AudioCaptureThread {
+            handle,
+            shutdown,
+            device_monitor_handle: None,
+        };
+
+        (dummy_capture, initial_dc, cfg_rx, dev_evt_rx)
+    } else {
         AudioCaptureThread::spawn(
             audio_config,
             audio_producer.clone(),
             opts.device.clone(),
             opts.enable_device_monitor,
-        )?;
+        )?
+    };
 
     // 2) Chunker (with resampler)
     let frame_reader = FrameReader::new(
@@ -428,7 +442,7 @@ pub async fn start(
             // - **Trade-off:** The primary trade-off is a slight increase in latency,
             //   as the system waits longer to confirm the end of an utterance. For
             //   dictation, this is an acceptable trade-off for the gain in accuracy.
-            let vad_cfg = UnifiedVadConfig {
+            let vad_cfg = opts.vad_config.unwrap_or(UnifiedVadConfig {
                 mode: VadMode::Silero,
                 frame_size_samples: FRAME_SIZE_SAMPLES,
                 sample_rate_hz: SAMPLE_RATE_HZ,
@@ -438,7 +452,7 @@ pub async fn start(
                     min_silence_duration_ms: 500,
                     window_size_samples: FRAME_SIZE_SAMPLES,
                 },
-            };
+            });
             let vad_audio_rx = audio_tx.subscribe();
             let vad_handle = crate::audio::vad_processor::VadProcessor::spawn(
                 vad_cfg,
@@ -507,20 +521,24 @@ pub async fn start(
     let mut stt_forward_handle: Option<JoinHandle<()>> = None;
     #[allow(unused_variables)]
     let (stt_handle, vad_fanout_handle) = if let Some(pm) = plugin_manager.clone() {
-        // This is the single, unified path for STT processing.
-        let (session_tx, session_rx) = mpsc::channel::<SessionEvent>(100);
-        let stt_audio_rx = audio_tx.subscribe();
+    // This is the single, unified path for STT processing.
+    #[cfg(feature = "whisper")]
+    let (session_tx, session_rx) = mpsc::channel::<SessionEvent>(100);
+    let stt_audio_rx = audio_tx.subscribe();
 
         #[cfg(feature = "whisper")]
         let (stt_pipeline_tx, stt_pipeline_rx) = mpsc::channel::<TranscriptionEvent>(100);
 
         #[cfg(feature = "whisper")]
-        let stt_config = TranscriptionConfig {
-            // This `streaming` flag is now legacy. Behavior is controlled by `Settings`.
-            enabled: true,
-            streaming: true,
-            ..Default::default()
-        };
+        let stt_config = opts
+            .transcription_config
+            .clone()
+            .unwrap_or_else(|| TranscriptionConfig {
+                // This `streaming` flag is now legacy. Behavior is controlled by `Settings`.
+                enabled: true,
+                streaming: true,
+                ..Default::default()
+            });
 
         #[cfg(feature = "whisper")]
         let processor = PluginSttProcessor::new(
@@ -532,8 +550,8 @@ pub async fn start(
             Settings::default(), // Use default settings for now
         );
 
-        let vad_bcast_tx_clone = vad_bcast_tx.clone();
-        let activation_mode = opts.activation_mode;
+    let vad_bcast_tx_clone = vad_bcast_tx.clone();
+    let activation_mode = opts.activation_mode;
 
         // This task is the new "translator" from VAD/Hotkey events to generic SessionEvents.
         let vad_fanout_handle = tokio::spawn(async move {
@@ -542,28 +560,32 @@ pub async fn start(
                 // Forward the raw VAD event for UI purposes
                 let _ = vad_bcast_tx_clone.send(ev);
 
-                // Translate to SessionEvent for the STT processor
-                let session_event = match ev {
-                    VadEvent::SpeechStart { .. } => {
-                        let source = match activation_mode {
-                            ActivationMode::Vad => SessionSource::Vad,
-                            ActivationMode::Hotkey => SessionSource::Hotkey,
-                        };
-                        Some(SessionEvent::Start(source, Instant::now()))
-                    }
-                    VadEvent::SpeechEnd { .. } => {
-                        let source = match activation_mode {
-                            ActivationMode::Vad => SessionSource::Vad,
-                            ActivationMode::Hotkey => SessionSource::Hotkey,
-                        };
-                        Some(SessionEvent::End(source, Instant::now()))
-                    }
-                };
+                // Translate to SessionEvent for the STT processor (only in whisper builds)
+                #[cfg(feature = "whisper")]
+                {
+                    let session_event = match ev {
+                        VadEvent::SpeechStart { .. } => {
+                            let source = match activation_mode {
+                                ActivationMode::Vad => SessionSource::Vad,
+                                ActivationMode::Hotkey => SessionSource::Hotkey,
+                            };
+                            Some(SessionEvent::Start(source, Instant::now()))
+                        }
+                        VadEvent::SpeechEnd { .. } => {
+                            let source = match activation_mode {
+                                ActivationMode::Vad => SessionSource::Vad,
+                                ActivationMode::Hotkey => SessionSource::Hotkey,
+                            };
+                            Some(SessionEvent::End(source, Instant::now()))
+                        }
+                    };
 
-                if let Some(event) = session_event {
-                    if session_tx.send(event).await.is_err() {
-                        // STT processor channel closed, probably shutting down.
-                        break;
+                    if let Some(event) = session_event {
+                        if session_tx.send(event).await.is_err() {
+                            // STT processor channel closed, probably shutting down.
+                            // Continue forwarding VAD events for UI rather than exiting.
+                            continue;
+                        }
                     }
                 }
             }
@@ -581,9 +603,26 @@ pub async fn start(
             let mut pipeline_rx = stt_pipeline_rx;
             let stt_tx_forward = stt_tx.clone();
             #[cfg(feature = "text-injection")]
-            let text_injection_tx_forwarder = text_injection_tx.clone();
+            let mut text_injection_tx_forwarder = text_injection_tx.clone();
             #[cfg(feature = "text-injection")]
             let mut injection_active = true;
+
+            // Test-only: If a mock sink is provided, spawn a task to drain events to it.
+            // Note: We don't use #[cfg(test)] here because integration tests in tests/
+            // need this code, and they compile the library without cfg(test).
+            if let Some(mock_sink) = opts.test_injection_sink.clone() {
+                let (mock_tx, mut mock_rx) = mpsc::channel::<TranscriptionEvent>(100);
+                let _mock_handle = tokio::spawn(async move {
+                    while let Some(event) = mock_rx.recv().await {
+                        if let TranscriptionEvent::Final { text, .. } = event {
+                            let _ = mock_sink.inject_text(&text, None).await;
+                        }
+                    }
+                });
+                // Overwrite the forwarder to send to our mock channel instead
+                text_injection_tx_forwarder = mock_tx;
+            }
+
             stt_forward_handle = Some(tokio::spawn(async move {
                 while let Some(event) = pipeline_rx.recv().await {
                     #[cfg(feature = "text-injection")]
@@ -731,11 +770,11 @@ pub async fn start(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::audio::wav_file_loader::WavFileLoader;
-    use coldvox_audio::DeviceConfig;
+    
+    
     use coldvox_stt::plugin::{FailoverConfig, GcPolicy, PluginSelectionConfig};
     use coldvox_stt::TranscriptionEvent;
-    use std::time::{Duration, Instant};
+    
 
     /// Helper to create default runtime options for testing.
     fn test_opts(activation_mode: ActivationMode) -> AppRuntimeOptions {
@@ -743,6 +782,7 @@ mod tests {
             device: None,
             resampler_quality: ResamplerQuality::Balanced,
             activation_mode,
+            vad_config: None,
             stt_selection: Some(PluginSelectionConfig {
                 preferred_plugin: Some("whisper".to_string()),
                 // Do not allow fallback to NoOp in tests; fail loudly if whisper unavailable
@@ -765,10 +805,10 @@ mod tests {
             injection: None,
             enable_device_monitor: false,
             capture_buffer_samples: 65_536,
-            #[cfg(test)]
             test_device_config: None,
-            #[cfg(test)]
             test_capture_to_dummy: true,
+            test_injection_sink: None,
+            transcription_config: None,
         }
     }
 

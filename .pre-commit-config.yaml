@@ -56,35 +56,6 @@ repos:
   # Server-side validation of GitHub workflows via gh CLI
   - repo: local
     hooks:
-      - id: verify-whisper-model
-        name: Verify Whisper Model Structure
-        entry: scripts/verify_whisper_model.sh
-        language: script
-        stages: [pre-commit]
-        pass_filenames: false
-      - id: e2e-stt-wav
-        name: E2E STT WAV Test (Whisper)
-        language: system
-        pass_filenames: false
-        entry: |
-          bash -euo pipefail -c '
-            # Only run if model directory exists and contains expected structure
-            MODEL_PATH="${WHISPER_MODEL_PATH:-models/whisper-base.en}"
-            if [[ ! -f "$MODEL_PATH/ggml-base.en.bin" ]]; then
-              echo "[e2e] Skipping: Whisper model not found at $MODEL_PATH (set WHISPER_MODEL_PATH to override)";
-              exit 0
-            fi
-            echo "[e2e] Running end-to-end WAV pipeline test (whisper model: $MODEL_PATH)";
-            # Restrict to the single test to keep runtime bounded; allow override via TEST_WAV_MODE=all
-            if [[ "${TEST_WAV_MODE:-}" == "all" ]]; then
-              echo "[e2e] TEST_WAV_MODE=all -> running full suite (may be slow)";
-              cargo test -p coldvox-app --features whisper -- test_end_to_end_wav_pipeline --nocapture
-            else
-              cargo test -p coldvox-app --features whisper -- test_end_to_end_wav_pipeline -- --test-threads=1 --nocapture
-            fi
-          '
-        types: [rust]
-        stages: [pre-commit]
       - id: gh-validate-workflows
         name: gh validate workflows (server-side)
         language: system

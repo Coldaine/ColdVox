@@ -15,16 +15,11 @@ pub enum VadEvent {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum VadState {
+    #[default]
     Silence,
     Speech,
-}
-
-impl Default for VadState {
-    fn default() -> Self {
-        Self::Silence
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

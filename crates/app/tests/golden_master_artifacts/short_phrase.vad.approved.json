@@ -1,0 +1,10 @@
+[
+  {
+    "kind": "SpeechStart",
+    "duration_ms": null
+  },
+  {
+    "kind": "SpeechEnd",
+    "duration_ms": 3424
+  }
+]

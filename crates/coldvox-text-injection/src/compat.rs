@@ -7,7 +7,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Legacy configuration format version 1
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -253,7 +253,7 @@ impl CompatibilityMemory {
     }
 
     /// Check if a configuration has been migrated
-    pub fn is_migrated(&self, path: &PathBuf) -> bool {
+    pub fn is_migrated(&self, path: &Path) -> bool {
         self.legacy_configs
             .get(&path.to_string_lossy().to_string())
             .map(|info| info.migrated)
@@ -282,22 +282,16 @@ pub mod migration {
 
     /// Migrate from legacy V1 to current configuration
     pub fn migrate_v1_to_current(legacy: LegacyConfigV1) -> Result<CurrentConfig> {
-        let mut injection_config = crate::types::InjectionConfig::default();
-
-        // Map enabled methods to current format
-        injection_config.allow_kdotool = legacy.enabled_methods.contains(&"kdotool".to_string());
-        injection_config.allow_enigo = legacy.enabled_methods.contains(&"enigo".to_string());
-
-        // Map timeout
-        injection_config.max_total_latency_ms = legacy.timeout_ms;
-        injection_config.per_method_timeout_ms = legacy.timeout_ms / 4; // Quarter of total timeout
-
-        // Map focus requirements
-        injection_config.require_focus = legacy.require_focus;
-
-        // Map application filters
-        injection_config.allowlist = legacy.allowlist;
-        injection_config.blocklist = legacy.blocklist;
+        let injection_config = crate::types::InjectionConfig {
+            allow_kdotool: legacy.enabled_methods.contains(&"kdotool".to_string()),
+            allow_enigo: legacy.enabled_methods.contains(&"enigo".to_string()),
+            max_total_latency_ms: legacy.timeout_ms,
+            per_method_timeout_ms: legacy.timeout_ms / 4, // Quarter of total timeout
+            require_focus: legacy.require_focus,
+            allowlist: legacy.allowlist,
+            blocklist: legacy.blocklist,
+            ..Default::default()
+        };
 
         let current_config = CurrentConfig {
             injection: injection_config,
@@ -318,23 +312,18 @@ pub mod migration {
 
     /// Migrate from legacy V2 to current configuration
     pub fn migrate_v2_to_current(legacy: LegacyConfigV2) -> Result<CurrentConfig> {
-        let mut injection_config = crate::types::InjectionConfig::default();
-
-        // Map global timeout
-        injection_config.max_total_latency_ms = legacy.global_timeout_ms;
-
-        // Map focus configuration
-        injection_config.require_focus = legacy.focus_config.require_focus;
-        injection_config.inject_on_unknown_focus = legacy.focus_config.inject_on_unknown_focus;
-
-        // Map application filters
-        injection_config.allowlist = legacy.app_filter.allowlist;
-        injection_config.blocklist = legacy.app_filter.blocklist;
-
-        // Map performance settings
-        injection_config.cooldown_initial_ms = legacy.performance.cooldown.initial_ms;
-        injection_config.cooldown_max_ms = legacy.performance.cooldown.max_ms;
-        injection_config.cooldown_backoff_factor = legacy.performance.cooldown.backoff_factor;
+        // Build injection config with all fields initialized at once
+        let mut injection_config = crate::types::InjectionConfig {
+            max_total_latency_ms: legacy.global_timeout_ms,
+            require_focus: legacy.focus_config.require_focus,
+            inject_on_unknown_focus: legacy.focus_config.inject_on_unknown_focus,
+            allowlist: legacy.app_filter.allowlist,
+            blocklist: legacy.app_filter.blocklist,
+            cooldown_initial_ms: legacy.performance.cooldown.initial_ms,
+            cooldown_max_ms: legacy.performance.cooldown.max_ms,
+            cooldown_backoff_factor: legacy.performance.cooldown.backoff_factor,
+            ..Default::default()
+        };
 
         // Map method-specific configurations
         for (method_name, method_config) in &legacy.methods {
