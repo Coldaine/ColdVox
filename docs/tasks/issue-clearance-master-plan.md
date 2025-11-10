@@ -109,6 +109,8 @@ This document provides atomic, step-by-step instructions to systematically clear
 
 ### Issue #171: Complete AT-SPI Focus Backend
 **Priority**: P2
+**Owner**: Joules
+**Tags**: focus, accessibility, injection, Joules
 **Time Estimate**: 30-45 minutes
 **Complexity**: Small
 
