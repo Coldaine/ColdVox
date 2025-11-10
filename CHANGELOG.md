@@ -4,6 +4,22 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### STT Backend - Candle Whisper Migration
+- **Implemented pure-Rust Whisper backend using Candle ML framework** (#219)
+  - Replaced Python-based faster-whisper with native Rust implementation
+  - Added `coldvox-stt/src/candle` module with full Whisper inference pipeline
+  - Implemented WhisperEngine facade with clean API (transcribe, language detection, timestamps)
+  - Support for both safetensors and quantized GGUF model formats
+  - Automatic model download from HuggingFace Hub
+  - CPU and CUDA device support
+  - Greedy and temperature-based sampling
+  - Segment-level timestamp generation
+  - Multi-lingual model support with auto-detection
+  - Created `CandleWhisperPlugin` adapter for seamless integration with existing plugin system
+  - Dependencies: candle-core, candle-nn, candle-transformers (v0.8), tokenizers (v0.20)
+  - Maintains backward compatibility with existing model configuration system
+  - Eliminates Python runtime dependency for Whisper STT
+
 ### Configuration
 - Canonicalize STT selection config to `config/plugins.json`. Legacy duplicates like `./plugins.json` and `crates/app/plugins.json` are deprecated and ignored at runtime; a startup warning is logged if detected. Documentation updated to reflect the single source of truth.
 

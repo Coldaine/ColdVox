@@ -15,6 +15,10 @@ pub mod plugins;
 pub mod processor; // legacy (EventBasedTranscriber-based) processor
 pub mod types;
 
+// Candle-based Whisper implementation
+#[cfg(feature = "whisper")]
+pub mod candle;
+
 pub use coldvox_foundation::error::ColdVoxError;
 pub use plugin::SttPlugin;
 pub use plugin_adapter::PluginAdapter; // adapter for plugin → StreamingStt

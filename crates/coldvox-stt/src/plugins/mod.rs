@@ -2,8 +2,10 @@
 
 pub mod mock;
 pub mod noop;
-// whisper backend temporarily removed; will be reintroduced as pure Rust implementation
-// pub mod whisper_plugin;
+
+// Candle-based Whisper plugin (pure Rust implementation)
+#[cfg(feature = "whisper")]
+pub mod candle_whisper_plugin;
 
 #[cfg(feature = "parakeet")]
 pub mod parakeet;
@@ -23,7 +25,9 @@ pub mod silero_stt;
 // Re-export commonly used plugins
 pub use mock::MockPlugin;
 pub use noop::NoOpPlugin;
-// pub use whisper_plugin::{WhisperPlugin, WhisperPluginFactory};
+
+#[cfg(feature = "whisper")]
+pub use candle_whisper_plugin::{CandleWhisperConfig, CandleWhisperPlugin};
 
 #[cfg(feature = "parakeet")]
 pub use parakeet::ParakeetPluginFactory;
