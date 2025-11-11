@@ -1,6 +1,6 @@
 {
-  "preferred_plugin": "mock",
-  "fallback_plugins": [],
+  "preferred_plugin": "parakeet",
+  "fallback_plugins": ["mock"],
   "require_local": true,
   "max_memory_mb": null,
   "required_language": null,
