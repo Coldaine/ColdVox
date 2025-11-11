@@ -226,8 +226,17 @@ impl<'a> WhisperDecoder<'a> {
             .map(|(idx, _)| idx)
             .context("Failed to find max logit")?;
 
-        let max_logit = logits_vec[max_idx];
-        let logprob = max_logit as f64;
+        // Apply softmax to get normalized probabilities
+        let max_logit = logits_vec.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+
+        let exp_logits: Vec<f32> = logits_vec
+            .iter()
+            .map(|&x| (x - max_logit).exp())
+            .collect();
+
+        let sum_exp: f32 = exp_logits.iter().sum();
+        let prob = exp_logits[max_idx] / sum_exp;
+        let logprob = prob.ln() as f64;
 
         Ok((max_idx as u32, logprob))
     }

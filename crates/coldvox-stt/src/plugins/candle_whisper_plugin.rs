@@ -194,18 +194,34 @@ impl SttPlugin for CandleWhisperPlugin {
 }
 
 /// Convert TranscriptionResult to TranscriptionEvent
+///
+/// # Utterance ID Generation
+///
+/// This implementation generates a new utterance ID on each conversion using
+/// `next_utterance_id()`. This is safe because:
+///
+/// 1. Each `TranscriptionResult` is converted exactly once in the `finalize()` method
+/// 2. The conversion happens immediately before returning the result
+/// 3. No intermediate storage or caching of `TranscriptionResult` occurs
+///
+/// The ID is generated during conversion rather than at `TranscriptionResult` creation
+/// because `TranscriptionResult` is a generic type shared across plugins, while utterance
+/// IDs are specific to the event stream semantics of `TranscriptionEvent`.
 impl From<TranscriptionResult> for TranscriptionEvent {
     fn from(result: TranscriptionResult) -> Self {
+        // Generate ID at conversion time - safe because each result is converted exactly once
+        let utterance_id = crate::next_utterance_id();
+
         if result.is_final {
             TranscriptionEvent::Final {
                 text: result.text,
-                utterance_id: crate::next_utterance_id(),
+                utterance_id,
                 words: result.words,
             }
         } else {
             TranscriptionEvent::Partial {
                 text: result.text,
-                utterance_id: crate::next_utterance_id(),
+                utterance_id,
             }
         }
     }

@@ -8,6 +8,7 @@
 
 use anyhow::{Context, Result};
 use candle_core::{Device, Tensor};
+use rustfft::{FftPlanner, num_complex::Complex};
 
 /// Whisper audio constants
 pub const SAMPLE_RATE: usize = 16000;
@@ -104,10 +105,18 @@ fn hann_window(n_fft: usize, device: &Device) -> Result<Tensor> {
         .context("Failed to create Hann window")
 }
 
-/// Compute Short-Time Fourier Transform (STFT)
+/// Compute Short-Time Fourier Transform (STFT) using FFT
 fn stft(pcm: &[f32], device: &Device) -> Result<Tensor> {
     let n_frames = (pcm.len() - N_FFT) / HOP_LENGTH + 1;
-    let window = hann_window(N_FFT, device)?;
+
+    // Pre-compute Hann window and extract values once (avoids repeated allocations)
+    let window_tensor = hann_window(N_FFT, device)?;
+    let window_values = window_tensor.to_vec1::<f32>()
+        .context("Failed to extract window values")?;
+
+    // Setup FFT planner
+    let mut planner = FftPlanner::<f32>::new();
+    let fft = planner.plan_fft_forward(N_FFT);
 
     let mut spectrogram = Vec::new();
 
@@ -119,28 +128,21 @@ fn stft(pcm: &[f32], device: &Device) -> Result<Tensor> {
             break;
         }
 
-        // Apply window
-        let windowed: Vec<f32> = pcm[start..end]
+        // Apply window (using pre-extracted window values)
+        let mut buffer: Vec<Complex<f32>> = pcm[start..end]
             .iter()
-            .zip(window.to_vec1::<f32>()?)
-            .map(|(&x, w)| x * w)
+            .zip(window_values.iter())
+            .map(|(&x, &w)| Complex::new(x * w, 0.0))
             .collect();
 
-        // Compute FFT (using a simple DFT for now - can optimize with FFT library)
-        let mut frame_fft = vec![0f32; N_FFT / 2 + 1];
-        for k in 0..=N_FFT / 2 {
-            let mut real = 0.0;
-            let mut imag = 0.0;
+        // Compute FFT using rustfft (O(N log N) instead of O(N²))
+        fft.process(&mut buffer);
 
-            for (n, &x) in windowed.iter().enumerate() {
-                let angle = -2.0 * std::f32::consts::PI * k as f32 * n as f32 / N_FFT as f32;
-                real += x * angle.cos();
-                imag += x * angle.sin();
-            }
-
-            // Magnitude
-            frame_fft[k] = (real * real + imag * imag).sqrt();
-        }
+        // Extract magnitude spectrum (only first half due to symmetry)
+        let frame_fft: Vec<f32> = buffer[0..=N_FFT / 2]
+            .iter()
+            .map(|c| c.norm())
+            .collect();
 
         spectrogram.extend(frame_fft);
     }
