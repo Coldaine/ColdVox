@@ -512,7 +512,7 @@ pub async fn start(
 
     // Text injection channel
     #[cfg(feature = "text-injection")]
-    let (text_injection_tx, text_injection_rx) = mpsc::channel::<TranscriptionEvent>(100);
+    let (_text_injection_tx, text_injection_rx) = mpsc::channel::<TranscriptionEvent>(100);
     #[cfg(not(feature = "text-injection"))]
     let (_text_injection_tx, _text_injection_rx) = mpsc::channel::<TranscriptionEvent>(100);
 
@@ -603,7 +603,7 @@ pub async fn start(
             let mut pipeline_rx = stt_pipeline_rx;
             let stt_tx_forward = stt_tx.clone();
             #[cfg(feature = "text-injection")]
-            let mut text_injection_tx_forwarder = text_injection_tx.clone();
+            let mut text_injection_tx_forwarder = _text_injection_tx.clone();
             #[cfg(feature = "text-injection")]
             let mut injection_active = true;
 

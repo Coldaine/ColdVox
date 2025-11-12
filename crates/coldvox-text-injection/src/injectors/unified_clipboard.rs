@@ -592,6 +592,7 @@ impl UnifiedClipboardInjector {
 
     /// Helper to restore clipboard content without borrowing &self
     /// Uses wl-copy if available (feature-enabled path handled earlier), otherwise xclip.
+    #[allow(dead_code)]
     async fn restore_clipboard_direct(content: Vec<u8>) -> InjectionResult<()> {
         // Try wl-copy first if present at runtime
         let wl_copy_ok = tokio::process::Command::new("which")

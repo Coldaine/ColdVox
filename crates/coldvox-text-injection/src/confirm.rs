@@ -227,11 +227,14 @@ pub async fn text_changed(
                 .build();
 
             if let Ok(text_proxy) = time::timeout(Duration::from_millis(25), text_fut).await {
+                #[allow(clippy::collapsible_match)]
                 if let Ok(text_proxy) = text_proxy {
                     let get_text_fut = text_proxy.get_text(0, -1);
+                    #[allow(clippy::collapsible_match)]
                     if let Ok(current_text) =
                         time::timeout(Duration::from_millis(25), get_text_fut).await
                     {
+                        #[allow(clippy::collapsible_match)]
                         if let Ok(current_text) = current_text {
                             last_text = current_text;
                         }
@@ -272,9 +275,12 @@ pub async fn text_changed(
                     .build();
 
                 if let Ok(text_proxy) = time::timeout(poll_interval, text_fut).await {
+                    #[allow(clippy::collapsible_match)]
                     if let Ok(text_proxy) = text_proxy {
                         let get_text_fut = text_proxy.get_text(0, -1);
+                        #[allow(clippy::collapsible_match)]
                         if let Ok(current_text) = time::timeout(poll_interval, get_text_fut).await {
+                            #[allow(clippy::collapsible_match)]
                             if let Ok(current_text) = current_text {
                                 // Check if text has changed and matches our prefix
                                 if current_text != last_text {
