@@ -100,6 +100,9 @@ pub enum SttError {
 
     #[error("Invalid configuration: {0}")]
     InvalidConfig(String),
+
+    #[error("Checksum validation failed: {0}")]
+    ChecksumFailed(String),
 }
 
 #[derive(Debug, thiserror::Error)]

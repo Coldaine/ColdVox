@@ -149,6 +149,34 @@ impl WhisperPlugin {
     }
 
     #[cfg(feature = "whisper")]
+    fn validate_model(&self, model_path: &Path) -> Result<(), ColdVoxError> {
+        // Find the checksums file in the same directory as the model
+        let checksum_path = model_path
+            .parent()
+            .ok_or_else(|| {
+                SttError::ChecksumFailed("Could not determine parent directory of model".to_string())
+            })?
+            .join("models.sha256.json");
+
+        if checksum_path.exists() {
+            let checksums = Checksums::load(&checksum_path)?;
+            checksums.verify(&model_path)?;
+            info!(
+                target: "coldvox::stt::whisper",
+                model = %model_path.display(),
+                "Model checksum verified successfully"
+            );
+        } else {
+            warn!(
+                target: "coldvox::stt::whisper",
+                path = %checksum_path.display(),
+                "Checksum file not found, skipping model validation"
+            );
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "whisper")]
     fn build_whisper_config(&self, config: &TranscriptionConfig) -> WhisperConfig {
         WhisperConfig {
             language: self.language.clone(),
@@ -276,6 +304,13 @@ impl SttPlugin for WhisperPlugin {
         #[cfg(feature = "whisper")]
         {
             let model_id = self.resolve_model_identifier(&config)?;
+            let model_path = PathBuf::from(&model_id);
+
+            // If the model is a file path, validate its checksum
+            if model_path.is_file() {
+                self.validate_model(&model_path)?;
+            }
+
             let mut whisper_config = self.build_whisper_config(&config);
             if whisper_config.language.is_none() {
                 whisper_config.language = self.language.clone();
@@ -745,6 +780,263 @@ fn check_whisper_available() -> bool {
 #[cfg(not(feature = "whisper"))]
 fn check_whisper_available() -> bool {
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::validation::Checksums;
+    use std::env;
+
+    #[test]
+    fn model_size_identifier_mapping() {
+        assert_eq!(WhisperModelSize::Tiny.model_identifier(), "tiny");
+        assert_eq!(WhisperModelSize::Base.model_identifier(), "base.en");
+        assert_eq!(WhisperModelSize::LargeV3.model_identifier(), "large-v3");
+    }
+
+    #[test]
+    fn parse_model_size() {
+        assert_eq!(
+            WhisperPluginFactory::parse_model_size("tiny").unwrap(),
+            WhisperModelSize::Tiny
+        );
+        assert_eq!(
+            WhisperPluginFactory::parse_model_size("large-v3").unwrap(),
+            WhisperModelSize::LargeV3
+        );
+        assert!(WhisperPluginFactory::parse_model_size("invalid").is_err());
+        assert!(WhisperPluginFactory::parse_model_size("").is_err());
+    }
+
+    #[test]
+    fn environment_detection() {
+        // Test CI detection
+        env::set_var("CI", "true");
+        assert_eq!(detect_environment(), Environment::CI);
+        env::remove_var("CI");
+
+        // Test development detection
+        env::set_var("DEBUG", "1");
+        assert_eq!(detect_environment(), Environment::Development);
+        env::remove_var("DEBUG");
+
+        // Default to production when no indicators are present
+        assert_eq!(detect_environment(), Environment::Production);
+    }
+
+    #[test]
+    fn model_size_for_memory() {
+        // Test memory-based model selection
+        assert_eq!(
+            WhisperPluginFactory::get_model_size_for_memory(300),
+            WhisperModelSize::Tiny
+        );
+        assert_eq!(
+            WhisperPluginFactory::get_model_size_for_memory(750),
+            WhisperModelSize::Base
+        );
+        assert_eq!(
+            WhisperPluginFactory::get_model_size_for_memory(1500),
+            WhisperModelSize::Small
+        );
+        assert_eq!(
+            WhisperPluginFactory::get_model_size_for_memory(3000),
+            WhisperModelSize::Medium
+        );
+        assert_eq!(
+            WhisperPluginFactory::get_model_size_for_memory(8000),
+            WhisperModelSize::Base
+        );
+    }
+
+    #[test]
+    fn environment_default_model_sizes() {
+        // Test default model sizes for each environment
+        assert_eq!(
+            default_model_size_for_environment(Environment::CI),
+            WhisperModelSize::Tiny
+        );
+
+        // Development and production depend on memory, so we can't test exact values
+        // without mocking memory detection
+    }
+
+    #[test]
+    fn development_env_prefers_large_on_beefy_machine() {
+        // Simulate development environment
+        env::set_var("DEBUG", "1");
+        // Simulate a beefy machine with lots of available memory
+        env::set_var("WHISPER_AVAILABLE_MEM_MB", "16384");
+
+        assert_eq!(detect_environment(), Environment::Development);
+        let chosen = default_model_size_for_environment(Environment::Development);
+        assert_eq!(chosen, WhisperModelSize::LargeV3);
+
+        env::remove_var("WHISPER_AVAILABLE_MEM_MB");
+        env::remove_var("DEBUG");
+    }
+
+    #[test]
+    fn production_env_does_not_escalate_to_large_by_default() {
+        // Ensure no CI or dev markers are present
+        for var in [
+            "CI",
+            "CONTINUOUS_INTEGRATION",
+            "GITHUB_ACTIONS",
+            "GITLAB_CI",
+            "TRAVIS",
+            "CIRCLECI",
+            "JENKINS_URL",
+            "BUILDKITE",
+            "RUST_BACKTRACE",
+            "DEBUG",
+            "DEV",
+        ] {
+            env::remove_var(var);
+        }
+
+        // Simulate lots of memory
+        env::set_var("WHISPER_AVAILABLE_MEM_MB", "16384");
+        assert_eq!(detect_environment(), Environment::Production);
+        let chosen = default_model_size_for_environment(Environment::Production);
+        assert_ne!(chosen, WhisperModelSize::LargeV3);
+        env::remove_var("WHISPER_AVAILABLE_MEM_MB");
+    }
+
+    #[test]
+    fn whisper_model_size_env_var() {
+        // Test that WHISPER_MODEL_SIZE environment variable is respected
+        env::set_var("WHISPER_MODEL_SIZE", "large-v2");
+        let factory = WhisperPluginFactory::new();
+        assert_eq!(factory.model_size, WhisperModelSize::LargeV2);
+        env::remove_var("WHISPER_MODEL_SIZE");
+
+        // Test with invalid value - should fall back to environment default
+        env::set_var("WHISPER_MODEL_SIZE", "invalid-size");
+        let factory = WhisperPluginFactory::new();
+        // Should not panic and should use a valid default based on environment
+        assert!(matches!(
+            factory.model_size,
+            WhisperModelSize::Tiny | WhisperModelSize::Base | WhisperModelSize::Small
+        ));
+        env::remove_var("WHISPER_MODEL_SIZE");
+    }
+
+    #[test]
+    fn gpu_detection_caching() {
+        // Ensure WHISPER_DEVICE is not set to test detection
+        env::remove_var("WHISPER_DEVICE");
+
+        // First call should trigger detection
+        let device1 = WhisperPluginFactory::detect_device();
+
+        // Second call should return cached result without re-running detection
+        let device2 = WhisperPluginFactory::detect_device();
+
+        // Both calls should return the same result
+        assert_eq!(device1, device2);
+
+        // Verify the device is either "cuda" or "cpu"
+        assert!(device1 == "cuda" || device1 == "cpu");
+    }
+
+    #[test]
+    fn whisper_device_env_var_overrides_cache() {
+        // Set WHISPER_DEVICE to override detection
+        env::set_var("WHISPER_DEVICE", "cuda:1");
+
+        let factory = WhisperPluginFactory::new();
+        assert_eq!(factory.device, "cuda:1");
+
+        env::remove_var("WHISPER_DEVICE");
+    }
+
+    #[test]
+    fn gpu_detection_thread_safety() {
+        use std::thread;
+
+        // Ensure WHISPER_DEVICE is not set to test detection
+        env::remove_var("WHISPER_DEVICE");
+
+        let handles: Vec<_> = (0..10)
+            .map(|_| thread::spawn(WhisperPluginFactory::detect_device))
+            .collect();
+
+        // All threads should get the same result
+        let results: Vec<String> = handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect();
+
+        // All results should be identical
+        let first_result = &results[0];
+        assert!(results.iter().all(|r| r == first_result));
+
+        // Verify the device is either "cuda" or "cpu"
+        assert!(first_result == "cuda" || first_result == "cpu");
+    }
+
+    #[cfg(feature = "whisper")]
+    mod validation_tests {
+        use super::*;
+        use std::fs;
+        use tempfile::tempdir;
+
+        #[test]
+        fn test_checksum_validation_success() {
+            let dir = tempdir().unwrap();
+            let model_path = dir.path().join("model.bin");
+            let checksum_path = dir.path().join("models.sha256.json");
+
+            fs::write(&model_path, "dummy model data").unwrap();
+            let checksum = crate::validation::compute_sha256(&model_path).unwrap();
+            fs::write(
+                &checksum_path,
+                format!(r#"{{"model.bin": "{}"}}"#, checksum),
+            )
+            .unwrap();
+
+            let plugin = WhisperPlugin::new();
+            let result = plugin.validate_model(&model_path);
+            assert!(result.is_ok());
+        }
+
+        #[test]
+        fn test_checksum_validation_failure() {
+            let dir = tempdir().unwrap();
+            let model_path = dir.path().join("model.bin");
+            let checksum_path = dir.path().join("models.sha256.json");
+
+            fs::write(&model_path, "dummy model data").unwrap();
+            fs::write(
+                &checksum_path,
+                r#"{"model.bin": "invalid_checksum"}"#,
+            )
+            .unwrap();
+
+            let plugin = WhisperPlugin::new();
+            let result = plugin.validate_model(&model_path);
+            assert!(result.is_err());
+            let err = result.unwrap_err();
+            assert!(matches!(
+                err.downcast_ref::<SttError>(),
+                Some(SttError::ChecksumFailed(_))
+            ));
+        }
+
+        #[test]
+        fn test_missing_checksum_file() {
+            let dir = tempdir().unwrap();
+            let model_path = dir.path().join("model.bin");
+
+            fs::write(&model_path, "dummy model data").unwrap();
+
+            let plugin = WhisperPlugin::new();
+            let result = plugin.validate_model(&model_path);
+            assert!(result.is_ok());
+        }
+    }
 }
 
 #[cfg(test)]
