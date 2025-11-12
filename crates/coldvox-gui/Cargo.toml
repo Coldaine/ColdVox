@@ -14,6 +14,14 @@ path = "src/main.rs"
 cxx = "1"
 cxx-qt = { version = "0.7", optional = true }
 cxx-qt-lib = { version = "0.7", features = ["qt_qml", "qt_gui"], optional = true }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync"], optional = true }
+tracing = { version = "0.1", optional = true }
+
+# Backend service crates (will be progressively integrated). Optional until used.
+coldvox-audio = { path = "../coldvox-audio", optional = true }
+coldvox-stt = { path = "../coldvox-stt", optional = true }
+coldvox-vad = { path = "../coldvox-vad", optional = true }
+coldvox-text-injection = { path = "../coldvox-text-injection", optional = true }
 
 [build-dependencies]
 cxx-qt-build = "0.7"
@@ -21,4 +29,14 @@ cxx-qt-build = "0.7"
 [features]
 default = []
 # Enable this feature to build the Qt/CXX-Qt UI scaffolding
-qt-ui = ["dep:cxx-qt", "dep:cxx-qt-lib"]
+qt-ui = ["dep:cxx-qt", "dep:cxx-qt-lib", "dep:tokio", "dep:tracing"]
+
+# Full backend integration feature (will evolve as implementation proceeds)
+backend-integration = [
+	"dep:tokio",
+	"dep:tracing",
+	"dep:coldvox-audio",
+	"dep:coldvox-stt",
+	"dep:coldvox-vad",
+	"dep:coldvox-text-injection"
+]
