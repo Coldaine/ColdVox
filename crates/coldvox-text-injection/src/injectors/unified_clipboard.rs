@@ -590,66 +590,6 @@ impl UnifiedClipboardInjector {
         }
     }
 
-    /// Helper to restore clipboard content without borrowing &self
-    /// Uses wl-copy if available (feature-enabled path handled earlier), otherwise xclip.
-    async fn restore_clipboard_direct(content: Vec<u8>) -> InjectionResult<()> {
-        // Try wl-copy first if present at runtime
-        let wl_copy_ok = tokio::process::Command::new("which")
-            .arg("wl-copy")
-            .output()
-            .await
-            .map(|o| o.status.success())
-            .unwrap_or(false);
-
-        if wl_copy_ok {
-            let mut child = tokio::process::Command::new("wl-copy")
-                .stdin(Stdio::piped())
-                .spawn()
-                .map_err(|e| InjectionError::Process(format!("Failed to spawn wl-copy: {}", e)))?;
-            if let Some(mut stdin) = child.stdin.take() {
-                timeout(Duration::from_millis(1000), stdin.write_all(&content))
-                    .await
-                    .map_err(|_| InjectionError::Timeout(1000))
-                    .and_then(|r| {
-                        r.map_err(|e| InjectionError::Process(format!("wl-copy stdin: {}", e)))
-                    })?;
-            }
-            let status = child
-                .wait()
-                .await
-                .map_err(|e| InjectionError::Process(format!("wl-copy wait: {}", e)))?;
-            return if status.success() {
-                Ok(())
-            } else {
-                Err(InjectionError::Process("wl-copy failed".into()))
-            };
-        }
-
-        // Fallback to xclip
-        let mut child = tokio::process::Command::new("xclip")
-            .args(["-selection", "clipboard"])
-            .stdin(Stdio::piped())
-            .spawn()
-            .map_err(|e| InjectionError::Process(format!("Failed to spawn xclip: {}", e)))?;
-        if let Some(mut stdin) = child.stdin.take() {
-            timeout(Duration::from_millis(1000), stdin.write_all(&content))
-                .await
-                .map_err(|_| InjectionError::Timeout(1000))
-                .and_then(|r| {
-                    r.map_err(|e| InjectionError::Process(format!("xclip stdin: {}", e)))
-                })?;
-        }
-        let status = child
-            .wait()
-            .await
-            .map_err(|e| InjectionError::Process(format!("xclip wait: {}", e)))?;
-        if status.success() {
-            Ok(())
-        } else {
-            Err(InjectionError::Process("xclip failed".into()))
-        }
-    }
-
     // ...existing code...
 
     /// Main injection method with configurable behavior

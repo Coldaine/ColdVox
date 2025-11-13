@@ -36,11 +36,14 @@ impl Checksums {
             ))
         })?;
         serde_json::from_str(&content).map_err(|err| {
-            SttError::ChecksumFailed(format!(
-                "Failed to parse checksum file at {}: {}",
-                path.as_ref().display(),
-                err
-            ))
+            {
+                SttError::ChecksumFailed(format!(
+                    "Failed to parse checksum file at {}: {}",
+                    path.as_ref().display(),
+                    err
+                ))
+            }
+            .into()
         })
     }
 
@@ -63,13 +66,12 @@ impl Checksums {
             ))
         })?;
 
-        let expected_checksum =
-            self.files.get(Path::new(file_name)).ok_or_else(|| {
-                SttError::ChecksumFailed(format!(
-                    "No checksum found for model: {}",
-                    file_name.to_string_lossy()
-                ))
-            })?;
+        let expected_checksum = self.files.get(Path::new(file_name)).ok_or_else(|| {
+            SttError::ChecksumFailed(format!(
+                "No checksum found for model: {}",
+                file_name.to_string_lossy()
+            ))
+        })?;
 
         let actual_checksum = compute_sha256(file_path)?;
 

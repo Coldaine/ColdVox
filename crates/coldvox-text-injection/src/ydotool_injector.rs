@@ -53,12 +53,9 @@ fn candidate_socket_paths() -> Vec<PathBuf> {
 }
 
 fn locate_existing_socket() -> Option<PathBuf> {
-    for candidate in candidate_socket_paths() {
-        if Path::new(&candidate).exists() {
-            return Some(candidate);
-        }
-    }
-    None
+    candidate_socket_paths()
+        .into_iter()
+        .find(|candidate| Path::new(&candidate).exists())
 }
 
 fn preferred_socket_path() -> Option<PathBuf> {

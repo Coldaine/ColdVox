@@ -54,11 +54,11 @@
 //! - Future: Could extend to clipboard/enigo fallbacks for cross-method validation
 
 use crate::types::{InjectionConfig, InjectionResult};
+use coldvox_foundation::error::InjectionError;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
-use tracing::{info, warn, debug, trace, error};
-use coldvox_foundation::error::InjectionError;
+use tracing::{debug, error, info, trace, warn};
 use unicode_segmentation::UnicodeSegmentation;
 
 /// Confirmation result for text injection
@@ -226,16 +226,12 @@ pub async fn text_changed(
                 .map_err(|e| InjectionError::Other(format!("TextProxy path failed: {e}")))?
                 .build();
 
-            if let Ok(text_proxy) = time::timeout(Duration::from_millis(25), text_fut).await {
-                if let Ok(text_proxy) = text_proxy {
-                    let get_text_fut = text_proxy.get_text(0, -1);
-                    if let Ok(current_text) =
-                        time::timeout(Duration::from_millis(25), get_text_fut).await
-                    {
-                        if let Ok(current_text) = current_text {
-                            last_text = current_text;
-                        }
-                    }
+        if let Ok(Ok(text_proxy)) = time::timeout(Duration::from_millis(25), text_fut).await {
+            let get_text_fut = text_proxy.get_text(0, -1);
+            if let Ok(Ok(current_text)) =
+                time::timeout(Duration::from_millis(25), get_text_fut).await
+            {
+                last_text = current_text;
                 }
             }
         }
@@ -271,47 +267,44 @@ pub async fn text_changed(
                     .map_err(|e| InjectionError::Other(format!("TextProxy path failed: {e}")))?
                     .build();
 
-                if let Ok(text_proxy) = time::timeout(poll_interval, text_fut).await {
-                    if let Ok(text_proxy) = text_proxy {
-                        let get_text_fut = text_proxy.get_text(0, -1);
-                        if let Ok(current_text) = time::timeout(poll_interval, get_text_fut).await {
-                            if let Ok(current_text) = current_text {
-                                // Check if text has changed and matches our prefix
-                                if current_text != last_text {
-                                    trace!(
-                                        old_text = %last_text,
-                                        new_text = %current_text,
-                                        "Text content changed during polling"
+                if let Ok(Ok(text_proxy)) = time::timeout(poll_interval, text_fut).await {
+                    let get_text_fut = text_proxy.get_text(0, -1);
+                    if let Ok(Ok(current_text)) = time::timeout(poll_interval, get_text_fut).await
+                    {
+                        // Check if text has changed and matches our prefix
+                        if current_text != last_text {
+                            trace!(
+                                old_text = %last_text,
+                                new_text = %current_text,
+                                "Text content changed during polling"
+                            );
+
+                            // Extract the new portion (last few characters)
+                            if current_text.len() > last_text.len() {
+                                let new_chars = &current_text[last_text.len()..];
+
+                                debug!(
+                                    new_chars = %new_chars,
+                                    expected_prefix = %expected_prefix,
+                                    "Checking if new text matches expected prefix"
+                                );
+
+                                if TextChangeListener::matches_prefix(
+                                    new_chars,
+                                    &expected_prefix,
+                                ) {
+                                    info!(
+                                        new_chars = %new_chars,
+                                        expected_prefix = %expected_prefix,
+                                        elapsed_ms = %start_time.elapsed().as_millis(),
+                                        poll_count = %poll_count,
+                                        "Text change confirmed via AT-SPI polling"
                                     );
-
-                                    // Extract the new portion (last few characters)
-                                    if current_text.len() > last_text.len() {
-                                        let new_chars = &current_text[last_text.len()..];
-
-                                        debug!(
-                                            new_chars = %new_chars,
-                                            expected_prefix = %expected_prefix,
-                                            "Checking if new text matches expected prefix"
-                                        );
-
-                                        if TextChangeListener::matches_prefix(
-                                            new_chars,
-                                            &expected_prefix,
-                                        ) {
-                                            info!(
-                                                new_chars = %new_chars,
-                                                expected_prefix = %expected_prefix,
-                                                elapsed_ms = %start_time.elapsed().as_millis(),
-                                                poll_count = %poll_count,
-                                                "Text change confirmed via AT-SPI polling"
-                                            );
-                                            return Ok(ConfirmationResult::Success);
-                                        }
-                                    }
-
-                                    last_text = current_text;
+                                    return Ok(ConfirmationResult::Success);
                                 }
                             }
+
+                            last_text = current_text;
                         }
                     }
                 }

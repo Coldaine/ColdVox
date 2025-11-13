@@ -512,7 +512,7 @@ pub async fn start(
 
     // Text injection channel
     #[cfg(feature = "text-injection")]
-    let (text_injection_tx, text_injection_rx) = mpsc::channel::<TranscriptionEvent>(100);
+    let (_text_injection_tx, text_injection_rx) = mpsc::channel::<TranscriptionEvent>(100);
     #[cfg(not(feature = "text-injection"))]
     let (_text_injection_tx, _text_injection_rx) = mpsc::channel::<TranscriptionEvent>(100);
 
@@ -521,10 +521,10 @@ pub async fn start(
     let mut stt_forward_handle: Option<JoinHandle<()>> = None;
     #[allow(unused_variables)]
     let (stt_handle, vad_fanout_handle) = if let Some(pm) = plugin_manager.clone() {
-    // This is the single, unified path for STT processing.
-    #[cfg(feature = "whisper")]
-    let (session_tx, session_rx) = mpsc::channel::<SessionEvent>(100);
-    let stt_audio_rx = audio_tx.subscribe();
+        // This is the single, unified path for STT processing.
+        #[cfg(feature = "whisper")]
+        let (session_tx, session_rx) = mpsc::channel::<SessionEvent>(100);
+        let stt_audio_rx = audio_tx.subscribe();
 
         #[cfg(feature = "whisper")]
         let (stt_pipeline_tx, stt_pipeline_rx) = mpsc::channel::<TranscriptionEvent>(100);
@@ -550,8 +550,8 @@ pub async fn start(
             Settings::default(), // Use default settings for now
         );
 
-    let vad_bcast_tx_clone = vad_bcast_tx.clone();
-    let activation_mode = opts.activation_mode;
+        let vad_bcast_tx_clone = vad_bcast_tx.clone();
+        let activation_mode = opts.activation_mode;
 
         // This task is the new "translator" from VAD/Hotkey events to generic SessionEvents.
         let vad_fanout_handle = tokio::spawn(async move {
@@ -770,11 +770,9 @@ pub async fn start(
 #[cfg(test)]
 mod tests {
     use super::*;
-    
-    
+
     use coldvox_stt::plugin::{FailoverConfig, GcPolicy, PluginSelectionConfig};
     use coldvox_stt::TranscriptionEvent;
-    
 
     /// Helper to create default runtime options for testing.
     fn test_opts(activation_mode: ActivationMode) -> AppRuntimeOptions {
