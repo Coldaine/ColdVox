@@ -127,34 +127,17 @@ impl SttMetricsManager {
 
     /// Get current performance summary
     pub fn get_performance_summary(&self) -> PerformanceSummary {
-        let latency_us = self
-            .metrics
-            .latency
-            .end_to_end_us
-            .load(std::sync::atomic::Ordering::Relaxed);
+        let (latency, _, resources, operational) = self.metrics.snapshot();
         let avg_confidence = self.metrics.get_average_confidence();
         let success_rate = self.metrics.get_success_rate();
-        let memory_usage = self
-            .metrics
-            .resources
-            .memory_usage_bytes
-            .load(std::sync::atomic::Ordering::Relaxed);
 
         PerformanceSummary {
-            avg_latency_ms: latency_us as f64 / 1000.0,
+            avg_latency_ms: latency.end_to_end_us as f64 / 1000.0,
             avg_confidence,
             success_rate,
-            memory_usage_mb: memory_usage as f64 / (1024.0 * 1024.0),
-            total_requests: self
-                .metrics
-                .operational
-                .requests_per_second
-                .load(std::sync::atomic::Ordering::Relaxed),
-            total_errors: self
-                .metrics
-                .operational
-                .error_rate_per_1k
-                .load(std::sync::atomic::Ordering::Relaxed),
+            memory_usage_mb: resources.memory_usage_bytes as f64 / (1024.0 * 1024.0),
+            total_requests: operational.request_count,
+            total_errors: operational.error_count,
         }
     }
 
