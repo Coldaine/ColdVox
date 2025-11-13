@@ -302,6 +302,39 @@ jobs:
           fi
           echo "Cleanup completed."
 
+  code-coverage:
+    name: Code Coverage
+    runs-on: [self-hosted, Linux, X64, fedora, nobara]
+    needs: [setup-whisper-dependencies]
+    steps:
+      - uses: actions/checkout@ff7abcd0c3c05ccf6adc123a8cd1fd4fb30fb493 # v5.0.0
+      - name: Set up Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          components: llvm-tools-preview
+      - name: Setup ColdVox
+        uses: ./.github/actions/setup-coldvox
+        with:
+          skip-toolchain: "true"
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Generate code coverage
+        env:
+          WHISPER_MODEL_PATH: ${{ needs.setup-whisper-dependencies.outputs.model_path }}
+          WHISPER_MODEL_SIZE: ${{ needs.setup-whisper-dependencies.outputs.model_size }}
+        run: |
+          # The whisper tests require this
+          pip install faster-whisper
+          export PYTHONPATH=$(python3 -c "import site; print(site.getsitepackages()[0])")
+          cargo llvm-cov --workspace --lcov --output-path lcov.info
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: lcov.info
+          fail_ci_if_error: true
+
   ci_success:
     name: CI Success Summary
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
@@ -310,6 +343,7 @@ jobs:
       - setup-whisper-dependencies
       - build_and_check
       - text_injection_tests
+      - code-coverage
     if: always()
     steps:
       - uses: actions/checkout@v5
@@ -320,9 +354,11 @@ jobs:
           echo "- setup-whisper-dependencies:    ${{ needs.setup-whisper-dependencies.result }}" >> report.md
           echo "- build_and_check:               ${{ needs.build_and_check.result }}" >> report.md
           echo "- text_injection_tests:          ${{ needs.text_injection_tests.result }}" >> report.md
+          echo "- code-coverage:                 ${{ needs.code-coverage.result }}" >> report.md
           if [[ "${{ needs.setup-whisper-dependencies.result }}" != "success" ]]; then echo "::error::Setup Whisper dependencies failed."; exit 1; fi
           if [[ "${{ needs.build_and_check.result }}" != "success" ]]; then echo "::error::Build and check failed."; exit 1; fi
           if [[ "${{ needs.text_injection_tests.result }}" != "success" ]]; then echo "::error::Text injection tests failed."; exit 1; fi
+          if [[ "${{ needs.code-coverage.result }}" != "success" ]]; then echo "::error::Code coverage failed."; exit 1; fi
           echo "All critical stages passed successfully."
       - name: Upload CI Report
         uses: actions/upload-artifact@v5
