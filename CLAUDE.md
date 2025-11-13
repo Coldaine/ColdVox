@@ -55,6 +55,7 @@ Multi-crate Cargo workspace:
 
 - `crates/coldvox-stt/` - STT core abstractions
   - `plugins/whisper_plugin.rs`: `WhisperPlugin` for offline speech recognition via faster-whisper
+  - `plugins/parakeet.rs`: `ParakeetPlugin` for GPU-accelerated recognition via NVIDIA Parakeet (pure Rust)
 
 - `crates/coldvox-text-injection/` - Text injection backends (feature-gated)
   - **Linux**: `atspi_injector.rs`, `clipboard_injector.rs`, `ydotool_injector.rs`, `kdotool_injector.rs`
@@ -78,11 +79,14 @@ Multi-crate Cargo workspace:
 # Main app with default features (Silero VAD + text injection, no STT by default)
 cargo build
 
-# With Whisper STT
+# With Parakeet STT (GPU-only, requires CUDA)
+cargo build --features parakeet,text-injection
+
+# With Whisper STT (CPU/GPU hybrid)
 cargo build --features whisper
 
 # Full feature set
-cargo build --features whisper,text-injection
+cargo build --features parakeet,whisper,text-injection
 
 # Workspace build (all crates)
 cargo build --workspace
@@ -100,11 +104,14 @@ cargo run
 # With specific device
 cargo run -- --device "USB Microphone"
 
-# With Whisper STT (for actual voice dictation)
+# With Parakeet STT (GPU-only, requires CUDA)
+cargo run --features parakeet,text-injection
+
+# With Whisper STT (for CPU/GPU hybrid voice dictation)
 cargo run --features whisper,text-injection
 
-# With specific device and STT
-cargo run --features whisper,text-injection -- --device "HyperX QuadCast"
+# With specific device and Parakeet STT
+cargo run --features parakeet,text-injection -- --device "HyperX QuadCast"
 
 # TUI Dashboard (shared runtime)
 cargo run --bin tui_dashboard  # S=Start, A=Toggle VAD/PTT, R=Reset, Q=Quit
@@ -151,9 +158,10 @@ cargo clippy -- -D warnings
 
 ## Features
 
-Default features: `silero`, `whisper`, `text-injection`
+Default features: `silero`, `text-injection`
 
-- `whisper` - Faster-Whisper STT support (requires faster-whisper Python package)
+- `parakeet` - NVIDIA Parakeet STT (GPU-only, pure Rust via parakeet-rs)
+- `whisper` - Faster-Whisper STT support (Python-based, planned migration to Candle)
 - `text-injection` - Text injection backends (platform-specific)
 - `silero` - Silero V5 ONNX-based VAD (default and only VAD implementation)
 - `examples` - Enable example-specific dependencies
@@ -179,8 +187,12 @@ Platform-specific text injection backends are automatically enabled at build tim
 - **Events**: `VadEvent::{SpeechStart, SpeechEnd}` with debouncing
 
 ### STT Integration
-- **Whisper**: Offline recognition via faster-whisper (feature `whisper`)
-- **Model**: `WHISPER_MODEL_PATH` or standard Whisper model identifiers (e.g., "base.en", "small.en")
+- **Parakeet** (feature `parakeet`): GPU-accelerated via NVIDIA Parakeet (pure Rust, GPU-only)
+  - Model: nvidia/parakeet-tdt-1.1b (1.1B params, multilingual) or nvidia/parakeet-ctc-1.1b (English-only)
+  - Environment: `PARAKEET_MODEL_PATH`, `PARAKEET_VARIANT` (tdt/ctc), `PARAKEET_DEVICE` (cuda/tensorrt)
+  - Requires: CUDA-capable GPU, no CPU fallback
+- **Whisper** (feature `whisper`): Offline recognition via faster-whisper (Python-based)
+  - Model: `WHISPER_MODEL_PATH` or standard identifiers (e.g., "base.en", "small.en")
 - **Events**: `TranscriptionEvent::{Partial, Final, Error}`
 
 ### Text Injection
@@ -258,7 +270,17 @@ Run `scripts/setup_text_injection.sh` to install:
 - kdotool (optional)
 - Configures uinput permissions and user groups
 
-### Whisper STT
+### Parakeet STT (GPU-only)
+- **Requirements**: CUDA-capable NVIDIA GPU
+- **Verify GPU**: `nvidia-smi` must succeed
+- **Models**: Auto-downloaded to `~/.cache/parakeet/` on first use
+- **Configuration**:
+  - `PARAKEET_VARIANT`: "tdt" (multilingual, default) or "ctc" (English-only)
+  - `PARAKEET_DEVICE`: "cuda" (default) or "tensorrt" (optimized)
+  - `PARAKEET_MODEL_PATH`: Override model location
+- **Model**: nvidia/parakeet-tdt-1.1b (1.1B parameters, ~5GB VRAM)
+
+### Whisper STT (CPU/GPU hybrid)
 - Install faster-whisper Python package: `pip install faster-whisper`
 - Models are automatically downloaded on first use
 - Set `WHISPER_MODEL_PATH` to specify a model identifier or custom model directory

@@ -4,6 +4,16 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Added
+- **NVIDIA Parakeet STT Plugin** - GPU-accelerated speech recognition using NVIDIA's Parakeet model via pure-Rust parakeet-rs library (#XXX)
+  - Supports largest available model: nvidia/parakeet-tdt-1.1b (1.1 billion parameters)
+  - TDT variant: Multilingual support for 25 languages with automatic detection
+  - CTC variant: English-only for faster inference
+  - GPU-only mode: Requires CUDA/TensorRT, no CPU fallback
+  - Token-level timestamps for word-accurate transcription
+  - Environment variables: `PARAKEET_MODEL_PATH`, `PARAKEET_VARIANT` (tdt/ctc), `PARAKEET_DEVICE` (cuda/tensorrt)
+  - Pure Rust implementation - no Python dependencies
+
 ### Configuration
 - Canonicalize STT selection config to `config/plugins.json`. Legacy duplicates like `./plugins.json` and `crates/app/plugins.json` are deprecated and ignored at runtime; a startup warning is logged if detected. Documentation updated to reflect the single source of truth.
 
