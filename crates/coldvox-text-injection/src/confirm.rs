@@ -54,11 +54,11 @@
 //! - Future: Could extend to clipboard/enigo fallbacks for cross-method validation
 
 use crate::types::{InjectionConfig, InjectionResult};
+use coldvox_foundation::error::InjectionError;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
-use tracing::{info, warn, debug, trace, error};
-use coldvox_foundation::error::InjectionError;
+use tracing::{debug, error, info, trace, warn};
 use unicode_segmentation::UnicodeSegmentation;
 
 /// Confirmation result for text injection
@@ -226,16 +226,12 @@ pub async fn text_changed(
                 .map_err(|e| InjectionError::Other(format!("TextProxy path failed: {e}")))?
                 .build();
 
-            if let Ok(text_proxy) = time::timeout(Duration::from_millis(25), text_fut).await {
-                if let Ok(text_proxy) = text_proxy {
-                    let get_text_fut = text_proxy.get_text(0, -1);
-                    if let Ok(current_text) =
-                        time::timeout(Duration::from_millis(25), get_text_fut).await
-                    {
-                        if let Ok(current_text) = current_text {
-                            last_text = current_text;
-                        }
-                    }
+            if let Ok(Ok(text_proxy)) = time::timeout(Duration::from_millis(25), text_fut).await {
+                let get_text_fut = text_proxy.get_text(0, -1);
+                if let Ok(Ok(current_text)) =
+                    time::timeout(Duration::from_millis(25), get_text_fut).await
+                {
+                    last_text = current_text;
                 }
             }
         }
