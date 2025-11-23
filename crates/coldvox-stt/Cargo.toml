@@ -16,7 +16,7 @@ coldvox-foundation = { path = "../coldvox-foundation" }
 ## Removed Python-dependent faster-whisper backend; will replace with pure Rust implementation
 
 # Parakeet STT via pure Rust ONNX Runtime
-parakeet-rs = { version = "0.1", optional = true }
+parakeet-rs = { version = "0.1", features = ["cuda"], optional = true }
 
 [features]
 default = []
