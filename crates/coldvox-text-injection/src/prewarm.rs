@@ -213,8 +213,8 @@ impl PrewarmController {
                 // Store the focused node
                 focused_node = Some("focused".to_string());
 
-                target_app = Some(obj_ref.name.to_string());
-                window_id = Some(obj_ref.path.to_string());
+                target_app = obj_ref.name().map(|n| n.to_string());
+                window_id = Some(obj_ref.path().to_string());
 
                 // Simplified editable text check - assume it's editable if we found a focused element
                 has_editable_text = true;

@@ -68,6 +68,7 @@ similar-asserts = "1.5"
 default = ["silero", "text-injection"]
 live-hardware-tests = []
 parakeet = ["coldvox-stt/parakeet"]
+moonshine = ["coldvox-stt/moonshine"]
 whisper = [] # Temporarily stubbed; new pure-Rust backend will populate this
 no-stt = []
 examples = []
