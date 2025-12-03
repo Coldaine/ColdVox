@@ -122,6 +122,158 @@ impl KdotoolInjector {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::InjectionConfig;
+    use std::env;
+    use std::fs;
+    use std::io::Write;
+    use std::path::PathBuf;
+
+    // Helper to create a mock kdotool script
+    fn create_mock_kdotool(content: &str) -> (PathBuf, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let script_path = dir.path().join("kdotool");
+        let mut file = fs::File::create(&script_path).unwrap();
+        writeln!(file, "#!/bin/sh").unwrap();
+        writeln!(file, "{}", content).unwrap();
+        // Make it executable
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(&script_path).unwrap().permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(&script_path, perms).unwrap();
+        }
+        (script_path, dir)
+    }
+
+    // RAII guard to modify PATH for the duration of a test
+    struct PathGuard {
+        original_path: String,
+    }
+
+    impl PathGuard {
+        fn new(temp_dir: &PathBuf) -> Self {
+            let original_path = env::var("PATH").unwrap_or_default();
+            let new_path = format!("{}:{}", temp_dir.to_str().unwrap(), original_path);
+            env::set_var("PATH", new_path);
+            Self { original_path }
+        }
+    }
+
+    impl Drop for PathGuard {
+        fn drop(&mut self) {
+            env::set_var("PATH", &self.original_path);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_kdotool_injector_new_available() {
+        let (_script, dir) = create_mock_kdotool("exit 0");
+        let _guard = PathGuard::new(&dir.path().to_path_buf());
+
+        let config = InjectionConfig::default();
+        let injector = KdotoolInjector::new(config);
+        assert!(injector.is_available);
+    }
+
+    #[tokio::test]
+    async fn test_kdotool_injector_new_not_available() {
+        let original_path = env::var("PATH").unwrap_or_default();
+        env::set_var("PATH", "/tmp/non-existent-dir");
+
+        let config = InjectionConfig::default();
+        let injector = KdotoolInjector::new(config);
+        assert!(!injector.is_available);
+
+        env::set_var("PATH", original_path);
+    }
+
+    #[tokio::test]
+    async fn test_get_active_window_success() {
+        let (_script, dir) = create_mock_kdotool("echo '12345'");
+        let _guard = PathGuard::new(&dir.path().to_path_buf());
+
+        let config = InjectionConfig::default();
+        let injector = KdotoolInjector::new(config);
+        let window_id = injector.get_active_window().await.unwrap();
+        assert_eq!(window_id, "12345");
+    }
+
+    #[tokio::test]
+    async fn test_get_active_window_failure() {
+        let (_script, dir) = create_mock_kdotool("echo 'Error' >&2; exit 1");
+        let _guard = PathGuard::new(&dir.path().to_path_buf());
+
+        let config = InjectionConfig::default();
+        let injector = KdotoolInjector::new(config);
+        let result = injector.get_active_window().await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_activate_window_success() {
+        let (_script, dir) = create_mock_kdotool("exit 0");
+        let _guard = PathGuard::new(&dir.path().to_path_buf());
+
+        let config = InjectionConfig::default();
+        let injector = KdotoolInjector::new(config);
+        let result = injector.activate_window("12345").await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_focus_window_success() {
+        let (_script, dir) = create_mock_kdotool("exit 0");
+        let _guard = PathGuard::new(&dir.path().to_path_buf());
+
+        let config = InjectionConfig::default();
+        let injector = KdotoolInjector::new(config);
+        let result = injector.focus_window("12345").await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_ensure_focus_with_id() {
+        let script_content = r#"
+            if [ "$1" = "windowfocus" ]; then
+                echo "focused"
+            elif [ "$1" = "windowactivate" ]; then
+                echo "activated"
+            fi
+        "#;
+        let (_script, dir) = create_mock_kdotool(script_content);
+        let _guard = PathGuard::new(&dir.path().to_path_buf());
+
+        let config = InjectionConfig::default();
+        let injector = KdotoolInjector::new(config);
+        let result = injector.ensure_focus(Some("12345")).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_ensure_focus_no_id() {
+        let script_content = r#"
+            if [ "$1" = "getactivewindow" ]; then
+                echo "67890"
+            elif [ "$1" = "windowfocus" ]; then
+                exit 0
+            elif [ "$1" = "windowactivate" ]; then
+                exit 0
+            fi
+        "#;
+        let (_script, dir) = create_mock_kdotool(script_content);
+        let _guard = PathGuard::new(&dir.path().to_path_buf());
+
+        let config = InjectionConfig::default();
+        let injector = KdotoolInjector::new(config);
+        let result = injector.ensure_focus(None).await;
+        assert!(result.is_ok());
+    }
+}
+
 #[async_trait]
 impl TextInjector for KdotoolInjector {
     fn backend_name(&self) -> &'static str {
