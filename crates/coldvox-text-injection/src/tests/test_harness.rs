@@ -132,10 +132,19 @@ impl TestAppManager {
             ));
         }
 
-        let process = Command::new(&exe_path)
-            .stdout(Stdio::null()) // Prevent the app from polluting test output.
-            .stderr(Stdio::null())
-            .spawn()?;
+        let mut command = Command::new(&exe_path);
+        command.stdout(Stdio::null()).stderr(Stdio::null());
+
+        // Explicitly pass the DISPLAY variable to the test application.
+        // This is crucial for ensuring it connects to the correct X server, especially in CI.
+        if let Ok(display) = env::var("DISPLAY") {
+            println!("Test harness: Launching GTK app on DISPLAY={}", display);
+            command.env("DISPLAY", display);
+        } else {
+            println!("Test harness: DISPLAY environment variable not set.");
+        }
+
+        let process = command.spawn()?;
 
         let pid = process.id();
         let output_file = PathBuf::from(format!("/tmp/coldvox_gtk_test_{}.txt", pid));
