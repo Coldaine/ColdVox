@@ -101,7 +101,7 @@ jobs:
     needs: [setup-whisper-dependencies]
     strategy:
       matrix:
-        rust-version: [stable, "1.75"] # MSRV is 1.75
+        rust-version: [stable] # Use stable only
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.0
 
