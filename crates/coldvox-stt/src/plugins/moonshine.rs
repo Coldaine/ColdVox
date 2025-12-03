@@ -21,11 +21,14 @@ use tracing::{debug, info, warn};
 use pyo3::{types::PyModule, types::PyAnyMethods, Python};
 #[cfg(feature = "moonshine")]
 use tempfile::NamedTempFile;
+use tokio::time::timeout;
 
-// Maximum audio buffer size (30 seconds at 16kHz)
-const MAX_AUDIO_BUFFER_SAMPLES: usize = 16000 * 30;
+// Maximum audio buffer size (10 minutes at 16kHz)
+const MAX_AUDIO_BUFFER_SAMPLES: usize = 16000 * 60 * 10;
 // Transcription timeout
-const TRANSCRIPTION_TIMEOUT_SECS: u64 = 30;
+const TRANSCRIPTION_TIMEOUT_SECS: u64 = 60;
+
+const INFERENCE_SCRIPT: &str = include_str!("../../../../scripts/moonshine_inference.py");
 
 /// Moonshine model variant
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -134,27 +137,31 @@ impl MoonshinePlugin {
     }
 
     #[cfg(feature = "moonshine")]
-    fn transcribe_via_python(&self, audio_path: &Path) -> Result<String, ColdVoxError> {
-        Python::with_gil(|py| {
-            let locals = pyo3::types::PyDict::new_bound(py);
-            locals.set_item("model_id", self.model_size.model_identifier())
-                .map_err(|e| SttError::TranscriptionFailed(format!("Failed to set model_id: {}", e)))?;
-            locals.set_item("audio_path_str", audio_path.to_str().ok_or_else(|| SttError::TranscriptionFailed("Invalid path".to_string()))?)
-                .map_err(|e| SttError::TranscriptionFailed(format!("Failed to set audio_path: {}", e)))?;
+    async fn transcribe_via_python(&self, audio_path: &Path) -> Result<String, ColdVoxError> {
+        let audio_path = audio_path.to_path_buf();
+        let model_id = self.model_size.model_identifier().to_string();
 
-            let code = include_str!("moonshine_transcribe.py");
+        tokio::task::spawn_blocking(move || {
+            Python::with_gil(|py| {
+                let locals = pyo3::types::PyDict::new_bound(py);
+                locals.set_item("model_id", model_id)
+                    .map_err(|e| SttError::TranscriptionFailed(format!("Failed to set model_id: {}", e)))?;
+                locals.set_item("audio_path_str", audio_path.to_str().ok_or_else(|| SttError::TranscriptionFailed("Invalid path".to_string()))?)
+                    .map_err(|e| SttError::TranscriptionFailed(format!("Failed to set audio_path: {}", e)))?;
 
-            py.run_bound(code, None, Some(&locals))
-                .map_err(|e| SttError::TranscriptionFailed(format!("Python error: {}", e)))?;
+                py.run_bound(INFERENCE_SCRIPT, None, Some(&locals))
+                    .map_err(|e| SttError::TranscriptionFailed(format!("Python error: {}", e)))?;
 
-            let result = locals.get_item("transcription")
-                .map_err(|e| SttError::TranscriptionFailed(format!("Failed to get transcription result: {}", e)))?;
+                let result = locals.get_item("transcription")
+                    .map_err(|e| SttError::TranscriptionFailed(format!("Failed to get transcription result: {}", e)))?;
 
-            let text: String = result.extract()
-                .map_err(|e| SttError::TranscriptionFailed(format!("Failed to extract text: {}", e)))?;
+                let text: String = result.extract()
+                    .map_err(|e| SttError::TranscriptionFailed(format!("Failed to extract text: {}", e)))?;
 
-            Ok(text)
-        })
+                Ok(text)
+            })
+        }).await
+        .map_err(|e| SttError::TranscriptionFailed(format!("Task join error: {}", e)))?
     }
 
     #[cfg(feature = "moonshine")]
@@ -304,36 +311,24 @@ impl SttPlugin for MoonshinePlugin {
 
             // Save to temporary WAV file
             let temp_file = self.save_audio_to_wav(&self.audio_buffer)?;
-            let audio_path = temp_file.path().to_path_buf();
+            let audio_path = temp_file.path();
 
-            // Clone necessary data for async task
-            let plugin_clone = self.clone_for_task();
-
-            // Spawn blocking task with timeout
-            let transcription_result = tokio::time::timeout(
-                Duration::from_secs(TRANSCRIPTION_TIMEOUT_SECS),
-                tokio::task::spawn_blocking(move || {
-                    plugin_clone.transcribe_via_python(&audio_path)
-                })
-            ).await;
+            // Transcribe via Python (async with timeout)
+            let timeout_duration = Duration::from_secs(TRANSCRIPTION_TIMEOUT_SECS);
+            let transcription_result = timeout(timeout_duration, self.transcribe_via_python(audio_path)).await;
 
             self.audio_buffer.clear();
 
             match transcription_result {
-                Ok(task_result) => {
-                    match task_result {
-                        Ok(Ok(text)) => {
-                            debug!(target: "coldvox::stt::moonshine", text = %text, "Transcription complete");
-                            Ok(Some(TranscriptionEvent::Final {
-                                utterance_id: 0,
-                                text,
-                                words: None,
-                            }))
-                        },
-                        Ok(Err(e)) => Err(e),
-                        Err(e) => Err(SttError::TranscriptionFailed(format!("Task join error: {}", e)).into()),
-                    }
+                Ok(Ok(text)) => {
+                    debug!(target: "coldvox::stt::moonshine", text = %text, "Transcription complete");
+                    Ok(Some(TranscriptionEvent::Final {
+                        utterance_id: 0,
+                        text,
+                        words: None,
+                    }))
                 },
+                Ok(Err(e)) => Err(e),
                 Err(_) => {
                      warn!(target: "coldvox::stt::moonshine", "Transcription timed out");
                      Err(SttError::TranscriptionFailed("Transcription timed out".to_string()).into())
@@ -384,20 +379,6 @@ impl SttPlugin for MoonshinePlugin {
                 plugin: "moonshine".to_string(),
                 reason: "Moonshine feature not compiled".to_string(),
             }.into())
-        }
-    }
-}
-
-#[cfg(feature = "moonshine")]
-impl MoonshinePlugin {
-    // Helper to clone necessary data for the blocking task
-    fn clone_for_task(&self) -> Self {
-        Self {
-            model_size: self.model_size,
-            model_path: self.model_path.clone(),
-            initialized: self.initialized,
-            audio_buffer: Vec::new(), // Not needed in the task
-            active_config: None, // Not needed in the task
         }
     }
 }
