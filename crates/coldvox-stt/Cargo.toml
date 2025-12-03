@@ -20,7 +20,7 @@ coldvox-telemetry = { path = "../coldvox-telemetry" }
 parakeet-rs = { version = "0.2", optional = true }
 
 # Moonshine STT via PyO3/HuggingFace
-pyo3 = { version = "0.22", optional = true, features = ["auto-initialize"] }
+pyo3 = { version = "0.24.1", optional = true, features = ["auto-initialize"] }
 tempfile = { version = "3.8", optional = true }
 hound = { version = "3.5", optional = true }
 
