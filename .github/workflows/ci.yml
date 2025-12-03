@@ -273,29 +273,34 @@ jobs:
       - name: Setup ColdVox
         uses: ./.github/actions/setup-coldvox
 
-      - name: Start and verify headless environment
+      - name: Start Xvfb
+        uses: GabrielBB/action-xvfb@v1
+        with:
+          run: |
+            set -euo pipefail
+            echo "Installing dependencies..."
+            sudo dnf install -y xclip xdotool at-spi2-core liberation-sans-fonts
+            echo "Xvfb is running."
+
+      - name: Setup D-Bus Session
         run: |
           set -euo pipefail
-          # Use our custom headless environment script
-          DISPLAY=:99 ${{ github.workspace }}/scripts/start-headless.sh
-
-          # Setup D-Bus session
           eval "$(dbus-launch --sh-syntax)"
           echo "DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS" >> $GITHUB_ENV
           echo "DBUS_SESSION_BUS_PID=$DBUS_SESSION_BUS_PID" >> $GITHUB_ENV
-          # Verify D-Bus and clipboard tools
-          if ! pgrep -x "dbus-daemon" >/dev/null; then echo "D-Bus daemon not running" >&2; exit 1; fi
-          echo "D-Bus is running."
-          echo "DBUS_SESSION_BUS_ADDRESS: $DBUS_SESSION_BUS_ADDRESS"
-          echo "DBUS_SESSION_BUS_PID: $DBUS_SESSION_BUS_PID"
-          if ! command -v xclip >/dev/null; then echo "xclip not found"; exit 1; fi
-          if ! command -v wl-paste >/dev/null; then echo "wl-clipboard not found"; exit 1; fi
-          echo "Clipboard utilities are available."
+          echo "D-Bus session started."
 
       - name: Validate test prerequisites
         run: |
+          set -euo pipefail
           echo "=== Test Environment Validation ==="
           echo "Display: $DISPLAY"
+          # Verify that an X server is running
+          if ! xset -q >/dev/null 2>&1; then
+            echo "Error: No X server running on display $DISPLAY"
+            exit 1
+          fi
+          echo "X server is running."
           echo "Available text injection backends:"
           command -v xdotool >/dev/null && echo "  - xdotool: $(xdotool --version 2>/dev/null || echo 'available')"
           command -v ydotool >/dev/null && echo "  - ydotool: available"
