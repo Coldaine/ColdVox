@@ -579,6 +579,13 @@ impl SttPluginManager {
             use coldvox_stt::plugins::parakeet::ParakeetPluginFactory;
             registry.register(Box::new(ParakeetPluginFactory::new()));
         }
+
+        // Register Moonshine plugin if the moonshine feature is enabled
+        #[cfg(feature = "moonshine")]
+        {
+            use coldvox_stt::plugins::moonshine::MoonshinePluginFactory;
+            registry.register(Box::new(MoonshinePluginFactory::new()));
+        }
     }
 
     /// Initialize the plugin manager and select the best available plugin
@@ -1477,11 +1484,13 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "whisper")]
     struct EnvVarGuard {
         key: &'static str,
         original: Option<String>,
     }
 
+    #[cfg(feature = "whisper")]
     impl EnvVarGuard {
         fn set(key: &'static str, value: &str) -> Self {
             let original = std::env::var(key).ok();
@@ -1490,6 +1499,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "whisper")]
     impl Drop for EnvVarGuard {
         fn drop(&mut self) {
             if let Some(ref value) = self.original {

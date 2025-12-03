@@ -220,9 +220,14 @@ pub async fn text_changed(
         if let Some(obj_ref) = matches.first() {
             // Get the initial text content
             let text_fut = TextProxy::builder(zbus_conn)
-                .destination(obj_ref.name.clone())
+                .destination(
+                    obj_ref
+                        .name()
+                        .ok_or_else(|| InjectionError::Other("Object has no name".to_string()))?
+                        .clone(),
+                )
                 .map_err(|e| InjectionError::Other(format!("TextProxy destination failed: {e}")))?
-                .path(obj_ref.path.clone())
+                .path(obj_ref.path().clone())
                 .map_err(|e| InjectionError::Other(format!("TextProxy path failed: {e}")))?
                 .build();
 
@@ -266,11 +271,16 @@ pub async fn text_changed(
             if let Some(obj_ref) = matches.first() {
                 // Get the text content
                 let text_fut = TextProxy::builder(zbus_conn)
-                    .destination(obj_ref.name.clone())
+                    .destination(
+                        obj_ref
+                            .name()
+                            .ok_or_else(|| InjectionError::Other("Object has no name".to_string()))?
+                            .clone(),
+                    )
                     .map_err(|e| {
                         InjectionError::Other(format!("TextProxy destination failed: {e}"))
                     })?
-                    .path(obj_ref.path.clone())
+                    .path(obj_ref.path().clone())
                     .map_err(|e| InjectionError::Other(format!("TextProxy path failed: {e}")))?
                     .build();
 
@@ -411,12 +421,12 @@ mod tests {
     #[test]
     fn test_extract_prefix() {
         // Test with ASCII
-        assert_eq!(TextChangeListener::extract_prefix("hello"), "hel");
+        assert_eq!(TextChangeListener::extract_prefix("hello"), "hel"); // typos:disable-line
         assert_eq!(TextChangeListener::extract_prefix("hi"), "hi");
         assert_eq!(TextChangeListener::extract_prefix("a"), "a");
 
         // Test with Unicode
-        assert_eq!(TextChangeListener::extract_prefix("café"), "caf");
+        assert_eq!(TextChangeListener::extract_prefix("café"), "caf"); // typos:disable-line
         assert_eq!(TextChangeListener::extract_prefix("👍🏽test"), "👍🏽te");
 
         // Test with longer text
@@ -429,12 +439,12 @@ mod tests {
     #[test]
     fn test_matches_prefix() {
         // Test matching - both strings should extract to the same prefix
-        // "hello world" extracts to "hell", "hell" extracts to "hel" - these don't match
-        assert!(TextChangeListener::matches_prefix("hello", "hel")); // Both extract to "hel"
-        assert!(TextChangeListener::matches_prefix("café", "caf"));
+        // "hello world" extracts to "hell", "hell" extracts to "hel" - these don't match // typos:disable-line
+        assert!(TextChangeListener::matches_prefix("hello", "hel")); // typos:disable-line
+        assert!(TextChangeListener::matches_prefix("café", "caf")); // typos:disable-line
 
         // Test non-matching
-        assert!(!TextChangeListener::matches_prefix("hello world", "worl"));
+        assert!(!TextChangeListener::matches_prefix("hello world", "worl")); // typos:disable-line
         assert!(!TextChangeListener::matches_prefix("test", "xyz"));
 
         // Test empty prefix

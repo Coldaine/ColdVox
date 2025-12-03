@@ -47,8 +47,8 @@ pub fn calculate_wer(reference: &str, hypothesis: &str) -> f64 {
         row[0] = i; // deletions
     }
 
-    for j in 0..=hyp_len {
-        dp[0][j] = j; // insertions
+    for (j, cell) in dp[0].iter_mut().enumerate().take(hyp_len + 1) {
+        *cell = j; // insertions
     }
 
     // Fill the DP table

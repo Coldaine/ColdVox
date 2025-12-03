@@ -174,10 +174,9 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
     /// Handle speech end event
     async fn handle_speech_end(&mut self, _timestamp_ms: u64, _duration_ms: Option<u64>) {
         debug!(target: "stt", "Starting handle_speech_end()");
-        let _guard = coldvox_telemetry::TimingGuard::new(
-            &self.metrics,
-            |m, d| m.record_end_to_end_latency(d)
-        );
+        let _guard = coldvox_telemetry::TimingGuard::new(&self.metrics, |m, d| {
+            m.record_end_to_end_latency(d)
+        });
 
         if let UtteranceState::SpeechActive { audio_buffer, .. } = &self.state {
             if !audio_buffer.is_empty() {
@@ -220,12 +219,9 @@ impl<T: StreamingStt + Send> SttProcessor<T> {
             TranscriptionEvent::Error { .. } => self.metrics.record_error(),
         }
 
-        if tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            self.event_tx.send(event),
-        )
-        .await
-        .is_err()
+        if tokio::time::timeout(std::time::Duration::from_secs(5), self.event_tx.send(event))
+            .await
+            .is_err()
         {
             self.metrics.record_error();
             debug!(target: "stt", "Event channel closed or send timed out");

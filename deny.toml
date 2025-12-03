@@ -1,16 +1,41 @@
 [licenses]
-unlawful = ["GPL-3.0", "AGPL-3.0"]
-allow = ["MIT", "Apache-2.0", "BSD-3-Clause", "ISC", "Unicode-DFS-2016"]
+# List of explicitly allowed licenses (anything not listed is denied)
+# See https://spdx.org/licenses/ for list of possible licenses
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "Zlib",
+    "BSL-1.0",
+    "CC0-1.0",
+    "0BSD",
+    "MPL-2.0",
+    "CDLA-Permissive-2.0",
+]
+confidence-threshold = 0.8
+# Ignore workspace crates (they're not published)
+[licenses.private]
+ignore = true
 
 [bans]
 multiple-versions = "warn"
-highlighted = ["openssl", "native-tls"]
+wildcards = "allow"
+highlight = "all"
+# Note: openssl/native-tls come from ort-sys build deps - acceptable for build-time use
+deny = []
 skip = []  # Add crates to skip if needed
 
 [advisories]
-db-path = "~/.cargo/advisory-db"
-db-urls = ["https://github.com/rustsec/advisory-db"]
-yank = "warn"
+# Use default advisory database location
+ignore = [
+    # paste is unmaintained but widely used and stable; no security impact
+    { id = "RUSTSEC-2024-0436", reason = "paste is unmaintained but stable, no security concern" },
+]
 
 [sources]
 unknown-registry = "warn"

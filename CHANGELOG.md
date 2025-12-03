@@ -5,6 +5,16 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Added
+- **Moonshine STT Plugin** - CPU-optimized speech recognition using UsefulSensors' Moonshine model via PyO3/HuggingFace Transformers
+  - 5x faster than Whisper on CPU with comparable accuracy (~2.5% WER)
+  - English-only, optimized for 16kHz audio
+  - Two model variants: Base (61M params, ~500MB) and Tiny (27M params, ~300MB)
+  - Auto-downloads models from HuggingFace Hub on first use
+  - Environment variables: `MOONSHINE_MODEL` (base/tiny), `MOONSHINE_MODEL_PATH`
+  - Requires Python 3.8+ with transformers, torch, librosa
+  - Install deps: `./scripts/install-moonshine-deps.sh`
+  - Build: `cargo build --features moonshine`
+
 - **NVIDIA Parakeet STT Plugin** - GPU-accelerated speech recognition using NVIDIA's Parakeet model via pure-Rust parakeet-rs library (#XXX)
   - Supports largest available model: nvidia/parakeet-tdt-1.1b (1.1 billion parameters)
   - TDT variant: Multilingual support for 25 languages with automatic detection
@@ -78,6 +88,14 @@ Users can still enable detailed debugging via `RUST_LOG=debug` or `RUST_LOG=trac
 - Bump `toml` from 0.8.23 to 0.9.8 (#182)
 - Bump `clap` from 4.5.49 to 4.5.50 (#181)
 - Keep `atspi` at 0.28.0 (defer 0.29.0 upgrade due to breaking API changes)
+
+### Security & Tooling
+- **Migrate deny.toml to cargo-deny v0.18 format**: Fixed deprecated configuration keys (`unlawful` → `allow`-only, `highlighted` → `highlight`, `yank` → `yanked`)
+- Added `CDLA-Permissive-2.0` license to allow list (transitive dep from webpki-root-certs)
+- Added `[licenses.private]` section to ignore unpublished workspace crates
+- Ignored RUSTSEC-2024-0436 (paste unmaintained advisory - no security impact)
+- Added `publish = false` to workspace crates: coldvox-app, coldvox-gui, coldvox-stt
+- **CI security scanning**: Added cargo-audit and cargo-deny jobs to CI workflow for vulnerability and license compliance checks
 
 ## v2.0.2 — 2025-09-12
 

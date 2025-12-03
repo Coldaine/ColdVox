@@ -8,7 +8,7 @@
   ".github/workflows/*.{yml,yaml}": [
     "mise run actionlint"
   ],
-  "*": [
-    "mise run typos"
+  "docs/**/*.md": [
+    "python3 scripts/ensure_doc_frontmatter.py --fix"
   ]
 }

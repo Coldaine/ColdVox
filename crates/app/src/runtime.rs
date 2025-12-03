@@ -769,12 +769,16 @@ pub async fn start(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "whisper")]
     use super::*;
 
+    #[cfg(feature = "whisper")]
     use coldvox_stt::plugin::{FailoverConfig, GcPolicy, PluginSelectionConfig};
+    #[cfg(feature = "whisper")]
     use coldvox_stt::TranscriptionEvent;
 
     /// Helper to create default runtime options for testing.
+    #[cfg(feature = "whisper")]
     fn test_opts(activation_mode: ActivationMode) -> AppRuntimeOptions {
         AppRuntimeOptions {
             device: None,
@@ -810,6 +814,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "whisper")]
     fn summarize_event(event: &TranscriptionEvent) -> String {
         match event {
             TranscriptionEvent::Partial { text, .. } => {
@@ -824,6 +829,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "whisper")]
     fn preview(text: &str) -> String {
         const MAX_PREVIEW: usize = 48;
         if text.len() <= MAX_PREVIEW {

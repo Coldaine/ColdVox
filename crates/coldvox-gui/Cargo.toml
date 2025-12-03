@@ -3,6 +3,7 @@ name = "coldvox-gui"
 version = "0.1.0"
 edition = "2021"
 description = "GUI frontend for ColdVox (placeholder crate for future development)"
+publish = false
 build = "build.rs"
 
 [[bin]]

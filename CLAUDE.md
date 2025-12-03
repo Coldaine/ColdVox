@@ -1,18 +1,26 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code (claude.ai/code) when working with this repository.
 
-## AI Assistant Response Guidelines
+**@import AGENTS.md** - Read `AGENTS.md` for canonical project instructions (structure, commands, do/don't rules, worktrees).
 
-**Prompt Response Format**: When asked to create a prompt for another agent, return ONLY the prompt content without any additional commentary, explanation, or wrapper text. Simply output the prompt as requested.
+## Claude-Specific Guidelines
 
-## ColdVox Overview
+### Response Format
 
-Rust-based voice AI pipeline implementing VAD-gated STT with text injection. The pipeline captures audio, detects speech activity, transcribes it to text, and injects the transcribed text into the active application.
+**Prompt Response Format**: When asked to create a prompt for another agent, return ONLY the prompt content without any additional commentary, explanation, or wrapper text.
 
-**Future Vision (Experimental)**: See [`docs/architecture.md`](docs/architecture.md#coldvox-future-vision) for the always-on intelligent listening plan, decoupled threading model, and tiered STT memory strategy under active research.
+### Subagent Usage (Opus 4.5)
 
-## Workspace Structure
+- Use subagents for verification tasks before claiming completion
+- Use TDD skills for new features (`@./.claude/skills/test.md` if available)
+- Prefer crate-scoped commands to reduce latency
+
+## ColdVox Deep Dive
+
+This section provides detailed context beyond `AGENTS.md` for complex tasks.
+
+### Workspace Structure (Detailed)
 
 Multi-crate Cargo workspace:
 
@@ -52,8 +60,6 @@ Multi-crate Cargo workspace:
 - `crates/coldvox-stt/` - STT core abstractions
   - `types.rs`: Core STT types (`TranscriptionEvent`, `WordInfo`)
   - `processor.rs`: STT processing traits
-
-- `crates/coldvox-stt/` - STT core abstractions
   - `plugins/whisper_plugin.rs`: `WhisperPlugin` for offline speech recognition via faster-whisper
   - `plugins/parakeet.rs`: `ParakeetPlugin` for GPU-accelerated recognition via NVIDIA Parakeet (pure Rust)
 
@@ -69,124 +75,21 @@ Multi-crate Cargo workspace:
 
 - `crates/coldvox-gui/` - GUI components (separate from CLI)
 
-## Development Commands
+### Key Components (Technical Details)
 
-**Working Directory**: Project root for all commands (standard Rust workspace practice).
-
-### Building
-
-```bash
-# Main app with default features (Silero VAD + text injection, no STT by default)
-cargo build
-
-# With Parakeet STT (GPU-only, requires CUDA)
-cargo build --features parakeet,text-injection
-
-# With Whisper STT (CPU/GPU hybrid)
-cargo build --features whisper
-
-# Full feature set
-cargo build --features parakeet,whisper,text-injection
-
-# Workspace build (all crates)
-cargo build --workspace
-
-# Release builds
-cargo build --release --features whisper,text-injection
-```
-
-### Running
-
-```bash
-# Main application (default features)
-cargo run
-
-# With specific device
-cargo run -- --device "USB Microphone"
-
-# With Parakeet STT (GPU-only, requires CUDA)
-cargo run --features parakeet,text-injection
-
-# With Whisper STT (for CPU/GPU hybrid voice dictation)
-cargo run --features whisper,text-injection
-
-# With specific device and Parakeet STT
-cargo run --features parakeet,text-injection -- --device "HyperX QuadCast"
-
-# TUI Dashboard (shared runtime)
-cargo run --bin tui_dashboard  # S=Start, A=Toggle VAD/PTT, R=Reset, Q=Quit
-# Optional explicit device or extra logging
-cargo run --bin tui_dashboard -- --device "USB Microphone" --log-level "info,stt=debug,coldvox_audio=debug"
-
-# Mic probe utility
-cargo run --bin mic_probe -- --duration 30
-
-# Examples (must include required features)
-cargo run --example foundation_probe
-cargo run --example record_10s
-cargo run --example whisper_test --features whisper,examples
-cargo run --example inject_demo --features text-injection
-cargo run --example test_silero_wav --features examples
-```
-
-### Testing
-
-```bash
-# All tests
-cargo test
-
-# With output
-cargo test -- --nocapture
-
-# Specific package
-cargo test -p coldvox-app
-
-# Integration tests
-cargo test integration
-
-# End-to-end WAV test (requires Whisper model - auto-discovered from project root)
-cargo test -p coldvox-app --features whisper test_end_to_end_wav --nocapture
-```
-
-### Linting & Formatting
-
-```bash
-cargo check --all-targets
-cargo fmt -- --check
-cargo clippy -- -D warnings
-```
-
-## Features
-
-Default features: `silero`, `text-injection`
-
-- `parakeet` - NVIDIA Parakeet STT (GPU-only, pure Rust via parakeet-rs)
-- `whisper` - Faster-Whisper STT support (Python-based, planned migration to Candle)
-- `text-injection` - Text injection backends (platform-specific)
-- `silero` - Silero V5 ONNX-based VAD (default and only VAD implementation)
-- `examples` - Enable example-specific dependencies
-- `live-hardware-tests` - Hardware-specific test suites
-
-Platform-specific text injection backends are automatically enabled at build time via `crates/app/build.rs`:
-- Linux: Detects Wayland/X11 and enables appropriate backends (AT-SPI, clipboard, ydotool/kdotool)
-- Windows/macOS: Enables Enigo backend
-- KDE: Enables KGlobalAccel hotkey support
-
-## Key Components
-
-### Audio Pipeline
+#### Audio Pipeline
 - **Capture**: `AudioCaptureThread` - dedicated thread with CPAL stream
 - **Ring Buffer**: `AudioRingBuffer` - lock-free SPSC for i16 samples
 - **Chunking**: `AudioChunker` - 512-sample frames at 16 kHz
 - **Resampling**: `StreamResampler` - Fast/Balanced/Quality modes
 - **Watchdog**: 5-second no-data detection with auto-recovery
 
-### VAD System
+#### VAD System
 - **Engine**: Silero V5 ONNX-based VAD (feature `silero`, enabled by default)
 - **Configuration**: threshold=0.1, min_speech=100ms, min_silence=500ms
 - **Events**: `VadEvent::{SpeechStart, SpeechEnd}` with debouncing
 
-### STT Integration
+#### STT Integration
 - **Parakeet** (feature `parakeet`): GPU-accelerated via NVIDIA Parakeet (pure Rust, GPU-only)
   - Model: nvidia/parakeet-tdt-1.1b (1.1B params, multilingual) or nvidia/parakeet-ctc-1.1b (English-only)
   - Environment: `PARAKEET_MODEL_PATH`, `PARAKEET_VARIANT` (tdt/ctc), `PARAKEET_DEVICE` (cuda/tensorrt)
@@ -195,36 +98,36 @@ Platform-specific text injection backends are automatically enabled at build tim
   - Model: `WHISPER_MODEL_PATH` or standard identifiers (e.g., "base.en", "small.en")
 - **Events**: `TranscriptionEvent::{Partial, Final, Error}`
 
-### Text Injection
+#### Text Injection
 - **Linux backends**: AT-SPI, wl-clipboard, ydotool (Wayland), kdotool (X11)
 - **Cross-platform**: Enigo
 - **Strategy**: Runtime backend selection with fallback chains
 
-## Configuration
+### Configuration Details
 
-### Audio Pipeline
+#### Audio Pipeline
 - Target: 16 kHz, 16-bit i16, mono
 - Frame size: 512 samples (32 ms)
 - Resampler quality: Fast/Balanced/Quality
 
-### VAD Config
+#### VAD Config
 - Silero threshold: 0.1
 - Min speech duration: 100ms
 - Min silence duration: 500ms (increased to stitch natural pauses)
 
-### Logging
+#### Logging
 - Main app: stderr + `logs/coldvox.log` (daily rotation)
 - TUI: file-only to `logs/coldvox.log` (avoids display corruption)
 - Control: `RUST_LOG` environment variable or `--log-level` flag
 
-## Platform Detection
+### Platform Detection
 
 Build-time detection in `crates/app/build.rs`:
 - Checks `WAYLAND_DISPLAY`, `DISPLAY`, `XDG_SESSION_TYPE`
 - Detects KDE via `KDE_FULL_SESSION`, `PLASMA_SESSION`
 - Enables appropriate text injection and hotkey backends
 
-## Threading & Communication
+### Threading & Communication
 
 - **Dedicated capture thread**: Owns CPAL input stream; watchdog monitors for no-data conditions
 - **Async tasks (Tokio)**: VAD processor, STT processor, text injection, hotkey handling, UI/TUI
@@ -233,7 +136,7 @@ Build-time detection in `crates/app/build.rs`:
   - `broadcast` channels for audio frames and configuration updates
   - `mpsc` channels for events and control messages
 
-## Key Design Principles
+### Key Design Principles
 
 - **Monotonic timing**: Uses `std::time::Instant` for all durations and timestamps
 - **Single VAD implementation**: Silero V5 ONNX-based VAD with no fallback
@@ -242,35 +145,16 @@ Build-time detection in `crates/app/build.rs`:
 - **Lock-free communication**: rtrb ring buffer with atomic counters for audio data
 - **Structured logging**: Rotation-based file logging; avoids stderr in TUI mode
 
-## Important Files
+### Setup Requirements
 
-### Core Implementation
-- **Main app**: `crates/app/src/main.rs`
-- **Audio pipeline**: `crates/coldvox-audio/src/capture.rs`, `frame_reader.rs`, `chunker.rs`
-- **VAD engine**: `crates/coldvox-vad-silero/src/silero_wrapper.rs`
-- **STT integration**: `crates/app/src/stt/processor.rs`, `crates/coldvox-stt/src/plugins/whisper_plugin.rs`
-- **Text injection**: `crates/coldvox-text-injection/src/manager.rs`
-
-### Configuration & Build
-- **Build-time platform detection**: `crates/app/build.rs`
-- **VAD configuration**: `crates/coldvox-vad/src/config.rs`
-- **Feature definitions**: `crates/app/Cargo.toml`
-
-### Testing & Examples
-- **End-to-end tests**: `crates/app/src/stt/tests/end_to_end_wav.rs`
-- **Integration tests**: `crates/app/tests/integration/`
-- **Example programs**: `/examples/` directory
-
-## Setup Requirements
-
-### Linux Text Injection
+#### Linux Text Injection
 Run `scripts/setup_text_injection.sh` to install:
 - wl-clipboard (required)
 - ydotool (recommended)
 - kdotool (optional)
 - Configures uinput permissions and user groups
 
-### Parakeet STT (GPU-only)
+#### Parakeet STT (GPU-only)
 - **Requirements**: CUDA-capable NVIDIA GPU
 - **Verify GPU**: `nvidia-smi` must succeed
 - **Models**: Auto-downloaded to `~/.cache/parakeet/` on first use
@@ -278,48 +162,18 @@ Run `scripts/setup_text_injection.sh` to install:
   - `PARAKEET_VARIANT`: "tdt" (multilingual, default) or "ctc" (English-only)
   - `PARAKEET_DEVICE`: "cuda" (default) or "tensorrt" (optimized)
   - `PARAKEET_MODEL_PATH`: Override model location
-- **Model**: nvidia/parakeet-tdt-1.1b (1.1B parameters, ~5GB VRAM)
 
-### Whisper STT (CPU/GPU hybrid)
+#### Whisper STT (CPU/GPU hybrid)
 - Install faster-whisper Python package: `pip install faster-whisper`
 - Models are automatically downloaded on first use
 - Set `WHISPER_MODEL_PATH` to specify a model identifier or custom model directory
-- Common model identifiers: "tiny.en", "base.en", "small.en", "medium.en"
 
-## Changelog Maintenance
+### Changelog Maintenance
 
 **REQUIRED**: All user-visible changes MUST be documented in `CHANGELOG.md` following the rubric in `docs/standards.md`.
 
-### When to Update the Changelog
+See `docs/standards.md` for the detailed rubric on when to update and format guidelines.
 
-Update `CHANGELOG.md` for:
-- **User-visible features**: New functionality, commands, options, or behaviors
-- **Breaking changes**: API changes, configuration changes, removed features
-- **Bug fixes**: Fixes that impact user experience or behavior
-- **Deprecations**: Features or APIs being phased out
-- **Performance improvements**: Significant performance changes users will notice
-- **Security fixes**: Any security-related changes
-- **Dependency updates**: Major version bumps or security updates
+### Future Vision
 
-### When NOT to Update the Changelog
-
-Skip changelog updates for:
-- Internal refactoring with no user-visible impact
-- Documentation-only changes (unless they're major documentation overhauls)
-- Test changes
-- CI/CD configuration changes
-- Development tooling changes
-
-### Changelog Format
-
-Follow [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) format:
-- Use `## [Unreleased]` for unreleased changes
-- Group changes under `### Added`, `### Changed`, `### Deprecated`, `### Removed`, `### Fixed`, `### Security`, `### Documentation`, `### Dependencies`
-- Include PR numbers in parentheses: `(#123)`
-- Use clear, user-focused language
-
-See the detailed rubric in `docs/standards.md` for version numbering guidelines.
-
-## Maintenance Notes
-
-- Project status: Source of truth is `docs/PROJECT_STATUS.md`. The README badge is static and must be updated manually to match the current phase.
+See [`docs/architecture.md`](docs/architecture.md#coldvox-future-vision) for the always-on intelligent listening plan, decoupled threading model, and tiered STT memory strategy under active research.

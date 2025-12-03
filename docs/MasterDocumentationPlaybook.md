@@ -1,10 +1,10 @@
 ---
 doc_type: playbook
 subsystem: general
-version: 1.0.1
+version: 1.0.2
 status: draft
 owners: Documentation Working Group
-last_reviewed: 2025-11-06
+last_reviewed: 2025-12-03
 ---
 
 # Master Documentation Playbook (Org‑wide)
@@ -46,7 +46,8 @@ docs/
   repo/                           # Repo meta documentation
     gitignore.md                  # Rationale for .gitignore structure
     editor.md                     # Editor/workspace conventions (e.g., .vscode)
-  agents.md                       # Assistant orientation (overview, workspace map, commands) mirrored in CLAUDE.md
+
+  # NOTE: Agent config files (AGENTS.md, CLAUDE.md) live at repo root - see §2.1
 
   domains/                        # Technical docs per functional domain
     audio/
@@ -86,7 +87,23 @@ docs/
 - `.vscode/` project settings
 - `.gitignore`
 
-Any additional exception requires DWG approval and must be documented in `docs/standards.md` under “Exceptions”.
+#### AI Agent Configuration Files
+
+The following files configure AI coding agents and MUST live at standard locations for cross-tool compatibility. These are explicitly exempt from `/docs` placement:
+
+- `AGENTS.md` (root): Canonical agent instructions following the [AGENTS.md standard](https://agents.md/). This is the single source of truth for all AI agents.
+- `CLAUDE.md` (root): Claude Code configuration. Should import from or reference `AGENTS.md`.
+- `.github/copilot-instructions.md`: GitHub Copilot instructions. Symlink to `AGENTS.md`.
+- `.kilocode/rules/agents.md`: Kilo Code rules. Symlink to `../../AGENTS.md`.
+- `.gemini/settings.json`: Gemini CLI configuration. Set `"contextFileName": "AGENTS.md"` to use root AGENTS.md.
+- `.cursorrules` (root, optional): Cursor-specific rules if needed beyond `AGENTS.md`.
+- `.builderrules` (root, optional): Builder.io-specific rules if needed.
+
+**Hierarchy**: `AGENTS.md` is authoritative. Tool-specific files should either symlink to it or contain only tool-specific overrides that reference `AGENTS.md`.
+
+**Do NOT create** `docs/agents.md` - agent configuration lives at the root for tool discovery.
+
+Any additional exception requires DWG approval and must be documented in `docs/standards.md` under "Exceptions".
 
 ## 3) Required Metadata Header (All Markdown)
 
@@ -117,7 +134,7 @@ Notes:
 - Domain troubleshooting (e.g., Vosk model discovery) must live inside the relevant `docs/domains/<domain>/troubleshooting/`.
 - Roadmap lives at `docs/architecture/roadmap.md` and is linked from `docs/architecture.md`.
 - ADRs live under `docs/architecture/adr-XXXX.md` with incrementing numeric IDs and MUST be linked from `docs/architecture.md`.
-- `docs/agents.md` and `CLAUDE.md` MUST both contain the full assistant orientation (overview, workspace map, key commands, feature flags). Keep the contents synchronized, include links to this playbook and `docs/standards.md`, and retain these files at the documented paths.
+- `AGENTS.md` (root) is the canonical source for AI agent orientation (overview, workspace map, key commands, feature flags). `CLAUDE.md` should reference or import from `AGENTS.md`. See §2.1 for the full list of agent configuration files and their hierarchy.
 
 ### 4.1 Domain Identifiers (Short Codes) and Filenames
 
@@ -334,6 +351,12 @@ A: Yes—for domains, operations, or other areas. Exception: do NOT create proje
 
 ## Appendix A — Playbook Change Log
 
+- 1.0.2 (2025‑12‑03)
+  - Added AI Agent Configuration Files section to approved exceptions (§2.1)
+  - Established `AGENTS.md` (root) as canonical source for agent instructions per [AGENTS.md standard](https://agents.md/)
+  - Defined symlink hierarchy for tool-specific files (Copilot, Kilo Code, Cursor, etc.)
+  - Removed requirement for `docs/agents.md` - agent config lives at root for cross-tool discovery
+  - Updated §4 to reference new agent file hierarchy
 - 1.0.1 (2025‑11‑06)
   - Made domain naming validation mandatory with pre-push hook enforcement (§4.1, §6.1.1)
   - Added requirement for domain overview documents (§4.1)
