@@ -5,6 +5,27 @@
 default:
     @just --list
 
+# --- Genesis Protocol Standardized Recipes ---
+
+# Install dependencies and setup environment
+setup:
+    mise install
+    cargo fetch
+    @if [ -f .env.example ] && [ ! -f .env ]; then echo "Copying .env.example to .env"; cp .env.example .env; fi
+
+# Start the local development server (alias for run)
+dev: run
+
+# Run unit tests
+test:
+    cargo test --workspace --locked
+
+# Verify the project (runs strict CI checks including tests, lint, fmt)
+# Note: Playwright is not used in this Rust workspace; verification is done via local_ci.sh
+verify: ci
+
+# --- End Genesis Protocol ---
+
 # Run local CI checks (mirrors GitHub Actions exactly)
 ci:
     ./scripts/local_ci.sh
@@ -25,10 +46,6 @@ lint:
 fix:
     cargo fmt --all
     cargo clippy --fix --all-targets --locked --allow-dirty --allow-staged
-
-# Run all tests
-test:
-    cargo test --workspace --locked
 
 test-full:
     cargo test --workspace --locked

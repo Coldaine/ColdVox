@@ -20,6 +20,7 @@ pub fn calculate_wer(reference: &str, hypothesis: &str) -> f64 {
         row[0] = i; // deletions
     }
 
+    #[allow(clippy::needless_range_loop)]
     for j in 0..=hyp_len {
         dp[0][j] = j; // insertions
     }

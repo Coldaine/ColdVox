@@ -3,9 +3,11 @@ use std::time::Duration;
 use tokio::time::timeout;
 
 /// Default timeout for most test operations (30 seconds)
+#[allow(dead_code)]
 pub const DEFAULT_TEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Wrap an async operation with a timeout and provide clear error messaging.
+#[allow(dead_code)]
 pub async fn with_timeout<F, T>(
     future: F,
     timeout_duration: Option<Duration>,
@@ -27,6 +29,7 @@ where
 }
 
 /// Timeout wrapper specifically for text injection tests
+#[allow(dead_code)]
 pub async fn with_injection_timeout<F, T>(future: F, operation_name: &str) -> Result<T, String>
 where
     F: std::future::Future<Output = T>,

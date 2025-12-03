@@ -775,6 +775,7 @@ mod tests {
     use coldvox_stt::TranscriptionEvent;
 
     /// Helper to create default runtime options for testing.
+    #[allow(dead_code)]
     fn test_opts(activation_mode: ActivationMode) -> AppRuntimeOptions {
         AppRuntimeOptions {
             device: None,
@@ -810,6 +811,7 @@ mod tests {
         }
     }
 
+    #[allow(dead_code)]
     fn summarize_event(event: &TranscriptionEvent) -> String {
         match event {
             TranscriptionEvent::Partial { text, .. } => {
@@ -824,6 +826,7 @@ mod tests {
         }
     }
 
+    #[allow(dead_code)]
     fn preview(text: &str) -> String {
         const MAX_PREVIEW: usize = 48;
         if text.len() <= MAX_PREVIEW {

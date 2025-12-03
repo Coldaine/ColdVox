@@ -99,11 +99,25 @@ impl Default for PerformanceThresholds {
 /// Performance alert types
 #[derive(Debug, Clone, PartialEq)]
 pub enum PerformanceAlert {
-    HighLatency { measured_us: u64, threshold_us: u64 },
-    LowConfidence { measured: f64, threshold: f64 },
-    HighErrorRate { measured_per_1k: u64, threshold_per_1k: u64 },
-    HighMemoryUsage { measured_bytes: u64, threshold_bytes: u64 },
-    ProcessingStalled { last_activity: Duration },
+    HighLatency {
+        measured_us: u64,
+        threshold_us: u64,
+    },
+    LowConfidence {
+        measured: f64,
+        threshold: f64,
+    },
+    HighErrorRate {
+        measured_per_1k: u64,
+        threshold_per_1k: u64,
+    },
+    HighMemoryUsage {
+        measured_bytes: u64,
+        threshold_bytes: u64,
+    },
+    ProcessingStalled {
+        last_activity: Duration,
+    },
 }
 
 impl SttPerformanceMetrics {
@@ -227,9 +241,10 @@ impl SttPerformanceMetrics {
         }
 
         let total_ops = inner.operational.request_count;
-        if total_ops > 1000 { // Only check if significant number of operations
-             let error_rate_per_1k = (inner.operational.error_count * 1000) / total_ops;
-             if error_rate_per_1k > thresholds.max_error_rate_per_1k {
+        if total_ops > 1000 {
+            // Only check if significant number of operations
+            let error_rate_per_1k = (inner.operational.error_count * 1000) / total_ops;
+            if error_rate_per_1k > thresholds.max_error_rate_per_1k {
                 alerts.push(PerformanceAlert::HighErrorRate {
                     measured_per_1k: error_rate_per_1k,
                     threshold_per_1k: thresholds.max_error_rate_per_1k,
@@ -250,13 +265,19 @@ impl SttPerformanceMetrics {
     // ... other getter methods if needed ...
     pub fn get_latency_trend(&self) -> Option<f64> {
         let inner = self.inner.read();
-        if inner.latency_history.len() < 10 { return None; }
+        if inner.latency_history.len() < 10 {
+            return None;
+        }
 
         let recent: Vec<_> = inner.latency_history.iter().rev().take(10).collect();
         let n = recent.len() as f64;
         let sum_x: f64 = (0..recent.len()).map(|i| i as f64).sum();
         let sum_y: f64 = recent.iter().map(|s| s.end_to_end_us as f64).sum();
-        let sum_xy: f64 = recent.iter().enumerate().map(|(i, s)| i as f64 * s.end_to_end_us as f64).sum();
+        let sum_xy: f64 = recent
+            .iter()
+            .enumerate()
+            .map(|(i, s)| i as f64 * s.end_to_end_us as f64)
+            .sum();
         let sum_x2: f64 = (0..recent.len()).map(|i| (i as f64).powi(2)).sum();
 
         let slope = (n * sum_xy - sum_x * sum_y) / (n * sum_x2 - sum_x.powi(2));
@@ -264,13 +285,20 @@ impl SttPerformanceMetrics {
     }
 
     // This gives a snapshot of the current metrics state
-    pub fn snapshot(&self) -> (LatencyMetrics, AccuracyMetrics, ResourceMetrics, OperationalMetrics) {
+    pub fn snapshot(
+        &self,
+    ) -> (
+        LatencyMetrics,
+        AccuracyMetrics,
+        ResourceMetrics,
+        OperationalMetrics,
+    ) {
         let inner = self.inner.read();
         (
             inner.latency.clone(),
             inner.accuracy.clone(),
             inner.resources.clone(),
-            inner.operational.clone()
+            inner.operational.clone(),
         )
     }
 }
@@ -309,7 +337,6 @@ where
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -347,7 +374,11 @@ mod tests {
         metrics.record_transcription_success();
         metrics.record_transcription_failure();
         let rate = metrics.get_success_rate();
-        assert!((rate - 2.0 / 3.0).abs() < 0.001, "Expected ~0.666, got {}", rate);
+        assert!(
+            (rate - 2.0 / 3.0).abs() < 0.001,
+            "Expected ~0.666, got {}",
+            rate
+        );
     }
 
     #[test]
@@ -365,8 +396,14 @@ mod tests {
 
         let alerts = metrics.check_alerts(&thresholds);
         assert_eq!(alerts.len(), 2);
-        assert!(alerts.contains(&PerformanceAlert::HighLatency { measured_us: 200_000, threshold_us: 100_000 }));
-        assert!(alerts.contains(&PerformanceAlert::LowConfidence { measured: 0.5, threshold: 0.8 }));
+        assert!(alerts.contains(&PerformanceAlert::HighLatency {
+            measured_us: 200_000,
+            threshold_us: 100_000
+        }));
+        assert!(alerts.contains(&PerformanceAlert::LowConfidence {
+            measured: 0.5,
+            threshold: 0.8
+        }));
     }
 
     #[test]

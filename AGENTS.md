@@ -1,3 +1,20 @@
+# Agent Instructions
+
+## Project Summary
+ColdVox is a modular Rust workspace providing real‑time audio capture, VAD, STT (Faster-Whisper), and cross‑platform text injection.
+
+## Tech Stack
+- **Node**: 22 (via `mise`)
+- **Python**: 3.13 (via `mise`)
+- **Rust**: Stable (via `mise` / `rustup`)
+- **Test Framework**: `cargo test`
+
+## Agent Protocol
+1. **Use `just`**: Always use `just <command>` instead of raw `cargo`, `npm`, or script commands to avoid syntax errors and ensure environment consistency.
+2. **Verify**: Strict rule that you must run `just verify` before submitting any PR.
+
+---
+
 # Repository Guidelines
 
 ## Project Structure & Module Organization
@@ -17,4 +34,3 @@ Write concise, imperative subject lines (e.g., `fix: guard AT-SPI placeholder cl
 
 ## Security & Configuration Tips
 Treat `config/plugins.json` as the single source for STT backend selection and avoid editing deprecated root-level `plugins.json`. Never commit secrets; use environment variables or `.coldvox/*.example` templates. When adding new STT backends, document feature flags plus model download steps in `README.md` and `docs/architecture.md`, and ensure cargo-deny plus `cargo audit` stay clean before requesting review.
-
