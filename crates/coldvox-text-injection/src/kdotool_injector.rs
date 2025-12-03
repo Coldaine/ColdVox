@@ -34,6 +34,7 @@ impl KdotoolInjector {
             .unwrap_or(false)
     }
 
+    #[allow(dead_code)]
     fn binary_available(binary: &str) -> bool {
         Command::new("which")
             .arg(binary)
@@ -43,6 +44,7 @@ impl KdotoolInjector {
     }
 
     #[cfg(test)]
+    #[allow(dead_code)]
     pub(crate) fn binary_available_for_tests(binary: &str) -> bool {
         Self::binary_available(binary)
     }
