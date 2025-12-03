@@ -1,0 +1,61 @@
+# mise.toml
+# Universal Toolchain Standard - Nov 2025
+# Context: Solo Developer / 50+ Repos
+
+min_version = "2024.11.1"
+
+[tools]
+# --- Core Runtimes ---
+# Pinned to latest stable versions as of Nov 2025
+node        = "22"       # LTS
+python      = "3.13"     # Stable (Performance Improvements)
+rust        = "stable"   # Latest Stable
+# go          = "1.23"   # Not currently used in ColdVox
+
+# --- Utility Toolchain ---
+# High-performance replacements for legacy tools
+uv          = "latest"   # Replaces pip/poetry (Rust-based)
+ripgrep     = "latest"   # Fast search
+jq          = "latest"   # JSON processor
+actionlint  = "latest"   # GitHub Actions linter
+typos       = "latest"   # Source code spell checker
+
+[env]
+# --- Environment Consistency ---
+# Prioritize local node_modules binaries.
+# This allows running 'eslint' directly without 'npx', saving network/startup time.
+_.path = ["{{config_root}}/node_modules/.bin"]
+PYTHONIOENCODING = "utf-8"
+
+[tasks.pre-commit]
+description = "Universal Git Pre-commit Hook"
+# CRITICAL: Invokes the local lint-staged binary directly via mise exec.
+# Avoids 'npx' to prevent registry lookup latency.
+run = "lint-staged"
+
+# --- TASK DELEGATION LAYER ---
+# lint-staged delegates logic here.
+
+[tasks."fmt:rust"]
+description = "Format & Lint Rust (Cargo)"
+run = """
+cargo fmt --
+# --allow-dirty is required because hooks run on dirty states by definition
+cargo clippy --fix --allow-dirty --allow-staged --all-targets --locked -- -D warnings
+"""
+
+[tasks."check:lockfiles"]
+description = "Prevent Lockfile Drift"
+# Runs a dry-run install to verify lockfiles match manifests.
+run = """
+#!/bin/bash
+if [ -f package-lock.json ]; then npm ci --dry-run; fi
+"""
+
+[tasks.actionlint]
+description = "Lint GitHub Actions"
+run = "actionlint"
+
+[tasks.typos]
+description = "Spell Check"
+run = "typos"

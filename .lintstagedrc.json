@@ -1,0 +1,14 @@
+{
+  "*.rs": [
+    "cargo fmt --"
+  ],
+  "{package.json,package-lock.json,Cargo.toml,Cargo.lock}": [
+    "mise run check:lockfiles"
+  ],
+  ".github/workflows/*.{yml,yaml}": [
+    "mise run actionlint"
+  ],
+  "*": [
+    "mise run typos"
+  ]
+}

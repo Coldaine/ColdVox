@@ -4,16 +4,19 @@
  - Install Rust (stable) and required system dependencies for your platform.
  - Use the provided scripts in `scripts/` to help with local environment setup.
 
-### Developer Git Hooks (optional but recommended)
+### Developer Git Hooks
 
-To reduce the chance of CI failures from formatting, this repository includes a small pre-commit hook that runs `cargo fmt --all` before each commit and blocks the commit if `rustfmt` makes changes. To enable it for your local clone:
+This project uses a "Zero-Latency" git hook standard powered by **[mise](https://mise.jdx.dev)** and **lint-staged**.
 
+### Setup
+1. **Install mise**: `curl https://mise.run | sh` (or see [docs](https://mise.jdx.dev/getting-started.html))
+2. **Install dependencies**: `mise install`
+3. **Activate hooks**: `mise run prepare` (runs automatically on `npm install`)
+
+Hooks will now run automatically on `git commit`. To run manually:
 ```bash
-cd <repo-root>
-./scripts/install-githooks.sh
+mise run pre-commit
 ```
-
-This copies the hooks from `.githooks/` into `.git/hooks/` and makes them executable. You can remove or modify the hook if you want a different behavior.
 
 # ColdVox
 
