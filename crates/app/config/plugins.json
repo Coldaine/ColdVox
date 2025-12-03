@@ -1,4 +1,4 @@
-﻿{
+{
   "preferred_plugin": "mock",
   "fallback_plugins": [
     "whisper",

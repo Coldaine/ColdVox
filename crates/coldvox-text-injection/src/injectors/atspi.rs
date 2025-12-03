@@ -122,16 +122,16 @@ impl AtspiInjector {
 
             debug!(
                 "Found editable element at path: {:?} in app: {:?}",
-                obj_ref.path, obj_ref.name
+                obj_ref.path(), obj_ref.name()
             );
 
             // Get EditableText proxy
             let editable_fut = EditableTextProxy::builder(zbus_conn)
-                .destination(obj_ref.name.clone())
+                .destination(obj_ref.name().ok_or_else(|| InjectionError::Other("AT-SPI object has no name".to_string()))?.clone())
                 .map_err(|e| {
                     InjectionError::Other(format!("EditableTextProxy destination failed: {e}"))
                 })?
-                .path(obj_ref.path.clone())
+                .path(obj_ref.path().clone())
                 .map_err(|e| InjectionError::Other(format!("EditableTextProxy path failed: {e}")))?
                 .build();
 
@@ -144,9 +144,9 @@ impl AtspiInjector {
 
             // Get Text proxy to determine caret position
             let text_iface_fut = TextProxy::builder(zbus_conn)
-                .destination(obj_ref.name.clone())
+                .destination(obj_ref.name().ok_or_else(|| InjectionError::Other("AT-SPI object has no name".to_string()))?.clone())
                 .map_err(|e| InjectionError::Other(format!("TextProxy destination failed: {e}")))?
-                .path(obj_ref.path.clone())
+                .path(obj_ref.path().clone())
                 .map_err(|e| InjectionError::Other(format!("TextProxy path failed: {e}")))?
                 .build();
 
@@ -161,7 +161,7 @@ impl AtspiInjector {
                 .await
                 .map_err(|_| InjectionError::Timeout(per_method_timeout.as_millis() as u64))?
                 .map_err(|e| {
-                    warn!("Failed to get caret offset from {:?}: {}", obj_ref.path, e);
+                    warn!("Failed to get caret offset from {:?}: {}", obj_ref.path(), e);
                     InjectionError::Other(format!("Text.caret_offset failed: {e}"))
                 })?;
 
@@ -175,7 +175,7 @@ impl AtspiInjector {
                 .map_err(|e| {
                     warn!(
                         "Failed to insert text at position {} in {:?}: {}",
-                        caret, obj_ref.path, e
+                        caret, obj_ref.path(), e
                     );
                     InjectionError::Other(format!("EditableText.insert_text failed: {e}"))
                 })?;
@@ -193,7 +193,7 @@ impl AtspiInjector {
             debug!(
                 "Successfully inserted {} chars via AT-SPI to {:?} in {}ms",
                 text.len(),
-                obj_ref.name,
+                obj_ref.name(),
                 elapsed.as_millis()
             );
 
@@ -310,14 +310,14 @@ impl AtspiInjector {
 
             debug!(
                 "Found editable element at path: {:?} in app: {:?}",
-                obj_ref.path, obj_ref.name
+                obj_ref.path(), obj_ref.name()
             );
 
             // Get Action proxy to trigger paste action
             let action_fut = ActionProxy::builder(zbus_conn)
-                .destination(obj_ref.name.clone())
+                .destination(obj_ref.name().ok_or_else(|| InjectionError::Other("AT-SPI object has no name".to_string()))?.clone())
                 .map_err(|e| InjectionError::Other(format!("ActionProxy destination failed: {e}")))?
-                .path(obj_ref.path.clone())
+                .path(obj_ref.path().clone())
                 .map_err(|e| InjectionError::Other(format!("ActionProxy path failed: {e}")))?
                 .build();
 
@@ -332,7 +332,7 @@ impl AtspiInjector {
                 .await
                 .map_err(|_| InjectionError::Timeout(per_method_timeout.as_millis() as u64))?
                 .map_err(|e| {
-                    warn!("Failed to get actions from {:?}: {}", obj_ref.path, e);
+                    warn!("Failed to get actions from {:?}: {}", obj_ref.path(), e);
                     InjectionError::Other(format!("Action.get_actions failed: {e}"))
                 })?;
 
@@ -377,7 +377,7 @@ impl AtspiInjector {
             debug!(
                 "Successfully pasted {} chars via AT-SPI to {:?} in {}ms",
                 text.len(),
-                obj_ref.name,
+                obj_ref.name(),
                 elapsed.as_millis()
             );
 
