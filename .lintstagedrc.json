@@ -7,8 +7,5 @@
   ],
   ".github/workflows/*.{yml,yaml}": [
     "mise run actionlint"
-  ],
-  "*": [
-    "mise run typos"
   ]
 }
