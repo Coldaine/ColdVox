@@ -14,12 +14,18 @@ use async_trait::async_trait;
 use coldvox_foundation::error::{ColdVoxError, SttError};
 use std::env;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use tracing::{debug, info, warn};
 
 #[cfg(feature = "moonshine")]
 use pyo3::{types::PyModule, types::PyAnyMethods, Python};
 #[cfg(feature = "moonshine")]
 use tempfile::NamedTempFile;
+
+// Maximum audio buffer size (30 seconds at 16kHz)
+const MAX_AUDIO_BUFFER_SAMPLES: usize = 16000 * 30;
+// Transcription timeout
+const TRANSCRIPTION_TIMEOUT_SECS: u64 = 30;
 
 /// Moonshine model variant
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -136,38 +142,7 @@ impl MoonshinePlugin {
             locals.set_item("audio_path_str", audio_path.to_str().ok_or_else(|| SttError::TranscriptionFailed("Invalid path".to_string()))?)
                 .map_err(|e| SttError::TranscriptionFailed(format!("Failed to set audio_path: {}", e)))?;
 
-            let code = r#"
-import torch
-from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor
-import librosa
-
-# Load model and processor
-device = "cpu"
-torch_dtype = torch.float32
-
-model = AutoModelForSpeechSeq2Seq.from_pretrained(
-    model_id,
-    torch_dtype=torch_dtype,
-    low_cpu_mem_usage=True,
-)
-model.to(device)
-
-processor = AutoProcessor.from_pretrained(model_id)
-
-# Load audio
-audio_array, sampling_rate = librosa.load(audio_path_str, sr=16000, mono=True)
-
-# Process
-inputs = processor(audio_array, sampling_rate=16000, return_tensors="pt")
-inputs = {k: v.to(device) for k, v in inputs.items()}
-
-# Generate
-with torch.no_grad():
-    generated_ids = model.generate(**inputs)
-
-# Decode
-transcription = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
-"#;
+            let code = include_str!("moonshine_transcribe.py");
 
             py.run_bound(code, None, Some(&locals))
                 .map_err(|e| SttError::TranscriptionFailed(format!("Python error: {}", e)))?;
@@ -291,6 +266,13 @@ impl SttPlugin for MoonshinePlugin {
                 }.into());
             }
 
+            // Enforce buffer limit
+            if self.audio_buffer.len() + samples.len() > MAX_AUDIO_BUFFER_SAMPLES {
+                warn!(target: "coldvox::stt::moonshine", "Audio buffer exceeded limit, clearing");
+                self.audio_buffer.clear();
+                return Err(SttError::TranscriptionFailed("Audio buffer limit exceeded".to_string()).into());
+            }
+
             self.audio_buffer.extend_from_slice(samples);
             Ok(None)
         }
@@ -322,20 +304,41 @@ impl SttPlugin for MoonshinePlugin {
 
             // Save to temporary WAV file
             let temp_file = self.save_audio_to_wav(&self.audio_buffer)?;
-            let audio_path = temp_file.path();
+            let audio_path = temp_file.path().to_path_buf();
 
-            // Transcribe via Python
-            let text = self.transcribe_via_python(audio_path)?;
+            // Clone necessary data for async task
+            let plugin_clone = self.clone_for_task();
+
+            // Spawn blocking task with timeout
+            let transcription_result = tokio::time::timeout(
+                Duration::from_secs(TRANSCRIPTION_TIMEOUT_SECS),
+                tokio::task::spawn_blocking(move || {
+                    plugin_clone.transcribe_via_python(&audio_path)
+                })
+            ).await;
 
             self.audio_buffer.clear();
 
-            debug!(target: "coldvox::stt::moonshine", text = %text, "Transcription complete");
-
-            Ok(Some(TranscriptionEvent::Final {
-                utterance_id: 0,
-                text,
-                words: None,
-            }))
+            match transcription_result {
+                Ok(task_result) => {
+                    match task_result {
+                        Ok(Ok(text)) => {
+                            debug!(target: "coldvox::stt::moonshine", text = %text, "Transcription complete");
+                            Ok(Some(TranscriptionEvent::Final {
+                                utterance_id: 0,
+                                text,
+                                words: None,
+                            }))
+                        },
+                        Ok(Err(e)) => Err(e),
+                        Err(e) => Err(SttError::TranscriptionFailed(format!("Task join error: {}", e)).into()),
+                    }
+                },
+                Err(_) => {
+                     warn!(target: "coldvox::stt::moonshine", "Transcription timed out");
+                     Err(SttError::TranscriptionFailed("Transcription timed out".to_string()).into())
+                }
+            }
         }
 
         #[cfg(not(feature = "moonshine"))]
@@ -381,6 +384,20 @@ impl SttPlugin for MoonshinePlugin {
                 plugin: "moonshine".to_string(),
                 reason: "Moonshine feature not compiled".to_string(),
             }.into())
+        }
+    }
+}
+
+#[cfg(feature = "moonshine")]
+impl MoonshinePlugin {
+    // Helper to clone necessary data for the blocking task
+    fn clone_for_task(&self) -> Self {
+        Self {
+            model_size: self.model_size,
+            model_path: self.model_path.clone(),
+            initialized: self.initialized,
+            audio_buffer: Vec::new(), // Not needed in the task
+            active_config: None, // Not needed in the task
         }
     }
 }
