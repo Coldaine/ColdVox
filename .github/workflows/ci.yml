@@ -325,6 +325,40 @@ jobs:
           fi
           echo "Cleanup completed."
 
+  # Moonshine STT plugin build verification (optional - requires Python deps)
+  moonshine_check:
+    name: Moonshine STT Check (Optional)
+    runs-on: [self-hosted, Linux, X64, fedora, nobara]
+    continue-on-error: true
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.0
+
+      - name: Set up Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Check Python dependencies
+        id: python-deps
+        run: |
+          set -euo pipefail
+          if python3 -c "import transformers, torch, librosa" 2>/dev/null; then
+            echo "available=true" >> $GITHUB_OUTPUT
+            echo "Python dependencies available"
+          else
+            echo "available=false" >> $GITHUB_OUTPUT
+            echo "::warning::Moonshine Python deps not installed, skipping"
+          fi
+
+      - name: Build with moonshine feature
+        if: steps.python-deps.outputs.available == 'true'
+        run: cargo build -p coldvox-stt --features moonshine --locked
+
+      - name: Run moonshine unit tests
+        if: steps.python-deps.outputs.available == 'true'
+        run: cargo test -p coldvox-stt --features moonshine --lib -- --nocapture
+
   ci_success:
     name: CI Success Summary
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
@@ -334,6 +368,7 @@ jobs:
       - security_audit
       - build_and_check
       - text_injection_tests
+      - moonshine_check
     if: always()
     steps:
       - uses: actions/checkout@v6
@@ -345,10 +380,12 @@ jobs:
           echo "- security_audit:                ${{ needs.security_audit.result }}" >> report.md
           echo "- build_and_check:               ${{ needs.build_and_check.result }}" >> report.md
           echo "- text_injection_tests:          ${{ needs.text_injection_tests.result }}" >> report.md
+          echo "- moonshine_check:               ${{ needs.moonshine_check.result }} (optional)" >> report.md
           if [[ "${{ needs.setup-whisper-dependencies.result }}" != "success" ]]; then echo "::error::Setup Whisper dependencies failed."; exit 1; fi
           if [[ "${{ needs.security_audit.result }}" != "success" ]]; then echo "::warning::Security audit failed - check for vulnerabilities."; fi
           if [[ "${{ needs.build_and_check.result }}" != "success" ]]; then echo "::error::Build and check failed."; exit 1; fi
           if [[ "${{ needs.text_injection_tests.result }}" != "success" ]]; then echo "::error::Text injection tests failed."; exit 1; fi
+          if [[ "${{ needs.moonshine_check.result }}" != "success" ]]; then echo "::warning::Moonshine check failed (optional)."; fi
           echo "All critical stages passed successfully."
       - name: Upload CI Report
         uses: actions/upload-artifact@v5

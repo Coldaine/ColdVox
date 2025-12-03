@@ -1,7 +1,7 @@
 #!/bin/bash
 # Verify STT plugin setup
 
-set -e
+set -euo pipefail
 
 echo "Verifying ColdVox STT setup..."
 echo ""
