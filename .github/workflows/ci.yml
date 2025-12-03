@@ -159,13 +159,28 @@ jobs:
           echo "=== Running Tests ==="
           cargo test --workspace --locked -- 2>&1 | tee test_output.log
       - name: Automated Debugging
-        if: steps.run_tests.outcome == 'failure'
+        if: failure() && steps.run_tests.outcome == 'failure'
+        env:
+          ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
         run: |
+          # Run claudeZ analysis and fix
           bash scripts/claudeZ-analyze-fix.sh test_output.log
-          git config --global user.name 'claudeZ'
-          git config --global user.email 'claudeZ@example.com'
-          git commit -am "fix: Automated fix by claudeZ"
-          git push
+
+          # Only commit if changes were made
+          if ! git diff --quiet; then
+            git config --global user.name 'claudeZ-bot'
+            git config --global user.email 'claudeZ-bot@coldaine.dev'
+            git add -A
+            git commit -m "fix: Automated fix by claudeZ
+
+            Applied automatic fix for test failure.
+            See CI logs for details.
+
+            [AI-AUTO-FIX]"
+            git push
+          else
+            echo "No changes to commit"
+          fi
 
       # GUI groundwork check integrated here
       - name: Detect and test Qt 6 GUI
@@ -285,13 +300,28 @@ jobs:
           export PYTHONPATH=$(python3 -c "import site; print(site.getsitepackages()[0])")
           cargo test -p coldvox-app --test golden_master -- --nocapture 2>&1 | tee test_output.log
       - name: Automated Debugging
-        if: steps.run_golden_master_tests.outcome == 'failure'
+        if: failure() && steps.run_golden_master_tests.outcome == 'failure'
+        env:
+          ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
         run: |
+          # Run claudeZ analysis and fix
           bash scripts/claudeZ-analyze-fix.sh test_output.log
-          git config --global user.name 'claudeZ'
-          git config --global user.email 'claudeZ@example.com'
-          git commit -am "fix: Automated fix by claudeZ"
-          git push
+
+          # Only commit if changes were made
+          if ! git diff --quiet; then
+            git config --global user.name 'claudeZ-bot'
+            git config --global user.email 'claudeZ-bot@coldaine.dev'
+            git add -A
+            git commit -m "fix: Automated fix by claudeZ
+
+            Applied automatic fix for golden master test failure.
+            See CI logs for details.
+
+            [AI-AUTO-FIX]"
+            git push
+          else
+            echo "No changes to commit"
+          fi
 
       - name: Upload test artifacts on failure
         if: failure()
