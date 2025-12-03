@@ -19,10 +19,16 @@ coldvox-telemetry = { path = "../coldvox-telemetry" }
 # Parakeet STT via pure Rust ONNX Runtime
 parakeet-rs = { version = "0.2", optional = true }
 
+# Moonshine STT via PyO3/HuggingFace
+pyo3 = { version = "0.22", optional = true }
+tempfile = { version = "3.8", optional = true }
+hound = "3.5"
+
 [features]
 default = []
 parakeet = ["dep:parakeet-rs"]
 whisper = [] # Placeholder until new backend is implemented
+moonshine = ["dep:pyo3", "dep:tempfile"]
 coqui = []
 leopard = []
 silero-stt = []
