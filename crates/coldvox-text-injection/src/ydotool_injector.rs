@@ -222,6 +222,7 @@ impl YdotoolInjector {
     }
 
     #[cfg(test)]
+    #[allow(dead_code)] // Available for tests that need to verify binary permissions
     pub(crate) fn check_binary_for_tests(binary_name: &str) -> Result<(), InjectionError> {
         Self::check_binary_permissions(binary_name)
     }

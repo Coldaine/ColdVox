@@ -1484,11 +1484,13 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "whisper")]
     struct EnvVarGuard {
         key: &'static str,
         original: Option<String>,
     }
 
+    #[cfg(feature = "whisper")]
     impl EnvVarGuard {
         fn set(key: &'static str, value: &str) -> Self {
             let original = std::env::var(key).ok();
@@ -1497,6 +1499,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "whisper")]
     impl Drop for EnvVarGuard {
         fn drop(&mut self) {
             if let Some(ref value) = self.original {
