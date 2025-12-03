@@ -34,11 +34,9 @@ fn simulate_transcription_session(metrics: &Arc<SttPerformanceMetrics>) {
         let _guard = TimingGuard::new(metrics, |m, d| m.record_preprocessing_latency(d));
         std::thread::sleep(Duration::from_millis(5 + i * 2));
 
-
         // Simulate STT engine processing
         let _guard = TimingGuard::new(metrics, |m, d| m.record_engine_processing_time(d));
         std::thread::sleep(Duration::from_millis(100 + i * 20));
-
 
         // Simulate result delivery
         let _guard = TimingGuard::new(metrics, |m, d| m.record_result_delivery_latency(d));
@@ -89,10 +87,22 @@ fn display_metrics_report(metrics: &Arc<SttPerformanceMetrics>) {
 
     // Latency metrics
     println!("📊 Latency Metrics:");
-    println!("  End-to-End:      {:.1}ms", latency.end_to_end_us as f64 / 1000.0);
-    println!("  Engine Processing: {:.1}ms", latency.engine_processing_us as f64 / 1000.0);
-    println!("  Preprocessing:   {:.1}ms", latency.preprocessing_us as f64 / 1000.0);
-    println!("  Result Delivery: {:.1}ms", latency.result_delivery_us as f64 / 1000.0);
+    println!(
+        "  End-to-End:      {:.1}ms",
+        latency.end_to_end_us as f64 / 1000.0
+    );
+    println!(
+        "  Engine Processing: {:.1}ms",
+        latency.engine_processing_us as f64 / 1000.0
+    );
+    println!(
+        "  Preprocessing:   {:.1}ms",
+        latency.preprocessing_us as f64 / 1000.0
+    );
+    println!(
+        "  Result Delivery: {:.1}ms",
+        latency.result_delivery_us as f64 / 1000.0
+    );
 
     // Accuracy metrics
     let avg_confidence = metrics.get_average_confidence();

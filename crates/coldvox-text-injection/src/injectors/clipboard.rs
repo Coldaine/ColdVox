@@ -540,7 +540,12 @@ impl ClipboardInjector {
             .ok_or_else(|| InjectionError::MethodUnavailable("No focused element".to_string()))?;
 
         let action = ActionProxy::builder(zbus_conn)
-            .destination(obj_ref.name().ok_or_else(|| InjectionError::Other("Object has no name".to_string()))?.clone())
+            .destination(
+                obj_ref
+                    .name()
+                    .ok_or_else(|| InjectionError::Other("Object has no name".to_string()))?
+                    .clone(),
+            )
             .map_err(|e| InjectionError::Other(format!("ActionProxy destination failed: {e}")))?
             .path(obj_ref.path().clone())
             .map_err(|e| InjectionError::Other(format!("ActionProxy path failed: {e}")))?

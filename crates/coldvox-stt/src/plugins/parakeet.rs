@@ -214,7 +214,10 @@ impl SttPlugin for ParakeetPlugin {
     fn info(&self) -> PluginInfo {
         PluginInfo {
             id: "parakeet".to_string(),
-            name: format!("NVIDIA Parakeet {} (GPU-only)", self.variant.model_identifier()),
+            name: format!(
+                "NVIDIA Parakeet {} (GPU-only)",
+                self.variant.model_identifier()
+            ),
             description: "GPU-accelerated transcription via parakeet-rs (CUDA/TensorRT required)"
                 .to_string(),
             requires_network: false, // Model downloads on first use, then cached
@@ -253,7 +256,7 @@ impl SttPlugin for ParakeetPlugin {
             word_timestamps: true, // parakeet-rs provides token-level timestamps
             confidence_scores: true,
             speaker_diarization: false, // Can be added later via pyannote
-            auto_punctuation: true, // Both variants support punctuation
+            auto_punctuation: true,     // Both variants support punctuation
             custom_vocabulary: false,
         }
     }
@@ -287,8 +290,9 @@ impl SttPlugin for ParakeetPlugin {
             };
 
             // Initialize the model
-            let model = Parakeet::from_pretrained(self.variant.model_identifier(), Some(parakeet_config))
-                .map_err(|err| {
+            let model =
+                Parakeet::from_pretrained(self.variant.model_identifier(), Some(parakeet_config))
+                    .map_err(|err| {
                     error!(
                         target: "coldvox::stt::parakeet",
                         error = %err,
