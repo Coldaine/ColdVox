@@ -26,7 +26,6 @@
 //! - `linux-desktop`: Enable recommended Linux desktop backends
 
 pub mod backend;
-pub mod compat;
 pub mod detection;
 pub mod focus;
 pub mod log_throttle;
@@ -52,9 +51,8 @@ pub mod injectors;
 pub mod orchestrator;
 
 // Re-export orchestrator types and injector module
-#[allow(deprecated)]
 pub use injectors::{
-    ClipboardBackup, ClipboardContext, ClipboardInjectionMode, ClipboardInjector,
+    ClipboardBackup, ClipboardInjectionMode, ClipboardInjector,
     UnifiedClipboardInjector,
 };
 pub use orchestrator::{AtspiContext, DesktopEnvironment, StrategyOrchestrator};

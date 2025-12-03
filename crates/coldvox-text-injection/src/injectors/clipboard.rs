@@ -19,13 +19,6 @@ use tokio::process::Command;
 use tokio::time::timeout;
 use tracing::{debug, trace, warn};
 
-// Re-export the old Context type for backwards compatibility
-#[deprecated(
-    since = "0.1.0",
-    note = "Use InjectionContext from types module instead"
-)]
-pub type Context = InjectionContext;
-
 /// Clipboard backup data with MIME type information
 #[derive(Debug, Clone)]
 pub struct ClipboardBackup {
@@ -540,9 +533,9 @@ impl ClipboardInjector {
             .ok_or_else(|| InjectionError::MethodUnavailable("No focused element".to_string()))?;
 
         let action = ActionProxy::builder(zbus_conn)
-            .destination(obj_ref.name.clone())
+            .destination(obj_ref.name().ok_or_else(|| InjectionError::Other("No bus name".into()))?.clone())
             .map_err(|e| InjectionError::Other(format!("ActionProxy destination failed: {e}")))?
-            .path(obj_ref.path.clone())
+            .path(obj_ref.path().clone())
             .map_err(|e| InjectionError::Other(format!("ActionProxy path failed: {e}")))?
             .build()
             .await
