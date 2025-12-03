@@ -4615,7 +4615,8 @@ dependencies = [
 [[package]]
 name = "voice_activity_detector"
 version = "0.2.1"
-source = "git+https://github.com/nkeenan38/voice_activity_detector?rev=234b7484860125014f06ad85da842da81b02e51a#234b7484860125014f06ad85da842da81b02e51a"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "50407ebe9f37f46ee5d9a7a4228324f400439de9c62861273ab34bcfbdaf08b6"
 dependencies = [
  "futures",
  "ndarray",

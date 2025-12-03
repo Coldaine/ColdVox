@@ -3,6 +3,7 @@ name = "coldvox-stt"
 version = "0.1.0"
 edition = "2021"
 description = "Speech-to-text abstraction layer for ColdVox"
+publish = false
 
 [dependencies]
 tokio = { version = "1.35", features = ["sync", "macros", "time"] }

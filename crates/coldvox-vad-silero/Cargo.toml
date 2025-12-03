@@ -10,7 +10,7 @@ license = "MIT OR Apache-2.0"
 coldvox-vad = { path = "../coldvox-vad" }
 serde = { version = "1.0", features = ["derive"] }
 tracing = "0.1"
-voice_activity_detector = { git = "https://github.com/nkeenan38/voice_activity_detector", rev = "234b7484860125014f06ad85da842da81b02e51a", optional = true }
+voice_activity_detector = { version = "0.2.1", optional = true }
 
 [features]
 default = []

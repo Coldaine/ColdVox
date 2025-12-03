@@ -89,6 +89,14 @@ Users can still enable detailed debugging via `RUST_LOG=debug` or `RUST_LOG=trac
 - Bump `clap` from 4.5.49 to 4.5.50 (#181)
 - Keep `atspi` at 0.28.0 (defer 0.29.0 upgrade due to breaking API changes)
 
+### Security & Tooling
+- **Migrate deny.toml to cargo-deny v0.18 format**: Fixed deprecated configuration keys (`unlawful` → `allow`-only, `highlighted` → `highlight`, `yank` → `yanked`)
+- Added `CDLA-Permissive-2.0` license to allow list (transitive dep from webpki-root-certs)
+- Added `[licenses.private]` section to ignore unpublished workspace crates
+- Ignored RUSTSEC-2024-0436 (paste unmaintained advisory - no security impact)
+- Added `publish = false` to workspace crates: coldvox-app, coldvox-gui, coldvox-stt
+- **CI security scanning**: Added cargo-audit and cargo-deny jobs to CI workflow for vulnerability and license compliance checks
+
 ## v2.0.2 — 2025-09-12
 
 Highlights
