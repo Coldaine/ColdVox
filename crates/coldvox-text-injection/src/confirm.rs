@@ -218,11 +218,27 @@ pub async fn text_changed(
         let mut last_text = String::new();
 
         if let Some(obj_ref) = matches.first() {
+            let name = match obj_ref.name() {
+                Some(name) => name.clone(),
+                None => {
+                    return Err(InjectionError::Other(
+                        "AT-SPI object has no name".to_string(),
+                    ))
+                }
+            };
+            let path = match obj_ref.path() {
+                Some(path) => path.clone(),
+                None => {
+                    return Err(InjectionError::Other(
+                        "AT-SPI object has no path".to_string(),
+                    ))
+                }
+            };
             // Get the initial text content
             let text_fut = TextProxy::builder(zbus_conn)
-                .destination(obj_ref.name.clone())
+                .destination(name)
                 .map_err(|e| InjectionError::Other(format!("TextProxy destination failed: {e}")))?
-                .path(obj_ref.path.clone())
+                .path(path)
                 .map_err(|e| InjectionError::Other(format!("TextProxy path failed: {e}")))?
                 .build();
 
@@ -264,13 +280,29 @@ pub async fn text_changed(
                 .unwrap_or_default();
 
             if let Some(obj_ref) = matches.first() {
+                let name = match obj_ref.name() {
+                    Some(name) => name.clone(),
+                    None => {
+                        return Err(InjectionError::Other(
+                            "AT-SPI object has no name".to_string(),
+                        ))
+                    }
+                };
+                let path = match obj_ref.path() {
+                    Some(path) => path.clone(),
+                    None => {
+                        return Err(InjectionError::Other(
+                            "AT-SPI object has no path".to_string(),
+                        ))
+                    }
+                };
                 // Get the text content
                 let text_fut = TextProxy::builder(zbus_conn)
-                    .destination(obj_ref.name.clone())
+                    .destination(name)
                     .map_err(|e| {
                         InjectionError::Other(format!("TextProxy destination failed: {e}"))
                     })?
-                    .path(obj_ref.path.clone())
+                    .path(path)
                     .map_err(|e| InjectionError::Other(format!("TextProxy path failed: {e}")))?
                     .build();
 
