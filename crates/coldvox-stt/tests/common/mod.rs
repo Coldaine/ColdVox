@@ -11,13 +11,23 @@ pub fn get_test_audio_path() -> PathBuf {
 }
 
 /// Load test audio samples as i16 PCM
+/// Returns empty Vec if file doesn't exist (allows tests to skip gracefully)
+/// Validates sample rate (16kHz) and channels (mono) for test correctness
 pub fn load_test_audio() -> Vec<i16> {
     let path = get_test_audio_path();
     if !path.exists() {
+        eprintln!(
+            "Test audio file not found: {}. Skipping test.",
+            path.display()
+        );
         return Vec::new();
     }
 
     let mut reader = hound::WavReader::open(&path).expect("Failed to open test audio");
+
+    let spec = reader.spec();
+    assert_eq!(spec.sample_rate, 16000, "Test audio must be 16kHz");
+    assert_eq!(spec.channels, 1, "Test audio must be mono");
 
     reader
         .samples::<i16>()

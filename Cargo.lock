@@ -712,6 +712,7 @@ dependencies = [
  "parking_lot",
  "pyo3",
  "serde",
+ "serial_test",
  "tempfile",
  "thiserror 2.0.17",
  "tokio",
