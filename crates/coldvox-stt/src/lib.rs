@@ -12,7 +12,6 @@ pub mod plugin;
 pub mod plugin_adapter; // new adapter implementing StreamingStt
 pub mod plugin_types;
 pub mod plugins;
-pub mod processor; // legacy (EventBasedTranscriber-based) processor
 pub mod types;
 
 pub use coldvox_foundation::error::ColdVoxError;
