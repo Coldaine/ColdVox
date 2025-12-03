@@ -18,7 +18,7 @@ use tracing::{debug, info, warn};
 
 #[cfg(feature = "moonshine")]
 use pyo3::{
-    types::{PyAnyMethods, PyDict, PyModule},
+    types::{PyAnyMethods, PyDict, PyDictMethods, PyModule},
     Py, PyAny, Python,
 };
 #[cfg(feature = "moonshine")]
