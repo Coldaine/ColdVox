@@ -1,0 +1,19 @@
+[project]
+name = "coldvox"
+version = "0.1.0"
+description = "Python dependencies for ColdVox STT plugins"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "transformers>=4.35.0",
+    "torch>=2.0.0",
+    "librosa>=0.10.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]
+
+[tool.uv]
+dev-dependencies = []
