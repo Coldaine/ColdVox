@@ -32,7 +32,7 @@ fi
 # Build test
 echo ""
 echo "=== Build Test ==="
-if cargo build --features moonshine 2>&1 | grep -q "Finished\|Compiling"; then
+if cargo build --features moonshine; then
     echo "✓ Build with moonshine feature succeeded"
 else
     echo "✗ Build failed"

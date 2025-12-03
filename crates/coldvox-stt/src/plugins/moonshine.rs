@@ -67,9 +67,15 @@ pub struct MoonshinePlugin {
     #[cfg(feature = "moonshine")]
     active_config: Option<TranscriptionConfig>,
     /// Cached Python model (loaded once in initialize, reused across transcriptions)
+    ///
+    /// SAFETY: `Py<PyAny>` is `Send` but requires the Python GIL for all access.
+    /// All methods that access `cached_model` must use `Python::with_gil()`.
     #[cfg(feature = "moonshine")]
     cached_model: Option<Py<PyAny>>,
     /// Cached Python processor (loaded once in initialize, reused across transcriptions)
+    ///
+    /// SAFETY: `Py<PyAny>` is `Send` but requires the Python GIL for all access.
+    /// All methods that access `cached_processor` must use `Python::with_gil()`.
     #[cfg(feature = "moonshine")]
     cached_processor: Option<Py<PyAny>>,
 }
@@ -157,13 +163,21 @@ impl MoonshinePlugin {
     /// model loading delay on every transcription.
     #[cfg(feature = "moonshine")]
     fn load_model_and_processor(&mut self) -> Result<(), ColdVoxError> {
+        // Use custom model path if provided, otherwise use HuggingFace model identifier
+        let model_id = self
+            .model_path
+            .as_ref()
+            .and_then(|p| p.to_str())
+            .unwrap_or_else(|| self.model_size.model_identifier());
+
         Python::with_gil(|py| {
             let locals = PyDict::new_bound(py);
             locals
-                .set_item("model_id", self.model_size.model_identifier())
+                .set_item("model_id", model_id)
                 .map_err(|e| SttError::LoadFailed(format!("Failed to set model_id: {}", e)))?;
 
             // Load model and processor using safe variable passing
+            // NOTE: Must use run_bound (not eval_bound) because this contains statements
             let load_code = r#"
 import torch
 from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor
@@ -171,30 +185,29 @@ from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor
 device = "cpu"
 torch_dtype = torch.float32
 
-model = AutoModelForSpeechSeq2Seq.from_pretrained(
+_model = AutoModelForSpeechSeq2Seq.from_pretrained(
     model_id,
     torch_dtype=torch_dtype,
     low_cpu_mem_usage=True,
 )
-model.to(device)
-model.eval()  # Set to evaluation mode for inference
+_model.to(device)
+_model.eval()  # Set to evaluation mode for inference
 
-processor = AutoProcessor.from_pretrained(model_id)
-
-(model, processor)
+_processor = AutoProcessor.from_pretrained(model_id)
 "#;
 
-            let result = py
-                .eval_bound(load_code, None, Some(&locals))
+            py.run_bound(load_code, None, Some(&locals))
                 .map_err(|e| SttError::LoadFailed(format!("Failed to load model: {}", e)))?;
 
-            // Extract model and processor from tuple using index access
-            let model = result.get_item(0).map_err(|e| {
-                SttError::LoadFailed(format!("Failed to get model from tuple: {}", e))
-            })?;
-            let processor = result.get_item(1).map_err(|e| {
-                SttError::LoadFailed(format!("Failed to get processor from tuple: {}", e))
-            })?;
+            // Extract model and processor from locals dict
+            let model = locals
+                .get_item("_model")
+                .map_err(|e| SttError::LoadFailed(format!("Failed to get model: {}", e)))?
+                .ok_or_else(|| SttError::LoadFailed("Model not found in locals".to_string()))?;
+            let processor = locals
+                .get_item("_processor")
+                .map_err(|e| SttError::LoadFailed(format!("Failed to get processor: {}", e)))?
+                .ok_or_else(|| SttError::LoadFailed("Processor not found in locals".to_string()))?;
 
             // Store as Py<PyAny> for later use (increments reference count)
             self.cached_model = Some(model.unbind());
@@ -244,6 +257,7 @@ processor = AutoProcessor.from_pretrained(model_id)
                 SttError::TranscriptionFailed(format!("Failed to set audio_path: {}", e))
             })?;
 
+            // NOTE: Must use run_bound (not eval_bound) because this contains statements
             let transcribe_code = r#"
 import torch
 import librosa
@@ -258,13 +272,18 @@ inputs = {k: v.to("cpu") for k, v in inputs.items()}
 with torch.no_grad():
     generated_ids = model.generate(**inputs)
 
-transcription = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
-transcription
+_transcription = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
 "#;
 
-            let result = py
-                .eval_bound(transcribe_code, None, Some(&locals))
+            py.run_bound(transcribe_code, None, Some(&locals))
                 .map_err(|e| SttError::TranscriptionFailed(format!("Python error: {}", e)))?;
+
+            let result = locals
+                .get_item("_transcription")
+                .map_err(|e| SttError::TranscriptionFailed(format!("Failed to get result: {}", e)))?
+                .ok_or_else(|| {
+                    SttError::TranscriptionFailed("Transcription not found in locals".to_string())
+                })?;
 
             let text: String = result.extract().map_err(|e| {
                 SttError::TranscriptionFailed(format!("Failed to extract text: {}", e))
@@ -492,6 +511,8 @@ impl SttPlugin for MoonshinePlugin {
     }
 
     async fn load_model(&mut self, _model_path: Option<&Path>) -> Result<(), ColdVoxError> {
+        // Moonshine loads models during initialize() and caches them,
+        // so this method is intentionally a no-op.
         Ok(())
     }
 
@@ -571,7 +592,7 @@ impl SttPluginFactory for MoonshinePluginFactory {
         if !check_moonshine_available() {
             return Err(SttError::NotAvailable {
                 plugin: "moonshine".to_string(),
-                reason: "Python 3.8+ required with transformers, torch, librosa".to_string(),
+                reason: "Python 3.8+ with transformers, torch, and librosa packages required. Run: ./scripts/install-moonshine-deps.sh".to_string(),
             }
             .into());
         }

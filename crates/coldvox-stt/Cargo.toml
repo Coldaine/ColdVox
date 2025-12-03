@@ -20,15 +20,15 @@ coldvox-telemetry = { path = "../coldvox-telemetry" }
 parakeet-rs = { version = "0.2", optional = true }
 
 # Moonshine STT via PyO3/HuggingFace
-pyo3 = { version = "0.22", optional = true }
+pyo3 = { version = "0.22", optional = true, features = ["auto-initialize"] }
 tempfile = { version = "3.8", optional = true }
-hound = "3.5"
+hound = { version = "3.5", optional = true }
 
 [features]
 default = []
 parakeet = ["dep:parakeet-rs"]
 whisper = [] # Placeholder until new backend is implemented
-moonshine = ["dep:pyo3", "dep:tempfile"]
+moonshine = ["dep:pyo3", "dep:tempfile", "dep:hound"]
 coqui = []
 leopard = []
 silero-stt = []

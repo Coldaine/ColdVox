@@ -5,15 +5,13 @@ set -e
 
 echo "Installing Moonshine STT dependencies..."
 
-# Check Python version
-PYTHON_VERSION=$(python3 --version | cut -d' ' -f2 | cut -d'.' -f1-2)
-REQUIRED_VERSION="3.8"
-
-if [ "$(printf '%s\n' "$REQUIRED_VERSION" "$PYTHON_VERSION" | sort -V | head -n1)" != "$REQUIRED_VERSION" ]; then
-    echo "Error: Python $REQUIRED_VERSION or higher required (found $PYTHON_VERSION)"
+# Check Python version (using Python itself for portability)
+if ! python3 -c "import sys; exit(0 if sys.version_info >= (3, 8) else 1)"; then
+    echo "Error: Python 3.8 or higher required"
     exit 1
 fi
 
+PYTHON_VERSION=$(python3 --version | cut -d' ' -f2 | cut -d'.' -f1-2)
 echo "✓ Python $PYTHON_VERSION detected"
 
 # Install packages
