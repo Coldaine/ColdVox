@@ -1,3 +1,12 @@
+---
+doc_type: research
+subsystem: stt
+version: 1.0.0
+status: active
+owners: Coldaine
+last_reviewed: 2025-12-03
+---
+
 # Moonshine STT Plugin Implementation Status
 
 **Branch:** `feat/moonshine-stt-plugin`

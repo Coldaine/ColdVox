@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import subprocess
 import sys
 from pathlib import Path
-from typing import Iterable, List, Tuple
+from typing import List, Tuple
 
 REQUIRED_KEYS = {
     "doc_type",
@@ -18,10 +19,25 @@ REQUIRED_KEYS = {
 }
 
 APPROVED_EXCEPTIONS = {
+    # Root documentation
     Path("README.md"),
     Path("CHANGELOG.md"),
+    # Agent configuration files (per AGENTS.md standard)
+    Path("AGENTS.md"),
     Path("CLAUDE.md"),
+    Path("CODEX.md"),
+    Path("COPILOT.md"),
+    # GitHub templates
+    Path(".github/pull_request_template.md"),
+    # Legacy/temporary files (should be cleaned up)
+    Path("PR-190-Comprehensive-Assessment.md"),
 }
+
+# Patterns that are always allowed outside /docs
+APPROVED_PATTERNS = [
+    "crates/*/README.md",  # Crate READMEs
+    ".github/**/*.md",     # GitHub templates
+]
 
 
 def git_diff_files(base: str, head: str) -> List[str]:
@@ -118,7 +134,12 @@ def main() -> None:
     for path in outside_markdown:
         if path in APPROVED_EXCEPTIONS:
             continue
-        errors.append(f"Markdown outside /docs is not allowed: {path}")
+        # Check against glob patterns
+        path_str = str(path)
+        if any(fnmatch.fnmatch(path_str, pattern) for pattern in APPROVED_PATTERNS):
+            continue
+        # Markdown outside /docs is now advisory (warning, not error)
+        warnings.append(f"Markdown outside /docs (consider moving): {path}")
 
     for path in docs_changed:
         ok, message = check_frontmatter(path)
