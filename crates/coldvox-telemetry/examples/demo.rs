@@ -3,7 +3,7 @@
 //! This example shows how to use the enhanced STT telemetry system
 //! to monitor transcription performance, latency, accuracy, and resource usage.
 
-use coldvox_telemetry::{PerformanceThresholds, SttPerformanceMetrics, TimingMeasurement};
+use coldvox_telemetry::{PerformanceThresholds, SttPerformanceMetrics, TimingGuard};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -31,25 +31,18 @@ fn simulate_transcription_session(metrics: &Arc<SttPerformanceMetrics>) {
         println!("Processing utterance {}...", i);
 
         // Simulate preprocessing
-        let preprocessing = TimingMeasurement::start("preprocessing");
+        let _guard = TimingGuard::new(metrics, |m, d| m.record_preprocessing_latency(d));
         std::thread::sleep(Duration::from_millis(5 + i * 2));
-        preprocessing.end_and_record(|duration| {
-            metrics.record_preprocessing_latency(duration);
-        });
+
 
         // Simulate STT engine processing
-        let engine = TimingMeasurement::start("engine_processing");
+        let _guard = TimingGuard::new(metrics, |m, d| m.record_engine_processing_time(d));
         std::thread::sleep(Duration::from_millis(100 + i * 20));
-        engine.end_and_record(|duration| {
-            metrics.record_engine_processing_time(duration);
-        });
+
 
         // Simulate result delivery
-        let delivery = TimingMeasurement::start("result_delivery");
+        let _guard = TimingGuard::new(metrics, |m, d| m.record_result_delivery_latency(d));
         std::thread::sleep(Duration::from_millis(2));
-        delivery.end_and_record(|duration| {
-            metrics.record_result_delivery_latency(duration);
-        });
 
         // Record end-to-end latency
         let total_latency = Duration::from_millis(107 + i * 22);
@@ -92,82 +85,40 @@ fn simulate_transcription_session(metrics: &Arc<SttPerformanceMetrics>) {
 
 fn display_metrics_report(metrics: &Arc<SttPerformanceMetrics>) {
     println!("\n--- Performance Metrics Report ---");
+    let (latency, accuracy, resources, operational) = metrics.snapshot();
 
     // Latency metrics
-    let e2e_latency = metrics
-        .latency
-        .end_to_end_us
-        .load(std::sync::atomic::Ordering::Relaxed);
-    let engine_time = metrics
-        .latency
-        .engine_processing_us
-        .load(std::sync::atomic::Ordering::Relaxed);
-    let preprocessing = metrics
-        .latency
-        .preprocessing_us
-        .load(std::sync::atomic::Ordering::Relaxed);
-    let delivery = metrics
-        .latency
-        .result_delivery_us
-        .load(std::sync::atomic::Ordering::Relaxed);
-
     println!("📊 Latency Metrics:");
-    println!("  End-to-End:      {:.1}ms", e2e_latency as f64 / 1000.0);
-    println!("  Engine Processing: {:.1}ms", engine_time as f64 / 1000.0);
-    println!("  Preprocessing:   {:.1}ms", preprocessing as f64 / 1000.0);
-    println!("  Result Delivery: {:.1}ms", delivery as f64 / 1000.0);
+    println!("  End-to-End:      {:.1}ms", latency.end_to_end_us as f64 / 1000.0);
+    println!("  Engine Processing: {:.1}ms", latency.engine_processing_us as f64 / 1000.0);
+    println!("  Preprocessing:   {:.1}ms", latency.preprocessing_us as f64 / 1000.0);
+    println!("  Result Delivery: {:.1}ms", latency.result_delivery_us as f64 / 1000.0);
 
     // Accuracy metrics
     let avg_confidence = metrics.get_average_confidence();
     let success_rate = metrics.get_success_rate();
-    let final_count = metrics
-        .accuracy
-        .final_count
-        .load(std::sync::atomic::Ordering::Relaxed);
-    let failure_count = metrics
-        .accuracy
-        .failure_count
-        .load(std::sync::atomic::Ordering::Relaxed);
 
     println!("\n🎯 Accuracy Metrics:");
     println!("  Average Confidence: {:.1}%", avg_confidence * 100.0);
     println!("  Success Rate:       {:.1}%", success_rate * 100.0);
-    println!("  Successful Finals:  {}", final_count);
-    println!("  Failures:           {}", failure_count);
+    println!("  Successful Finals:  {}", accuracy.final_count);
+    println!("  Failures:           {}", accuracy.failure_count);
 
     // Resource metrics
-    let memory_usage = metrics
-        .resources
-        .memory_usage_bytes
-        .load(std::sync::atomic::Ordering::Relaxed);
-    let peak_memory = metrics
-        .resources
-        .peak_memory_bytes
-        .load(std::sync::atomic::Ordering::Relaxed);
-
     println!("\n💾 Resource Usage:");
     println!(
         "  Current Memory: {:.1}MB",
-        memory_usage as f64 / (1024.0 * 1024.0)
+        resources.memory_usage_bytes as f64 / (1024.0 * 1024.0)
     );
     println!(
         "  Peak Memory:    {:.1}MB",
-        peak_memory as f64 / (1024.0 * 1024.0)
+        resources.peak_memory_bytes as f64 / (1024.0 * 1024.0)
     );
 
     // Operational metrics
-    let requests = metrics
-        .operational
-        .requests_per_second
-        .load(std::sync::atomic::Ordering::Relaxed);
-    let errors = metrics
-        .operational
-        .error_rate_per_1k
-        .load(std::sync::atomic::Ordering::Relaxed);
-
     println!("\n⚙️  Operational Metrics:");
-    println!("  Total Requests: {}", requests);
-    println!("  Error Count:    {}", errors);
+    println!("  Total Requests: {}", operational.request_count);
+    println!("  Error Count:    {}", operational.error_count);
 }
 
 fn check_performance_alerts(metrics: &Arc<SttPerformanceMetrics>) {
