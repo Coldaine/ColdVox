@@ -152,7 +152,7 @@ impl TestAppManager {
     /// The application is expected to have been compiled by the `build.rs` script.
     pub fn launch_terminal_app() -> Result<TestApp, std::io::Error> {
         let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set, build script did not run?");
-        let exe_path = Path::new(&out_dir).join("terminal-test-app");
+        let exe_path = Path::new(&out_dir).join("terminal_test_app");
 
         if !exe_path.exists() {
             return Err(std::io::Error::new(
