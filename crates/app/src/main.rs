@@ -210,7 +210,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         _ => RuntimeMode::Vad,
     };
 
-    #[cfg(feature = "text-injection")]
     let mut opts = AppRuntimeOptions {
         device,
         resampler_quality,
@@ -221,34 +220,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ..Default::default()
     };
 
-    #[cfg(not(feature = "text-injection"))]
-    let opts = AppRuntimeOptions {
-        device,
-        resampler_quality,
-        activation_mode,
-        stt_selection,
-        enable_device_monitor: settings.enable_device_monitor,
-        capture_buffer_samples: settings.audio.capture_buffer_samples,
-        ..Default::default()
-    };
-
-    #[cfg(feature = "text-injection")]
-    {
-        opts.injection = if cfg!(feature = "text-injection") {
-            Some(coldvox_app::runtime::InjectionOptions {
-                enable: true, // Assuming text injection is enabled if the feature is on
-                allow_kdotool: settings.injection.allow_kdotool,
-                allow_enigo: settings.injection.allow_enigo,
-                inject_on_unknown_focus: settings.injection.inject_on_unknown_focus,
-                max_total_latency_ms: Some(settings.injection.max_total_latency_ms),
-                per_method_timeout_ms: Some(settings.injection.per_method_timeout_ms),
-                cooldown_initial_ms: Some(settings.injection.cooldown_initial_ms),
-                fail_fast: settings.injection.fail_fast,
-            })
-        } else {
-            None
-        };
-    }
+    opts.injection = Some(coldvox_app::runtime::InjectionOptions {
+        enable: true,
+        allow_kdotool: settings.injection.allow_kdotool,
+        allow_enigo: settings.injection.allow_enigo,
+        inject_on_unknown_focus: settings.injection.inject_on_unknown_focus,
+        max_total_latency_ms: Some(settings.injection.max_total_latency_ms),
+        per_method_timeout_ms: Some(settings.injection.per_method_timeout_ms),
+        cooldown_initial_ms: Some(settings.injection.cooldown_initial_ms),
+        fail_fast: settings.injection.fail_fast,
+    });
     let app = app_runtime::start(opts)
         .await
         .map_err(|e| e as Box<dyn std::error::Error>)?;

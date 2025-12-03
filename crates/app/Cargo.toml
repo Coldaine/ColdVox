@@ -65,34 +65,26 @@ serial_test = "3.2"
 similar-asserts = "1.5"
 
 [features]
-default = ["silero", "text-injection"]
+default = ["silero"]
 live-hardware-tests = []
 parakeet = ["coldvox-stt/parakeet"]
 moonshine = ["coldvox-stt/moonshine"]
 whisper = [] # Temporarily stubbed; new pure-Rust backend will populate this
 no-stt = []
 examples = []
-text-injection = ["dep:coldvox-text-injection"]
+
 silero = ["coldvox-vad-silero/silero"]
 sleep-observer = []
 tui = []
 
-text-injection-atspi = ["text-injection", "coldvox-text-injection/atspi"]
-text-injection-clipboard = ["text-injection", "coldvox-text-injection/wl_clipboard"]
-text-injection-ydotool = ["text-injection", "coldvox-text-injection/ydotool"]
-text-injection-enigo = ["text-injection", "coldvox-text-injection/enigo"]
-
-text-injection-kdotool = ["text-injection", "coldvox-text-injection/kdotool"]
-text-injection-regex = ["text-injection", "coldvox-text-injection/regex"]
-
 # Platform-specific dependencies for Linux
 [target.'cfg(target_os = "linux")'.dependencies]
-coldvox-text-injection = { path = "../coldvox-text-injection", features = ["atspi", "wl_clipboard", "ydotool"], optional = true }
+coldvox-text-injection = { path = "../coldvox-text-injection", features = ["linux-desktop"], default-features = false }
 
 # Platform-specific dependencies for Windows
 [target.'cfg(target_os = "windows")'.dependencies]
-coldvox-text-injection = { path = "../coldvox-text-injection", features = ["enigo"], optional = true }
+coldvox-text-injection = { path = "../coldvox-text-injection", features = ["enigo"], default-features = false }
 
 # Platform-specific dependencies for macOS
 [target.'cfg(target_os = "macos")'.dependencies]
-coldvox-text-injection = { path = "../coldvox-text-injection", features = ["enigo"], optional = true }
+coldvox-text-injection = { path = "../coldvox-text-injection", features = ["enigo"], default-features = false }

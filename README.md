@@ -52,7 +52,17 @@ cargo run --bin mic_probe -- list-devices
 
 > Audio dumps: The TUI dashboard now records raw audio to `logs/audio_dumps/` by default. Pass `--dump-audio=false` to disable persistent capture.
 
-**Note on Defaults**: Faster-Whisper STT is the default feature (enabled automatically), ensuring real speech recognition in the app and tests. This prevents fallback to the mock plugin, which skips transcription. Override with `--stt-preferred mock` or env `COLDVOX_STT_PREFERRED=mock` if needed for testing. For other STT backends, enable their features and set preferred accordingly.
+**STT Backends**: ColdVox supports multiple STT engines.
+- **Parakeet**: NVIDIA-only, high performance (default if compiled).
+- **Moonshine**: CPU-optimized, fast fallback.
+
+See [Feature Flags & Hardware Config](docs/reference/feature_flags.md) for detailed hardware recommendations.
+
+**Note on Defaults**: The `default` feature set enables VAD. You **must** enable an STT backend feature (`parakeet` or `moonshine`) to get speech recognition.
+```bash
+# Universal build (recommended)
+cargo run --features "parakeet,moonshine"
+```
 
 ### Configuration (Canonical Path)
 - Canonical STT selection config lives at `config/plugins.json`.

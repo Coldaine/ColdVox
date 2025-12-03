@@ -43,7 +43,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 serial_test = "3.2"
 
 [features]
-default = []
+default = ["desktop"]
 
 # Backend features
 atspi = ["dep:atspi"]
@@ -58,6 +58,7 @@ regex = ["dep:regex"]
 # Combined features for convenience
 all-backends = ["atspi", "wl_clipboard", "enigo", "kdotool"]
 linux-desktop = ["atspi", "wl_clipboard", "kdotool"]
+desktop = ["linux-desktop", "enigo"] # "Batteries-included" feature for most users
 
 # Test features
 live-hardware-tests = []

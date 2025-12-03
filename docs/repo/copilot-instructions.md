@@ -87,11 +87,20 @@ Key defaults right now:
 - Mic Probe: `cargo run --bin mic_probe -- --duration 30 --device "<name>" --silence_threshold 120`
 - Minimal (disable text injection too): `cargo run --no-default-features --features silero`
 
-### Examples (at repo root `/examples/`, wired via Cargo metadata)
-- Foundation: `cargo run --example foundation_probe -- --duration 30`
-- Recording: `cargo run --example record_10s`
-- STT Test (Vosk): `cargo run --features vosk,examples --example vosk_test`
-- Text Injection demo: `cargo run --features text-injection --example inject_demo`
+### Quick Start Commands
+```bash
+# Run with STT (CPU)
+cargo run --features moonshine
+
+# Run with STT (NVIDIA GPU)
+cargo run --features parakeet
+
+# Universal build (both STT backends)
+cargo build --release --features "parakeet,moonshine"
+```
+
+### Example Commands
+- Text Injection demo: `cargo run --example inject_demo`
 - Hotkeys: `cargo run --example test_hotkey_backend`
 - KDE KGlobalAccel: `cargo run --example test_kglobalaccel_hotkey`
 - Silero VAD (wav): `cargo run --features examples --example test_silero_wav`

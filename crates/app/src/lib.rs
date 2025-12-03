@@ -434,7 +434,6 @@ pub mod runtime;
 pub mod sleep_instrumentation;
 pub mod stt;
 pub mod telemetry;
-#[cfg(feature = "text-injection")]
 pub mod text_injection;
 #[cfg(feature = "tui")]
 pub mod tui;
