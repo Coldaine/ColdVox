@@ -579,6 +579,13 @@ impl SttPluginManager {
             use coldvox_stt::plugins::parakeet::ParakeetPluginFactory;
             registry.register(Box::new(ParakeetPluginFactory::new()));
         }
+
+        // Register Moonshine plugin if the moonshine feature is enabled
+        #[cfg(feature = "moonshine")]
+        {
+            use coldvox_stt::plugins::moonshine::MoonshinePluginFactory;
+            registry.register(Box::new(MoonshinePluginFactory::new()));
+        }
     }
 
     /// Initialize the plugin manager and select the best available plugin
