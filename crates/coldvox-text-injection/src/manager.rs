@@ -314,10 +314,12 @@ impl StrategyManager {
                             .await
                         {
                             if let Some(obj_ref) = matches.pop() {
-                                if !obj_ref.name.is_empty() {
-                                    return Ok(obj_ref.name.to_string());
+                                if let Some(name) = obj_ref.name_as_str() {
+                                    if !name.is_empty() {
+                                        return Ok(name.to_string());
+                                    }
                                 }
-                                if let Some(last) = obj_ref.path.rsplit('/').next() {
+                                if let Some(last) = obj_ref.path_as_str().rsplit('/').next() {
                                     if !last.is_empty() {
                                         return Ok(last.to_string());
                                     }
