@@ -220,9 +220,9 @@ pub async fn text_changed(
         if let Some(obj_ref) = matches.first() {
             // Get the initial text content
             let text_fut = TextProxy::builder(zbus_conn)
-                .destination(obj_ref.name.clone())
+                .destination(obj_ref.name().ok_or_else(|| InjectionError::Other("AT-SPI object has no name".to_string()))?.clone())
                 .map_err(|e| InjectionError::Other(format!("TextProxy destination failed: {e}")))?
-                .path(obj_ref.path.clone())
+                .path(obj_ref.path().clone())
                 .map_err(|e| InjectionError::Other(format!("TextProxy path failed: {e}")))?
                 .build();
 
@@ -266,11 +266,11 @@ pub async fn text_changed(
             if let Some(obj_ref) = matches.first() {
                 // Get the text content
                 let text_fut = TextProxy::builder(zbus_conn)
-                    .destination(obj_ref.name.clone())
+                    .destination(obj_ref.name().ok_or_else(|| InjectionError::Other("AT-SPI object has no name".to_string()))?.clone())
                     .map_err(|e| {
                         InjectionError::Other(format!("TextProxy destination failed: {e}"))
                     })?
-                    .path(obj_ref.path.clone())
+                    .path(obj_ref.path().clone())
                     .map_err(|e| InjectionError::Other(format!("TextProxy path failed: {e}")))?
                     .build();
 

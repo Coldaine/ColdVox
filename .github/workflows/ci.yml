@@ -17,7 +17,7 @@ on:
     - cron: "0 0 * * *"
 
 permissions:
-  contents: read
+  contents: write
   actions: read
   security-events: write
 
@@ -145,6 +145,7 @@ jobs:
         run: cargo doc --workspace --no-deps --locked
 
       - name: Run unit and integration tests (skip E2E)
+        id: run_tests
         if: matrix.rust-version == 'stable'
         env:
           WHISPER_MODEL_PATH: ${{ needs.setup-whisper-dependencies.outputs.model_path }}
@@ -156,7 +157,15 @@ jobs:
           echo "Model directory contents:"
           ls -la "$WHISPER_MODEL_PATH" || echo "Model directory not accessible"
           echo "=== Running Tests ==="
-          cargo test --workspace --locked --
+          cargo test --workspace --locked -- 2>&1 | tee test_output.log
+      - name: Automated Debugging
+        if: steps.run_tests.outcome == 'failure'
+        run: |
+          bash scripts/claudeZ-analyze-fix.sh test_output.log
+          git config --global user.name 'claudeZ'
+          git config --global user.email 'claudeZ@example.com'
+          git commit -am "fix: Automated fix by claudeZ"
+          git push
 
       # GUI groundwork check integrated here
       - name: Detect and test Qt 6 GUI
@@ -263,6 +272,7 @@ jobs:
         run: cargo build --locked -p coldvox-app
 
       - name: Run Golden Master pipeline test
+        id: run_golden_master_tests
         env:
           WHISPER_MODEL_PATH: ${{ needs.setup-whisper-dependencies.outputs.model_path }}
           WHISPER_MODEL_SIZE: ${{ needs.setup-whisper-dependencies.outputs.model_size }}
@@ -273,7 +283,15 @@ jobs:
           echo "=== Running Golden Master Test ==="
           pip install faster-whisper
           export PYTHONPATH=$(python3 -c "import site; print(site.getsitepackages()[0])")
-          cargo test -p coldvox-app --test golden_master -- --nocapture
+          cargo test -p coldvox-app --test golden_master -- --nocapture 2>&1 | tee test_output.log
+      - name: Automated Debugging
+        if: steps.run_golden_master_tests.outcome == 'failure'
+        run: |
+          bash scripts/claudeZ-analyze-fix.sh test_output.log
+          git config --global user.name 'claudeZ'
+          git config --global user.email 'claudeZ@example.com'
+          git commit -am "fix: Automated fix by claudeZ"
+          git push
 
       - name: Upload test artifacts on failure
         if: failure()
