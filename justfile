@@ -83,3 +83,16 @@ tui:
 # Run mic probe utility
 mic-probe duration="30":
     cd crates/app && cargo run --bin mic_probe -- --duration {{duration}}
+
+# Install Moonshine Python dependencies (transformers, torch, librosa via uv)
+setup-moonshine:
+    ./scripts/install-moonshine-deps.sh
+
+# Build with Moonshine STT backend enabled
+build-moonshine: setup-moonshine
+    cargo build --workspace --locked --features moonshine
+
+# Run Moonshine verification example
+verify-moonshine: setup-moonshine
+    cargo run -p coldvox-stt --example verify_moonshine --features moonshine
+

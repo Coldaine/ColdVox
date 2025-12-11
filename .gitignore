@@ -24,6 +24,10 @@ flamegraph.svg
 .env.local
 .venv/
 
+# AI Agent Frameworks (BMAD, Claude, etc)
+.bmad/
+.claude/
+
 # Logs
 logs/
 *.log
@@ -77,4 +81,3 @@ docs/config.md
 docs/install.md
 docs/reference.md
 docs/usage.md
-.venv/
