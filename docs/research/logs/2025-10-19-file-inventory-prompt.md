@@ -139,7 +139,6 @@ path/to/file.ext
 - **Interface/GUI:** `ui/`, `gui/`, `view/`, `electron`, `qt`, `react`, `flutter`, `wpf`, `swiftui`.
 - **Audio Capture:** `audio`, `mic`, `microphone`, `portaudio`, `pyaudio`, `sounddevice`, `coreaudio`, `avfoundation`, WebRTC audio.
 - **VAD:** `vad`, `webrtcvad`, `silero`, `rnnoise`, “silence/energy threshold”.
-- **STT Engine:** `stt`, `asr`, `whisper`, `whisper.cpp`, `vosk`, `deepspeech`, `kaldi`, `nemo`, cloud STT SDKs.
 - **Text Injection:** `keyboard`, `keystroke`, `SendInput`, `xdotool`, `AutoHotkey`, `robotjs`, accessibility APIs.
 
 ### Assignment pass

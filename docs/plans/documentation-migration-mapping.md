@@ -34,7 +34,6 @@ Phase 1 and the majority of Phase 2–3 migrations have been executed. Remaining
 | crates/coldvox-gui/README.md | docs/reference/crates/coldvox-gui.md | move | Replace with thin index linking to crate README. |
 | crates/app/docs/updated_architecture_diagram.md | docs/domains/gui/troubleshooting/updated-architecture-diagram.md | move | Confirm appropriate domain; include retention guidance if exploratory. |
 | crates/app/test_data/README.md | docs/reference/crates/app-test-data.md | move | Determine if this should stay with crate README or become troubleshooting note. |
-| crates/coldvox-stt-vosk/README.md | docs/reference/crates/coldvox-stt-vosk.md | move | Thin index linking back. |
 | crates/voice-activity-detector/MODIFICATIONS.md | docs/domains/vad/modifications.md | move | Normalize filename + frontmatter. |
 | crates/coldvox-telemetry/README.md | docs/reference/crates/coldvox-telemetry.md | move | Thin index. |
 | crates/coldvox-text-injection/TESTING.md | docs/domains/text-injection/ti-testing.md | move | Add frontmatter and align with standards. |
@@ -108,9 +107,6 @@ Phase 1 and the majority of Phase 2–3 migrations have been executed. Remaining
 | docs/domains/stt/whisper/README.md | docs/domains/stt/whisper/index.md | move | rename. |
 | docs/domains/stt/whisper/implementation-checklist.md | docs/domains/stt/whisper/implementation-checklist.md | retain | Add frontmatter. |
 | docs/domains/stt/whisper/windows-testing.md | docs/domains/stt/whisper/windows-testing.md | retain | Add frontmatter. |
-| docs/domains/stt/vosk.md | docs/domains/stt/vosk.md | retain | Add frontmatter and move troubleshooting under subfolder. |
-| docs/domains/stt/vosk-architecture.md | docs/domains/stt/vosk-architecture.md | retain | Add frontmatter. |
-| docs/domains/stt/vosk-testing.md | docs/domains/stt/troubleshooting/vosk-testing.md | move | restructure. |
 | docs/domains/foundation.md | docs/domains/foundation/index.md | move | rename. |
 | docs/domains/foundation/README.md | docs/domains/foundation/index.md | consolidate | unify. |
 | docs/domains/foundation/runtime_vision.md | docs/domains/foundation/runtime-vision.md | retain | rename + frontmatter. |
@@ -120,7 +116,6 @@ Phase 1 and the majority of Phase 2–3 migrations have been executed. Remaining
 | docs/domains/text-injection/tracing.md | docs/domains/text-injection/tracing.md | retain | add frontmatter. |
 | docs/domains/text-injection/injection_states.md | docs/domains/text-injection/injection-states.md | retain | rename + frontmatter. |
 | docs/domains/text-injection/voice_selection.md | docs/domains/text-injection/voice-selection.md | retain | rename + frontmatter. |
-| docs/domains/text-injection/vosk.md | docs/domains/text-injection/vosk.md | retain | frontmatter; maybe troubleshooting. |
 | docs/domains/text-injection/silero_audio_stream_injection.md | docs/domains/text-injection/silero-audio-stream-injection.md | retain | rename + frontmatter. |
 | docs/domains/text-injection/docs-review-roadmap.md | docs/domains/text-injection/docs-review-roadmap.md | retain | ensure alignment with architecture roadmap. |
 | docs/review/README.md | docs/research/pr-reports/index.md | move | convert to index for review history or archive. |

@@ -1,5 +1,5 @@
 name: Setup ColdVox Dependencies
-description: Install system deps, libvosk, and Rust toolchain
+description: Install system deps and Rust toolchain
 inputs:
   skip-toolchain:
     description: Skip Rust toolchain setup (for jobs with custom toolchain)

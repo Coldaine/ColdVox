@@ -100,7 +100,7 @@ Users can still enable detailed debugging via `RUST_LOG=debug` or `RUST_LOG=trac
 ## v2.0.2 — 2025-09-12
 
 Highlights
-- STT Plugin Manager: Full runtime integration, failover/GC, metrics/TUI, Vosk finalization
+- STT Plugin Manager: Full runtime integration, failover/GC, metrics/TUI
 - Tests: Added failover, GC, hot-reload coverage
 - Docs: Plugin README section, migration notes
 
@@ -113,7 +113,7 @@ Details
 - Updated README.md with STT plugins section and migration notes
 
 Upgrade Notes
-- STT configuration now uses --stt-* flags instead of VOSK_MODEL_PATH
+- STT configuration now uses --stt-* flags
 - Plugin settings are automatically persisted to config/plugins.json
 - TUI now available with --tui flag (requires tui feature)
 

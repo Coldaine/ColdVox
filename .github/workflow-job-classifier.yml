@@ -36,7 +36,6 @@ job_classifications:
       time_minutes: "2-5"
     concurrent_limit: 2
     examples:
-      - setup-vosk-model
       - gui-groundwork
       - security
 

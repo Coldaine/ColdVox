@@ -50,12 +50,8 @@ last_reviewed: 2025-10-19
 The CI system now uses the application's built-in model autodetection and auto-extraction capabilities. Runners no longer require pre-provisioned, cached models.
 
 **Requirements:**
-- A `vosk-model-*.zip` file must be present in the project's `vendor/` directory.
-- The `setup_vosk.rs` script (run during CI) will copy this zip file to the project root, where the application will find and extract it on first use.
 
 **Workflow:**
-1. The `setup-vosk-model` job in `ci.yml` copies the model zip from `vendor/` to the workspace root.
-2. When tests are run, the `coldvox-stt-vosk` crate automatically finds the zip, extracts it to the `models/` directory, and uses the extracted model.
 3. Subsequent runs will find the extracted model and skip the extraction step.
 
 This approach removes the dependency on a fixed-path runner cache and makes the CI setup more portable.
@@ -82,10 +78,6 @@ LANG=en_US.utf8
 ### Cache Directory Structure
 ```
 /home/coldaine/ActionRunnerCache/
-├── vosk-models/
-│   └── vosk-model-small-en-us-0.15/
-├── libvosk-setup/
-│   └── vosk-linux-x86_64-0.3.45/
 └── (planned: rust-toolchains/, system-packages/)
 ```
 
@@ -93,20 +85,14 @@ LANG=en_US.utf8
 
 ## System Library Configuration
 
-### libvosk Installation
-**Location**: `/usr/local/lib/libvosk.so` (25,986,496 bytes)
-**Header**: `/usr/local/include/vosk_api.h`
 
 **Dynamic Linker Configuration**:
-**File**: `/etc/ld.so.conf.d/vosk.conf`
 ```
 /usr/local/lib
 ```
 
 **Verification**:
 ```bash
-$ ldconfig -p | grep vosk
-libvosk.so (libc6,x86-64) => /usr/local/lib/libvosk.so
 ```
 
 ### System Dependencies Installed
@@ -229,25 +215,20 @@ jobs:
           fi
           echo "All workflows render via gh."
 
-  setup-vosk-model:
-    name: Setup Vosk Model
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
     outputs:
       download-outcome: success
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Setup Vosk Model
         run: |
           set -euo pipefail
           # This script will copy the model zip from vendor/ to the root
-          ./scripts/setup_vosk.rs
 
   # Static checks, formatting, linting, type-check, build, and docs
   build_and_check:
     name: Format, Lint, Typecheck, Build & Docs
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
-    needs: [setup-vosk-model]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
@@ -279,7 +260,6 @@ jobs:
         run: cargo doc --workspace --no-deps --locked
 
       - name: Run all tests (unit, integration, and E2E)
-        if: needs.setup-vosk-model.outputs.download-outcome == 'success'
         run: |
           cargo test --workspace --locked
 
@@ -364,7 +344,6 @@ jobs:
   text_injection_tests:
     name: Text Injection Tests
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
-    needs: [setup-vosk-model]
     timeout-minutes: 30
     env:
       DISPLAY: :99
@@ -487,9 +466,7 @@ jobs:
         run: cargo build --locked -p coldvox-app
 
       - name: Run E2E pipeline test
-        if: needs.setup-vosk-model.outputs.download-outcome == 'success'
         env:
-          VOSK_MODEL_PATH: ${{ needs.setup-vosk-model.outputs.model-path }}
         run: |
           cargo test -p coldvox-app --locked test_end_to_end_wav_pipeline -- --nocapture
 
@@ -542,7 +519,6 @@ jobs:
   ci-success:
     name: CI Success
     if: always()
-    needs: [validate-workflows, setup-vosk-model, build_and_check, msrv-check, gui-groundwork, text_injection_tests]
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
     steps:
       - name: Check if all jobs succeeded
@@ -551,7 +527,6 @@ jobs:
           failed=0
           for res in \
             "${{ needs.validate-workflows.result }}" \
-            "${{ needs.setup-vosk-model.result }}" \
             "${{ needs.build_and_check.result }}" \
             "${{ needs.msrv-check.result }}" \
             "${{ needs.gui-groundwork.result }}" \
@@ -567,24 +542,18 @@ jobs:
           echo "All CI jobs succeeded (ignoring skipped)"
 ```
 
-### 2. Vosk Integration Tests Workflow
 
-**File**: `.github/workflows/vosk-integration.yml`
 
 ```yaml
-name: Vosk STT Integration Tests
 
 on:
   pull_request:
     branches: [main]
     paths:
-      - 'crates/coldvox-stt-vosk/**'
       - 'crates/app/src/stt/**'
-      - '.github/workflows/vosk-integration.yml'
   workflow_dispatch:
     inputs:
       model_type:
-        description: 'Vosk model to use for testing'
         required: false
         default: 'small'
         type: choice
@@ -598,8 +567,6 @@ env:
   CARGO_INCREMENTAL: 0
 
 jobs:
-  vosk-integration:
-    name: Vosk STT Integration
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
     timeout-minutes: 15
     steps:
@@ -613,31 +580,20 @@ jobs:
       - name: Setup ColdVox
         uses: ./.github/actions/setup-coldvox
 
-      - name: Setup Vosk Model from Cache
         run: |
           set -euo pipefail
 
           # Use pre-cached models from permanent cache location
-          CACHE_DIR="/home/coldaine/ActionRunnerCache/vosk-models"
           MODEL_DIR="models"
 
           mkdir -p $MODEL_DIR
 
           # Link the small model for tests (remove existing if present)
-          if [ -d "$CACHE_DIR/vosk-model-small-en-us-0.15" ]; then
-            rm -rf "$MODEL_DIR/vosk-model-small-en-us-0.15"
-            ln -sf "$CACHE_DIR/vosk-model-small-en-us-0.15" "$MODEL_DIR/"
-            echo "✅ Linked cached vosk-model-small-en-us-0.15"
           else
-            echo "❌ Error: Vosk model not found in cache at $CACHE_DIR"
             exit 1
           fi
 
           # Link the production model if available
-          if [ -d "$CACHE_DIR/vosk-model-en-us-0.22" ]; then
-            rm -rf "$MODEL_DIR/vosk-model-en-us-0.22"
-            ln -sf "$CACHE_DIR/vosk-model-en-us-0.22" "$MODEL_DIR/"
-            echo "✅ Linked cached vosk-model-en-us-0.22"
           fi
 
           ls -la $MODEL_DIR/
@@ -645,35 +601,22 @@ jobs:
       - name: Install cargo-nextest
         run: cargo install cargo-nextest --locked
 
-      - name: Build with Vosk
         run: |
-          # Build both crates that use Vosk feature
-          cargo build --locked -p coldvox-stt-vosk --features vosk
-          cargo build --locked -p coldvox-app --features vosk
 
-      - name: Run Vosk tests
         env:
-          VOSK_MODEL_PATH: models/vosk-model-small-en-us-0.15
         run: |
-          cargo test --locked -p coldvox-stt-vosk --features vosk -- --nocapture
 
       - name: Run end-to-end WAV pipeline test
         env:
-          VOSK_MODEL_PATH: models/vosk-model-small-en-us-0.15
         run: |
-          cargo test --locked -p coldvox-app --features vosk test_end_to_end_wav_pipeline --nocapture
 
-      - name: Test Vosk examples
         env:
-          VOSK_MODEL_PATH: models/vosk-model-small-en-us-0.15
         run: |
-          cargo run --locked --example vosk_test --features vosk,examples -- --test-duration 5
 
       - name: Upload test artifacts on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: vosk-integration-artifacts
           path: |
             target/debug/deps/
             target/debug/build/
@@ -682,7 +625,6 @@ jobs:
 
       - name: Performance summary
         run: |
-          echo "=== Vosk Integration Test Summary ==="
           echo "Model setup: ✅ Using cached models"
           echo "Build time: Fast (using Rust cache)"
           echo "Test execution: Complete"
@@ -753,7 +695,6 @@ jobs:
 
 ```yaml
 name: Setup ColdVox Dependencies
-description: Install system deps, libvosk, and Rust toolchain
 inputs:
   skip-toolchain:
     description: Skip Rust toolchain setup (for jobs with custom toolchain)
@@ -790,25 +731,14 @@ runs:
           exit 1
         fi
 
-    - name: Validate libvosk installation
       shell: bash
       run: |
-        echo "Validating pre-installed libvosk..."
-        if [ ! -f "/usr/local/lib/libvosk.so" ]; then
-          echo "ERROR: libvosk.so not found, run setup-permanent-libvosk.sh on runner"
           exit 1
         fi
-        if [ ! -f "/usr/local/include/vosk_api.h" ]; then
-          echo "ERROR: vosk_api.h not found, run setup-permanent-libvosk.sh on runner"
           exit 1
         fi
-        # Ensure libvosk is in dynamic linker cache
-        if ! ldconfig -p | grep -q vosk; then
-          echo "WARNING: libvosk not in linker cache, refreshing..."
           sudo ldconfig
         fi
-        echo "✅ libvosk available at /usr/local/lib/libvosk.so"
-        echo "✅ libvosk cached in dynamic linker"
 
     - name: Setup Rust toolchain
       if: inputs.skip-toolchain != 'true'
@@ -824,43 +754,27 @@ runs:
 
 ## Configuration Scripts
 
-### Permanent libvosk Installation Script
 
-**File**: `scripts/setup-permanent-libvosk.sh`
 
 ```bash
 #!/bin/bash
-# Permanent libvosk installation for self-hosted runner
 # This should be run ONCE on the runner to eliminate per-job extraction
 
 set -euo pipefail
 
-echo "=== Setting up permanent libvosk installation ==="
 
-VOSK_VER="0.3.45"
-VENDOR_DIR="/home/coldaine/Projects/ColdVox/vendor/vosk"
 CACHE_DIR="/home/coldaine/ActionRunnerCache"
 
 # Ensure we have the vendor file
-if [ ! -f "$VENDOR_DIR/vosk-linux-x86_64-${VOSK_VER}.zip" ]; then
-    echo "ERROR: Vendor file not found: $VENDOR_DIR/vosk-linux-x86_64-${VOSK_VER}.zip"
     exit 1
 fi
 
 # Create working directory
-mkdir -p "$CACHE_DIR/libvosk-setup"
-cd "$CACHE_DIR/libvosk-setup"
 
 # Extract if not already done
-if [ ! -d "vosk-linux-x86_64-${VOSK_VER}" ]; then
-    echo "Extracting libvosk..."
-    unzip -q "$VENDOR_DIR/vosk-linux-x86_64-${VOSK_VER}.zip"
 fi
 
 # Install permanently
-echo "Installing libvosk system-wide..."
-sudo cp -v "vosk-linux-x86_64-${VOSK_VER}/libvosk.so" /usr/local/lib/
-sudo cp -v "vosk-linux-x86_64-${VOSK_VER}/vosk_api.h" /usr/local/include/
 
 # Update dynamic linker cache
 echo "Updating dynamic linker cache..."
@@ -868,30 +782,20 @@ sudo ldconfig
 
 # Verify installation
 echo "Verifying installation..."
-if ldconfig -p | grep -q vosk; then
-    echo "✅ libvosk successfully installed and cached"
-    ldconfig -p | grep vosk
 else
-    echo "❌ libvosk not found in linker cache"
     exit 1
 fi
 
 # Test linking
 echo "Testing library linking..."
-if ldd /usr/local/lib/libvosk.so >/dev/null 2>&1; then
-    echo "✅ libvosk dependencies resolved"
 else
-    echo "❌ libvosk dependency issues"
-    ldd /usr/local/lib/libvosk.so
     exit 1
 fi
 
 # Create permanent ldconfig configuration
 echo "Creating permanent ldconfig entry..."
-echo "/usr/local/lib" | sudo tee /etc/ld.so.conf.d/vosk.conf
 sudo ldconfig
 
-echo "✅ Permanent libvosk installation complete!"
 echo ""
 echo "🚀 Now workflows should use validation instead of extraction:"
 echo "    - Remove zip extraction from setup-coldvox action"
@@ -1004,18 +908,14 @@ esac
 ## Current Issues and Status
 
 ### Known Working Components
-- ✅ Vosk model caching (8-11 seconds setup vs 3+ hour timeouts)
 - ✅ System package installation with `--skip-unavailable` flags
-- ✅ libvosk permanent installation and ldconfig configuration
 - ✅ Runner labels and basic workflow execution
 
 ### Current Failure Points
-- ❌ Vosk integration tests failing with `libvosk.so: cannot open shared object file`
 - ❌ Some CI jobs queuing for extended periods (18+ minutes)
 - ❌ Intermittent network timeouts during GitHub Action downloads
 
 ### Recent Changes (Commits)
-1. **959a04a**: Implemented permanent libvosk installation
 2. **4062a15**: Fixed package name from 'app' to 'coldvox-app' in workflows
 3. **1f1af7f**: Added `--skip-unavailable` flags to dnf commands
 

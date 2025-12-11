@@ -19,7 +19,6 @@ The repository is synced to latest `main` and GitHub Actions workflows are valid
 
 ## Current State
 - Repo: up-to-date on `main` (fast-forwarded to 07c21dc).
-- Workflows present: `ci.yml`, `vosk-integration.yml`, `release.yml`, `runner-test.yml`, `runner-diagnostic.yml`.
 - `actionlint`: clean (exit 0) for all workflows.
 - Runner status: online, labels match workflows (`self-hosted, Linux, X64, fedora, nobara`).
 - Missing deps on runner:
@@ -82,7 +81,6 @@ sudo dnf install -y gtk3-devel libXtst-devel alsa-lib-devel
 ## Notes
 - The runner currently runs via `run.sh` (no systemd service). This is acceptable, but converting to a user systemd service can improve reliability:
   - `.service` marker indicates `actions.runner.Coldaine-ColdVox.laptop-extra.service`. If desired, enable a systemd user service and configure auto-start.
-- Vosk dependencies are set up per job by `setup-vosk-cache.sh`. Ensure adequate disk space (env `MIN_FREE_DISK_GB=10`).
   
 - Nobara/Fedora typically ship PipeWire by default. Installing `pipewire-pulseaudio` ensures the PulseAudio compatibility layer exposes the expected CLI/bus without replacing the stock audio stack. Our script calls `pulseaudio --daemonize`; this remains compatible when the shim is present. The validation step includes `pactl info` to confirm the active server.
 
@@ -90,4 +88,3 @@ sudo dnf install -y gtk3-devel libXtst-devel alsa-lib-devel
 - All remediation packages installed on the runner.
 - `scripts/start-headless.sh` completes without errors.
 - `ci.yml` jobs succeed on `main` for stable toolchain.
-- `vosk-integration.yml` completes on PRs touching STT/Vosk.

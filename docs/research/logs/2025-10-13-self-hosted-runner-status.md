@@ -67,14 +67,12 @@ runs-on: [self-hosted, Linux, X64, fedora, nobara]
 - `.github/workflows/ci.yml` (8 jobs)
 - `.github/workflows/release.yml` (2 jobs)
 - `.github/workflows/runner-test.yml` (1 job)
-- `.github/workflows/vosk-integration.yml` (1 job)
 - `.github/workflows/runner-diagnostic.yml` (1 job)
 
 ### Current Performance Characteristics
 
 **Performance Testing Results (Phase 2.3):**
 ```
-Baseline Test: Vosk Integration Tests
 - Runtime: 3h 21m (failed after 38min build phase)
 - Peak Load: 10.03 (excellent CPU utilization)
 - Memory Usage: 10.3GB / 30GB available
@@ -93,7 +91,6 @@ Hardware vs GitHub-hosted Comparison:
 ### Critical Problems (Blocking Phase 3)
 
 1. **Build Failures**
-   - Vosk integration tests failing during compilation
    - 38-minute build process before failure
    - Dependency or system library issues
 
@@ -223,16 +220,11 @@ timeout-minutes: 360  # Go wild, we have time
 
 **Persistent Storage & Local Caching:**
 ```bash
-# Vosk Model Local Cache Strategy
-Model Cache Location: /home/coldaine/actions-runner/_cache/vosk-models/
 Current Waste: Re-downloading 1.8GB model per workflow run
 Optimization: Pre-cache models locally, symlink in workflows
 
 # Implementation Plan:
-mkdir -p /home/coldaine/actions-runner/_cache/vosk-models/
 # Pre-download models:
-# - vosk-model-small-en-us-0.15 (40MB - fast testing)
-# - vosk-model-en-us-0.22 (1.8GB - production quality)
 # - Future: Multi-language support (es, fr, de)
 ```
 
@@ -261,21 +253,16 @@ Networking: Rate-limited vs Direct control
 Root Access: No (GitHub) vs Yes (Self-hosted)
 ```
 
-### 🎯 Vosk-Specific Optimization Strategy
 
 **Model Management System:**
 ```bash
 # Proposed Structure
 /home/coldaine/actions-runner/_cache/
-├── vosk-models/
 │   ├── small-en-us-0.15/          # Fast testing (40MB)
 │   ├── en-us-0.22/                # Production quality (1.8GB)
 │   ├── checksums.txt              # Integrity verification
 │   └── version-manifest.json      # Version tracking
-├── vosk-binaries/
 │   ├── 0.3.45/                    # Current version
-│   │   ├── libvosk.so            # Pre-installed in /usr/local/lib
-│   │   └── vosk_api.h            # Pre-installed in /usr/local/include
 │   └── version-registry.json      # Binary version tracking
 └── rust-artifacts/
     ├── cargo-registry/             # Shared dependency cache
@@ -284,27 +271,14 @@ Root Access: No (GitHub) vs Yes (Self-hosted)
 
 **Workflow Optimization:**
 ```yaml
-# Enhanced Vosk Setup (Self-hosted optimized)
-- name: Setup Vosk (Self-hosted optimized)
   run: |
     # Check local cache first
-    VOSK_CACHE="/home/coldaine/actions-runner/_cache/vosk-models"
-    MODEL_NAME="vosk-model-small-en-us-0.15"
 
-    if [ -d "$VOSK_CACHE/$MODEL_NAME" ]; then
-      echo "Using cached Vosk model: $MODEL_NAME"
-      ln -sf "$VOSK_CACHE/$MODEL_NAME" .
     else
-      echo "Downloading and caching Vosk model..."
       # Download, extract, and cache for future runs
-      mkdir -p "$VOSK_CACHE"
       # ... download and extract logic
-      mv "$MODEL_NAME" "$VOSK_CACHE/"
-      ln -sf "$VOSK_CACHE/$MODEL_NAME" .
     fi
 
-    # Vosk binaries already installed system-wide
-    echo "Vosk setup complete (cached)"
 ```
 
 ### 💡 Advanced Self-Hosted Optimizations
@@ -331,7 +305,6 @@ RUSTC_OPTS="--codegen opt-level=3"
 /home/coldaine/actions-runner/_persistent/
 ├── cargo-cache/          # Never cleared
 ├── rust-analyzer-cache/  # IDE support
-├── vosk-models/          # Downloaded once
 └── build-artifacts/      # Incremental builds
 
 # Workspace management
@@ -352,12 +325,8 @@ cargo config set registry.local-mirror.index "file:///opt/cargo-registry"
 
 ## Immediate Action Plan (Phase 3.1)
 
-### Priority 1: Fix Build Reliability + Vosk Optimization
 ```bash
 # Enhanced Steps:
-1. Investigate Vosk compilation errors
-2. Implement local Vosk model caching system
-3. Pre-install Vosk models in runner cache
 4. Update workflows to use cached models
 5. Add model integrity verification
 6. Test manual build with cached models
@@ -378,10 +347,8 @@ cargo config set registry.local-mirror.index "file:///opt/cargo-registry"
       target/
 
 # Additional self-hosted caching:
-- name: Cache Vosk Models (Self-hosted)
   run: |
     # Use persistent local cache (no GitHub Actions cache needed)
-    echo "VOSK_MODEL_PATH=/home/coldaine/actions-runner/_cache/vosk-models/vosk-model-small-en-us-0.15" >> $GITHUB_ENV
 ```
 
 ### Priority 3: Resource Optimization
@@ -392,8 +359,6 @@ jobs:
     strategy:
       max-parallel: 4  # Increased based on 10-core + 30GB capacity
       matrix:
-        features: [default, vosk, text-injection]
-        vosk-model: [small, standard]  # Test multiple models
     # Resource limits per job
     env:
       CARGO_BUILD_JOBS: 6  # Leverage more cores per job
@@ -410,7 +375,6 @@ continue-on-error: true
 env:
   # Use local paths for better performance
   CARGO_HOME: /home/coldaine/.cargo
-  VOSK_MODEL_PATH: /home/coldaine/actions-runner/_cache/vosk-models
   # Custom build optimizations
   RUSTFLAGS: "-C target-cpu=native -C opt-level=3"
   CARGO_NET_GIT_FETCH_WITH_CLI: "true"  # Better git performance
@@ -463,7 +427,6 @@ Compliance logging and audit trails
 - **Successful build time**: < 30 minutes (down from 3h 21m failure)
 - **Cache hit rate**: > 80% for dependency builds
 - **Queue throughput**: 3-4 concurrent jobs
-- **Failure rate**: < 10% (currently 100% for Vosk tests)
 
 ### Reliability Targets
 - **Job completion rate**: > 95%
@@ -491,7 +454,6 @@ Usage: On-demand testing and analysis
 System Dependencies: ✅ Installed and verified
 - alsa-lib-devel, xdotool, libXtst-devel
 - wget, unzip, @development-tools
-- Vosk libraries: libvosk.so, vosk_api.h
 
 Rust Toolchain: ✅ Configured
 - Version: 1.89.0 (stable)
@@ -528,7 +490,6 @@ Current Status:
 ## Next Steps Summary
 
 **Immediate (This Week)**:
-1. Diagnose and fix Vosk build failures
 2. Implement Rust caching in workflows
 3. Add job timeouts and concurrency limits
 4. Test hybrid fallback strategy
@@ -559,7 +520,6 @@ Current Status:
 
 **Self-Hosted Exclusive Capabilities:**
 ```bash
-✅ Persistent Vosk model cache (save 1.8GB downloads per run)
 ✅ CPU-native optimizations (AVX2, FMA instruction sets)
 ✅ Unlimited concurrent jobs (based on hardware capacity)
 ✅ Custom system dependencies pre-installed
@@ -615,21 +575,14 @@ runs-on: [self-hosted, Linux, X64, fedora, nobara]
 # No fallback needed - it's your personal project
 ```
 
-#### 2. **CRITICAL: Vosk Model Caching**
 **This is the #1 priority** - downloading 1.8GB model every run is insane:
 ```bash
 # Pre-cache models permanently
-mkdir -p /home/coldaine/actions-runner/_cache/vosk-models/
-cd /home/coldaine/actions-runner/_cache/vosk-models/
 
 # Download once, use forever
-wget https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip
-wget https://alphacephei.com/vosk/models/vosk-model-en-us-0.22.zip
 unzip *.zip && rm *.zip
 
 # Workflows should check cache first:
-if [ -d "/home/coldaine/actions-runner/_cache/vosk-models/vosk-model-small-en-us-0.15" ]; then
-  ln -sf /home/coldaine/actions-runner/_cache/vosk-models/vosk-model-small-en-us-0.15 .
 else
   # Only download if missing
 fi
@@ -669,8 +622,6 @@ GitHub-hosted runners:
 ### What to Actually Focus On
 
 **Priority 1 - Must Fix:**
-1. **Vosk model caching** - Stop downloading 1.8GB every run
-2. **Fix current Vosk build failures** - They're blocking everything
 3. **Reasonable parallelization** - 3-4 jobs max, not stress testing
 
 **Priority 2 - Nice to Have:**
@@ -692,4 +643,3 @@ This is the PERFECT use case for self-hosted runners:
 - **Learning opportunity** (but keep it reasonable)
 - **Infinite CI/CD minutes** (vs 33 hours free tier)
 
-**The Real Focus:** Fix Vosk model caching FIRST (saves 1.8GB per run), then get builds working consistently. Everything else is optional optimization. This spare laptop setup gives you unlimited CI/CD for free - just need to make it work reasonably well, not perfectly.

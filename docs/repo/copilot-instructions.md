@@ -16,7 +16,6 @@ Use these notes to help AI agents work effectively in this Rust workspace. Main 
 **Prompt Response Format**: When asked to create a prompt for another agent, return ONLY the prompt content without any additional commentary, explanation, or wrapper text. Simply output the prompt as requested.
 
 Key defaults right now:
-- STT (Vosk) is NOT built by default. Enable with the `vosk` feature.
 - Default audio/VAD windowing is 512 samples at 16 kHz (32 ms).
 
 **Platform Detection**: Build system automatically detects platform/desktop at compile time (`crates/app/build.rs`) and enables appropriate text injection backends.
@@ -52,10 +51,7 @@ Key defaults right now:
 - `crates/coldvox-stt/` — STT core abstractions and event system
   - `types.rs`: Core STT types and events (`TranscriptionEvent`, `WordInfo`)
   - `processor.rs`: STT processing building blocks (used by app-level processor)
-  - `plugin.rs` + `plugins/`: Plugin architecture (e.g., `vosk_plugin.rs`, `whisper_plugin.rs`, `mock.rs`, `noop.rs`)
 
-- `crates/coldvox-stt-vosk/` — Vosk STT integration (feature `vosk`, default enabled)
-  - `vosk_transcriber.rs`: `VoskTranscriber` implementing offline speech recognition
 
 - `crates/coldvox-telemetry/` — Pipeline metrics and performance tracking
   - `pipeline_metrics.rs`: `PipelineMetrics`, `metrics.rs`: `FpsTracker`
@@ -69,7 +65,6 @@ Key defaults right now:
 
 - `crates/app/` — Main application crate with glue code, UI, and re-exports
   - **Audio glue**: `src/audio/vad_adapter.rs`, `src/audio/vad_processor.rs`
-  - **STT integration**: `src/stt/processor.rs`, `src/stt/vosk.rs`, `src/stt/persistence.rs`
   - **Text injection**: `src/text_injection/` - integration with text injection backends
   - **Hotkey system**: `src/hotkey/` - global hotkey support with KDE KGlobalAccel integration
   - **Probes**: `src/probes/` - diagnostic and testing utilities
@@ -82,7 +77,6 @@ Key defaults right now:
 
 ### Main Binaries
 - App (default build, no STT): `cargo run`
-- App with STT (Vosk): `cargo run --features vosk`
 - TUI Dashboard: `cargo run --bin tui_dashboard` (add `-- --device "<device name>"` and/or `--log-level <level>`)
 - Mic Probe: `cargo run --bin mic_probe -- --duration 30 --device "<name>" --silence_threshold 120`
 - Minimal (disable text injection too): `cargo run --no-default-features --features silero`
@@ -90,7 +84,6 @@ Key defaults right now:
 ### Examples (at repo root `/examples/`, wired via Cargo metadata)
 - Foundation: `cargo run --example foundation_probe -- --duration 30`
 - Recording: `cargo run --example record_10s`
-- STT Test (Vosk): `cargo run --features vosk,examples --example vosk_test`
 - Text Injection demo: `cargo run --features text-injection --example inject_demo`
 - Hotkeys: `cargo run --example test_hotkey_backend`
 - KDE KGlobalAccel: `cargo run --example test_kglobalaccel_hotkey`
@@ -113,7 +106,6 @@ Key defaults right now:
 - CPAL callback → i16 samples → `AudioRingBuffer` (SPSC) → `FrameReader` → `AudioChunker` → broadcast channel
 - Chunker output: 512-sample frames (32 ms) at 16 kHz to VAD/STT subscribers
 - VAD: Silero V5 (default) generates `VadEvent`s
-- STT (when compiled with `vosk`):
   - Activation gating: by default the app uses a hotkey workflow; enable `--activation-mode vad` to auto-activate on speech.
   - Transcribes segments during active speech (SpeechStart → SpeechEnd) and emits `TranscriptionEvent`s.
   - TUI: when STT is enabled and a model is present, partial/final transcripts are logged; Status shows last final transcript
@@ -148,11 +140,9 @@ UnifiedVadConfig {
 }
 ```
 
-### STT Configuration (when `vosk` feature is enabled)
 ```rust
 TranscriptionConfig {
   enabled: true, // app sets this true only if the model path exists
-  model_path: "models/vosk-model-small-en-us-0.15",
   partial_results: true,
   max_alternatives: 1,
   include_words: false,
@@ -160,7 +150,6 @@ TranscriptionConfig {
 }
 ```
 Notes:
-- If `VOSK_MODEL_PATH` is set, it overrides `model_path`.
 - If the model path does not exist at runtime, the app disables STT and logs a warning.
 
 ### Text Injection (Platform-aware)
@@ -186,7 +175,6 @@ Notes:
 - `--device <name>`: Select preferred input device (exact or substring)
 - `--resampler-quality <fast|balanced|quality>`: Controls chunker resampler
 - `--activation-mode <hotkey|vad>`: Choose activation workflow (default: `hotkey`)
-- STT (only with `vosk` feature): `--save-transcriptions`, `--save-audio`, `--output-dir`, `--transcript-format`, `--retention-days`
 
 ### Metrics & Telemetry
 - **Pipeline metrics**: `Arc<PipelineMetrics>` shared across components
@@ -212,7 +200,6 @@ FrameReader (from consumer) → AudioChunker → broadcast::Sender<AudioFrame>
 // VAD processing
 VadProcessor::spawn(vad_cfg, audio_rx, event_tx, Some(metrics))?
 
-// STT processor (when vosk feature enabled)
 // See crates/app/src/stt/processor.rs
 ```
 
@@ -238,12 +225,8 @@ let devices = device_manager.enumerate_devices();
 - **Configuration**: Thresholds, durations, and windowing via `UnifiedVadConfig`
 
 ## STT System (Default Enabled)
-STT is optional and compiled in with the `vosk` feature.
-- Integration: Via `crates/coldvox-stt-vosk/` (re-exported in `crates/app/src/stt/vosk.rs`)
 - Gating: Transcribes only during detected speech segments
 - Events: `TranscriptionEvent::{Partial, Final, Error}` via mpsc channels
-- Model path: `VOSK_MODEL_PATH` env var or default `models/vosk-model-small-en-us-0.15`
-- Requirements: System libvosk library for compilation
 
 ## Hotkey System
 - **Global hotkeys**: System-wide hotkey capture and processing (`src/hotkey/`)

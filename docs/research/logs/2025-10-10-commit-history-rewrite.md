@@ -23,8 +23,6 @@ Retention: Ephemeral. Delete after 2025-11-09 unless promoted to playbooks/organ
 
 ### Existing Commits (Oldest to Newest):
 1. `fadb82a` - begin documentation refactoring and injection changes
-2. `f84fa98` - feat(stt): Enhance Vosk model discovery logging for CI debugging
-3. `e892ec4` - docs: add comprehensive text injection architecture and Vosk diagnostic guide
 4. `00c25de` - docs: add Parakeet STT research and remove outdated architecture doc
 5. `90a6019` - chore(text-injection): snapshot old implementation before orchestrator rewrite
 6. `ffe3ae6` - feat(text-injection): implement orchestrator-based architecture (WIP)
@@ -48,7 +46,6 @@ Retention: Ephemeral. Delete after 2025-11-09 unless promoted to playbooks/organ
 3. **Formatting commits** - Should be squashed into relevant features (commits 13, 14, 15)
 4. **Scattered documentation** - Docs spread across multiple commits (1, 3, 4)
 5. **Dependency updates isolated** - Should be with relevant features (commit 9)
-6. **STT logging mixed in** - Vosk changes unrelated to injection work (commit 2)
 7. **Non-atomic changes** - Some commits mix concerns (audio + injection)
 8. **WIP markers** - Commit 6 has "(WIP)" but is in main history
 
@@ -73,22 +70,18 @@ Retention: Ephemeral. Delete after 2025-11-09 unless promoted to playbooks/organ
   Add comprehensive documentation for the text injection refactor:
   - Text injection architecture and strategy overview
   - Parakeet STT research and evaluation
-  - Vosk diagnostic guide for CI debugging
   - Remove outdated architecture documentation
   
   This establishes the foundation and rationale for the orchestrator
   refactor that follows.
   ```
 
-#### **Commit 2: feat(stt): Enhance Vosk model discovery logging for CI**
 - **Keeps:** commit 2 (mostly unchanged)
 - **Purpose:** Standalone improvement, helps with CI/debugging
 - **Note:** Could be moved to separate PR if we want pure injection focus
 - **Message:**
   ```
-  feat(stt): Enhance Vosk model discovery logging for CI debugging
   
-  Improve Vosk model path detection and logging to help diagnose
   CI failures and model availability issues. Adds detailed logging
   throughout the model discovery process.
   ```
@@ -263,8 +256,6 @@ Retention: Ephemeral. Delete after 2025-11-09 unless promoted to playbooks/organ
 2. **Initial rebase plan** (in the editor):
    ```
    pick fadb82a begin documentation refactoring and injection changes
-   pick f84fa98 feat(stt): Enhance Vosk model discovery logging for CI debugging
-   squash e892ec4 docs: add comprehensive text injection architecture and Vosk diagnostic guide
    squash 00c25de docs: add Parakeet STT research and remove outdated architecture doc
    pick 90a6019 chore(text-injection): snapshot old implementation before orchestrator rewrite
    fixup ffe3ae6 feat(text-injection): implement orchestrator-based architecture (WIP)
