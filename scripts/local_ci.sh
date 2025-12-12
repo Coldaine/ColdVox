@@ -60,6 +60,15 @@ else
     exit 1
 fi
 
+# 3.5 Security checks
+print_step "Running security checks..."
+if cargo deny check && cargo audit; then
+    print_success "Security checks passed"
+else
+    print_error "Security checks failed"
+    exit 1
+fi
+
 # 4. Build
 print_step "Building workspace..."
 if cargo build --workspace --locked; then

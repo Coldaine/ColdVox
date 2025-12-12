@@ -15,11 +15,13 @@ ci:
 check:
     pre-commit run --all-files
 
-# Quick development checks (format, clippy, check)
+# Quick development checks (format, clippy, check, security)
 lint:
     cargo fmt --all
     cargo clippy --fix --all-targets --locked --allow-dirty --allow-staged -- -D warnings
     cargo check --workspace --all-targets --locked
+    cargo deny check
+    cargo audit
 
 # Auto-fix linter issues where possible
 fix:

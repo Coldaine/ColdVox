@@ -4,7 +4,7 @@ subsystem: general
 version: 1.0.0
 status: draft
 owners: Documentation Working Group
-last_reviewed: 2025-12-03
+last_reviewed: 2025-12-12
 ---
 
 # Dependency Overview
@@ -71,3 +71,17 @@ The `deny.toml` file in the repository root configures cargo-deny:
 - **rustfmt**: Code formatting (`cargo fmt`)
 - **clippy**: Linting (`cargo clippy`)
 - **uv**: Python dependency management for STT plugins
+
+## Mixed Rust + Python Tooling (Dec 2025)
+
+- **uv (Python 3.13-ready)**: Use `uv` for Python env + lockfiles; leverage its global cache to keep CI downloads minimal across runners. Treat `uv lock` as the single source of truth for Python deps; prefer `uv tool install` for CLI tools (ruff, maturin).
+- **maturin for packaging**: Build PyO3 wheels with `maturin build -r` and install in CI with `maturin develop` when you need editable bindings. Prefer `uv tool run maturin ...` so we do not rely on system pip. Follow PyO3 0.27 guidance for free-threaded Python 3.13 by enabling the `abi3-py313` or interpreter-specific feature in the binding crates as needed.
+- **Rust/Python interface hygiene**: Avoid `pyo3` debug builds in CI; set `PYO3_CONFIG_FILE` only when linking against non-system Python. For embedded Python, ensure `python3-devel` is present on self-hosted runners and keep `extension-module` + `auto-initialize` features constrained to the crates that need them.
+- **Shared caching**: Keep `target/` out of VCS; rely on Swatinem `rust-cache` in GitHub Actions plus `uv` global cache for Python wheels. If the self-hosted runner supports it, add `sccache` (Rust) and point `RUSTC_WRAPPER` to reduce rebuilds for hardware-only test jobs.
+
+## CI Gating Expectations
+
+- **Security gates on every PR**: Run `cargo deny check` and `cargo audit` as blocking jobs (they are already configured in CI—make them non-optional locally via `just lint` or `scripts/local_ci.sh`).
+- **Non-dummy end-to-end**: Hardware-backed E2E jobs (audio/VAD/STT/text injection) must execute on the self-hosted runner with real devices; remove or avoid placeholders. Use sharded CI so only that job targets the self-hosted runner while unit/integration suites run on hosted Linux.
+- **Cache-aware sharding**: Reuse the cargo cache populated on the self-hosted runner across the E2E job; keep other jobs on hosted runners to reduce queue time. If possible, warm the cache with a `cargo build --locked` step before running E2E to minimize device occupancy.
+- **Python/Rust lock discipline**: Keep `uv.lock` and `Cargo.lock` in sync with feature flags and PyO3 ABI choices; treat lock drift as a failing check in pre-commit/CI.

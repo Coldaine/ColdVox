@@ -7,6 +7,8 @@
 //! To run these tests, use the following command:
 //! `cargo test -p coldvox-text-injection --features real-injection-tests`
 
+#![cfg(feature = "real-injection-tests")]
+
 // NOTE: Using modular injectors from the injectors module
 #[cfg(feature = "wl_clipboard")]
 use crate::clipboard_paste_injector::ClipboardPasteInjector;
