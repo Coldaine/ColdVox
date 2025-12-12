@@ -38,3 +38,8 @@ silero-stt = []
 tokio = { version = "1.35", features = ["rt-multi-thread", "macros"] }
 serial_test = "3.2"
 hound = "3.5"
+
+# Gate moonshine example behind feature flag
+[[example]]
+name = "verify_moonshine"
+required-features = ["moonshine"]
