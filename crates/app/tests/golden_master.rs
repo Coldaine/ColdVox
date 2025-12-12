@@ -174,10 +174,13 @@ pub mod harness {
     }
 }
 
+mod common;
+
 #[cfg(test)]
 mod tests {
     use super::harness::assert_golden;
     use super::test_utils::MockInjectionSink;
+    use crate::common::logging::init_test_logging;
     use coldvox_app::audio::wav_file_loader::WavFileLoader;
     use coldvox_app::runtime::{start, ActivationMode, AppRuntimeOptions};
     use coldvox_audio::DeviceConfig;
@@ -216,15 +219,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_short_phrase_pipeline() {
-        // Initialize tracing for better debugging
-        let _ = tracing_subscriber::fmt()
-            .with_env_filter(
-                tracing_subscriber::EnvFilter::from_default_env()
-                    .add_directive("coldvox_app=debug".parse().unwrap())
-                    .add_directive("coldvox_stt=debug".parse().unwrap()),
-            )
-            .with_test_writer()
-            .try_init();
+        // Initialize comprehensive file-based logging
+        let _guard = init_test_logging("golden_master_short_phrase");
 
         let test_name = "short_phrase";
         let wav_path = "test_data/test_11.wav";
@@ -328,46 +324,74 @@ mod tests {
 
         // 6. Collect VAD events until SpeechEnd (and injection if whisper enabled)
         let start_wait = std::time::Instant::now();
-        loop {
-            tokio::select! {
-                evt = vad_rx.recv() => {
-                    match evt {
-                        Ok(e) => {
-                            let ser = SerializableVadEvent::from(e);
-                            tracing::info!("VAD event captured: {:?}", ser);
-                            vad_events.lock().await.push(ser);
-                        }
-                        Err(e) => {
-                            tracing::warn!("VAD channel closed or error: {}", e);
-                            break;
+
+        // Wrap the entire wait loop in a 30-second timeout to prevent hangs
+        let vad_collection_result = tokio::time::timeout(Duration::from_secs(30), async {
+            let mut no_events_warning_printed = false;
+            loop {
+                tokio::select! {
+                    evt = vad_rx.recv() => {
+                        match evt {
+                            Ok(e) => {
+                                let ser = SerializableVadEvent::from(e);
+                                tracing::info!("VAD event captured: {:?}", ser);
+                                vad_events.lock().await.push(ser);
+                                no_events_warning_printed = false; // Reset warning flag on new event
+                            }
+                            Err(e) => {
+                                tracing::warn!("VAD channel closed or error: {}", e);
+                                break;
+                            }
                         }
                     }
+                    _ = tokio::time::sleep(Duration::from_millis(250)) => {
+                        // Periodic completion check
+                    }
                 }
-                _ = tokio::time::sleep(Duration::from_millis(250)) => {
-                    // Periodic completion check
+
+                let events = vad_events.lock().await;
+                let has_speech_end = events.iter().any(|e| e.kind == "SpeechEnd");
+                #[cfg(feature = "whisper")]
+                let has_injection = !mock_sink.injected_text.lock().unwrap().is_empty();
+                #[cfg(not(feature = "whisper"))]
+                let has_injection = true; // Ignore injection for mock-only runs
+                drop(events);
+
+                if has_speech_end && has_injection {
+                    tracing::info!("Pipeline completion detected!");
+                    break;
+                }
+
+                // Early warning if no events after 5 seconds
+                if start_wait.elapsed() > Duration::from_secs(5) && !no_events_warning_printed {
+                    let vad_lock = vad_events.lock().await;
+                    tracing::warn!(
+                        "No VAD events after 5 seconds. VAD events so far: {:?}",
+                        *vad_lock
+                    );
+                    no_events_warning_printed = true;
+                }
+
+                // Fail fast with detailed output after 10 seconds
+                if start_wait.elapsed() > Duration::from_secs(10) {
+                    let vad_lock = vad_events.lock().await;
+                    let injection_lock = mock_sink.injected_text.lock().unwrap();
+                    panic!(
+                        "Test timed out waiting for completion after 10 seconds.\nVAD events: {:?}\nInjections: {:?}",
+                        *vad_lock, *injection_lock
+                    );
                 }
             }
+        }).await;
 
-            let events = vad_events.lock().await;
-            let has_speech_end = events.iter().any(|e| e.kind == "SpeechEnd");
-            #[cfg(feature = "whisper")]
-            let has_injection = !mock_sink.injected_text.lock().unwrap().is_empty();
-            #[cfg(not(feature = "whisper"))]
-            let has_injection = true; // Ignore injection for mock-only runs
-            drop(events);
-
-            if has_speech_end && has_injection {
-                tracing::info!("Pipeline completion detected!");
-                break;
-            }
-            if start_wait.elapsed() > Duration::from_secs(60) {
-                let vad_lock = vad_events.lock().await;
-                let injection_lock = mock_sink.injected_text.lock().unwrap();
-                panic!(
-                    "Test timed out waiting for completion.\nVAD events: {:?}\nInjections: {:?}",
-                    *vad_lock, *injection_lock
-                );
-            }
+        // Handle timeout case
+        if vad_collection_result.is_err() {
+            let vad_lock = vad_events.lock().await;
+            let injection_lock = mock_sink.injected_text.lock().unwrap();
+            panic!(
+                "Test hung and timed out after 30 seconds waiting for completion.\nVAD events: {:?}\nInjections: {:?}",
+                *vad_lock, *injection_lock
+            );
         }
 
         // Wait a bit longer to ensure all events are processed
@@ -419,10 +443,8 @@ pub mod test_utils {
             text: &str,
             _context: Option<&InjectionContext>,
         ) -> InjectionResult<()> {
-            if !text.trim().is_empty() {
-                let mut guard = self.injected_text.lock().unwrap();
-                guard.push(text.to_string());
-            }
+            tracing::info!("Mock injection sink received text: {}", text);
+            self.injected_text.lock().unwrap().push(text.to_string());
             Ok(())
         }
 

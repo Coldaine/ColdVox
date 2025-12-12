@@ -4,11 +4,11 @@
 use std::time::Duration;
 use tokio::time::timeout;
 
-/// Default timeout for most test operations (30 seconds)
-pub const DEFAULT_TEST_TIMEOUT: Duration = Duration::from_secs(30);
+/// Default timeout for most test operations (10 seconds)
+pub const DEFAULT_TEST_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Extended timeout for complex operations like STT model loading (60 seconds)
-pub const EXTENDED_TEST_TIMEOUT: Duration = Duration::from_secs(60);
+/// Extended timeout for complex operations like STT model loading (30 seconds)
+pub const EXTENDED_TEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Short timeout for quick operations that shouldn't hang (5 seconds)
 pub const SHORT_TEST_TIMEOUT: Duration = Duration::from_secs(5);

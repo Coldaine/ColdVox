@@ -753,6 +753,7 @@ dependencies = [
  "tokio-test",
  "toml",
  "tracing",
+ "tracing-appender",
  "tracing-subscriber",
  "unicode-segmentation",
  "wl-clipboard-rs",

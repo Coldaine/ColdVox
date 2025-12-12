@@ -4,17 +4,32 @@
 //! hardware resources (audio input, display server, etc.) to run the full pipeline.
 //! They are not "Golden Master" tests because they are non-deterministic.
 
+mod common;
+
 #[cfg(test)]
 mod hardware_tests {
+    use crate::common::logging::init_test_logging;
     use coldvox_foundation::AudioConfig;
+
+    fn should_skip(env_var: &str) -> bool {
+        match std::env::var(env_var) {
+            Ok(v) => matches!(
+                v.to_ascii_lowercase().as_str(),
+                "0" | "false" | "off" | "no"
+            ),
+            Err(_) => false, // Default to running (opt-out only)
+        }
+    }
 
     /// Verifies that we can open the default audio input device.
     #[test]
     #[ignore = "Requires real audio hardware"]
     fn test_audio_capture_device_open() {
-        // Skip if not running on the self-hosted runner (or if explicitly disabled)
-        if std::env::var("COLDVOX_E2E_REAL_AUDIO").is_err() {
-            println!("Skipping audio hardware test: COLDVOX_E2E_REAL_AUDIO not set");
+        let _guard = init_test_logging("hardware_check_audio");
+
+        // Skip only if explicitly opted out
+        if should_skip("COLDVOX_E2E_REAL_AUDIO") {
+            println!("Skipping audio hardware test: COLDVOX_E2E_REAL_AUDIO set to false/0");
             return;
         }
 
@@ -49,8 +64,10 @@ mod hardware_tests {
     #[tokio::test]
     #[ignore = "Requires display server"]
     async fn test_text_injector_availability() {
-        if std::env::var("COLDVOX_E2E_REAL_INJECTION").is_err() {
-            println!("Skipping injection hardware test: COLDVOX_E2E_REAL_INJECTION not set");
+        let _guard = init_test_logging("hardware_check_injection");
+
+        if should_skip("COLDVOX_E2E_REAL_INJECTION") {
+            println!("Skipping injection hardware test: COLDVOX_E2E_REAL_INJECTION set to false/0");
             return;
         }
 
