@@ -975,8 +975,20 @@ mod tests {
     #[test]
     #[serial]
     fn test_detect_development_environment() {
-        // Clear environment variables
-        for var in ["CI", "DEBUG", "RUST_BACKTRACE", "XDG_SESSION_TYPE"] {
+        // Clear ALL CI-related environment variables (GitHub Actions, GitLab CI, etc.)
+        for var in [
+            "CI",
+            "CONTINUOUS_INTEGRATION",
+            "GITHUB_ACTIONS",
+            "GITLAB_CI",
+            "TRAVIS",
+            "CIRCLECI",
+            "JENKINS_URL",
+            "BUILDKITE",
+            "DEBUG",
+            "RUST_BACKTRACE",
+            "XDG_SESSION_TYPE",
+        ] {
             env::remove_var(var);
         }
 
