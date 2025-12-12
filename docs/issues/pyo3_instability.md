@@ -1,3 +1,12 @@
+---
+doc_type: troubleshooting
+subsystem: stt
+version: 1.0.0
+status: draft
+owners: Documentation Working Group
+last_reviewed: 2025-12-12
+---
+
 # Issue: PyO3 0.24 Instability on Python 3.13 (Moonshine Backend)
 
 **Status**: DRAFT (Local)

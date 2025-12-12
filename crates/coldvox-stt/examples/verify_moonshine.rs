@@ -1,8 +1,8 @@
 use coldvox_stt::plugin::{SttPlugin, SttPluginFactory};
-use coldvox_stt::types::TranscriptionConfig;
 use coldvox_stt::plugins::moonshine::MoonshinePluginFactory;
-use std::time::Instant;
+use coldvox_stt::types::TranscriptionConfig;
 use hound;
+use std::time::Instant;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -35,7 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         bits_per_sample: 16,
         sample_format: hound::SampleFormat::Int,
     };
-    
+
     // We create a buffer of samples
     let mut samples = Vec::new();
     for t in (0..sample_rate * duration_secs).map(|x| x as f32 / sample_rate as f32) {
@@ -47,7 +47,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 6. Process Audio
     println!("🗣️ Processing audio ({} samples)...", samples.len());
     let process_start = Instant::now();
-    
+
     // Feed audio in chunks
     let chunk_size = 4000;
     for chunk in samples.chunks(chunk_size) {
@@ -61,7 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         println!("⚠️ No transcription result returned.");
     }
-    
+
     println!("⏱️ Total processing time: {:.2?}", process_start.elapsed());
 
     Ok(())
