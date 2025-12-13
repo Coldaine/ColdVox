@@ -77,7 +77,36 @@ The `deny.toml` file in the repository root configures cargo-deny:
 - **uv (Python 3.13-ready)**: Use `uv` for Python env + lockfiles; leverage its global cache to keep CI downloads minimal across runners. Treat `uv lock` as the single source of truth for Python deps; prefer `uv tool install` for CLI tools (ruff, maturin).
 - **maturin for packaging**: Build PyO3 wheels with `maturin build -r` and install in CI with `maturin develop` when you need editable bindings. Prefer `uv tool run maturin ...` so we do not rely on system pip. Follow PyO3 0.27 guidance for free-threaded Python 3.13 by enabling the `abi3-py313` or interpreter-specific feature in the binding crates as needed.
 - **Rust/Python interface hygiene**: Avoid `pyo3` debug builds in CI; set `PYO3_CONFIG_FILE` only when linking against non-system Python. For embedded Python, ensure `python3-devel` is present on self-hosted runners and keep `extension-module` + `auto-initialize` features constrained to the crates that need them.
-- **Shared caching**: Keep `target/` out of VCS; rely on Swatinem `rust-cache` in GitHub Actions plus `uv` global cache for Python wheels. If the self-hosted runner supports it, add `sccache` (Rust) and point `RUSTC_WRAPPER` to reduce rebuilds for hardware-only test jobs.
+- **Shared caching**: Keep `target/` out of VCS; rely on Swatinem `rust-cache` in GitHub Actions plus `uv` global cache for Python wheels.
+
+### sccache (Rust Build Cache)
+
+sccache caches Rust compilation artifacts across builds, significantly reducing rebuild times for unchanged code.
+
+**Installation (one-time on self-hosted runner)**:
+```bash
+just setup-sccache
+# Or manually: cargo install sccache --locked
+```
+
+**CI Integration**: The CI workflow automatically:
+1. Checks if sccache is available on the runner
+2. If found, starts the sccache server and sets `RUSTC_WRAPPER`
+3. If not found, builds proceed normally (no failure)
+
+**Local Development**:
+```bash
+# Add to ~/.bashrc or ~/.zshrc
+export RUSTC_WRAPPER=sccache
+export SCCACHE_DIR=~/.cache/sccache
+
+# Check stats
+sccache --show-stats
+```
+
+**Cache Location**: `~/.cache/sccache` (configurable via `SCCACHE_DIR`)
+
+**Expected Savings**: 30-60% reduction in incremental build times on the self-hosted runner.
 
 ## CI Gating Expectations
 

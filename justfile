@@ -86,6 +86,28 @@ tui:
 mic-probe duration="30":
     cd crates/app && cargo run --bin mic_probe -- --duration {{duration}}
 
+# Setup sccache for faster Rust builds (idempotent - safe to run multiple times)
+setup-sccache:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if command -v sccache >/dev/null 2>&1; then
+        echo "✓ sccache already installed: $(command -v sccache)"
+        sccache --version
+    elif [[ -x "$HOME/.cargo/bin/sccache" ]]; then
+        echo "✓ sccache found at ~/.cargo/bin/sccache"
+        "$HOME/.cargo/bin/sccache" --version
+    else
+        echo "Installing sccache..."
+        cargo install sccache --locked
+        echo "✓ sccache installed"
+    fi
+    # Export for current shell (caller may need to source or re-eval)
+    echo "To enable: export RUSTC_WRAPPER=sccache"
+
+# Setup all development tools (run once after clone)
+setup: setup-hooks setup-sccache
+    @echo "✓ Development environment ready"
+
 # Install Moonshine Python dependencies (transformers, torch, librosa via uv)
 setup-moonshine:
     ./scripts/install-moonshine-deps.sh
