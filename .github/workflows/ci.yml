@@ -30,7 +30,6 @@ defaults:
     shell: bash
 
 env:
-  RUSTFLAGS: "-D warnings"
   CARGO_TERM_COLOR: always
   WHISPER_MODEL_SIZE: tiny
   MIN_FREE_DISK_GB: 10

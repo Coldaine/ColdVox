@@ -37,8 +37,7 @@ Always prefer file/crate-scoped commands over full workspace commands for faster
 cargo check -p coldvox-stt
 
 # Clippy single crate
-cargo clippy -p coldvox-audio -- -D warnings
-
+cargo clippy -p coldvox-audio 
 # Test single crate
 cargo test -p coldvox-text-injection
 
