@@ -304,7 +304,7 @@ jobs:
             export RUST_TEST_TIME_INTEGRATION="30000"  # 30 second for integration tests
             cargo test -p coldvox-text-injection \
               --features real-injection-tests \
-              -- --nocapture --test-threads=1 --timeout 600
+              -- --nocapture --test-threads=1
           '
 
       - name: Build pipeline (default features)
