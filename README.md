@@ -1,5 +1,7 @@
 # ColdVox
 > ⚠️ **Internal Alpha** - This project is in early development and not ready for production use.
+
+> **⚠️ CRITICAL**: Documentation is out of sync with code. Whisper STT has been removed; Parakeet doesn't compile. See [`criticalActionPlan.md`](criticalActionPlan.md) for current status. **Only Moonshine STT works** (requires `uv sync` first).
 ## Development
  - Install Rust (stable) and required system dependencies for your platform.
  - Use the provided scripts in `scripts/` to help with local environment setup.

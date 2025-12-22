@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with this repository.
 
+> **⚠️ CRITICAL**: STT documentation below is outdated. Whisper is removed, Parakeet broken. See [`criticalActionPlan.md`](criticalActionPlan.md). **Only Moonshine works.**
+
 **@import AGENTS.md** - Read `AGENTS.md` for canonical project instructions (structure, commands, do/don't rules, worktrees).
 
 ## Claude-Specific Guidelines

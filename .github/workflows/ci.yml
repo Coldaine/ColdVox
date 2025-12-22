@@ -67,10 +67,17 @@ jobs:
           for wf in "${files[@]}"
             do
             echo "-- $wf"
+            # gh workflow view requires the workflow to exist on default branch first
+            # For new workflows in PRs, this will fail - skip them gracefully
             if ! gh workflow view "$wf" --ref "$GITHUB_SHA" --yaml >/dev/null 2>&1
               then
-              echo "ERROR: Failed to render $wf via gh" >&2
-              failed=1
+              # Check if workflow exists on default branch
+              if gh workflow view "$wf" --yaml >/dev/null 2>&1; then
+                echo "ERROR: Failed to render $wf via gh (exists on default branch but fails to render)" >&2
+                failed=1
+              else
+                echo "SKIP: $wf is new (not yet on default branch), will validate after merge"
+              fi
             fi
           done
 
@@ -79,7 +86,7 @@ jobs:
             echo "One or more workflows failed server-side validation via gh." >&2
             exit 1
           fi
-          echo "All workflows render via gh."
+          echo "All workflows validated (new workflows skipped)."
 
   setup-whisper-dependencies:
     name: Setup Whisper Dependencies
@@ -130,7 +137,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y xdotool wget unzip gcc g++ make xvfb openbox dbus-x11 wl-clipboard xclip ydotool x11-utils wmctrl pkg-config pulseaudio libasound2-dev libgtk-3-dev libatspi-dev libxtst-dev python3-pip python3-venv
+          sudo apt-get install -y xdotool wget unzip gcc g++ make xvfb openbox dbus-x11 wl-clipboard xclip ydotool x11-utils wmctrl pkg-config pulseaudio libasound2-dev libgtk-3-dev libatspi2.0-dev libxtst-dev python3-pip python3-venv
 
       - name: Set up Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
