@@ -67,8 +67,8 @@ jobs:
           for wf in "${files[@]}"
             do
             echo "-- $wf"
-            # gh workflow view requires the workflow to exist on default branch first
-            # For new workflows in PRs, this will fail - skip them gracefully
+            # gh workflow view requires the workflow to exist on default branch first.
+            # For new workflows in PRs, this will fail - skip them gracefully.
             if ! gh workflow view "$wf" --ref "$GITHUB_SHA" --yaml >/dev/null 2>&1
               then
               # Check if workflow exists on default branch

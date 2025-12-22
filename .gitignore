@@ -9,6 +9,7 @@
 .idea/
 *.swp
 *.swo
+*.kate-swp
 *~
 .DS_Store
 

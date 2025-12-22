@@ -19,9 +19,23 @@ use crate::injectors::atspi::AtspiInjector;
 #[cfg(feature = "ydotool")]
 use crate::ydotool_injector::YdotoolInjector;
 // Bring trait into scope so async trait methods (inject_text, is_available) resolve.
+#[cfg(any(
+    feature = "atspi",
+    feature = "enigo",
+    feature = "wl_clipboard",
+    feature = "ydotool"
+))]
 use crate::TextInjector;
 
-use crate::tests::test_harness::{verify_injection, TestApp, TestAppManager, TestEnvironment};
+use crate::tests::test_harness::{TestApp, TestAppManager, TestEnvironment};
+
+#[cfg(any(
+    feature = "atspi",
+    feature = "enigo",
+    feature = "wl_clipboard",
+    feature = "ydotool"
+))]
+use crate::tests::test_harness::verify_injection;
 use std::time::Duration;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -133,21 +147,24 @@ async fn run_atspi_test(test_text: &str) {
         injector.inject_text(test_text).await.unwrap_or_else(|e| {
             panic!("AT-SPI injection failed for text '{}': {:?}", test_text, e)
         });
+
+        verify_injection(&app.output_file, test_text)
+            .await
+            .unwrap_or_else(|e| {
+                panic!(
+                    "Verification failed for AT-SPI with text '{}': {}",
+                    test_text, e
+                )
+            });
     }
 
     #[cfg(not(feature = "atspi"))]
     {
+        // Suppress unused variable warning when atspi is disabled
+        let _ = test_text;
+        let _ = app;
         println!("Skipping AT-SPI test: atspi feature not enabled");
     }
-
-    verify_injection(&app.output_file, test_text)
-        .await
-        .unwrap_or_else(|e| {
-            panic!(
-                "Verification failed for AT-SPI with text '{}': {}",
-                test_text, e
-            )
-        });
 }
 
 #[tokio::test]
@@ -338,6 +355,8 @@ async fn run_clipboard_paste_test(test_text: &str) {
 
     #[cfg(not(all(feature = "wl_clipboard", feature = "enigo")))]
     {
+        // Suppress unused variable warning when features are disabled
+        let _ = test_text;
         println!("Skipping clipboard test: required features (wl_clipboard, enigo) not enabled");
     }
 }
@@ -409,6 +428,8 @@ async fn run_enigo_typing_test(test_text: &str) {
 
     #[cfg(not(feature = "enigo"))]
     {
+        // Suppress unused variable warning when feature is disabled
+        let _ = test_text;
         println!("Skipping enigo typing test: enigo feature not enabled");
     }
 }

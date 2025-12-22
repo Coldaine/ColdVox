@@ -23,7 +23,8 @@ repos:
 
       - id: cargo-clippy
         name: cargo clippy
-        entry: cargo clippy --all-targets --locked         language: system
+        entry: cargo clippy --all-targets --locked
+        language: system
         types: [rust]
         pass_filenames: false
 

@@ -63,16 +63,19 @@ fn build_gtk_test_app() {
 fn build_terminal_test_app() {
     println!("cargo:rerun-if-changed=test-apps/terminal-test-app/src/main.rs");
     println!("cargo:rerun-if-changed=test-apps/terminal-test-app/Cargo.toml");
+    println!("cargo:rerun-if-changed=test-apps/terminal-test-app/Cargo.lock");
 
     let out_dir = env::var("OUT_DIR").unwrap();
     let target_dir = Path::new(&out_dir).join("terminal-test-app-target");
 
     // Build the terminal test app using `cargo build`.
+    // Note: the test app is NOT part of the main workspace, so we must specify --manifest-path.
     let status = Command::new(env::var("CARGO").unwrap_or_else(|_| "cargo".to_string()))
         .arg("build")
-        .arg("--package")
-        .arg("terminal-test-app")
+        .arg("--manifest-path")
+        .arg("test-apps/terminal-test-app/Cargo.toml")
         .arg("--release") // Build in release mode for faster startup.
+        .arg("--locked")
         .arg("--target-dir")
         .arg(&target_dir)
         .status()
