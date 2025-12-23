@@ -303,7 +303,7 @@ jobs:
             export RUST_TEST_TIME_UNIT="10000"  # 10 second timeout per test
             export RUST_TEST_TIME_INTEGRATION="30000"  # 30 second for integration tests
             cargo test -p coldvox-text-injection \
-              --features real-injection-tests \
+              --features "real-injection-tests,atspi" \
               -- --nocapture --test-threads=1
           '
 
