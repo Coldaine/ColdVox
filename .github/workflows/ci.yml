@@ -199,6 +199,16 @@ jobs:
           export PYTHONPATH=$(python3 -c "import site; print(site.getsitepackages()[0])")
           cargo test -p coldvox-app --test golden_master -- --nocapture
 
+      - name: Run Moonshine E2E Tests
+        if: matrix.rust-version == 'stable'
+        run: |
+          echo "=== Running Moonshine E2E Tests ==="
+          # Install Python dependencies for Moonshine
+          pip install transformers torch librosa accelerate
+          export PYTHONPATH=$(python3 -c "import site; print(site.getsitepackages()[0])")
+          # Run the specific E2E test with the moonshine feature enabled
+          cargo test -p coldvox-stt --features moonshine --test moonshine_e2e -- --nocapture
+
       # GUI groundwork check integrated here
       - name: Detect and test Qt 6 GUI
         if: matrix.rust-version == 'stable'

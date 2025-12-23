@@ -21,7 +21,7 @@ static void on_text_changed(GtkEditable *editable, gpointer user_data) {
 
 // Create a ready file to signal that the app has started.
 // This allows tests to detect when the app is ready without relying on text changes.
-static void create_ready_file(void) {
+static gboolean create_ready_file(gpointer user_data) {
     char filepath[256];
     snprintf(filepath, sizeof(filepath), "/tmp/coldvox_gtk_test_%d.txt", getpid());
     FILE *f = fopen(filepath, "w");
@@ -29,13 +29,11 @@ static void create_ready_file(void) {
         // Write empty content - file existence is the signal
         fclose(f);
     }
+    return G_SOURCE_REMOVE; // Run once
 }
 
 int main(int argc, char *argv[]) {
     gtk_init(&argc, &argv);
-
-    // Create the ready file immediately so tests know the app is running
-    create_ready_file();
 
     // Create the main window
     GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
@@ -56,6 +54,9 @@ int main(int argc, char *argv[]) {
 
     // Ensure the entry widget has focus when the window appears
     gtk_widget_grab_focus(entry);
+
+    // Schedule ready file creation for when the main loop starts
+    g_idle_add(create_ready_file, NULL);
 
     // Start the GTK main loop
     gtk_main();
