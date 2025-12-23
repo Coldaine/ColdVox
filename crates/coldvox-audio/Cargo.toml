@@ -9,7 +9,7 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 coldvox-foundation = { path = "../coldvox-foundation" }
 coldvox-telemetry = { path = "../coldvox-telemetry" }
-cpal = "0.16"
+cpal = "0.17"
 rtrb = "0.3"
 dasp = { version = "0.11", features = ["all"] }
 rubato = "0.16"
