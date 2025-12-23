@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 
 // Callback function to handle text changes in the GtkEntry
 static void on_text_changed(GtkEditable *editable, gpointer user_data) {
@@ -24,11 +26,25 @@ static void on_text_changed(GtkEditable *editable, gpointer user_data) {
 static gboolean create_ready_file(gpointer user_data) {
     char filepath[256];
     snprintf(filepath, sizeof(filepath), "/tmp/coldvox_gtk_test_%d.txt", getpid());
-    FILE *f = fopen(filepath, "w");
-    if (f != NULL) {
-        // Write empty content - file existence is the signal
-        fclose(f);
+
+    // Securely create the file: O_CREAT | O_EXCL prevents clobbering or symlink attacks
+    int fd = open(filepath, O_WRONLY | O_CREAT | O_EXCL, 0600);
+    if (fd == -1) {
+        perror("Failed to create ready file");
+        return G_SOURCE_REMOVE; // Do not retry; tests will handle absence
     }
+
+    // Write the PID to the file so tests can verify content is from the current process
+    char pidbuf[32];
+    int len = snprintf(pidbuf, sizeof(pidbuf), "%d", getpid());
+    if (len > 0) {
+        ssize_t w = write(fd, pidbuf, (size_t)len);
+        if (w < 0) {
+            perror("Failed to write PID to ready file");
+        }
+    }
+
+    close(fd);
     return G_SOURCE_REMOVE; // Run once
 }
 

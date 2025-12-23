@@ -1,5 +1,16 @@
 # PR Triage Action Plan
 
+# PR Triage Action Plan
+
+---
+doc_type: plan
+subsystem: general
+version: 1.0.0
+status: draft
+owners: Coldaine
+last_reviewed: 2025-12-23
+---
+
 **Date**: 2025-12-23
 **Status**: Active
 **Last Updated**: 2025-12-23 (session corrections applied)
