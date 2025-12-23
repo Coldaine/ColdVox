@@ -127,11 +127,9 @@ Notes:
 ## 4) Placement, Naming, and Linking Rules
 
 - All documentation lives in `/docs` (see approved exceptions).
-- Use kebab-case filenames: `vosk-model-discovery-flow.md`.
 - Reference crate indexes: place at `docs/reference/crates/<crate>.md` and link to the crate’s README:
   - Example contents: “This is the index for `<crate>` — authoritative docs live in `../../../crates/<crate>/README.md`.”
   - Do not duplicate README contents; add only navigation/context.
-- Domain troubleshooting (e.g., Vosk model discovery) must live inside the relevant `docs/domains/<domain>/troubleshooting/`.
 - Roadmap lives at `docs/architecture/roadmap.md` and is linked from `docs/architecture.md`.
 - ADRs live under `docs/architecture/adr-XXXX.md` with incrementing numeric IDs and MUST be linked from `docs/architecture.md`.
 - `AGENTS.md` (root) is the canonical source for AI agent orientation (overview, workspace map, key commands, feature flags). `CLAUDE.md` should reference or import from `AGENTS.md`. See §2.1 for the full list of agent configuration files and their hierarchy.

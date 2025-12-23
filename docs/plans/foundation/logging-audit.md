@@ -87,7 +87,6 @@ Rationale: single global subscriber owned by `main()` ensures the `WorkerGuard` 
 
 2) Potential missing logs in STT plugin selection/failover
 
-- Observation: `main.rs` warns when `VOSK_MODEL_PATH` is used, and `runtime.rs` and `stt::plugin_manager` have logging, but plugin selection/failover lacks structured spans and per-plugin context which would be helpful to diagnose missing model issues.
 
 - Recommendation: add a `tracing::span!(Level::INFO, "stt.selection", preferred = ?pref, fallbacks = ?fallbacks)` when building plugin selection in `main.rs`, and `instrument` plugin manager init and failover operations.
 
@@ -300,7 +299,6 @@ Notes: prefer `trace` or `debug` for very frequent events; guard logs behind `tr
 
 3. Add structured logs in `stt::plugin_manager` around plugin load/failover and in `stt::processor` for `TranscriptionEvent` tagging.
 
-4. Consider adding an integration test that runs `main` with `--tui` in CI but with `--no-default-features` if heavy components (VOSK) are optional; confirm file logs are written and flush on shutdown.
 
 ---
 
@@ -491,7 +489,6 @@ To address missing transcribed text, add targeted tracing logs at critical point
 - **Expected Output**: "VAD: SpeechStart - triggering STT" when speaking; confirms audio flow.
 
 ### 2. STT Plugin Selection - `crates/app/src/stt/plugin_manager.rs`
-- **Rationale**: Log plugin load/fallback to confirm Vosk vs NoOp. Addresses cause #2.
 - **New Logs** (Diff for lines 523-535, 554-559, 668-670):
   - Add after initialize (line 634): `info!(target: "coldvox::stt", selected_plugin = %plugin_id, "STT initialized with plugin");`
   - In create_fallback_plugin (line 646): `warn!(target: "coldvox::stt", fallback_id = %fallback_id, "Fallback plugin unavailable, trying next");`
@@ -534,7 +531,6 @@ To address missing transcribed text, add targeted tracing logs at critical point
   ```
 
 ### Validation
-- **Missing Text**: New logs will show "VAD: SpeechStart" if audio detected, "Final transcript empty" if NoOp, "All STT plugins failed" if Vosk missing.
 - **Logging Visibility**: Fix ensures file output; run with `RUST_LOG=debug` to see in TUI Logs tab and file.
 - **Performance**: Logs are event-driven (not per-frame), low overhead.
 

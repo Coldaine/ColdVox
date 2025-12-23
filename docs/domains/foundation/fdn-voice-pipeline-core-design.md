@@ -70,7 +70,7 @@ Please update any bookmarks or links.
 
 ### 3. Speech-to-Text Processing
 
-**Approach**: Plugin architecture, Vosk primary offline engine.
+**Approach**: Plugin architecture, Parakeet (GPU) and Moonshine (CPU) as primary engines.
 
 **Code paths**:
 - `SttPluginManager` handles plugin lifecycle, failover, and garbage collection
@@ -85,7 +85,9 @@ Please update any bookmarks or links.
 - Automatic model unloading after idle period (garbage collection)
 
 **Why this way**:
-- Plugins: Future engines (Whisper, cloud)
+- Plugins: Support multiple engines and future additions
+- Parakeet: High-quality transcription with GPU support
+- Moonshine: Efficient pure-Rust CPU alternative
 - Failover: Production reliability
 - GC: Prevent model memory bloat
 - Hotkey default: Reduce false activations
@@ -148,9 +150,9 @@ AudioChunker (resample to 16kHz mono, 512-sample frames)
 
 **Memory**:
 - Audio buffers: ~256KB
-- Vosk model: 40-100MB
+- STT model: 40-500MB (model dependent: Moonshine ~40-100MB, Parakeet ~300-500MB)
 - Silero VAD: ~8MB
-- **Baseline**: 60-120MB
+- **Baseline**: 60-520MB
 
 **CPU**:
 - Idle: <5%

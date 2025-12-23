@@ -77,8 +77,6 @@ docs/
 | `crates/coldvox-gui/README.md`                              | Keep (crate stub)| `crates/coldvox-gui/README.md`                        | Keep minimal README in crate that links to `docs/domains/gui/`.
 | `crates/coldvox-gui/docs/*.md`                              | Move            | `docs/domains/gui/`                                    | Move GUI docs into the GUI domain folder.                          |
 | `crates/coldvox-stt/README.md`                              | Keep (crate stub)| `crates/coldvox-stt/README.md`                        | Keep minimal README in crate that links to `docs/domains/stt/`.
-| `crates/coldvox-stt-vosk/README.md`                         | Keep (crate stub)| `crates/coldvox-stt-vosk/README.md`                   | Keep crate README; merge implementation notes into `docs/domains/stt/vosk.md`.
-| `crates/coldvox-stt-vosk/docs/*.md`                         | Move            | `docs/domains/stt/`                                    | Move STT implementation docs into STT domain folder.               |
 | `crates/coldvox-telemetry/README.md`                        | Keep (crate stub)| `crates/coldvox-telemetry/README.md`                  | Keep minimal README in crate that links to `docs/domains/telemetry/`.
 | `crates/coldvox-telemetry/docs/*.md`                        | Move            | `docs/domains/telemetry/`                              | Move crate-specific docs into telemetry domain.                    |
 | `crates/coldvox-text-injection/README.md`                   | Keep (crate stub)| `crates/coldvox-text-injection/README.md`             | Keep minimal README in crate that links to `docs/domains/text-injection/`.
@@ -87,7 +85,6 @@ docs/
 | `crates/voice-activity-detector/MODIFICATIONS.md`           | Move            | `docs/domains/vad/vendor_modifications.md`             |                                                                    |
 | **Docs (Old Structure)**                                    |                 |                                                        |                                                                    |
 | `docs/TextInjectionArchitecture.md`                         | Merge           | `docs/architecture.md`                                 |                                                                    |
-| `docs/adr/0001-vosk-model-distribution.md`                  | Move            | `docs/architecture/adr-0001.md`                        | Create a new `architecture` sub-folder for ADRs.                   |
 | `docs/dev/logging.md`                                       | Merge & Move    | `docs/playbooks/organizational/logging_playbook.md`    |                                                                    |
 | `.github/*` workflow docs (if any)                           | Document Only   | `docs/playbooks/organizational/github_governance.md`   | Centralize repo settings and governance policies.                  |
 | `docs/plans/*.md`, `docs/research/*.md`, `docs/review/*.md` | Move            | `docs/research/`                                       | Consolidate historical plans and research.                         |
