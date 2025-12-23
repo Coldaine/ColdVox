@@ -56,7 +56,10 @@ mod hardware_tests {
         let device = device.unwrap();
         println!(
             "Found default input device: {}",
-            device.name().unwrap_or_default()
+            device
+                .description()
+                .map(|d| d.to_string())
+                .unwrap_or_default()
         );
     }
 

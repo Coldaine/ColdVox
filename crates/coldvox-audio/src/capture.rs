@@ -379,17 +379,17 @@ impl AudioCapture {
         self.running.store(true, Ordering::SeqCst);
 
         let device = self.device_manager.open_device(device_name)?;
-        if let Ok(n) = device.name() {
+        if let Ok(desc) = device.description() {
             tracing::info!(
                 "Selected input device: {} (host: {:?})",
-                n,
+                desc.to_string(),
                 self.device_manager.host_id()
             );
         }
         let (config, sample_format) = self.negotiate_config(&device)?;
 
         let device_config = DeviceConfig {
-            sample_rate: config.sample_rate.0,
+            sample_rate: config.sample_rate,
             channels: config.channels,
         };
 

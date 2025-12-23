@@ -222,8 +222,8 @@ async fn list_devices() -> Result<(), Box<dyn std::error::Error>> {
     match host.input_devices() {
         Ok(devices) => {
             for device in devices {
-                match device.name() {
-                    Ok(name) => println!("  - {}", name),
+                match device.description() {
+                    Ok(desc) => println!("  - {}", desc),
                     Err(e) => println!("  - (unnamed device: {})", e),
                 }
             }
@@ -236,8 +236,8 @@ async fn list_devices() -> Result<(), Box<dyn std::error::Error>> {
     // Show default input device
     println!();
     if let Some(device) = host.default_input_device() {
-        match device.name() {
-            Ok(name) => println!("Default input device: {}", name),
+        match device.description() {
+            Ok(desc) => println!("Default input device: {}", desc),
             Err(e) => println!("Default input device: (error getting name: {})", e),
         }
     } else {
