@@ -302,8 +302,11 @@ jobs:
             # Set per-test timeout to prevent hanging
             export RUST_TEST_TIME_UNIT="10000"  # 10 second timeout per test
             export RUST_TEST_TIME_INTEGRATION="30000"  # 30 second for integration tests
+            # Note: atspi feature not enabled - AT-SPI Collection.GetMatches requires
+            # a full desktop session, not available in headless Xvfb environment.
+            # AT-SPI tests will skip gracefully.
             cargo test -p coldvox-text-injection \
-              --features "real-injection-tests,atspi" \
+              --features real-injection-tests \
               -- --nocapture --test-threads=1
           '
 
