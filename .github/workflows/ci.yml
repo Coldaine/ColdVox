@@ -43,7 +43,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.0
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v5.0.0
       - name: Validate with gh
         shell: bash
         run: |
@@ -95,7 +95,7 @@ jobs:
       model_path: ${{ steps.setup.outputs.model_path }}
       model_size: ${{ steps.setup.outputs.model_size }}
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.0
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v5.0.0
       - name: Setup Whisper Model
         id: setup
         run: bash scripts/ci/setup-whisper-cache.sh
@@ -105,7 +105,7 @@ jobs:
     name: Security Audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.0
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v5.0.0
 
       - name: Set up Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -132,7 +132,7 @@ jobs:
       matrix:
         rust-version: [stable] # Use stable only
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.0
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v5.0.0
 
       - name: Install system dependencies
         run: |
@@ -208,7 +208,7 @@ jobs:
 
       - name: Upload test artifacts on failure
         if: failure()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: test-artifacts-build-${{ matrix.rust-version }}
           path: |
@@ -228,7 +228,7 @@ jobs:
       RUST_TEST_TIME_INTEGRATION: 30000
       SCCACHE_DIR: $HOME/.cache/sccache
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.0
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v5.0.0
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: stable
@@ -339,7 +339,7 @@ jobs:
 
       - name: Upload test artifacts on failure
         if: failure()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: test-artifacts-text-injection
           path: |
@@ -371,7 +371,7 @@ jobs:
     continue-on-error: true
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.0
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v5.0.0
 
       - name: Set up Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -410,7 +410,7 @@ jobs:
       - moonshine_check
     if: always()
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6.0.1
       - name: Generate CI Report
         run: |
           echo "## CI Report" > report.md
@@ -427,7 +427,7 @@ jobs:
           if [[ "${{ needs.moonshine_check.result }}" != "success" ]]; then echo "::warning::Moonshine check failed (optional)."; fi
           echo "All critical stages passed successfully."
       - name: Upload CI Report
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: ci-report
           path: report.md
