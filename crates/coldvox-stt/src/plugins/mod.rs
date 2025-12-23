@@ -8,6 +8,9 @@ pub mod noop;
 #[cfg(feature = "parakeet")]
 pub mod parakeet;
 
+#[cfg(feature = "moonshine")]
+pub mod moonshine;
+
 #[cfg(feature = "whisper")]
 pub mod whisper_cpp;
 
@@ -27,3 +30,6 @@ pub use noop::NoOpPlugin;
 
 #[cfg(feature = "parakeet")]
 pub use parakeet::ParakeetPluginFactory;
+
+#[cfg(feature = "moonshine")]
+pub use moonshine::{MoonshineModelSize, MoonshinePlugin, MoonshinePluginFactory};

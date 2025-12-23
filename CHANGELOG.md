@@ -5,6 +5,16 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Added
+- **Moonshine STT Plugin** - CPU-optimized speech recognition using UsefulSensors' Moonshine model via PyO3/HuggingFace Transformers
+  - 5x faster than Whisper on CPU with comparable accuracy (~2.5% WER)
+  - English-only, optimized for 16kHz audio
+  - Two model variants: Base (61M params, ~500MB) and Tiny (27M params, ~300MB)
+  - Auto-downloads models from HuggingFace Hub on first use
+  - Environment variables: `MOONSHINE_MODEL` (base/tiny), `MOONSHINE_MODEL_PATH`
+  - Requires Python 3.8+ with transformers, torch, librosa
+  - Install deps: `./scripts/install-moonshine-deps.sh`
+  - Build: `cargo build --features moonshine`
+
 - **NVIDIA Parakeet STT Plugin** - GPU-accelerated speech recognition using NVIDIA's Parakeet model via pure-Rust parakeet-rs library (#XXX)
   - Supports largest available model: nvidia/parakeet-tdt-1.1b (1.1 billion parameters)
   - TDT variant: Multilingual support for 25 languages with automatic detection
