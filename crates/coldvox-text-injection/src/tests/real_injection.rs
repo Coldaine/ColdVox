@@ -103,39 +103,44 @@ async fn wait_for_app_ready(app: &TestApp) {
 
 /// Helper function to run a complete injection and verification test for the AT-SPI backend.
 async fn run_atspi_test(test_text: &str) {
-    // Setup logging
-    let _ = std::fs::create_dir_all("target/logs");
-    let file_appender = tracing_appender::rolling::never("target/logs", "text_injection_tests.log");
-    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
-
-    let _ = tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::from_default_env())
-        .with(
-            tracing_subscriber::fmt::layer()
-                .with_writer(non_blocking)
-                .with_ansi(false),
-        )
-        .with(tracing_subscriber::fmt::layer().with_test_writer())
-        .try_init();
-
-    let env = TestEnvironment::current();
-    if !env.can_run_real_tests() {
-        // This check is technically redundant if the tests are run with the top-level skip,
-        // but it's good practice to keep it for clarity and direct execution.
-        eprintln!("Skipping AT-SPI test: no display server found.");
+    // Early return if atspi feature is not enabled - before launching any GTK apps
+    #[cfg(not(feature = "atspi"))]
+    {
+        let _ = test_text;
+        println!("Skipping AT-SPI test: atspi feature not enabled");
         return;
     }
 
-    let app = TestAppManager::launch_gtk_app().expect("Failed to launch GTK app.");
-
-    // Allow time for the app to initialize and for the AT-SPI bus to register it.
-    // This is a common requirement in UI testing.
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    // Wait for the app to be fully initialized before interacting with it.
-    wait_for_app_ready(&app).await;
-
     #[cfg(feature = "atspi")]
     {
+        // Setup logging
+        let _ = std::fs::create_dir_all("target/logs");
+        let file_appender =
+            tracing_appender::rolling::never("target/logs", "text_injection_tests.log");
+        let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+
+        let _ = tracing_subscriber::registry()
+            .with(tracing_subscriber::EnvFilter::from_default_env())
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_writer(non_blocking)
+                    .with_ansi(false),
+            )
+            .with(tracing_subscriber::fmt::layer().with_test_writer())
+            .try_init();
+
+        let env = TestEnvironment::current();
+        if !env.can_run_real_tests() {
+            eprintln!("Skipping AT-SPI test: no display server found.");
+            return;
+        }
+
+        let app = TestAppManager::launch_gtk_app().expect("Failed to launch GTK app.");
+
+        // Allow time for the app to initialize and for the AT-SPI bus to register it.
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        wait_for_app_ready(&app).await;
+
         let injector = AtspiInjector::new(Default::default());
         if !injector.is_available().await {
             println!(
@@ -156,14 +161,6 @@ async fn run_atspi_test(test_text: &str) {
                     test_text, e
                 )
             });
-    }
-
-    #[cfg(not(feature = "atspi"))]
-    {
-        // Suppress unused variable warning when atspi is disabled
-        let _ = test_text;
-        let _ = app;
-        println!("Skipping AT-SPI test: atspi feature not enabled");
     }
 }
 
