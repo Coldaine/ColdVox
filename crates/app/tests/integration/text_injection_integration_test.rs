@@ -1,11 +1,21 @@
 #[cfg(test)]
 mod tests {
+    use tracing_appender::rolling;
     use coldvox_text_injection::manager::StrategyManager;
     use coldvox_text_injection::types::{InjectionConfig, InjectionMetrics};
     use std::sync::Arc;
     use std::time::Duration;
     use tokio::sync::Mutex;
 
+        tracing::info!("Starting test_text_injection_end_to_end");
+        let _ = std::fs::create_dir_all("target/test_logs");
+        let file_appender = rolling::never("target/test_logs", "text_injection.log");
+        let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+        let _ = tracing_subscriber::registry()
+            .with(tracing_subscriber::EnvFilter::from_default_env())
+            .with(tracing_subscriber::fmt::layer().with_writer(non_blocking).with_ansi(false))
+            .with(tracing_subscriber::fmt::layer().with_test_writer())
+            .try_init();
     #[tokio::test]
     async fn test_text_injection_end_to_end() {
         std::env::set_var("COLDVOX_STT_PREFERRED", "whisper"); // Force Faster-Whisper for integration
@@ -18,8 +28,8 @@ mod tests {
     
         // Create strategy manager
         let mut manager = StrategyManager::new(config, metrics.clone()).await;
-    
-        // Test with normal text
+        tracing::info!("Testing normal text injection");
+        let _ = tracing::span!(tracing::Level::INFO, "test_normal_injection").entered();
         let result = manager.inject("Hello world").await;
         assert!(result.is_ok(), "Should successfully inject text");
     

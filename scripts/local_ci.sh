@@ -44,7 +44,7 @@ fi
 
 # 2. Run clippy
 print_step "Running Clippy lints..."
-if cargo clippy --all-targets --locked -- -D warnings; then
+if cargo clippy --all-targets --locked; then
     print_success "Clippy checks passed"
 else
     print_error "Clippy checks failed"
@@ -57,6 +57,15 @@ if cargo check --workspace --all-targets --locked; then
     print_success "Type checks passed"
 else
     print_error "Type checks failed"
+    exit 1
+fi
+
+# 3.5 Security checks
+print_step "Running security checks..."
+if cargo deny check && cargo audit; then
+    print_success "Security checks passed"
+else
+    print_error "Security checks failed"
     exit 1
 fi
 

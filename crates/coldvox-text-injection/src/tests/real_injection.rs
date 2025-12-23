@@ -7,6 +7,8 @@
 //! To run these tests, use the following command:
 //! `cargo test -p coldvox-text-injection --features real-injection-tests`
 
+#![cfg(feature = "real-injection-tests")]
+
 // NOTE: Using modular injectors from the injectors module
 #[cfg(feature = "wl_clipboard")]
 use crate::clipboard_paste_injector::ClipboardPasteInjector;
@@ -17,16 +19,47 @@ use crate::injectors::atspi::AtspiInjector;
 #[cfg(feature = "ydotool")]
 use crate::ydotool_injector::YdotoolInjector;
 // Bring trait into scope so async trait methods (inject_text, is_available) resolve.
+#[cfg(any(
+    feature = "atspi",
+    feature = "enigo",
+    feature = "wl_clipboard",
+    feature = "ydotool"
+))]
 use crate::TextInjector;
 
-use crate::tests::test_harness::{verify_injection, TestApp, TestAppManager, TestEnvironment};
+use crate::tests::test_harness::{TestApp, TestAppManager, TestEnvironment};
+
+#[cfg(any(
+    feature = "atspi",
+    feature = "enigo",
+    feature = "wl_clipboard",
+    feature = "ydotool"
+))]
+use crate::tests::test_harness::verify_injection;
 use std::time::Duration;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 /// A placeholder test to verify that the test harness, build script, and
 /// environment detection are all working correctly.
 #[tokio::test]
 
 async fn harness_self_test_launch_gtk_app() {
+    // Setup logging
+    let _ = std::fs::create_dir_all("target/logs");
+    let file_appender = tracing_appender::rolling::never("target/logs", "text_injection_tests.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+
+    let _ = tracing_subscriber::registry()
+        .with(tracing_subscriber::EnvFilter::from_default_env())
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(non_blocking)
+                .with_ansi(false),
+        )
+        .with(tracing_subscriber::fmt::layer().with_test_writer())
+        .try_init();
+
     let env = TestEnvironment::current();
     if !env.can_run_real_tests() {
         eprintln!("Skipping real injection test: no display server found.");
@@ -70,24 +103,44 @@ async fn wait_for_app_ready(app: &TestApp) {
 
 /// Helper function to run a complete injection and verification test for the AT-SPI backend.
 async fn run_atspi_test(test_text: &str) {
-    let env = TestEnvironment::current();
-    if !env.can_run_real_tests() {
-        // This check is technically redundant if the tests are run with the top-level skip,
-        // but it's good practice to keep it for clarity and direct execution.
-        eprintln!("Skipping AT-SPI test: no display server found.");
+    // Early return if atspi feature is not enabled - before launching any GTK apps
+    #[cfg(not(feature = "atspi"))]
+    {
+        let _ = test_text;
+        println!("Skipping AT-SPI test: atspi feature not enabled");
         return;
     }
 
-    let app = TestAppManager::launch_gtk_app().expect("Failed to launch GTK app.");
-
-    // Allow time for the app to initialize and for the AT-SPI bus to register it.
-    // This is a common requirement in UI testing.
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    // Wait for the app to be fully initialized before interacting with it.
-    wait_for_app_ready(&app).await;
-
     #[cfg(feature = "atspi")]
     {
+        // Setup logging
+        let _ = std::fs::create_dir_all("target/logs");
+        let file_appender =
+            tracing_appender::rolling::never("target/logs", "text_injection_tests.log");
+        let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+
+        let _ = tracing_subscriber::registry()
+            .with(tracing_subscriber::EnvFilter::from_default_env())
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_writer(non_blocking)
+                    .with_ansi(false),
+            )
+            .with(tracing_subscriber::fmt::layer().with_test_writer())
+            .try_init();
+
+        let env = TestEnvironment::current();
+        if !env.can_run_real_tests() {
+            eprintln!("Skipping AT-SPI test: no display server found.");
+            return;
+        }
+
+        let app = TestAppManager::launch_gtk_app().expect("Failed to launch GTK app.");
+
+        // Allow time for the app to initialize and for the AT-SPI bus to register it.
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        wait_for_app_ready(&app).await;
+
         let injector = AtspiInjector::new(Default::default());
         if !injector.is_available().await {
             println!(
@@ -96,24 +149,22 @@ async fn run_atspi_test(test_text: &str) {
             return;
         }
 
-        injector.inject_text(test_text).await.unwrap_or_else(|e| {
-            panic!("AT-SPI injection failed for text '{}': {:?}", test_text, e)
-        });
-    }
+        injector
+            .inject_text(test_text, None)
+            .await
+            .unwrap_or_else(|e| {
+                panic!("AT-SPI injection failed for text '{}': {:?}", test_text, e)
+            });
 
-    #[cfg(not(feature = "atspi"))]
-    {
-        println!("Skipping AT-SPI test: atspi feature not enabled");
+        verify_injection(&app.output_file, test_text)
+            .await
+            .unwrap_or_else(|e| {
+                panic!(
+                    "Verification failed for AT-SPI with text '{}': {}",
+                    test_text, e
+                )
+            });
     }
-
-    verify_injection(&app.output_file, test_text)
-        .await
-        .unwrap_or_else(|e| {
-            panic!(
-                "Verification failed for AT-SPI with text '{}': {}",
-                test_text, e
-            )
-        });
 }
 
 #[tokio::test]
@@ -151,6 +202,21 @@ async fn test_atspi_special_chars() {
 /// Helper function to run a complete injection and verification test for the ydotool backend.
 /// This test involves setting the clipboard, as ydotool's primary injection method is paste.
 async fn run_ydotool_test(test_text: &str) {
+    // Setup logging
+    let _ = std::fs::create_dir_all("target/logs");
+    let file_appender = tracing_appender::rolling::never("target/logs", "text_injection_tests.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+
+    let _ = tracing_subscriber::registry()
+        .with(tracing_subscriber::EnvFilter::from_default_env())
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(non_blocking)
+                .with_ansi(false),
+        )
+        .with(tracing_subscriber::fmt::layer().with_test_writer())
+        .try_init();
+
     let env = TestEnvironment::current();
     if !env.can_run_real_tests() {
         eprintln!("Skipping ydotool test: no display server found.");
@@ -184,7 +250,7 @@ async fn run_ydotool_test(test_text: &str) {
 
     // The inject_text for ydotool will trigger a paste (Ctrl+V).
     injector
-        .inject_text(test_text)
+        .inject_text(test_text, None)
         .await
         .unwrap_or_else(|e| panic!("ydotool injection failed for text '{}': {:?}", test_text, e));
 
@@ -233,6 +299,21 @@ async fn test_ydotool_special_chars() {
 /// Helper to test clipboard injection followed by a paste action.
 /// This simulates a realistic clipboard workflow.
 async fn run_clipboard_paste_test(test_text: &str) {
+    // Setup logging
+    let _ = std::fs::create_dir_all("target/logs");
+    let file_appender = tracing_appender::rolling::never("target/logs", "text_injection_tests.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+
+    let _ = tracing_subscriber::registry()
+        .with(tracing_subscriber::EnvFilter::from_default_env())
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(non_blocking)
+                .with_ansi(false),
+        )
+        .with(tracing_subscriber::fmt::layer().with_test_writer())
+        .try_init();
+
     let env = TestEnvironment::current();
     if !env.can_run_real_tests() {
         eprintln!("Skipping clipboard test: no display server found.");
@@ -257,7 +338,7 @@ async fn run_clipboard_paste_test(test_text: &str) {
 
         // Perform clipboard+paste using the combined injector (it will try AT-SPI first then ydotool).
         clipboard_paste
-            .inject_text(test_text)
+            .inject_text(test_text, None)
             .await
             .expect("Clipboard+paste injection failed.");
 
@@ -274,6 +355,8 @@ async fn run_clipboard_paste_test(test_text: &str) {
 
     #[cfg(not(all(feature = "wl_clipboard", feature = "enigo")))]
     {
+        // Suppress unused variable warning when features are disabled
+        let _ = test_text;
         println!("Skipping clipboard test: required features (wl_clipboard, enigo) not enabled");
     }
 }
@@ -294,6 +377,21 @@ async fn test_clipboard_unicode_text() {
 
 /// Helper to test the direct typing capability of the Enigo backend.
 async fn run_enigo_typing_test(test_text: &str) {
+    // Setup logging
+    let _ = std::fs::create_dir_all("target/logs");
+    let file_appender = tracing_appender::rolling::never("target/logs", "text_injection_tests.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+
+    let _ = tracing_subscriber::registry()
+        .with(tracing_subscriber::EnvFilter::from_default_env())
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(non_blocking)
+                .with_ansi(false),
+        )
+        .with(tracing_subscriber::fmt::layer().with_test_writer())
+        .try_init();
+
     let env = TestEnvironment::current();
     if !env.can_run_real_tests() {
         eprintln!("Skipping enigo typing test: no display server found.");
@@ -330,6 +428,8 @@ async fn run_enigo_typing_test(test_text: &str) {
 
     #[cfg(not(feature = "enigo"))]
     {
+        // Suppress unused variable warning when feature is disabled
+        let _ = test_text;
         println!("Skipping enigo typing test: enigo feature not enabled");
     }
 }

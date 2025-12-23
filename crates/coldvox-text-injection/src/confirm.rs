@@ -54,11 +54,14 @@
 //! - Future: Could extend to clipboard/enigo fallbacks for cross-method validation
 
 use crate::types::{InjectionConfig, InjectionResult};
+#[cfg(feature = "atspi")]
 use coldvox_foundation::error::InjectionError;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
-use tracing::{debug, error, info, trace, warn};
+#[cfg(feature = "atspi")]
+use tracing::{debug, error, trace};
+use tracing::{info, warn};
 use unicode_segmentation::UnicodeSegmentation;
 
 /// Confirmation result for text injection
@@ -136,7 +139,9 @@ pub async fn text_changed(
     prefix: &str,
     window: &str,
 ) -> InjectionResult<ConfirmationResult> {
+    #[allow(unused)]
     let start_time = Instant::now();
+    #[allow(unused)]
     let timeout_duration = Duration::from_millis(75);
 
     info!(

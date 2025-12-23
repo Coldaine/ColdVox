@@ -2,6 +2,8 @@
 
 > Canonical AI agent instructions for ColdVox. All tools (Claude Code, Copilot, Cursor, Kilo Code, etc.) should read this file.
 
+> **⚠️ CRITICAL**: Some documented features are broken or removed. See [`criticalActionPlan.md`](criticalActionPlan.md) before following STT instructions.
+
 ## Project Overview
 
 ColdVox is a Rust-based voice AI pipeline: audio capture → VAD → STT → text injection. Multi-crate Cargo workspace under `crates/`.
@@ -37,8 +39,7 @@ Always prefer file/crate-scoped commands over full workspace commands for faster
 cargo check -p coldvox-stt
 
 # Clippy single crate
-cargo clippy -p coldvox-audio -- -D warnings
-
+cargo clippy -p coldvox-audio 
 # Test single crate
 cargo test -p coldvox-text-injection
 

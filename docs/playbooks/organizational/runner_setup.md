@@ -117,6 +117,43 @@ xorg-x11-server-Xvfb fluxbox dbus-x11 at-spi2-core wl-clipboard
 xclip ydotool xorg-x11-utils wmctrl gtk3-devel
 ```
 
+### Build Tooling
+
+#### sccache (Rust Build Cache)
+
+sccache caches Rust compilation artifacts, reducing incremental build times by 30-60%.
+
+**Installation** (run once on runner):
+```bash
+cd /path/to/ColdVox
+just setup-sccache
+```
+
+**Verification**:
+```bash
+sccache --version
+sccache --show-stats
+```
+
+**Location**: `~/.cargo/bin/sccache`
+**Cache**: `~/.cache/sccache`
+
+The CI workflow automatically detects and uses sccache if available. No additional configuration needed after installation.
+
+#### just (Command Runner)
+
+The project uses `just` as a command runner for development tasks.
+
+**Installation**:
+```bash
+cargo install just --locked
+```
+
+**One-time setup** (installs all dev tools including sccache):
+```bash
+just setup
+```
+
 ---
 
 ## Complete Workflow Files

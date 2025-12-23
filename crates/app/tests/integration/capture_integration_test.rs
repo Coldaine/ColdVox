@@ -1,3 +1,4 @@
+    use tracing_appender::rolling;
 #[cfg(test)]
 mod tests {
     use coldvox_audio::{AudioCapture, AudioConfig, SharedAudioFrame as AudioFrame};
@@ -9,6 +10,16 @@ mod tests {
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
     #[test]
+        // Initialize file logging for test
+        let _ = std::fs::create_dir_all("target/test_logs");
+        let file_appender = rolling::never("target/test_logs", "capture_integration.log");
+        let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+        let _ = tracing_subscriber::registry()
+            .with(tracing_subscriber::EnvFilter::from_default_env())
+            .with(tracing_subscriber::fmt::layer().with_writer(non_blocking).with_ansi(false))
+            .with(tracing_subscriber::fmt::layer().with_test_writer())
+            .try_init();
+        tracing::info!("Starting test_end_to_end_capture_pipewire");
     #[cfg(feature = "live-hardware-tests")]
     fn test_end_to_end_capture_pipewire() {
         std::env::set_var("COLDVOX_STT_PREFERRED", "whisper"); // Force Faster-Whisper for integration
@@ -59,6 +70,7 @@ mod tests {
     }
 
     #[test]
+        tracing::info!("Starting test_frame_flow");
     #[cfg(feature = "live-hardware-tests")]
     fn test_frame_flow() {
         let config = AudioConfig::default();
@@ -69,13 +81,20 @@ mod tests {
         let mut frames_received = 0;
         let start = std::time::Instant::now();
 
-        while start.elapsed() < Duration::from_secs(1) {
-            if let Ok(frame) = capture.try_recv_timeout(Duration::from_millis(100)) {
-                frames_received += 1;
-                assert_eq!(frame.sample_rate, 16000, "Frame should have correct sample rate");
-                // SharedAudioFrame is always mono
-                assert!(!frame.samples.is_empty(), "Frame should contain samples");
+        // Add outer timeout to prevent hanging
+        let frame_collection_result = tokio::time::timeout(Duration::from_secs(10), async {
+            while start.elapsed() < Duration::from_secs(1) {
+                if let Ok(frame) = capture.try_recv_timeout(Duration::from_millis(100)) {
+                    frames_received += 1;
+                    assert_eq!(frame.sample_rate, 16000, "Frame should have correct sample rate");
+        tracing::info!("Frame collection completed, frames_received: {}", frames_received);
+        assert!(frames_received > 0, "Should receive frames from capture");
+                }
             }
+        }).await;
+
+        if let Err(_) = frame_collection_result {
+            panic!("Test frame collection timed out after 10 seconds");
         }
 
         assert!(frames_received > 0, "Should receive frames from capture");
@@ -105,9 +124,16 @@ mod tests {
         ).expect("Failed to start");
 
         // Simulate Ctrl+C after 1 second
-        thread::spawn(move || {
-            thread::sleep(Duration::from_secs(1));
-            shutdown_flag.store(true, Ordering::SeqCst);
+        // Add outer timeout to prevent hanging on shutdown signal
+        let shutdown_wait_result = tokio::time::timeout(Duration::from_secs(10), async {
+            while !shutdown_flag.load(Ordering::SeqCst) {
+                thread::sleep(Duration::from_millis(10));
+            }
+        }).await;
+
+        if let Err(_) = shutdown_wait_result {
+            panic!("Test shutdown wait timed out after 10 seconds");
+        }
         });
 
         // Wait for shutdown signal

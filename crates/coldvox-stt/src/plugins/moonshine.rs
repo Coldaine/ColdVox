@@ -131,7 +131,7 @@ impl MoonshinePlugin {
 
     #[cfg(feature = "moonshine")]
     fn verify_python_environment() -> Result<(), ColdVoxError> {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             PyModule::import(py, "transformers").map_err(|_| {
                 SttError::LoadFailed(
                     "transformers not installed. Run: pip install transformers>=4.35.0".to_string(),
@@ -167,7 +167,7 @@ impl MoonshinePlugin {
             .and_then(|p| p.to_str())
             .unwrap_or_else(|| self.model_size.model_identifier());
 
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let locals = PyDict::new(py);
             locals
                 .set_item("model_id", model_id)
@@ -198,7 +198,7 @@ _processor = AutoProcessor.from_pretrained(model_id)
                 None,
                 Some(&locals),
             )
-                .map_err(|e| SttError::LoadFailed(format!("Failed to load model: {}", e)))?;
+            .map_err(|e| SttError::LoadFailed(format!("Failed to load model: {}", e)))?;
 
             // Extract model and processor from locals dict
             let model = locals
@@ -238,7 +238,7 @@ _processor = AutoProcessor.from_pretrained(model_id)
             .as_ref()
             .ok_or_else(|| SttError::TranscriptionFailed("Processor not loaded".to_string()))?;
 
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let locals = PyDict::new(py);
 
             // SECURITY: Pass variables via locals dict, not string interpolation
@@ -281,7 +281,7 @@ _transcription = processor.batch_decode(generated_ids, skip_special_tokens=True)
                 None,
                 Some(&locals),
             )
-                .map_err(|e| SttError::TranscriptionFailed(format!("Python error: {}", e)))?;
+            .map_err(|e| SttError::TranscriptionFailed(format!("Python error: {}", e)))?;
 
             let result = locals
                 .get_item("_transcription")
@@ -611,7 +611,7 @@ impl SttPluginFactory for MoonshinePluginFactory {
 
 #[cfg(feature = "moonshine")]
 fn check_moonshine_available() -> bool {
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         PyModule::import(py, "transformers").is_ok()
             && PyModule::import(py, "torch").is_ok()
             && PyModule::import(py, "librosa").is_ok()

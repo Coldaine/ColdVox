@@ -1,3 +1,5 @@
+#![allow(dead_code)] // Utility functions may not be used in all test binaries
+
 use coldvox_audio::ring_buffer::AudioProducer;
 
 /// Write samples into the audio ring buffer producer in fixed-size chunks.

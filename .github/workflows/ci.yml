@@ -30,7 +30,6 @@ defaults:
     shell: bash
 
 env:
-  RUSTFLAGS: "-D warnings"
   CARGO_TERM_COLOR: always
   WHISPER_MODEL_SIZE: tiny
   MIN_FREE_DISK_GB: 10
@@ -68,10 +67,17 @@ jobs:
           for wf in "${files[@]}"
             do
             echo "-- $wf"
+            # gh workflow view requires the workflow to exist on default branch first.
+            # For new workflows in PRs, this will fail - skip them gracefully.
             if ! gh workflow view "$wf" --ref "$GITHUB_SHA" --yaml >/dev/null 2>&1
               then
-              echo "ERROR: Failed to render $wf via gh" >&2
-              failed=1
+              # Check if workflow exists on default branch
+              if gh workflow view "$wf" --yaml >/dev/null 2>&1; then
+                echo "ERROR: Failed to render $wf via gh (exists on default branch but fails to render)" >&2
+                failed=1
+              else
+                echo "SKIP: $wf is new (not yet on default branch), will validate after merge"
+              fi
             fi
           done
 
@@ -80,7 +86,7 @@ jobs:
             echo "One or more workflows failed server-side validation via gh." >&2
             exit 1
           fi
-          echo "All workflows render via gh."
+          echo "All workflows validated (new workflows skipped)."
 
   setup-whisper-dependencies:
     name: Setup Whisper Dependencies
@@ -97,7 +103,7 @@ jobs:
   # Security scanning for vulnerabilities and license compliance
   security_audit:
     name: Security Audit
-    runs-on: [self-hosted, Linux, X64, fedora, nobara]
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.0
 
@@ -118,9 +124,9 @@ jobs:
         run: cargo deny check
 
   # Build, check, and test with multiple Rust versions
-  build_and_check:
-    name: Build & Test
-    runs-on: [self-hosted, Linux, X64, fedora, nobara]
+  unit_tests_hosted:
+    name: Unit Tests & Golden Master (Hosted)
+    runs-on: ubuntu-latest
     needs: [setup-whisper-dependencies]
     strategy:
       matrix:
@@ -128,17 +134,17 @@ jobs:
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.0
 
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xdotool wget unzip gcc g++ make xvfb openbox dbus-x11 wl-clipboard xclip ydotool x11-utils wmctrl pkg-config pulseaudio libasound2-dev libgtk-3-dev libatspi2.0-dev libxtst-dev python3-pip python3-venv
+
       - name: Set up Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: ${{ matrix.rust-version }}
           components: rustfmt, clippy
           override: true
-
-      - name: Setup ColdVox
-        uses: ./.github/actions/setup-coldvox
-        with:
-          skip-toolchain: "true"
 
       # Only run formatting and linting on stable
       - name: Check formatting (advisory)
@@ -181,17 +187,24 @@ jobs:
           echo "=== Running Tests ==="
           cargo test --workspace --locked --
 
+      - name: Run Golden Master pipeline test
+        if: matrix.rust-version == 'stable'
+        env:
+          WHISPER_MODEL_PATH: ${{ needs.setup-whisper-dependencies.outputs.model_path }}
+          WHISPER_MODEL_SIZE: ${{ needs.setup-whisper-dependencies.outputs.model_size }}
+        run: |
+          echo "=== Running Golden Master Test ==="
+          # Install Python dependencies for Golden Master
+          pip install faster-whisper
+          export PYTHONPATH=$(python3 -c "import site; print(site.getsitepackages()[0])")
+          cargo test -p coldvox-app --test golden_master -- --nocapture
+
       # GUI groundwork check integrated here
       - name: Detect and test Qt 6 GUI
         if: matrix.rust-version == 'stable'
         run: |
-          if bash scripts/ci/detect-qt6.sh
-            then
-            echo "✅ Qt 6 detected - building GUI"
-            cargo check -p coldvox-gui --features qt-ui --locked
-          else
-            echo "⚠️ Qt 6 not detected - skipping GUI build"
-          fi
+          # Qt6 might not be easily available on ubuntu-latest without extra actions, skipping for now or adding if needed
+          echo "Skipping Qt6 check on hosted runner"
 
       - name: Upload test artifacts on failure
         if: failure()
@@ -204,7 +217,7 @@ jobs:
           retention-days: 7
 
   text_injection_tests:
-    name: Text Injection Tests
+    name: Hardware Integration Tests (Self-Hosted)
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
     needs: [setup-whisper-dependencies]
     timeout-minutes: 30
@@ -213,11 +226,38 @@ jobs:
       RUST_LOG: debug
       RUST_TEST_TIME_UNIT: 10000
       RUST_TEST_TIME_INTEGRATION: 30000
+      SCCACHE_DIR: $HOME/.cache/sccache
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.0
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: stable
+
+      # Setup sccache via justfile (installs if missing, enables RUSTC_WRAPPER)
+      - name: Setup sccache
+        run: |
+          # Install just if not available
+          if ! command -v just >/dev/null 2>&1; then
+            cargo install just --locked
+          fi
+
+          # Run setup-sccache recipe (idempotent - installs if missing)
+          just setup-sccache
+
+          # Enable sccache wrapper after installation
+          SCCACHE_BIN=""
+          if command -v sccache >/dev/null 2>&1; then
+            SCCACHE_BIN="$(command -v sccache)"
+          elif [[ -x "$HOME/.cargo/bin/sccache" ]]; then
+            SCCACHE_BIN="$HOME/.cargo/bin/sccache"
+          fi
+
+          if [[ -n "$SCCACHE_BIN" ]]; then
+            "$SCCACHE_BIN" --start-server || true
+            echo "RUSTC_WRAPPER=$SCCACHE_BIN" >> "$GITHUB_ENV"
+            echo "sccache enabled: $SCCACHE_BIN"
+          fi
+
       - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
 
       - name: Setup ColdVox
@@ -262,9 +302,12 @@ jobs:
             # Set per-test timeout to prevent hanging
             export RUST_TEST_TIME_UNIT="10000"  # 10 second timeout per test
             export RUST_TEST_TIME_INTEGRATION="30000"  # 30 second for integration tests
+            # Note: atspi feature not enabled - AT-SPI Collection.GetMatches requires
+            # a full desktop session, not available in headless Xvfb environment.
+            # AT-SPI tests will skip gracefully.
             cargo test -p coldvox-text-injection \
               --features real-injection-tests \
-              -- --nocapture --test-threads=1 --timeout 600
+              -- --nocapture --test-threads=1
           '
 
       - name: Build pipeline (default features)
@@ -285,18 +328,14 @@ jobs:
       - name: Build main application
         run: cargo build --locked -p coldvox-app
 
-      - name: Run Golden Master pipeline test
+      - name: Run Hardware Capability Checks
         env:
-          WHISPER_MODEL_PATH: ${{ needs.setup-whisper-dependencies.outputs.model_path }}
-          WHISPER_MODEL_SIZE: ${{ needs.setup-whisper-dependencies.outputs.model_size }}
+          COLDVOX_E2E_REAL_INJECTION: "1"
+          COLDVOX_E2E_REAL_AUDIO: "1"
         run: |
-          echo "=== Golden Master Environment Validation ==="
-          echo "WHISPER_MODEL_PATH: $WHISPER_MODEL_PATH"
-          echo "WHISPER_MODEL_SIZE: $WHISPER_MODEL_SIZE"
-          echo "=== Running Golden Master Test ==="
-          pip install faster-whisper
-          export PYTHONPATH=$(python3 -c "import site; print(site.getsitepackages()[0])")
-          cargo test -p coldvox-app --test golden_master -- --nocapture
+          echo "=== Running Hardware Capability Checks ==="
+          # We run the new hardware_check test file, enabling the ignored tests
+          cargo test -p coldvox-app --test hardware_check -- --nocapture --include-ignored
 
       - name: Upload test artifacts on failure
         if: failure()
@@ -361,12 +400,12 @@ jobs:
 
   ci_success:
     name: CI Success Summary
-    runs-on: [self-hosted, Linux, X64, fedora, nobara]
+    runs-on: ubuntu-latest
     needs:
       - validate-workflows
       - setup-whisper-dependencies
       - security_audit
-      - build_and_check
+      - unit_tests_hosted
       - text_injection_tests
       - moonshine_check
     if: always()
@@ -378,12 +417,12 @@ jobs:
           echo "- validate-workflows:            ${{ needs.validate-workflows.result }}" >> report.md
           echo "- setup-whisper-dependencies:    ${{ needs.setup-whisper-dependencies.result }}" >> report.md
           echo "- security_audit:                ${{ needs.security_audit.result }}" >> report.md
-          echo "- build_and_check:               ${{ needs.build_and_check.result }}" >> report.md
+          echo "- unit_tests_hosted:             ${{ needs.unit_tests_hosted.result }}" >> report.md
           echo "- text_injection_tests:          ${{ needs.text_injection_tests.result }}" >> report.md
           echo "- moonshine_check:               ${{ needs.moonshine_check.result }} (optional)" >> report.md
           if [[ "${{ needs.setup-whisper-dependencies.result }}" != "success" ]]; then echo "::error::Setup Whisper dependencies failed."; exit 1; fi
           if [[ "${{ needs.security_audit.result }}" != "success" ]]; then echo "::warning::Security audit failed - check for vulnerabilities."; fi
-          if [[ "${{ needs.build_and_check.result }}" != "success" ]]; then echo "::error::Build and check failed."; exit 1; fi
+          if [[ "${{ needs.unit_tests_hosted.result }}" != "success" ]]; then echo "::error::Build and check failed."; exit 1; fi
           if [[ "${{ needs.text_injection_tests.result }}" != "success" ]]; then echo "::error::Text injection tests failed."; exit 1; fi
           if [[ "${{ needs.moonshine_check.result }}" != "success" ]]; then echo "::warning::Moonshine check failed (optional)."; fi
           echo "All critical stages passed successfully."

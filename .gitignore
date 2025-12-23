@@ -9,6 +9,7 @@
 .idea/
 *.swp
 *.swo
+*.kate-swp
 *~
 .DS_Store
 
@@ -23,6 +24,10 @@ flamegraph.svg
 .env
 .env.local
 .venv/
+
+# AI Agent Frameworks (BMAD, Claude, etc)
+.bmad/
+.claude/
 
 # Logs
 logs/
@@ -77,4 +82,3 @@ docs/config.md
 docs/install.md
 docs/reference.md
 docs/usage.md
-.venv/
