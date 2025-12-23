@@ -1,9 +1,12 @@
 ---
 title: Comprehensive Main Branch Review Plan - v2.0 Focused on Actual Implementation
 doc_type: plan
+subsystem: general
 status: proposed
 created: 2025-12-09
 version: 2.0.0
+owners: Coldaine
+last_reviewed: 2025-12-09
 ---
 
 # ColdVox Main Branch Comprehensive Review Plan (v2.0)

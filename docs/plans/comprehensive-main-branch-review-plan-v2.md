@@ -1,3 +1,12 @@
+---
+doc_type: plan
+subsystem: general
+version: 2.0.0
+status: draft
+owners: Coldaine
+last_reviewed: 2025-12-09
+---
+
 # ColdVox Main Branch Review Plan v2.0
 
 ## Current State
