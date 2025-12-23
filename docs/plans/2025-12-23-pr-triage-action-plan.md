@@ -13,7 +13,7 @@ last_reviewed: 2025-12-23
 
 **Date**: 2025-12-23
 **Status**: Active
-**Last Updated**: 2025-12-23 (session corrections applied)
+**Last Updated**: 2025-12-23 (Phases 2-4 complete)
 **Scope**: Analysis of 50 PRs (open, draft, and closed)
 
 ---
@@ -365,33 +365,33 @@ obj_ref.path → obj_ref.path_as_str()
 - [ ] Close PR #262 with comment "Superseded by #282"
 - [ ] Close stale Jules drafts: #277, #274, #255, #256, #258, #261
 
-### Phase 2: Cleanup PR (This Week)
+### Phase 2: Cleanup PR ✅ COMPLETE (2025-12-23)
 
-- [ ] Fix PR #282 CI failures
-  - [ ] Documentation validation
-  - [ ] Build & test
-  - [ ] Text injection tests
-- [ ] Merge PR #282
+- [x] Fix PR #282 CI failures
+  - [x] Documentation validation (added YAML frontmatter to 3 docs)
+  - [x] Build & test
+  - [x] Text injection tests
+- [x] Merge PR #282
 - [ ] Optionally incorporate valuable #262 deletions:
   - [ ] `compat.rs` removal
   - [ ] `processor.rs` removal
   - [ ] `.tests_temp/` cleanup
 
-### Phase 3: Dependency Update (This Week)
+### Phase 3: Dependency Update ✅ COMPLETE (2025-12-23)
 
-- [ ] Create branch from #300
-- [ ] Fix CPAL 0.17.0 breaking changes:
-  - [ ] Update `SampleRate` usage in `device.rs`
-  - [ ] Remove `.0` field access in `device.rs`, `capture.rs`
-  - [ ] Replace `device.name()` with `device.description()`
-- [ ] Test audio device detection
-- [ ] Merge updated PR #300
+- [x] Create branch from #300
+- [x] Fix CPAL 0.17.0 breaking changes:
+  - [x] Update `SampleRate` usage in `device.rs`
+  - [x] Remove `.0` field access in `device.rs`, `capture.rs`
+  - [x] Replace `device.name()` with `device.description()` (8 locations)
+- [x] Test audio device detection
+- [x] Merge updated PR #300
 
-### Phase 4: Test Infrastructure (Next Week)
+### Phase 4: Test Infrastructure ✅ COMPLETE (2025-12-23)
 
-- [ ] Review and merge PR #276 (Xvfb CI)
-- [ ] Review and merge PR #273 (ydotool tests)
-- [ ] Review and merge PR #268 (enigo/kdotool tests)
+- [x] Review and merge PR #276 (Xvfb CI) → PR #310 created
+- [x] Review and merge PR #273 (ydotool tests) → PR #311 created
+- [x] Review and merge PR #268 (enigo/kdotool tests) → PR #312 created
 - [ ] Review PR #232 (AT-SPI focus) - test separately
 
 ### ~~Phase 5: PyO3 Upgrade~~ (COMPLETE)
