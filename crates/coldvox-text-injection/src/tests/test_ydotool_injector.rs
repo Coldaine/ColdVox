@@ -1,8 +1,6 @@
 //! Unit tests for ydotool_injector.rs
-use crate::ydotool_injector::{
-    candidate_socket_paths, locate_existing_socket, ydotool_daemon_socket, YdotoolInjector,
-};
-use crate::types::{InjectionConfig, InjectionContext};
+use crate::ydotool_injector::{candidate_socket_paths, locate_existing_socket, YdotoolInjector};
+use crate::types::InjectionConfig;
 use crate::TextInjector;
 use anyhow::Result;
 use serial_test::serial;
@@ -104,7 +102,7 @@ impl Drop for TestHarness {
 #[test]
 #[serial]
 fn test_candidate_socket_paths_priority() {
-    let harness = TestHarness::new().unwrap();
+    let _harness = TestHarness::new().unwrap();
     env::set_var("YDOTOOL_SOCKET", "/custom/socket");
     env::set_var("UID", "1001");
 
