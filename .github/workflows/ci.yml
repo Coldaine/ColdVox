@@ -284,6 +284,31 @@ jobs:
           echo "DBUS_SESSION_BUS_PID=$DBUS_SESSION_BUS_PID" >> $GITHUB_ENV
           echo "D-Bus session started."
 
+      - name: Setup X11 access
+        run: |
+          set -euo pipefail
+          echo "=== Setting up X11 access ==="
+
+          # Try to find XAUTHORITY in common locations
+          for xauth in \
+            "/run/user/$(id -u)/.mutter-Xwaylandauth."* \
+            "/run/user/$(id -u)/gdm/Xauthority" \
+            "$HOME/.Xauthority" \
+            "/tmp/.X11-unix/../.Xauthority"; do
+            if [[ -f "$xauth" ]]; then
+              echo "Found XAUTHORITY: $xauth"
+              echo "XAUTHORITY=$xauth" >> $GITHUB_ENV
+              break
+            fi
+          done
+
+          # If still no auth, try xhost to allow local connections
+          # This requires running from within the user session
+          if ! xset -q >/dev/null 2>&1; then
+            echo "::warning::X11 not accessible. Text injection tests will likely fail."
+            echo "::warning::To fix: run 'xhost +local:' in your KDE session, or start runner from session."
+          fi
+
       - name: Validate test prerequisites
         run: |
           set -euo pipefail
