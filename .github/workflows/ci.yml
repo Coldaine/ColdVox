@@ -274,7 +274,7 @@ jobs:
         uses: ./.github/actions/setup-coldvox
 
       - name: Start Xvfb
-        uses: GabrielBB/action-xvfb@v1
+        uses: GabrielBB/xvfb-action@v1
         with:
           run: |
             set -euo pipefail
