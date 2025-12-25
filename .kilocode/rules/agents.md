@@ -4,6 +4,8 @@
 
 > **⚠️ CRITICAL**: Some documented features are broken or removed. See [`docs/plans/critical-action-plan.md`](docs/plans/critical-action-plan.md) before following STT instructions.
 
+> **Solo-dev trust model**: This repo is effectively single-developer. We optimize for local productivity/automation over “untrusted contributor” safety. If a tool/setup step enables automation (e.g., repo-managed git hooks), that’s intentional.
+
 ## Key Docs
 
 - [`README.md`](README.md) - Project overview and quick start
