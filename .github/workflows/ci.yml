@@ -232,7 +232,7 @@ jobs:
     needs: [setup-whisper-dependencies]
     timeout-minutes: 30
     env:
-      DISPLAY: :99
+      # DISPLAY inherited from runner's live KDE session (do NOT hardcode :99)
       RUST_LOG: debug
       RUST_TEST_TIME_UNIT: 10000
       RUST_TEST_TIME_INTEGRATION: 30000
