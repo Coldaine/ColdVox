@@ -36,6 +36,56 @@ env:
   MAX_LOAD_AVERAGE: 5
 
 jobs:
+  # ═══════════════════════════════════════════════════════════════
+  # GITHUB-HOSTED: Fast parallel checks, NO BUILD
+  # ═══════════════════════════════════════════════════════════════
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v5.0.0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Run clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+  security:
+    name: Security
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true # Advisory, don't block PRs yet
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v5.0.0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install security tools
+        run: |
+          cargo install cargo-audit --locked || true
+          cargo install cargo-deny --locked || true
+      - name: Run cargo audit
+        run: cargo audit
+      - name: Run cargo deny
+        run: cargo deny check
+
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v5.0.0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build documentation
+        run: cargo doc --workspace --no-deps --locked
+
+  # ═══════════════════════════════════════════════════════════════
+  # SELF-HOSTED: Can be stateful, has access to hardware
+  # ═══════════════════════════════════════════════════════════════
   validate-workflows:
     name: Validate Workflow Definitions
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
@@ -67,11 +117,8 @@ jobs:
           for wf in "${files[@]}"
             do
             echo "-- $wf"
-            # gh workflow view requires the workflow to exist on default branch first.
-            # For new workflows in PRs, this will fail - skip them gracefully.
             if ! gh workflow view "$wf" --ref "$GITHUB_SHA" --yaml >/dev/null 2>&1
               then
-              # Check if workflow exists on default branch
               if gh workflow view "$wf" --yaml >/dev/null 2>&1; then
                 echo "ERROR: Failed to render $wf via gh (exists on default branch but fails to render)" >&2
                 failed=1
@@ -100,143 +147,50 @@ jobs:
         id: setup
         run: bash scripts/ci/setup-whisper-cache.sh
 
-  # Security scanning for vulnerabilities and license compliance
-  security_audit:
-    name: Security Audit
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v5.0.0
-
-      - name: Set up Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: stable
-
-      - name: Install security tools
-        run: |
-          cargo install cargo-audit --locked || true
-          cargo install cargo-deny --locked || true
-
-      - name: Run cargo audit
-        run: cargo audit
-
-      - name: Run cargo deny
-        run: cargo deny check
-
-  # Build, check, and test with multiple Rust versions
-  unit_tests_hosted:
-    name: Unit Tests & Golden Master (Hosted)
-    runs-on: ubuntu-latest
+  unit_tests_self_hosted:
+    name: Unit Tests (Self-Hosted)
+    runs-on: [self-hosted, Linux, X64, fedora, nobara]
     needs: [setup-whisper-dependencies]
-    strategy:
-      matrix:
-        rust-version: [stable] # Use stable only
+    env:
+      WHISPER_MODEL_PATH: ${{ needs.setup-whisper-dependencies.outputs.model_path }}
+      WHISPER_MODEL_SIZE: ${{ needs.setup-whisper-dependencies.outputs.model_size }}
     steps:
       - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v5.0.0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run unit and integration tests
+        run: cargo test --workspace --locked -- --skip golden_master
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y xdotool wget unzip gcc g++ make xvfb openbox dbus-x11 wl-clipboard xclip ydotool x11-utils wmctrl pkg-config pulseaudio libasound2-dev libgtk-3-dev libatspi2.0-dev libxtst-dev python3-pip python3-venv
-
-      - name: Set up Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          toolchain: ${{ matrix.rust-version }}
-          components: rustfmt, clippy
-          override: true
-
-      # Only run formatting and linting on stable
-      - name: Check formatting (advisory)
-        if: matrix.rust-version == 'stable'
-        run: |
-          set +e
-          cargo fmt --all -- --check
-          status=$?
-          if [ "$status" -ne 0 ]; then
-            echo "::warning::cargo fmt detected formatting differences. Please run 'cargo fmt --all' locally before committing."
-          fi
-          exit 0
-
-      - name: Run clippy
-        if: matrix.rust-version == 'stable'
-        run: cargo clippy --all-targets --locked
-
-      - name: Type check
-        run: cargo check --workspace --all-targets --locked
-
-      - name: Build
-        run: cargo build --workspace --locked
-
-      # Only build docs and run tests on stable
-      - name: Build documentation
-        if: matrix.rust-version == 'stable'
-        run: cargo doc --workspace --no-deps --locked
-
-      - name: Run unit and integration tests (skip E2E)
-        if: matrix.rust-version == 'stable'
-        env:
-          WHISPER_MODEL_PATH: ${{ needs.setup-whisper-dependencies.outputs.model_path }}
-          WHISPER_MODEL_SIZE: ${{ needs.setup-whisper-dependencies.outputs.model_size }}
-        run: |
-          echo "=== Environment Validation ==="
-          echo "WHISPER_MODEL_PATH: $WHISPER_MODEL_PATH"
-          echo "WHISPER_MODEL_SIZE: $WHISPER_MODEL_SIZE"
-          echo "Model directory contents:"
-          ls -la "$WHISPER_MODEL_PATH" || echo "Model directory not accessible"
-          echo "=== Running Tests ==="
-          cargo test --workspace --locked --
-
+  golden_master:
+    name: Golden Master (Self-Hosted)
+    runs-on: [self-hosted, Linux, X64, fedora, nobara]
+    needs: [setup-whisper-dependencies]
+    env:
+      WHISPER_MODEL_PATH: ${{ needs.setup-whisper-dependencies.outputs.model_path }}
+      WHISPER_MODEL_SIZE: ${{ needs.setup-whisper-dependencies.outputs.model_size }}
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v5.0.0
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Python dependencies
+        run: pip install faster-whisper
       - name: Run Golden Master pipeline test
-        if: matrix.rust-version == 'stable'
-        env:
-          WHISPER_MODEL_PATH: ${{ needs.setup-whisper-dependencies.outputs.model_path }}
-          WHISPER_MODEL_SIZE: ${{ needs.setup-whisper-dependencies.outputs.model_size }}
         run: |
-          echo "=== Running Golden Master Test ==="
-          # Install Python dependencies for Golden Master
-          pip install faster-whisper
           export PYTHONPATH=$(python3 -c "import site; print(site.getsitepackages()[0])")
           cargo test -p coldvox-app --test golden_master -- --nocapture
 
-      # Moonshine E2E skipped on GitHub-hosted: PyTorch+CUDA deps (4GB+) exceed disk space
-      # These tests run on self-hosted via moonshine_check job instead
-      - name: Skip Moonshine E2E Tests (runs on self-hosted)
-        if: matrix.rust-version == 'stable'
-        run: |
-          echo "::notice::Moonshine E2E tests skipped on GitHub-hosted (disk space). See moonshine_check job."
-
-      # GUI groundwork check integrated here
-      - name: Detect and test Qt 6 GUI
-        if: matrix.rust-version == 'stable'
-        run: |
-          # Qt6 might not be easily available on ubuntu-latest without extra actions, skipping for now or adding if needed
-          echo "Skipping Qt6 check on hosted runner"
-
-      - name: Upload test artifacts on failure
-        if: failure()
-        uses: actions/upload-artifact@v6
-        with:
-          name: test-artifacts-build-${{ matrix.rust-version }}
-          path: |
-            target/debug/deps/
-            target/debug/build/
-          retention-days: 7
-
-  text_injection_tests:
-    name: Hardware Integration Tests (Self-Hosted)
+  build_and_test_self_hosted:
+    name: Build & Test (Self-Hosted)
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
     needs: [setup-whisper-dependencies]
     timeout-minutes: 30
     env:
-      # Runner's live KDE Wayland session with XWayland
       DISPLAY: ":0"
       WAYLAND_DISPLAY: "wayland-0"
       RUST_LOG: debug
       RUST_TEST_TIME_UNIT: 10000
       RUST_TEST_TIME_INTEGRATION: 30000
       SCCACHE_DIR: $HOME/.cache/sccache
-      # Build optimizations
       CARGO_INCREMENTAL: "1"
       RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
     steps:
@@ -245,25 +199,18 @@ jobs:
         with:
           toolchain: stable
 
-      # Setup sccache via justfile (installs if missing, enables RUSTC_WRAPPER)
       - name: Setup sccache
         run: |
-          # Install just if not available
           if ! command -v just >/dev/null 2>&1; then
             cargo install just --locked
           fi
-
-          # Run setup-sccache recipe (idempotent - installs if missing)
           just setup-sccache
-
-          # Enable sccache wrapper after installation
           SCCACHE_BIN=""
           if command -v sccache >/dev/null 2>&1; then
             SCCACHE_BIN="$(command -v sccache)"
           elif [[ -x "$HOME/.cargo/bin/sccache" ]]; then
             SCCACHE_BIN="$HOME/.cargo/bin/sccache"
           fi
-
           if [[ -n "$SCCACHE_BIN" ]]; then
             "$SCCACHE_BIN" --start-server || true
             echo "RUSTC_WRAPPER=$SCCACHE_BIN" >> "$GITHUB_ENV"
@@ -287,8 +234,6 @@ jobs:
         run: |
           set -euo pipefail
           echo "=== Setting up X11 access ==="
-
-          # Find XWayland auth file (KDE Wayland uses /run/user/UID/xauth_*)
           XAUTH_FILE=$(ls /run/user/1000/xauth_* 2>/dev/null | head -1 || true)
           if [[ -n "$XAUTH_FILE" && -f "$XAUTH_FILE" ]]; then
             echo "Found XAUTHORITY: $XAUTH_FILE"
@@ -297,8 +242,6 @@ jobs:
           else
             echo "::warning::No xauth file found in /run/user/1000/"
           fi
-
-          # Verify X11 access
           if xset -q >/dev/null 2>&1; then
             echo "X11 accessible via XWayland"
           else
@@ -312,15 +255,11 @@ jobs:
           echo "DISPLAY: $DISPLAY"
           echo "XAUTHORITY: ${XAUTHORITY:-not set}"
           echo "WAYLAND_DISPLAY: ${WAYLAND_DISPLAY:-not set}"
-
-          # Check if XAUTHORITY file exists
           if [[ -f "${XAUTHORITY:-}" ]]; then
             echo "XAUTHORITY file exists: $XAUTHORITY"
           else
             echo "::warning::XAUTHORITY file not found at ${XAUTHORITY:-unset}"
           fi
-
-          # Verify X server is accessible
           if ! xset -q >/dev/null 2>&1; then
             echo "::error::Cannot connect to X server on display $DISPLAY"
             echo "Trying xhost diagnostics..."
@@ -341,12 +280,8 @@ jobs:
       - name: Test with real-injection-tests feature
         run: |
           dbus-run-session -- bash -lc '
-            # Set per-test timeout to prevent hanging
-            export RUST_TEST_TIME_UNIT="10000"  # 10 second timeout per test
-            export RUST_TEST_TIME_INTEGRATION="30000"  # 30 second for integration tests
-            # Note: atspi feature not enabled - AT-SPI Collection.GetMatches requires
-            # a full desktop session, not available in headless Xvfb environment.
-            # AT-SPI tests will skip gracefully.
+            export RUST_TEST_TIME_UNIT="10000"
+            export RUST_TEST_TIME_INTEGRATION="30000"
             cargo test -p coldvox-text-injection \
               --features real-injection-tests \
               -- --nocapture --test-threads=1
@@ -366,7 +301,6 @@ jobs:
             cargo test -p coldvox-text-injection --no-default-features --features regex --locked
           '
 
-      # Build main app to ensure integration compiles
       - name: Build main application
         run: cargo build --locked -p coldvox-app
 
@@ -376,7 +310,6 @@ jobs:
           COLDVOX_E2E_REAL_AUDIO: "1"
         run: |
           echo "=== Running Hardware Capability Checks ==="
-          # We run the new hardware_check test file, enabling the ignored tests
           cargo test -p coldvox-app --test hardware_check -- --nocapture --include-ignored
 
       - name: Upload test artifacts on failure
@@ -395,13 +328,11 @@ jobs:
         run: |
           set -euo pipefail
           echo "Cleaning up background processes..."
-          # Kill dbus-daemon if it was started by this session
           if [[ -n "${DBUS_SESSION_BUS_PID:-}" ]]; then
             kill "$DBUS_SESSION_BUS_PID" 2>/dev/null || true
           fi
           echo "Cleanup completed."
 
-  # Moonshine STT plugin build verification (optional - requires Python deps)
   moonshine_check:
     name: Moonshine STT Check (Optional)
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
@@ -439,11 +370,13 @@ jobs:
     name: CI Success Summary
     runs-on: ubuntu-latest
     needs:
+      - lint
+      - security
+      - docs
       - validate-workflows
-      - setup-whisper-dependencies
-      - security_audit
-      - unit_tests_hosted
-      - text_injection_tests
+      - unit_tests_self_hosted
+      - golden_master
+      - build_and_test_self_hosted
       - moonshine_check
     if: always()
     steps:
@@ -451,17 +384,21 @@ jobs:
       - name: Generate CI Report
         run: |
           echo "## CI Report" > report.md
-          echo "- validate-workflows:            ${{ needs.validate-workflows.result }}" >> report.md
-          echo "- setup-whisper-dependencies:    ${{ needs.setup-whisper-dependencies.result }}" >> report.md
-          echo "- security_audit:                ${{ needs.security_audit.result }}" >> report.md
-          echo "- unit_tests_hosted:             ${{ needs.unit_tests_hosted.result }}" >> report.md
-          echo "- text_injection_tests:          ${{ needs.text_injection_tests.result }}" >> report.md
-          echo "- moonshine_check:               ${{ needs.moonshine_check.result }} (optional)" >> report.md
-          if [[ "${{ needs.setup-whisper-dependencies.result }}" != "success" ]]; then echo "::error::Setup Whisper dependencies failed."; exit 1; fi
-          if [[ "${{ needs.security_audit.result }}" != "success" ]]; then echo "::warning::Security audit failed - check for vulnerabilities."; fi
-          if [[ "${{ needs.unit_tests_hosted.result }}" != "success" ]]; then echo "::error::Build and check failed."; exit 1; fi
-          if [[ "${{ needs.text_injection_tests.result }}" != "success" ]]; then echo "::error::Text injection tests failed."; exit 1; fi
-          if [[ "${{ needs.moonshine_check.result }}" != "success" ]]; then echo "::warning::Moonshine check failed (optional)."; fi
+          echo "| Job | Result |" >> report.md
+          echo "|-----|--------|" >> report.md
+          echo "| Lint | ${{ needs.lint.result }} |" >> report.md
+          echo "| Security | ${{ needs.security.result }} |" >> report.md
+          echo "| Docs | ${{ needs.docs.result }} |" >> report.md
+          echo "| Validate Workflows | ${{ needs.validate-workflows.result }} |" >> report.md
+          echo "| Unit Tests (Self-Hosted) | ${{ needs.unit_tests_self_hosted.result }} |" >> report.md
+          echo "| Golden Master (Self-Hosted) | ${{ needs.golden_master.result }} |" >> report.md
+          echo "| Build & Test (Self-Hosted) | ${{ needs.build_and_test_self_hosted.result }} |" >> report.md
+          echo "| Moonshine Check (Optional) | ${{ needs.moonshine_check.result }} |" >> report.md
+
+          if [[ "${{ needs.lint.result }}" != "success" || "${{ needs.docs.result }}" != "success" || "${{ needs.unit_tests_self_hosted.result }}" != "success" || "${{ needs.golden_master.result }}" != "success" || "${{ needs.build_and_test_self_hosted.result }}" != "success" ]]; then
+            echo "::error::One or more critical jobs failed."
+            exit 1
+          fi
           echo "All critical stages passed successfully."
       - name: Upload CI Report
         uses: actions/upload-artifact@v6
