@@ -153,7 +153,7 @@ Default: `silero`, `text-injection`
 
 ## CI Environment
 
-> **Principle**: The self hosted runner on the laptop is used for hardware tests, CI for everything else.
+> **Principle**: The laptop only does what only the laptop can do (hardware tests).
 
 See [CI Architecture](docs/dev/CI/architecture.md) for full details.
 
@@ -163,8 +163,8 @@ See [CI Architecture](docs/dev/CI/architecture.md) for full details.
 |------|-------------|
 | **Live KDE Plasma session** | NO Xvfb needed. Use real `$DISPLAY`. |
 | **Fedora-based** | `apt-get` does NOT exist. Use `dnf`. |
+| **Weak hardware** | Don't run builds or unit tests here. |
 | **Always available** | Auto-login, survives reboots. |
-| **Warm sccache** | Incremental builds ~2-3 min. |
 
 ### CI Split
 
@@ -172,8 +172,8 @@ See [CI Architecture](docs/dev/CI/architecture.md) for full details.
 |------|--------|-----|
 | `cargo fmt`, `cargo clippy` | GitHub-hosted | Fast, parallel, free |
 | `cargo audit`, `cargo deny` | GitHub-hosted | Security checks, no build needed |
-| `cargo build` | **Self-hosted** | Warm cache, THE build |
-| Hardware tests | **Self-hosted** | Requires display/audio/clipboard |
+| `cargo build`, `cargo test` | GitHub-hosted | Powerful hardware, parallelizable |
+| Hardware tests (display/audio/clipboard) | **Self-hosted** | Requires live desktop session |
 
 ### DON'T (Common AI Mistakes)
 
@@ -188,12 +188,9 @@ See [CI Architecture](docs/dev/CI/architecture.md) for full details.
 env:
   DISPLAY: ":99"
 
-# WRONG - delays self-hosted by 5-10 min
-hardware:
-  needs: [lint, build]
-
-# WRONG - wasted work, can't share artifacts with Fedora
-- run: cargo build  # On ubuntu-latest
+# WRONG - overloads weak laptop with work GitHub can do
+- run: cargo build  # On self-hosted
+- run: cargo test --workspace  # On self-hosted
 ```
 
 ## PR Checklist
