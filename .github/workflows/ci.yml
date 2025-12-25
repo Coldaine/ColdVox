@@ -229,10 +229,9 @@ jobs:
     needs: [setup-whisper-dependencies]
     timeout-minutes: 30
     env:
-      # Runner's live KDE session uses :0
+      # Runner's live KDE Wayland session with XWayland
       DISPLAY: ":0"
-      # X11 auth - try common locations (KDE uses ~/.Xauthority)
-      XAUTHORITY: "/home/coldaine/.Xauthority"
+      WAYLAND_DISPLAY: "wayland-0"
       RUST_LOG: debug
       RUST_TEST_TIME_UNIT: 10000
       RUST_TEST_TIME_INTEGRATION: 30000
@@ -289,24 +288,21 @@ jobs:
           set -euo pipefail
           echo "=== Setting up X11 access ==="
 
-          # Try to find XAUTHORITY in common locations
-          for xauth in \
-            "/run/user/$(id -u)/.mutter-Xwaylandauth."* \
-            "/run/user/$(id -u)/gdm/Xauthority" \
-            "$HOME/.Xauthority" \
-            "/tmp/.X11-unix/../.Xauthority"; do
-            if [[ -f "$xauth" ]]; then
-              echo "Found XAUTHORITY: $xauth"
-              echo "XAUTHORITY=$xauth" >> $GITHUB_ENV
-              break
-            fi
-          done
+          # Find XWayland auth file (KDE Wayland uses /run/user/UID/xauth_*)
+          XAUTH_FILE=$(ls /run/user/1000/xauth_* 2>/dev/null | head -1 || true)
+          if [[ -n "$XAUTH_FILE" && -f "$XAUTH_FILE" ]]; then
+            echo "Found XAUTHORITY: $XAUTH_FILE"
+            echo "XAUTHORITY=$XAUTH_FILE" >> $GITHUB_ENV
+            export XAUTHORITY="$XAUTH_FILE"
+          else
+            echo "::warning::No xauth file found in /run/user/1000/"
+          fi
 
-          # If still no auth, try xhost to allow local connections
-          # This requires running from within the user session
-          if ! xset -q >/dev/null 2>&1; then
-            echo "::warning::X11 not accessible. Text injection tests will likely fail."
-            echo "::warning::To fix: run 'xhost +local:' in your KDE session, or start runner from session."
+          # Verify X11 access
+          if xset -q >/dev/null 2>&1; then
+            echo "X11 accessible via XWayland"
+          else
+            echo "::warning::X11 not accessible via xset"
           fi
 
       - name: Validate test prerequisites
