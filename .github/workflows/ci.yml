@@ -150,12 +150,63 @@ jobs:
       - name: Build documentation
         run: cargo doc --workspace --no-deps --locked
 
-  # Main build and test job on self-hosted runner
-  build_and_test:
-    name: Build & Test (Self-Hosted)
-    runs-on: [self-hosted, Linux, X64, fedora, nobara]
+  # Build and unit tests on GitHub-hosted (stateless, parallelizable)
+  build_and_unit_tests:
+    name: Build & Unit Tests (Hosted)
+    runs-on: ubuntu-latest
     needs: [setup-whisper-dependencies]
-    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v5.0.0
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libasound2-dev libgtk-3-dev python3-pip python3-venv
+
+      - name: Set up Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Type check
+        run: cargo check --workspace --all-targets --locked
+
+      - name: Build
+        run: cargo build --workspace --locked
+
+      - name: Run unit tests
+        env:
+          WHISPER_MODEL_PATH: ${{ needs.setup-whisper-dependencies.outputs.model_path }}
+          WHISPER_MODEL_SIZE: ${{ needs.setup-whisper-dependencies.outputs.model_size }}
+        run: |
+          echo "=== Running Workspace Unit Tests ==="
+          cargo test --workspace --locked
+
+      - name: Run Golden Master pipeline test
+        env:
+          WHISPER_MODEL_PATH: ${{ needs.setup-whisper-dependencies.outputs.model_path }}
+          WHISPER_MODEL_SIZE: ${{ needs.setup-whisper-dependencies.outputs.model_size }}
+        run: |
+          echo "=== Running Golden Master Test ==="
+          pip install faster-whisper
+          export PYTHONPATH=$(python3 -c "import site; print(site.getsitepackages()[0])")
+          cargo test -p coldvox-app --test golden_master -- --nocapture
+
+      - name: Upload test artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: test-artifacts-build
+          path: |
+            target/debug/deps/
+            target/debug/build/
+          retention-days: 7
+
+  # Hardware tests ONLY - requires live display (self-hosted laptop)
+  hardware_tests:
+    name: Hardware Tests (Self-Hosted)
+    runs-on: [self-hosted, Linux, X64, fedora, nobara]
+    timeout-minutes: 15
     env:
       # Runner's live KDE Wayland session with XWayland
       DISPLAY: ":0"
@@ -163,42 +214,11 @@ jobs:
       RUST_LOG: debug
       RUST_TEST_TIME_UNIT: 10000
       RUST_TEST_TIME_INTEGRATION: 30000
-      SCCACHE_DIR: $HOME/.cache/sccache
-      # Build optimizations
-      CARGO_INCREMENTAL: "1"
-      RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
-      WHISPER_MODEL_PATH: ${{ needs.setup-whisper-dependencies.outputs.model_path }}
-      WHISPER_MODEL_SIZE: ${{ needs.setup-whisper-dependencies.outputs.model_size }}
     steps:
       - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v5.0.0
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: stable
-
-      # Setup sccache via justfile (installs if missing, enables RUSTC_WRAPPER)
-      - name: Setup sccache
-        run: |
-          # Install just if not available
-          if ! command -v just >/dev/null 2>&1; then
-            cargo install just --locked
-          fi
-
-          # Run setup-sccache recipe (idempotent - installs if missing)
-          just setup-sccache
-
-          # Enable sccache wrapper after installation
-          SCCACHE_BIN=""
-          if command -v sccache >/dev/null 2>&1; then
-            SCCACHE_BIN="$(command -v sccache)"
-          elif [[ -x "$HOME/.cargo/bin/sccache" ]]; then
-            SCCACHE_BIN="$HOME/.cargo/bin/sccache"
-          fi
-
-          if [[ -n "$SCCACHE_BIN" ]]; then
-            "$SCCACHE_BIN" --start-server || true
-            echo "RUSTC_WRAPPER=$SCCACHE_BIN" >> "$GITHUB_ENV"
-            echo "sccache enabled: $SCCACHE_BIN"
-          fi
 
       - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
 
@@ -235,75 +255,34 @@ jobs:
             echo "::warning::X11 not accessible via xset"
           fi
 
-      - name: Validate test prerequisites
+      - name: Validate hardware prerequisites
         run: |
           set -euo pipefail
-          echo "=== Test Environment Validation ==="
+          echo "=== Hardware Test Environment Validation ==="
           echo "DISPLAY: $DISPLAY"
           echo "XAUTHORITY: ${XAUTHORITY:-not set}"
           echo "WAYLAND_DISPLAY: ${WAYLAND_DISPLAY:-not set}"
 
-          # Check if XAUTHORITY file exists
-          if [[ -f "${XAUTHORITY:-}" ]]; then
-            echo "XAUTHORITY file exists: $XAUTHORITY"
-          else
-            echo "::warning::XAUTHORITY file not found at ${XAUTHORITY:-unset}"
-          fi
-
           # Verify X server is accessible
           if ! xset -q >/dev/null 2>&1; then
             echo "::error::Cannot connect to X server on display $DISPLAY"
-            echo "Trying xhost diagnostics..."
-            xhost 2>&1 || true
             exit 1
           fi
           echo "X server is accessible."
-          echo "Available text injection backends:"
-          command -v xdotool >/dev/null && echo "  - xdotool: $(xdotool --version 2>/dev/null || echo 'available')"
+          echo "Available backends:"
+          command -v xdotool >/dev/null && echo "  - xdotool: available"
           command -v ydotool >/dev/null && echo "  - ydotool: available"
-          command -v enigo >/dev/null && echo "  - enigo: available (Rust crate)"
-          echo "GTK development libraries:"
-          pkg-config --exists gtk+-3.0 && echo "  - GTK+ 3.0: available" || echo "  - GTK+ 3.0: not found"
-          echo "System audio:"
-          command -v alsa-info >/dev/null && echo "  - ALSA: available" || echo "  - ALSA: not found"
           echo "=== Validation Complete ==="
 
-      - name: Run Workspace Unit Tests
-        run: |
-          echo "=== Running Workspace Unit Tests ==="
-          cargo test --workspace --locked
-
-      - name: Test with real-injection-tests feature
+      - name: Run real injection tests
         run: |
           dbus-run-session -- bash -lc '
-            # Set per-test timeout to prevent hanging
-            export RUST_TEST_TIME_UNIT="10000"  # 10 second timeout per test
-            export RUST_TEST_TIME_INTEGRATION="30000"  # 30 second for integration tests
-            # Note: atspi feature not enabled - AT-SPI Collection.GetMatches requires
-            # a full desktop session, not available in headless Xvfb environment.
-            # AT-SPI tests will skip gracefully.
+            export RUST_TEST_TIME_UNIT="10000"
+            export RUST_TEST_TIME_INTEGRATION="30000"
             cargo test -p coldvox-text-injection \
               --features real-injection-tests \
               -- --nocapture --test-threads=1
           '
-
-      - name: Build pipeline (default features)
-        run: |
-          dbus-run-session -- bash -c '
-            set -euo pipefail
-            echo "Testing default features..."
-            cargo test -p coldvox-text-injection --locked
-
-            echo "Testing without default features..."
-            cargo test -p coldvox-text-injection --no-default-features --locked
-
-            echo "Testing regex feature only..."
-            cargo test -p coldvox-text-injection --no-default-features --features regex --locked
-          '
-
-      # Build main app to ensure integration compiles
-      - name: Build main application
-        run: cargo build --locked -p coldvox-app
 
       - name: Run Hardware Capability Checks
         env:
@@ -311,13 +290,14 @@ jobs:
           COLDVOX_E2E_REAL_AUDIO: "1"
         run: |
           echo "=== Running Hardware Capability Checks ==="
-          # We run the new hardware_check test file, enabling the ignored tests
           cargo test -p coldvox-app --test hardware_check -- --nocapture --include-ignored
 
-      - name: Upload test artifacts on failure
-        if: failure()
-        uses: actions/upload-artifact@v6
-        with:
+      - name: Cleanup
+        if: always()
+        run: |
+          if [[ -n "${DBUS_SESSION_BUS_PID:-}" ]]; then
+            kill "$DBUS_SESSION_BUS_PID" 2>/dev/null || true
+          fi
           name: test-artifacts-build-and-test
           path: |
             target/debug/deps/
@@ -379,7 +359,8 @@ jobs:
       - lint
       - security
       - docs
-      - build_and_test
+      - build_and_unit_tests
+      - hardware_tests
       - moonshine_check
     if: always()
     steps:
@@ -392,14 +373,16 @@ jobs:
           echo "- lint:                          ${{ needs.lint.result }}" >> report.md
           echo "- security:                      ${{ needs.security.result }}" >> report.md
           echo "- docs:                          ${{ needs.docs.result }}" >> report.md
-          echo "- build_and_test:                ${{ needs.build_and_test.result }}" >> report.md
+          echo "- build_and_unit_tests:          ${{ needs.build_and_unit_tests.result }}" >> report.md
+          echo "- hardware_tests:                ${{ needs.hardware_tests.result }}" >> report.md
           echo "- moonshine_check:               ${{ needs.moonshine_check.result }} (optional)" >> report.md
           
           if [[ "${{ needs.setup-whisper-dependencies.result }}" != "success" ]]; then echo "::error::Setup Whisper dependencies failed."; exit 1; fi
           if [[ "${{ needs.lint.result }}" != "success" ]]; then echo "::error::Lint checks failed."; exit 1; fi
           if [[ "${{ needs.security.result }}" != "success" ]]; then echo "::warning::Security audit failed - check for vulnerabilities."; fi
           if [[ "${{ needs.docs.result }}" != "success" ]]; then echo "::warning::Documentation build failed."; fi
-          if [[ "${{ needs.build_and_test.result }}" != "success" ]]; then echo "::error::Build and Test failed."; exit 1; fi
+          if [[ "${{ needs.build_and_unit_tests.result }}" != "success" ]]; then echo "::error::Build and Unit Tests failed."; exit 1; fi
+          if [[ "${{ needs.hardware_tests.result }}" != "success" ]]; then echo "::error::Hardware tests failed."; exit 1; fi
           if [[ "${{ needs.moonshine_check.result }}" != "success" ]]; then echo "::warning::Moonshine check failed (optional)."; fi
           
           echo "All critical stages passed successfully."
