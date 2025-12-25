@@ -15,8 +15,8 @@ runs:
         echo "--- Verifying Provisioned System Dependencies ---"
 
         # List of essential commands the runner MUST have
-        # This replaces the sudo dnf/apt install commands
-        required_commands="xdotool wget unzip gcc g++ make Xvfb openbox dbus-launch wl-paste xclip ydotool xprop wmctrl pkg-config pulseaudio"
+        # Note: No Xvfb/openbox - we use live KDE Plasma session with DISPLAY=:0
+        required_commands="xdotool wget unzip gcc g++ make dbus-launch wl-paste xclip ydotool xprop wmctrl pkg-config pulseaudio"
 
         failed=0
         echo "Checking for required commands..."

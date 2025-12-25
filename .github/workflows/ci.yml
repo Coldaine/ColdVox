@@ -199,15 +199,12 @@ jobs:
           export PYTHONPATH=$(python3 -c "import site; print(site.getsitepackages()[0])")
           cargo test -p coldvox-app --test golden_master -- --nocapture
 
-      - name: Run Moonshine E2E Tests
+      # Moonshine E2E skipped on GitHub-hosted: PyTorch+CUDA deps (4GB+) exceed disk space
+      # These tests run on self-hosted via moonshine_check job instead
+      - name: Skip Moonshine E2E Tests (runs on self-hosted)
         if: matrix.rust-version == 'stable'
         run: |
-          echo "=== Running Moonshine E2E Tests ==="
-          # Install Python dependencies for Moonshine
-          pip install transformers torch librosa accelerate
-          export PYTHONPATH=$(python3 -c "import site; print(site.getsitepackages()[0])")
-          # Run the specific E2E test with the moonshine feature enabled
-          cargo test -p coldvox-stt --features moonshine --test moonshine_e2e -- --nocapture
+          echo "::notice::Moonshine E2E tests skipped on GitHub-hosted (disk space). See moonshine_check job."
 
       # GUI groundwork check integrated here
       - name: Detect and test Qt 6 GUI
@@ -232,12 +229,17 @@ jobs:
     needs: [setup-whisper-dependencies]
     timeout-minutes: 30
     env:
-      # Runner's live KDE session uses :0 (not :99 which was for Xvfb)
+      # Runner's live KDE session uses :0
       DISPLAY: ":0"
+      # X11 auth - try common locations (KDE uses ~/.Xauthority)
+      XAUTHORITY: "/home/coldaine/.Xauthority"
       RUST_LOG: debug
       RUST_TEST_TIME_UNIT: 10000
       RUST_TEST_TIME_INTEGRATION: 30000
       SCCACHE_DIR: $HOME/.cache/sccache
+      # Build optimizations
+      CARGO_INCREMENTAL: "1"
+      RUSTFLAGS: "-C link-arg=-fuse-ld=mold"
     steps:
       - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v5.0.0
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
@@ -286,13 +288,25 @@ jobs:
         run: |
           set -euo pipefail
           echo "=== Test Environment Validation ==="
-          echo "Display: $DISPLAY"
-          # Verify that an X server is running
+          echo "DISPLAY: $DISPLAY"
+          echo "XAUTHORITY: ${XAUTHORITY:-not set}"
+          echo "WAYLAND_DISPLAY: ${WAYLAND_DISPLAY:-not set}"
+
+          # Check if XAUTHORITY file exists
+          if [[ -f "${XAUTHORITY:-}" ]]; then
+            echo "XAUTHORITY file exists: $XAUTHORITY"
+          else
+            echo "::warning::XAUTHORITY file not found at ${XAUTHORITY:-unset}"
+          fi
+
+          # Verify X server is accessible
           if ! xset -q >/dev/null 2>&1; then
-            echo "Error: No X server running on display $DISPLAY"
+            echo "::error::Cannot connect to X server on display $DISPLAY"
+            echo "Trying xhost diagnostics..."
+            xhost 2>&1 || true
             exit 1
           fi
-          echo "X server is running."
+          echo "X server is accessible."
           echo "Available text injection backends:"
           command -v xdotool >/dev/null && echo "  - xdotool: $(xdotool --version 2>/dev/null || echo 'available')"
           command -v ydotool >/dev/null && echo "  - ydotool: available"
@@ -360,13 +374,8 @@ jobs:
         run: |
           set -euo pipefail
           echo "Cleaning up background processes..."
-          # Kill Xvfb
-          pkill -f "Xvfb.*:99" || true
-          # Kill fluxbox
-          pkill -f "fluxbox.*:99" || true
           # Kill dbus-daemon if it was started by this session
-          if [[ -n "${DBUS_SESSION_BUS_PID:-}" ]]
-            then
+          if [[ -n "${DBUS_SESSION_BUS_PID:-}" ]]; then
             kill "$DBUS_SESSION_BUS_PID" 2>/dev/null || true
           fi
           echo "Cleanup completed."
