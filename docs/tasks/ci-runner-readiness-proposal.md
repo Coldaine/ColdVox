@@ -2,19 +2,27 @@
 doc_type: plan
 subsystem: general
 version: 1.0.0
-status: draft
+status: superseded
 owners: Documentation Working Group
-last_reviewed: 2025-10-19
+last_reviewed: 2025-12-24
 ---
 
-Linked task: See [Documentation migration epic](../todo.md#epic-documentation-migration).
+> **SUPERSEDED**: This document is outdated. See [CI Architecture](../dev/CI/architecture.md) for the current approach.
+>
+> **Key Changes**:
+> - Runner has **live KDE Plasma session** - no Xvfb/headless needed
+> - `apt-get` does not exist on Fedora - use `dnf`
+> - `start-headless.sh` is obsolete - use real display
+> - Self-hosted runs in parallel with GitHub-hosted (no `needs:` waiting)
 
-# CI Runner Readiness Proposal (Nobara Linux)
+---
 
-Owner: @Coldaine  
+# CI Runner Readiness Proposal (Nobara Linux) [OUTDATED]
+
+Owner: @Coldaine
 Date: 2025-09-19
 
-## Summary
+## Summary (OUTDATED)
 The repository is synced to latest `main` and GitHub Actions workflows are valid. A self-hosted runner `laptop-extra` is online for this repo with labels `self-hosted, Linux, X64, fedora, nobara`, matching all workflow `runs-on` constraints. One gap remains: the runner is missing a few system dependencies required by the composite setup action and the headless test script, which is causing failures in CI jobs.
 
 ## Current State

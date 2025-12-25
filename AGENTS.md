@@ -151,6 +151,51 @@ Default: `silero`, `text-injection`
 - `docs/architecture.md` - System design and future vision
 - `docs/domains/` - Domain-specific technical docs
 
+## CI Environment
+
+> **Principle**: The self hosted runner on the laptop is used for hardware tests, CI for everything else.
+
+See [CI Architecture](docs/dev/CI/architecture.md) for full details.
+
+### Self-Hosted Runner (Fedora/Nobara)
+
+| Fact | Implication |
+|------|-------------|
+| **Live KDE Plasma session** | NO Xvfb needed. Use real `$DISPLAY`. |
+| **Fedora-based** | `apt-get` does NOT exist. Use `dnf`. |
+| **Always available** | Auto-login, survives reboots. |
+| **Warm sccache** | Incremental builds ~2-3 min. |
+
+### CI Split
+
+| Task | Runner | Why |
+|------|--------|-----|
+| `cargo fmt`, `cargo clippy` | GitHub-hosted | Fast, parallel, free |
+| `cargo audit`, `cargo deny` | GitHub-hosted | Security checks, no build needed |
+| `cargo build` | **Self-hosted** | Warm cache, THE build |
+| Hardware tests | **Self-hosted** | Requires display/audio/clipboard |
+
+### DON'T (Common AI Mistakes)
+
+```yaml
+# WRONG - runner has live display, also uses apt-get internally
+- uses: GabrielBB/xvfb-action@v1
+
+# WRONG - this is Fedora, not Ubuntu
+- run: sudo apt-get install -y xdotool
+
+# WRONG - real display is :0
+env:
+  DISPLAY: ":99"
+
+# WRONG - delays self-hosted by 5-10 min
+hardware:
+  needs: [lint, build]
+
+# WRONG - wasted work, can't share artifacts with Fedora
+- run: cargo build  # On ubuntu-latest
+```
+
 ## PR Checklist
 
 - [ ] `just lint` passes
