@@ -273,15 +273,6 @@ jobs:
       - name: Setup ColdVox
         uses: ./.github/actions/setup-coldvox
 
-      - name: Start Xvfb
-        uses: GabrielBB/xvfb-action@v1
-        with:
-          run: |
-            set -euo pipefail
-            echo "Installing dependencies..."
-            sudo dnf install -y xclip xdotool at-spi2-core liberation-sans-fonts
-            echo "Xvfb is running."
-
       - name: Setup D-Bus Session
         run: |
           set -euo pipefail
