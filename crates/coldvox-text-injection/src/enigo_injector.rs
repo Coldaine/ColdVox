@@ -30,37 +30,39 @@ impl EnigoInjector {
         Enigo::new(&Settings::default()).is_ok()
     }
 
+    /// Inner logic for typing text, generic over the Keyboard trait for testing.
+    fn type_text_logic<K: Keyboard>(enigo: &mut K, text: &str) -> Result<(), InjectionError> {
+        // Type each character with a small delay
+        for c in text.chars() {
+            match c {
+                ' ' => enigo
+                    .key(Key::Space, Direction::Click)
+                    .map_err(|e| InjectionError::MethodFailed(format!("Failed to type space: {}", e)))?,
+                '\n' => enigo
+                    .key(Key::Return, Direction::Click)
+                    .map_err(|e| InjectionError::MethodFailed(format!("Failed to type enter: {}", e)))?,
+                '\t' => enigo
+                    .key(Key::Tab, Direction::Click)
+                    .map_err(|e| InjectionError::MethodFailed(format!("Failed to type tab: {}", e)))?,
+                _ => {
+                    // Use text method for all other characters
+                    enigo
+                        .text(&c.to_string())
+                        .map_err(|e| InjectionError::MethodFailed(format!("Failed to type text: {}", e)))?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Type text using enigo
     async fn type_text(&self, text: &str) -> Result<(), InjectionError> {
         let text_clone = text.to_string();
 
         let result = tokio::task::spawn_blocking(move || {
-            let mut enigo = Enigo::new(&Settings::default()).map_err(|e| {
-                InjectionError::MethodFailed(format!("Failed to create Enigo: {}", e))
-            })?;
-
-            // Type each character with a small delay
-            for c in text_clone.chars() {
-                match c {
-                    ' ' => enigo.key(Key::Space, Direction::Click).map_err(|e| {
-                        InjectionError::MethodFailed(format!("Failed to type space: {}", e))
-                    })?,
-                    '\n' => enigo.key(Key::Return, Direction::Click).map_err(|e| {
-                        InjectionError::MethodFailed(format!("Failed to type enter: {}", e))
-                    })?,
-                    '\t' => enigo.key(Key::Tab, Direction::Click).map_err(|e| {
-                        InjectionError::MethodFailed(format!("Failed to type tab: {}", e))
-                    })?,
-                    _ => {
-                        // Use text method for all other characters
-                        enigo.text(&c.to_string()).map_err(|e| {
-                            InjectionError::MethodFailed(format!("Failed to type text: {}", e))
-                        })?;
-                    }
-                }
-            }
-
-            Ok(())
+            let mut enigo = Enigo::new(&Settings::default())
+                .map_err(|e| InjectionError::MethodFailed(format!("Failed to create Enigo: {}", e)))?;
+            Self::type_text_logic(&mut enigo, &text_clone)
         })
         .await;
 
@@ -74,44 +76,42 @@ impl EnigoInjector {
         }
     }
 
+    /// Inner logic for triggering paste, generic over the Keyboard trait for testing.
+    fn trigger_paste_logic<K: Keyboard>(enigo: &mut K) -> Result<(), InjectionError> {
+        // Press platform-appropriate paste shortcut
+        #[cfg(target_os = "macos")]
+        {
+            enigo
+                .key(Key::Meta, Direction::Press)
+                .map_err(|e| InjectionError::MethodFailed(format!("Failed to press Cmd: {}", e)))?;
+            enigo
+                .key(Key::Unicode('v'), Direction::Click)
+                .map_err(|e| InjectionError::MethodFailed(format!("Failed to type 'v': {}", e)))?;
+            enigo
+                .key(Key::Meta, Direction::Release)
+                .map_err(|e| InjectionError::MethodFailed(format!("Failed to release Cmd: {}", e)))?;
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            enigo
+                .key(Key::Control, Direction::Press)
+                .map_err(|e| InjectionError::MethodFailed(format!("Failed to press Ctrl: {}", e)))?;
+            enigo
+                .key(Key::Unicode('v'), Direction::Click)
+                .map_err(|e| InjectionError::MethodFailed(format!("Failed to type 'v': {}", e)))?;
+            enigo
+                .key(Key::Control, Direction::Release)
+                .map_err(|e| InjectionError::MethodFailed(format!("Failed to release Ctrl: {}", e)))?;
+        }
+        Ok(())
+    }
+
     /// Trigger paste action using enigo (Ctrl+V)
     async fn trigger_paste(&self) -> Result<(), InjectionError> {
         let result = tokio::task::spawn_blocking(|| {
-            let mut enigo = Enigo::new(&Settings::default()).map_err(|e| {
-                InjectionError::MethodFailed(format!("Failed to create Enigo: {}", e))
-            })?;
-
-            // Press platform-appropriate paste shortcut
-            #[cfg(target_os = "macos")]
-            {
-                enigo.key(Key::Meta, Direction::Press).map_err(|e| {
-                    InjectionError::MethodFailed(format!("Failed to press Cmd: {}", e))
-                })?;
-                enigo
-                    .key(Key::Unicode('v'), Direction::Click)
-                    .map_err(|e| {
-                        InjectionError::MethodFailed(format!("Failed to type 'v': {}", e))
-                    })?;
-                enigo.key(Key::Meta, Direction::Release).map_err(|e| {
-                    InjectionError::MethodFailed(format!("Failed to release Cmd: {}", e))
-                })?;
-            }
-            #[cfg(not(target_os = "macos"))]
-            {
-                enigo.key(Key::Control, Direction::Press).map_err(|e| {
-                    InjectionError::MethodFailed(format!("Failed to press Ctrl: {}", e))
-                })?;
-                enigo
-                    .key(Key::Unicode('v'), Direction::Click)
-                    .map_err(|e| {
-                        InjectionError::MethodFailed(format!("Failed to type 'v': {}", e))
-                    })?;
-                enigo.key(Key::Control, Direction::Release).map_err(|e| {
-                    InjectionError::MethodFailed(format!("Failed to release Ctrl: {}", e))
-                })?;
-            }
-
-            Ok(())
+            let mut enigo = Enigo::new(&Settings::default())
+                .map_err(|e| InjectionError::MethodFailed(format!("Failed to create Enigo: {}", e)))?;
+            Self::trigger_paste_logic(&mut enigo)
         })
         .await;
 
@@ -177,5 +177,147 @@ impl TextInjector for EnigoInjector {
                 "System permissions for synthetic input".to_string(),
             ),
         ]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::InjectionConfig;
+    use std::cell::RefCell;
+    use std::collections::VecDeque;
+
+    // A more robust MockEnigo that can simulate failures and captures actions.
+    struct MockEnigo {
+        actions: RefCell<Vec<String>>,
+        failures: RefCell<VecDeque<bool>>, // A queue of whether the next action should fail.
+    }
+
+    impl MockEnigo {
+        fn new() -> Self {
+            Self {
+                actions: RefCell::new(Vec::new()),
+                failures: RefCell::new(VecDeque::new()),
+            }
+        }
+
+        fn should_fail(&self) -> bool {
+            self.failures.borrow_mut().pop_front().unwrap_or(false)
+        }
+
+        #[allow(dead_code)]
+        fn push_failure(&self, fail: bool) {
+            self.failures.borrow_mut().push_back(fail);
+        }
+    }
+
+    impl Keyboard for MockEnigo {
+        fn key(&mut self, key: Key, direction: Direction) -> Result<(), enigo::Error> {
+            if self.should_fail() {
+                return Err(enigo::Error::InvalidKey);
+            }
+            self.actions
+                .borrow_mut()
+                .push(format!("key({:?},{:?})", key, direction));
+            Ok(())
+        }
+
+        fn text(&mut self, text: &str) -> Result<(), enigo::Error> {
+            if self.should_fail() {
+                return Err(enigo::Error::InvalidText);
+            }
+            self.actions.borrow_mut().push(format!("text(\"{}\")", text));
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_type_text_logic_simple() {
+        let mut mock_enigo = MockEnigo::new();
+        let result = EnigoInjector::type_text_logic(&mut mock_enigo, "abc");
+        assert!(result.is_ok());
+        assert_eq!(
+            *mock_enigo.actions.borrow(),
+            vec!["text(\"a\")", "text(\"b\")", "text(\"c\")"]
+        );
+    }
+
+    #[test]
+    fn test_type_text_logic_special_chars() {
+        let mut mock_enigo = MockEnigo::new();
+        let result = EnigoInjector::type_text_logic(&mut mock_enigo, " \n\t");
+        assert!(result.is_ok());
+        assert_eq!(
+            *mock_enigo.actions.borrow(),
+            vec![
+                "key(Space,Click)",
+                "key(Return,Click)",
+                "key(Tab,Click)"
+            ]
+        );
+    }
+
+    #[test]
+    fn test_type_text_logic_failure() {
+        let mut mock_enigo = MockEnigo::new();
+        mock_enigo.push_failure(true); // First action will fail
+        let result = EnigoInjector::type_text_logic(&mut mock_enigo, "a");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    #[cfg(not(target_os = "macos"))]
+    fn test_trigger_paste_logic_non_macos() {
+        let mut mock_enigo = MockEnigo::new();
+        let result = EnigoInjector::trigger_paste_logic(&mut mock_enigo);
+        assert!(result.is_ok());
+        assert_eq!(
+            *mock_enigo.actions.borrow(),
+            vec![
+                "key(Control,Press)",
+                "key(Unicode('v'),Click)",
+                "key(Control,Release)"
+            ]
+        );
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn test_trigger_paste_logic_macos() {
+        let mut mock_enigo = MockEnigo::new();
+        let result = EnigoInjector::trigger_paste_logic(&mut mock_enigo);
+        assert!(result.is_ok());
+        assert_eq!(
+            *mock_enigo.actions.borrow(),
+            vec![
+                "key(Meta,Press)",
+                "key(Unicode('v'),Click)",
+                "key(Meta,Release)"
+            ]
+        );
+    }
+
+    #[test]
+    fn test_trigger_paste_logic_failure() {
+        let mut mock_enigo = MockEnigo::new();
+        mock_enigo.push_failure(true);
+        let result = EnigoInjector::trigger_paste_logic(&mut mock_enigo);
+        assert!(result.is_err());
+    }
+
+    // The async tests can remain as integration tests, but we'll keep them simple.
+    #[tokio::test]
+    async fn test_enigo_injector_new() {
+        let config = InjectionConfig::default();
+        let injector = EnigoInjector::new(config);
+        assert_eq!(injector.config, config);
+    }
+
+    #[tokio::test]
+    async fn test_inject_text_empty() {
+        let config = InjectionConfig::default();
+        let injector = EnigoInjector::new(config);
+        let result = injector.inject_text("", None).await;
+        assert!(result.is_ok());
     }
 }
