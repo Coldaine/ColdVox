@@ -1,25 +1,29 @@
+use audioadapter::direct::SequentialSlice;
+use audioadapter::{Adapter, AdapterMut};
 use rubato::{
-    Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,
+    Async, FixedAsync, Resampler, SincInterpolationParameters, SincInterpolationType, WindowFunction,
 };
 
 use super::chunker::ResamplerQuality;
 
 /// Streaming resampler for mono i16 audio using Rubato's high-quality sinc interpolation.
 ///
-/// - Maintains internal buffers to handle arbitrary-sized input chunks
-/// - Uses Rubato's SincFixedIn for high-quality, configurable resampling
-/// - Automatically handles buffering for Rubato's fixed chunk requirements
+/// - Maintains internal buffers to handle arbitrary-sized input chunks.
+/// - Uses Rubato's `Async` resampler with sinc interpolation for high-quality, configurable resampling.
+/// - Automatically handles buffering for Rubato's fixed chunk requirements.
 pub struct StreamResampler {
     in_rate: u32,
     out_rate: u32,
     /// Rubato resampler instance
-    resampler: SincFixedIn<f32>,
+    resampler: Async<f32>,
     /// Input buffer for accumulating samples
     input_buffer: Vec<f32>,
     /// Output buffer for accumulating resampled samples
     output_buffer: Vec<f32>,
     /// Chunk size required by Rubato
     chunk_size: usize,
+    /// Pre-allocated buffer for a single output chunk from the resampler
+    resampler_output_chunk: Vec<f32>,
 }
 
 impl StreamResampler {
@@ -76,14 +80,18 @@ impl StreamResampler {
 
         // Create the resampler
         // We only need 1 channel for mono audio
-        let resampler = SincFixedIn::<f32>::new(
+        let resampler = Async::<f32>::new_sinc(
             out_rate as f64 / in_rate as f64, // Resample ratio
             2.0,                              // Max resample ratio change (not used in fixed mode)
-            sinc_params,
+            &sinc_params,
             chunk_size,
             1, // mono
+            FixedAsync::Input,
         )
         .expect("Failed to create Rubato resampler");
+
+        // Pre-allocate the output chunk buffer
+        let resampler_output_chunk = vec![0.0; resampler.output_frames_max()];
 
         Self {
             in_rate,
@@ -92,6 +100,7 @@ impl StreamResampler {
             input_buffer: Vec::with_capacity(chunk_size * 2),
             output_buffer: Vec::new(),
             chunk_size,
+            resampler_output_chunk,
         }
     }
 
@@ -114,24 +123,38 @@ impl StreamResampler {
 
         // Process complete chunks
         while self.input_buffer.len() >= self.chunk_size {
-            // Prepare input for Rubato (it expects Vec<Vec<f32>> for channels)
-            let chunk: Vec<f32> = self.input_buffer.drain(..self.chunk_size).collect();
-            let input_frames = vec![chunk];
+            // Prepare input for Rubato using an adapter
+            let input_adapter = SequentialSlice::new(&self.input_buffer[..self.chunk_size], 1)
+                .expect("Failed to create input adapter");
+
+            // Prepare the output buffer adapter
+            let mut output_adapter =
+                SequentialSlice::new_mut(&mut self.resampler_output_chunk, 1)
+                    .expect("Failed to create output adapter");
 
             // Process the chunk
-            let output_frames = match self.resampler.process(&input_frames, None) {
-                Ok(frames) => frames,
+            match self
+                .resampler
+                .process_into_buffer(&input_adapter, &mut output_adapter, None)
+            {
+                Ok((_frames_read, frames_written)) => {
+                    // Append resampled output (first channel only, since we're mono)
+                    if frames_written > 0 {
+                        self.output_buffer
+                            .extend_from_slice(&self.resampler_output_chunk[..frames_written]);
+                    }
+                }
                 Err(e) => {
                     tracing::error!("Resampler error: {}", e);
-                    // Return empty on error to maintain stream continuity
+                    // On error, clear the input buffer to prevent reprocessing the same bad data
+                    self.input_buffer.clear();
+                    // Return empty to maintain stream continuity
                     return Vec::new();
                 }
             };
 
-            // Append resampled output (first channel only, since we're mono)
-            if !output_frames.is_empty() && !output_frames[0].is_empty() {
-                self.output_buffer.extend_from_slice(&output_frames[0]);
-            }
+            // Remove the processed chunk from the input buffer
+            self.input_buffer.drain(..self.chunk_size);
         }
 
         // Convert accumulated f32 samples back to i16
