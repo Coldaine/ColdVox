@@ -2,9 +2,19 @@
 set -euo pipefail
 
 quiet=0
-if [[ "${1:-}" == "--quiet" ]]; then
-  quiet=1
-fi
+require_hardlink=0
+
+for arg in "$@"; do
+  case "$arg" in
+    --quiet) quiet=1 ;;
+    --require-hardlink) require_hardlink=1 ;;
+    *)
+      echo "error: unknown arg: $arg" >&2
+      echo "usage: $0 [--quiet] [--require-hardlink]" >&2
+      exit 64
+      ;;
+  esac
+done
 
 repo_root="$({
   cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd
@@ -54,7 +64,7 @@ link_count_of() {
   return 1
 }
 
-link_or_copy() {
+link_or_symlink_or_copy() {
   local dst="$1"
 
   # Remove symlinks explicitly; ln -f replaces regular files but not all symlinks reliably.
@@ -62,13 +72,32 @@ link_or_copy() {
     rm -f "$dst"
   fi
 
+  # 1) Prefer hardlink.
   if ln -f "$src" "$dst" 2>/dev/null; then
     return 0
   fi
 
-  # If hardlinking fails (e.g., cross-filesystem), keep content correct but warn.
+  # 2) Fallback to symlink (works across filesystems).
+  local rel
+  rel="$(python - <<'PY'
+import os
+import sys
+src = sys.argv[1]
+dst = sys.argv[2]
+print(os.path.relpath(src, os.path.dirname(dst)))
+PY
+"$src" "$dst" 2>/dev/null || true)"
+
+  if [[ -n "$rel" ]]; then
+    if ln -sf "$rel" "$dst" 2>/dev/null; then
+      echo "warning: could not hardlink $dst; created symlink instead" >&2
+      return 0
+    fi
+  fi
+
+  # 3) Last resort: copy contents.
   cp -f "$src" "$dst"
-  echo "warning: could not hardlink $dst; copied contents instead" >&2
+  echo "warning: could not hardlink or symlink $dst; copied contents instead" >&2
   return 0
 }
 
@@ -91,7 +120,7 @@ is_hardlinked_pair() {
 ensure_pair() {
   local dst="$1"
 
-  link_or_copy "$dst"
+  link_or_symlink_or_copy "$dst"
 
   if ! cmp -s "$src" "$dst"; then
     echo "error: $dst does not match $src" >&2
@@ -99,9 +128,13 @@ ensure_pair() {
   fi
 
   if ! is_hardlinked_pair "$src" "$dst"; then
-    echo "error: $dst is not hardlinked to $src (same contents, different inode)" >&2
-    echo "hint: ensure both files are on the same filesystem; rerun scripts/ensure_agent_hardlinks.sh" >&2
-    exit 2
+    if [[ "$require_hardlink" -eq 1 ]]; then
+      echo "error: $dst is not hardlinked to $src (same contents, different inode)" >&2
+      echo "hint: ensure both files are on the same filesystem; rerun scripts/ensure_agent_hardlinks.sh" >&2
+      exit 2
+    fi
+
+    echo "warning: $dst is not hardlinked to $src (content matches)" >&2
   fi
 }
 

@@ -210,7 +210,7 @@ jobs:
       - run: cargo deny check
 
   # ═══════════════════════════════════════════════════════════════
-  # SELF-HOSTED: THE build, THE tests (runs immediately, no waiting)
+  # SELF-HOSTED: Hardware/display-only tests (runs immediately, no waiting)
   # ═══════════════════════════════════════════════════════════════
 
   hardware:
@@ -234,9 +234,6 @@ jobs:
         with:
           shared-key: "nobara-hardware"
           cache-on-failure: true
-
-      - name: Build (cached, incremental)
-        run: cargo build -p coldvox-text-injection -p coldvox-app --locked
 
       - name: Validate display environment
         run: |
