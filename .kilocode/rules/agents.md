@@ -183,7 +183,7 @@ See [CI Architecture](docs/dev/CI/architecture.md) for full details.
 |------|--------|-----|
 | `cargo fmt`, `cargo clippy` | GitHub-hosted | Fast, parallel, free |
 | `cargo audit`, `cargo deny` | GitHub-hosted | Security checks, no build needed |
-| `cargo build` | **Self-hosted** | Warm cache, THE build |
+| `cargo build`, `cargo test --workspace` | GitHub-hosted | Fast cores; no hardware needed |
 | Hardware tests | **Self-hosted** | Requires display/audio/clipboard |
 
 ### DON'T (Common AI Mistakes)

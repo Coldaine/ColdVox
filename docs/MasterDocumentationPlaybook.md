@@ -93,13 +93,13 @@ The following files configure AI coding agents and MUST live at standard locatio
 
 - `AGENTS.md` (root): Canonical agent instructions following the [AGENTS.md standard](https://agents.md/). This is the single source of truth for all AI agents.
 - `CLAUDE.md` (root): Claude Code configuration. Should import from or reference `AGENTS.md`.
-- `.github/copilot-instructions.md`: GitHub Copilot instructions. Symlink to `AGENTS.md`.
-- `.kilocode/rules/agents.md`: Kilo Code rules. Symlink to `../../AGENTS.md`.
+- `.github/copilot-instructions.md`: GitHub Copilot instructions. Must match `AGENTS.md` (locally hardlinked where possible).
+- `.kilocode/rules/agents.md`: Kilo Code rules. Must match `AGENTS.md` (locally hardlinked where possible).
 - `.gemini/settings.json`: Gemini CLI configuration. Set `"contextFileName": "AGENTS.md"` to use root AGENTS.md.
 - `.cursorrules` (root, optional): Cursor-specific rules if needed beyond `AGENTS.md`.
 - `.builderrules` (root, optional): Builder.io-specific rules if needed.
 
-**Hierarchy**: `AGENTS.md` is authoritative. Tool-specific files should either symlink to it or contain only tool-specific overrides that reference `AGENTS.md`.
+**Hierarchy**: `AGENTS.md` is authoritative. Tool-specific files should either be hardlinked mirrors (preferred) or contain only tool-specific overrides that reference `AGENTS.md`.
 
 **Do NOT create** `docs/agents.md` - agent configuration lives at the root for tool discovery.
 

@@ -43,7 +43,7 @@ set -euo pipefail
 pre-commit install
 
 # Enable repo-tracked git hooks and ensure AGENTS mirrors are hardlinked.
-./scripts/install_git_hardlink_hooks.sh >/dev/null
+./scripts/install_git_hardlink_hooks.sh --quiet
 """
 
 # --- TASK DELEGATION LAYER ---

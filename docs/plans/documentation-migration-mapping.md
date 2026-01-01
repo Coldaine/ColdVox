@@ -9,6 +9,11 @@ last_reviewed: 2025-10-19
 
 # Documentation Migration Mapping
 
+> **Note (current-state override)**: This plan predates the current agent-instruction policy.
+> `AGENTS.md` at the repo root is the canonical agent instruction file.
+> Tool-specific entrypoints (`.github/copilot-instructions.md`, `.kilocode/rules/agents.md`) are kept in sync with `AGENTS.md` (and are locally hardlinked where possible).
+> **Do not create** `docs/agents.md`.
+
 This plan catalogs existing Markdown files and maps each one to the canonical target location (or disposition) required by the Master Documentation Playbook v1.0.0. The mapping will guide the relocation work in Phase 3 and ensures no markdown remains outside `/docs` except approved exceptions.
 
 ## Status Update
@@ -47,7 +52,7 @@ Phase 1 and the majority of Phase 2–3 migrations have been executed. Remaining
 | .github/prompts/FileInventory.prompt.md | docs/research/logs/file-inventory-prompt.md | move | Add retention banner (ephemeral). |
 | .github/SETUP_RELEASE_TOKEN.md | docs/repo/setup-release-token.md | move | Add frontmatter; categorize under repo meta. |
 | CHANGELOG.md | CHANGELOG.md | retain-exception | Approved root exception. Add reference to docs/standards.md exceptions. |
-| CLAUDE.md | CLAUDE.md | retain-exception | Must mirror docs/agents.md post-migration. |
+| CLAUDE.md | CLAUDE.md | retain-exception | Must reference/import `AGENTS.md` (canonical). |
 | README.md | README.md | retain-exception | Update contributing links to new docs. |
 
 ## Inside `/docs`
@@ -128,7 +133,7 @@ Phase 1 and the majority of Phase 2–3 migrations have been executed. Remaining
 ## Required New Files/Stubs
 
 - docs/standards.md — Document metadata schema, approved exceptions, changelog rubric, watcher spec.
-- docs/agents.md — Assistant interaction index mirrored by CLAUDE.md.
+- (Removed) `docs/agents.md` — superseded by root `AGENTS.md`.
 - docs/dependencies.md — Dependency overview.
 - docs/repo/gitignore.md — Explain .gitignore conventions.
 - docs/repo/editor.md — Editor/IDE guidelines.

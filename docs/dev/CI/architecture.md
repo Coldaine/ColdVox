@@ -6,52 +6,43 @@
 
 ColdVox CI splits workloads between GitHub-hosted and self-hosted runners based on one question:
 
-**Does this task require the physical laptop's hardware?**
+**Does this task require the physical laptop's hardware (display, audio, clipboard)?**
 
 | Requires Laptop? | Task | Runner |
 |------------------|------|--------|
 | No | `cargo fmt --check` | GitHub-hosted |
 | No | `cargo clippy` | GitHub-hosted |
 | No | `cargo audit`, `cargo deny` | GitHub-hosted |
-| **Yes** | `cargo build` (warm cache) | Self-hosted |
+| No | `cargo build` | GitHub-hosted |
+| No | `cargo test --workspace` (unit tests) | GitHub-hosted |
 | **Yes** | Hardware tests (display, audio, clipboard) | Self-hosted |
 
 ---
 
 ## Why Split?
 
-### 1. CPU Dedication
+### 1. Hardware Isolation
 
-If the laptop runs lint, build, AND tests sequentially, they compete for CPU.
+The self-hosted runner is a laptop with **weak hardware but a live display**. GitHub-hosted runners have **powerful hardware but no display**.
 
-With the split:
-- **Laptop**: 100% CPU on building + hardware tests
-- **GitHub**: Handles lint/security on their infrastructure (free)
+- **Laptop**: Only runs tests that need real display/audio/clipboard
+- **GitHub**: Handles everything else (lint, security, build, unit tests)
 
-### 2. No Redundant Builds
-
-| Bad Pattern | Good Pattern |
-|-------------|--------------|
-| GitHub: `cargo build` (discarded) | GitHub: `cargo clippy` (type checks only) |
-| Self-hosted: `cargo build` (again) | Self-hosted: `cargo build` (THE build) |
-
-`clippy` does full type checking without generating binaries. Same error detection, no wasted compilation.
-
-### 3. Parallelism
+### 2. Parallelism
 
 GitHub-hosted jobs run in parallel on separate machines. Self-hosted queues on one laptop.
 
 ```
 Push PR:
-  GitHub:      [lint] [security] [docs]     ← All parallel, 2 min each
-  Self-hosted: [build + hardware tests]     ← Starts immediately, 8-12 min
+  GitHub:      [lint] [security] [docs] [build+unit-tests]  ← All parallel
+  Self-hosted: [hardware tests]                              ← Only hardware-dependent tests
 
-Total time: ~12 min (not 2 + 2 + 2 + 12 = 18 min)
+Total time: max(GitHub jobs, hardware tests)
 ```
 
-### 4. No Waiting
+### 3. No Wasted Work
 
-Self-hosted has **no `needs:` dependency**. It starts immediately in parallel with GitHub-hosted jobs.
+The laptop does minimal work - just the tests that *require* hardware access.
 
 ---
 
@@ -74,8 +65,8 @@ Self-hosted has **no `needs:` dependency**. It starts immediately in parallel wi
 | `GabrielBB/xvfb-action` | Internally calls `apt-get` (doesn't exist) |
 | `sudo apt-get install` | Wrong package manager |
 | `DISPLAY=:99` | Conflicts with real display (`:0`) |
-| `needs: [lint, build]` | Delays self-hosted start by 5-10 min |
-| `cargo build` on GitHub-hosted | Wasted work (can't share artifacts with Fedora) |
+| Running builds on self-hosted | Weak hardware; GitHub-hosted is faster |
+| Running unit tests on self-hosted | Wastes limited resources |
 
 ---
 
@@ -84,41 +75,45 @@ Self-hosted has **no `needs:` dependency**. It starts immediately in parallel wi
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                      GITHUB-HOSTED (ubuntu-latest)              │
-│                  Parallel, free, NO BUILD artifacts             │
+│              Parallel, powerful, handles most work              │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐             │
 │  │    lint     │  │  security   │  │    docs     │             │
-│  │             │  │             │  │  (optional) │             │
+│  │             │  │             │  │             │             │
 │  │ fmt --check │  │ cargo audit │  │  cargo doc  │             │
 │  │ clippy      │  │ cargo deny  │  │             │             │
-│  │             │  │             │  │             │             │
 │  │  ~2 min     │  │  ~2 min     │  │  ~2 min     │             │
-│  │  NO BUILD   │  │  NO BUILD   │  │             │             │
 │  └─────────────┘  └─────────────┘  └─────────────┘             │
 │                                                                 │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │              build_and_unit_tests                        │   │
+│  │  cargo check → cargo build → cargo test --workspace      │   │
+│  │  ~10-15 min                                              │   │
+│  └─────────────────────────────────────────────────────────┘   │
+│                                                                 │
 └─────────────────────────────────────────────────────────────────┘
-              ║                            ║
-              ║  (parallel, no waiting)    ║
-              ║                            ║
+              ║                            
+              ║  (parallel, no waiting)    
+              ║                            
 ┌─────────────────────────────────────────────────────────────────┐
 │                 SELF-HOSTED (Fedora/Nobara)                     │
-│              Live KDE Plasma - THE build, THE tests             │
+│        Weak hardware BUT has live KDE Plasma display            │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │  ┌─────────────────────────────────────────────────────────┐   │
-│  │                      hardware                            │   │
+│  │                   hardware_tests                         │   │
 │  │                                                          │   │
 │  │  Environment:                                            │   │
-│  │  • DISPLAY=$DISPLAY (from session, NOT :99)             │   │
-│  │  • WAYLAND_DISPLAY=$WAYLAND_DISPLAY                     │   │
+│  │  • DISPLAY=:0 (live session, NOT :99)                   │   │
+│  │  • WAYLAND_DISPLAY=wayland-0                            │   │
 │  │  • Real audio, real clipboard                           │   │
 │  │                                                          │   │
-│  │  Steps:                                                  │   │
-│  │  1. cargo build (incremental, sccache, mold) → 2-3 min  │   │
-│  │  2. Hardware tests (injection, audio)        → 5-8 min  │   │
+│  │  Tests:                                                  │   │
+│  │  • real-injection-tests (xdotool, ydotool, clipboard)   │   │
+│  │  • hardware_check (audio capture, display access)       │   │
 │  │                                                          │   │
-│  │  Total: ~8-12 min                                        │   │
+│  │  Total: ~5-10 min (minimal work!)                       │   │
 │  │                                                          │   │
 │  └─────────────────────────────────────────────────────────┘   │
 │                                                                 │
