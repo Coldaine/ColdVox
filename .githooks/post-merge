@@ -5,4 +5,4 @@ repo_root="$({
   cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd
 })"
 
-"$repo_root/scripts/ensure_agent_hardlinks.sh" >/dev/null
+"$repo_root/scripts/ensure_agent_hardlinks.sh" --quiet

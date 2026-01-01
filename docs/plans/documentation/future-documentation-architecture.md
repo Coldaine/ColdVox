@@ -9,6 +9,10 @@ last_reviewed: 2025-10-19
 
 # Future Documentation Architecture
 
+> **Note (current-state override)**: Agent instructions are canonical in `AGENTS.md` at the repo root.
+> Tool-specific entrypoints (e.g. `.github/copilot-instructions.md`, `.kilocode/rules/agents.md`) must mirror `AGENTS.md`.
+> **Do not create** `docs/agents.md`.
+
 ## Overview
 
 This document describes the future state of ColdVox documentation architecture, based on the comprehensive restructure proposal in `docs/proposal_documentation_restructure.md`. The goal is to transform our current scattered documentation into a well-organized, maintainable, and discoverable knowledge base.
@@ -45,7 +49,7 @@ This document describes the future state of ColdVox documentation architecture, 
 docs/
 ├── architecture.md                    # High-level system overview & vision
 ├── standards.md                       # Documentation standards & policies
-├── agents.md                          # AI agent guidelines & documentation index
+├── (no agents.md)                     # Agent instructions live at repo root (AGENTS.md)
 ├── dependencies.md                    # Project dependencies (Cargo, system)
 │
 ├── domains/                           # Domain-specific documentation

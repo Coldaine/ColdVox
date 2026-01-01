@@ -9,6 +9,10 @@ last_reviewed: 2025-10-19
 
 # Proposal: Documentation Restructure and Standards (v3)
 
+> **Note (current-state override)**: This proposal predates the current agent-instruction policy.
+> `AGENTS.md` at the repo root is canonical for agents, and **`docs/agents.md` should not be created**.
+> Tool-specific entrypoints (e.g. `.github/copilot-instructions.md`, `.kilocode/rules/agents.md`) must reference or mirror `AGENTS.md`.
+
 This document outlines a plan to restructure the project's documentation to improve clarity, maintainability, governance, and enforcement of standards. This version adds GitHub governance workflows (auto-merge, merge modes, branch protection), playbooks organization, explicit documentation exceptions, and an index strategy for agents.
 
 ## 1. Guiding Principles
@@ -25,7 +29,7 @@ This document outlines a plan to restructure the project's documentation to impr
 docs/
 ├── architecture.md         # High-level overview, linking to domain details
 ├── standards.md            # Comprehensive documentation standards guide
-├── agents.md               # Guidelines for AI agents, including the documentation index
+├── (no agents.md)          # Agent instructions live at repo root (AGENTS.md)
 ├── dependencies.md         # Project dependency documentation (e.g., Cargo, system)
 ├── repo/                   # Repo-level meta documentation
 │   ├── gitignore.md        # Rationale and structure of .gitignore
@@ -112,9 +116,9 @@ This new file will define:
 - `.github/` workflows, issue/PR templates (policy documents live in `/docs` but YAML config remains in `.github/`)
 - **`.gitignore` Documentation:** Covered in `/docs/repo/gitignore.md` and referenced from standards.
 
-### b. Documentation Index (in `docs/agents.md` and mirrored in `CLAUDE.md`)
+### b. Documentation Index (in `AGENTS.md` and referenced by `CLAUDE.md`)
 
-`docs/agents.md` will contain a well-formatted index to help agents (and humans) locate all documentation.
+`AGENTS.md` (repo root) should contain a well-formatted index to help agents (and humans) locate all documentation.
 
 ```markdown
 ### Documentation Index
@@ -199,7 +203,7 @@ This section captures the proposed repo governance and the feasibility of enforc
 - Project-specific nuances (e.g., which checks are required for ColdVox):
   - `docs/playbooks/project-specific/coldvox_documentation_playbook.md`
 - Agent awareness and quick-links:
-  - `docs/agents.md` (index) and `CLAUDE.md` (pointer + index)
+  - `AGENTS.md` (canonical) and `CLAUDE.md` (pointer/import)
 
 ## 7. Automated File Watcher and Logging (Docs Changes)
 
@@ -215,8 +219,8 @@ This section captures the proposed repo governance and the feasibility of enforc
 
 ## 9. Index Locations for Agents and Claude
 
-- `docs/agents.md`: canonical, structured documentation index with headings and links.
-- `CLAUDE.md`: retained as a thin file that mirrors the index and links to `docs/agents.md` for details.
+- `AGENTS.md`: canonical, structured documentation index with headings and links.
+- `CLAUDE.md`: retained as a thin file that imports or references `AGENTS.md`.
 
 ## 10. CI Playbook: Repository Structure Visualizations (Requirements + Options)
 
