@@ -6,6 +6,28 @@
 
 Minimal root README. Full developer & architecture guide: see [`CLAUDE.md`](CLAUDE.md). Assistants should read [`AGENTS.md`](AGENTS.md).
 
+## Quick Start
+
+Status varies by STT backend and platform. For current “what works” details, see [`docs/plans/critical-action-plan.md`](docs/plans/critical-action-plan.md).
+
+```bash
+# Main app
+just run
+
+# TUI dashboard
+just tui
+```
+
+Common Rust commands:
+
+```bash
+# Fast local feedback
+cargo check -p coldvox-app
+
+# Format check
+cargo fmt --all -- --check
+```
+
 ## Development
 
 ### Developer Git Hooks

@@ -2,9 +2,19 @@
 set -euo pipefail
 
 quiet=0
-if [[ "${1:-}" == "--quiet" ]]; then
-  quiet=1
-fi
+require_hardlink=0
+
+for arg in "$@"; do
+  case "$arg" in
+    --quiet) quiet=1 ;;
+    --require-hardlink) require_hardlink=1 ;;
+    *)
+      echo "error: unknown arg: $arg" >&2
+      echo "usage: $0 [--quiet] [--require-hardlink]" >&2
+      exit 64
+      ;;
+  esac
+done
 
 repo_root="$({
   cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd
@@ -35,4 +45,8 @@ if [[ "$quiet" -eq 0 ]]; then
   fi
 fi
 
-"$repo_root/scripts/ensure_agent_hardlinks.sh" ${quiet:+--quiet}
+ensure_args=()
+if [[ "$quiet" -eq 1 ]]; then ensure_args+=(--quiet); fi
+if [[ "$require_hardlink" -eq 1 ]]; then ensure_args+=(--require-hardlink); fi
+
+"$repo_root/scripts/ensure_agent_hardlinks.sh" "${ensure_args[@]}"
