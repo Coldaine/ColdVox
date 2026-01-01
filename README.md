@@ -12,10 +12,10 @@ Status varies by STT backend and platform. For current “what works” details,
 
 ```bash
 # Main app
-just run
+cargo run -p coldvox-app --bin coldvox
 
 # TUI dashboard
-just tui
+cargo run -p coldvox-app --bin tui_dashboard
 ```
 
 Common Rust commands:

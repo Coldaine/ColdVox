@@ -94,14 +94,14 @@ The self-hosted runner uses sccache for Rust compilation caching. This is set up
 
 ```bash
 # One-time setup on runner
-just setup-sccache
+./scripts/setup_sccache.sh
 
 # Or manually
 cargo install sccache --locked
 ```
 
 The CI workflow (`text_injection_tests` job) will:
-1. Run `just setup-sccache` to ensure sccache is installed
+1. Run `./scripts/setup_sccache.sh` to ensure sccache is installed
 2. Start the sccache server
 3. Set `RUSTC_WRAPPER=sccache` for all subsequent cargo commands
 

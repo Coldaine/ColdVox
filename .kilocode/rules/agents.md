@@ -61,23 +61,26 @@ cargo fmt --all -- --check
 ### Full Workspace (When Needed)
 
 ```bash
-just lint          # fmt + clippy + check (pre-push)
-just test          # cargo test --workspace --locked
-just build         # cargo build --workspace --locked
-just ci            # Full CI mirror via ./scripts/local_ci.sh
+# Full CI mirror (preferred)
+./scripts/local_ci.sh
+
+# Or run directly
+cargo clippy --workspace --all-targets --locked
+cargo test --workspace --locked
+cargo build --workspace --locked
 ```
 
 ### Running
 
 ```bash
-just run           # Main app
-just tui           # TUI dashboard
+cargo run -p coldvox-app --bin coldvox           # Main app
+cargo run -p coldvox-app --bin tui_dashboard     # TUI dashboard
 cargo run --features text-injection  # Text injection enabled
 ```
 
 ## Do
 
-- Use `just lint` before every push
+- Use `./scripts/local_ci.sh` (or crate-scoped commands) before pushing
 - Prefer crate-scoped commands for faster iteration
 - Use feature flags: `whisper`, `parakeet`, `text-injection`, `silero`
 - Follow Conventional Commits: `feat:`, `fix:`, `docs:`, `refactor:`, `test:`
@@ -91,7 +94,7 @@ cargo run --features text-injection  # Text injection enabled
 - Don't commit secrets or `.env` files
 - Don't edit generated code under `target/`
 - Don't add heavy dependencies without discussion
-- Don't skip `just lint` before pushing
+- Don't skip `./scripts/local_ci.sh` (or equivalent checks) before pushing
 - Don't create `docs/agents.md` - agent config lives at repo root
 
 ## Project Structure
@@ -209,8 +212,7 @@ hardware:
 
 ## PR Checklist
 
-- [ ] `just lint` passes
-- [ ] `just test` passes (or crate-scoped tests)
+- [ ] `./scripts/local_ci.sh` passes (or crate-scoped checks/tests)
 - [ ] Changelog updated if user-visible
 - [ ] Commit messages follow Conventional Commits
 - [ ] No secrets or sensitive data
