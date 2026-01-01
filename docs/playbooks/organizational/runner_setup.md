@@ -112,7 +112,7 @@ sccache caches Rust compilation artifacts, reducing incremental build times by 3
 **Installation** (run once on runner):
 ```bash
 cd /path/to/ColdVox
-just setup-sccache
+./scripts/setup_sccache.sh
 ```
 
 **Verification**:
@@ -126,19 +126,9 @@ sccache --show-stats
 
 The CI workflow automatically detects and uses sccache if available. No additional configuration needed after installation.
 
-#### just (Command Runner)
+#### just (Optional)
 
-The project uses `just` as a command runner for development tasks.
-
-**Installation**:
-```bash
-cargo install just --locked
-```
-
-**One-time setup** (installs all dev tools including sccache):
-```bash
-just setup
-```
+The repo includes a `justfile` as an optional command runner for convenience, but CI and canonical automation do not depend on it.
 
 ---
 

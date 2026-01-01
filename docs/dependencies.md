@@ -85,7 +85,7 @@ sccache caches Rust compilation artifacts across builds, significantly reducing 
 
 **Installation (one-time on self-hosted runner)**:
 ```bash
-just setup-sccache
+./scripts/setup_sccache.sh
 # Or manually: cargo install sccache --locked
 ```
 
@@ -110,7 +110,7 @@ sccache --show-stats
 
 ## CI Gating Expectations
 
-- **Security gates on every PR**: Run `cargo deny check` and `cargo audit` as blocking jobs (they are already configured in CI—make them non-optional locally via `just lint` or `scripts/local_ci.sh`).
+- **Security gates on every PR**: Run `cargo deny check` and `cargo audit` as blocking jobs (they are already configured in CI—make them non-optional locally via `./scripts/local_ci.sh`).
 - **Non-dummy end-to-end**: Hardware-backed E2E jobs (audio/VAD/STT/text injection) must execute on the self-hosted runner with real devices; remove or avoid placeholders. Use sharded CI so only that job targets the self-hosted runner while unit/integration suites run on hosted Linux.
 - **Cache-aware sharding**: Reuse the cargo cache populated on the self-hosted runner across the E2E job; keep other jobs on hosted runners to reduce queue time. If possible, warm the cache with a `cargo build --locked` step before running E2E to minimize device occupancy.
 - **Python/Rust lock discipline**: Keep `uv.lock` and `Cargo.lock` in sync with feature flags and PyO3 ABI choices; treat lock drift as a failing check in pre-commit/CI.
