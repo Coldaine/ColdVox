@@ -2,7 +2,18 @@
 
 > Canonical AI agent instructions for ColdVox. All tools (Claude Code, Copilot, Cursor, Kilo Code, etc.) should read this file.
 
-> **⚠️ CRITICAL**: Some documented features are broken or removed. See [`criticalActionPlan.md`](criticalActionPlan.md) before following STT instructions.
+> **⚠️ CRITICAL**: Some documented features are broken or removed. See [`docs/plans/critical-action-plan.md`](docs/plans/critical-action-plan.md) before following STT instructions.
+
+> **Solo-dev trust model**: This repo is effectively single-developer. We optimize for local productivity/automation over “untrusted contributor” safety. If a tool/setup step enables automation (e.g., repo-managed git hooks), that’s intentional.
+
+## Key Docs
+
+- [`README.md`](README.md) - Project overview and quick start
+- [`CLAUDE.md`](CLAUDE.md) - Deep-dive guide (Claude-specific + imports AGENTS)
+- [`docs/plans/critical-action-plan.md`](docs/plans/critical-action-plan.md) - What’s currently broken/misleading
+- [`docs/dev/CI/architecture.md`](docs/dev/CI/architecture.md) - CI runner split and rationale
+- [`docs/standards.md`](docs/standards.md) - Documentation + changelog standards
+- [`docs/MasterDocumentationPlaybook.md`](docs/MasterDocumentationPlaybook.md) - Documentation structure and rules
 
 ## Project Overview
 
@@ -61,7 +72,7 @@ just ci            # Full CI mirror via ./scripts/local_ci.sh
 ```bash
 just run           # Main app
 just tui           # TUI dashboard
-cargo run --features whisper,text-injection  # With STT
+cargo run --features text-injection  # Text injection enabled
 ```
 
 ## Do

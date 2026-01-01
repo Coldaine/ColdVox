@@ -39,6 +39,11 @@ jobs:
         run: |
           uv run scripts/validate_docs.py "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}"
 
+      - name: Validate agent instruction mirrors
+        run: |
+          diff -u AGENTS.md .github/copilot-instructions.md
+          diff -u AGENTS.md .kilocode/rules/agents.md
+
       - name: Append revision log entries
         run: |
           uv run scripts/docs_revision_logger.py "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}" "${{ github.actor }}"

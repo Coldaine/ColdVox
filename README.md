@@ -1,7 +1,7 @@
 # ColdVox
 > ⚠️ **Internal Alpha** - This project is in early development and not ready for production use.
 
-> **⚠️ CRITICAL**: Documentation is out of sync with code. Whisper STT has been removed; Parakeet doesn't compile. See [`criticalActionPlan.md`](criticalActionPlan.md) for current status. **Only Moonshine STT works** (requires `uv sync` first).
+> **⚠️ CRITICAL**: Documentation is out of sync with code. Whisper STT has been removed; Parakeet doesn't compile. See [`docs/plans/critical-action-plan.md`](docs/plans/critical-action-plan.md) for current status. **Only Moonshine STT works** (requires `uv sync` first).
 ## Development
  - Install Rust (stable) and required system dependencies for your platform.
  - Use the provided scripts in `scripts/` to help with local environment setup.
@@ -113,4 +113,4 @@ Dual-licensed under MIT or Apache-2.0. See `LICENSE-MIT` and `LICENSE-APACHE` if
 - Review the [Master Documentation Playbook](docs/MasterDocumentationPlaybook.md).
 - Follow the repository [Documentation Standards](docs/standards.md).
 - Coordinate work through the [Documentation Todo Backlog](docs/todo.md).
-- Assistants should read the [Assistant Interaction Index](docs/agents.md).
+- Assistants should read [`AGENTS.md`](AGENTS.md).

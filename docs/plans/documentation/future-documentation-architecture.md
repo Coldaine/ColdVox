@@ -87,7 +87,7 @@ docs/
 - **Audience**: All contributors
 - **Enforcement**: CI validation
 
-#### 3. Agent Guidelines (`docs/agents.md`)
+#### 3. Agent Guidelines (`AGENTS.md`)
 - **Purpose**: Optimize documentation for AI assistants
 - **Content**: Documentation index, search patterns, contribution guidelines
 - **Audience**: AI agents (Claude, GitHub Copilot, etc.)
@@ -166,7 +166,7 @@ last_reviewed: [YYYY-MM-DD]
 
 ### For AI Agents
 - **Predictable Structure**: Domain-based organization matches code structure
-- **Comprehensive Index**: `docs/agents.md` provides navigation guidance
+- **Comprehensive Index**: `AGENTS.md` provides navigation guidance
 - **Standardized Format**: Consistent headers and metadata enable better parsing
 - **Process Guidance**: Playbooks provide context for contribution workflows
 

@@ -9,13 +9,13 @@ last_reviewed: 2025-10-19
 
 # ColdVox Architecture & Future Vision
 
-> **⚠️ CRITICAL**: STT backend status has changed. See [`../criticalActionPlan.md`](../criticalActionPlan.md) for current working features.
+> **⚠️ CRITICAL**: STT backend status has changed. See [`plans/critical-action-plan.md`](plans/critical-action-plan.md) for current working features.
 
 ## Navigation
 
 - [Architecture Roadmap](./architecture/roadmap.md)
 - [Architecture Decisions](./architecture/adr/)
-- [Critical Action Plan](../criticalActionPlan.md) - Current broken features tracking
+- [Critical Action Plan](plans/critical-action-plan.md) - Current broken features tracking
 
 
 

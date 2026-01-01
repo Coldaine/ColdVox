@@ -66,6 +66,14 @@ docs-validate base="origin/main" head="HEAD":
 setup-hooks:
     pre-commit install
 
+# Ensure agent instruction mirrors are hardlinked to AGENTS.md
+link-agents:
+    ./scripts/ensure_agent_hardlinks.sh
+
+# Install git hooks to keep agent hardlinks after checkout/merge
+setup-hardlink-hooks:
+    ./scripts/install_git_hardlink_hooks.sh
+
 # Skip Rust checks in pre-commit (useful for quick commits)
 commit-fast *args:
     SKIP_RUST_CHECKS=1 git commit {{args}}
@@ -105,7 +113,7 @@ setup-sccache:
     echo "To enable: export RUSTC_WRAPPER=sccache"
 
 # Setup all development tools (run once after clone)
-setup: setup-hooks setup-sccache
+setup: setup-hooks setup-sccache setup-hardlink-hooks link-agents
     @echo "✓ Development environment ready"
 
 # Install Moonshine Python dependencies (transformers, torch, librosa via uv)
