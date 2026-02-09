@@ -1,3 +1,12 @@
+---
+doc_type: research
+subsystem: general
+version: 0.1.0
+status: final
+owners: Maintainers
+last_reviewed: 2026-02-09
+---
+
 # ColdVox Issue & PR Triage — 2026-02-09
 
 Audit of all 64 open issues and 7 open PRs. Verified by two independent review passes
