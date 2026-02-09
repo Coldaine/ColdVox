@@ -4,10 +4,10 @@ subsystem: general
 status: active
 freshness: current
 preservation: reference
-summary: Canonical frontmatter schema and documentation maintenance tooling
+summary: Documentation metadata policy with agentic review transition plan
 last_reviewed: 2026-02-09
 owners: Documentation Working Group
-version: 2.1.0
+version: 2.2.0
 ---
 
 # Documentation Standards
@@ -16,9 +16,9 @@ This standard documents repository-specific enforcement notes derived from the M
 
 ## Metadata Schema
 
-All Markdown files under `/docs` MUST include frontmatter with **required core fields**. Optional fields provide additional metadata for tracking and classification.
+All Markdown files under `/docs` SHOULD include frontmatter with core fields. Frontmatter is policy-level guidance now; semantic quality and staleness checks are moving to scoped LLM review.
 
-### Required Core Fields (CI Fails if Missing)
+### Core Fields (Expected for New/Edited Docs)
 
 ```yaml
 doc_type: [architecture|standard|playbook|reference|research|plan|troubleshooting|index|history]
@@ -26,7 +26,7 @@ subsystem: [domain-name|general]
 status: [draft|active|archived|superseded]
 ```
 
-### Required Informational Fields (Required after 2026-03-11)
+### Informational Fields (Expected; Reviewer-Enforced)
 
 ```yaml
 freshness: [current|aging|stale|historical|dead]
@@ -94,7 +94,7 @@ summary: "Brief description of what this document covers"
   - `archived` - Historical, kept for reference
   - `superseded` - Replaced by newer documentation
 
-#### Informational Fields (Required after 2026-03-11)
+#### Informational Fields (Expected)
 
 - **freshness**: Accuracy state of the content
   - `current` - Accurate as of today, actively maintained
@@ -150,19 +150,12 @@ summary: "Brief description of what this document covers"
 ### Documentation Index Generator
 `scripts/build_docs_index.py`
 - Scans all files in `/docs`
-- Validates frontmatter against `CORE_KEYS` and `INFO_KEYS`
+- Parses frontmatter metadata and reports missing metadata in the index
 - Generates `docs/index.md` with sections for:
   - **Action Required**: Invalid docs or dead docs outside archive
   - **Preserve These Ideas**: Docs with high preservation value
   - **Safe to Archive/Delete**: Docs flagged for removal
 - Automates stats by freshness and preservation level
-
-### Frontmatter Auto-fixer
-`scripts/ensure_doc_frontmatter.py`
-- Can be used as a pre-commit hook (warning only)
-- Run with `--fix` to automatically insert missing frontmatter blocks
-- Infers `doc_type` and `subsystem` based on file path
-- Sets default `freshness: stale` and `preservation: preserve` for new docs
 
 ### Bulk Classifier
 `scripts/classify_docs.py`
@@ -170,12 +163,14 @@ summary: "Brief description of what this document covers"
 - Uses regex patterns to map file paths to metadata values
 - Merges new metadata with existing frontmatter without losing data
 
-### CI Validator
-`scripts/validate_docs.py`
-- Invoked by `.github/workflows/docs-ci.yml`
-- Fails PRs if required core keys are missing
-- Warns on missing informational keys (grace period until 2026-03-11)
-- Fails if `freshness: dead` docs are found outside `docs/archive/`
+### Agentic Docs Review (Planned)
+- Add a scoped LLM documentation reviewer in CI for semantic validation.
+- Start in advisory mode and promote to blocking only after measured reliability.
+- Track rollout tasks in `docs/todo.md` under "Epic: Agentic Documentation Governance".
+- Use `scripts/docs_semantic_review.py` to build review packets/prompt contracts for CI.
+- Keep policy details aligned with `docs/reference/docs-semantic-review-contract.md`.
+- Current state: CI generates semantic review packet/prompt artifacts and runs OpenAI-compatible judging in advisory mode when provider credentials are available.
+- Pending: blocking thresholds, confidence calibration loop, and formal override flow.
 
 ## Domain Documentation Cross-links
 
@@ -199,13 +194,13 @@ When `expires_on` is reached, either:
 1. Promote useful content into stable docs and delete the transient file, or
 2. Move it to `docs/archive/` and mark status as `archived`.
 
-### Grace Period
+### Current Enforcement Status
 
-Until **2026-03-11**, the `freshness` and `preservation` fields are optional (warnings only). After this date, CI will fail if these fields are missing from docs under `/docs/`.
+Hard CI frontmatter validation is retired in favor of upcoming agentic review. Metadata remains required by policy and reviewer expectation, but missing keys do not currently hard-fail CI.
 
 ### Dead Docs Policy
 
-Documents marked `freshness: dead` MUST reside under `docs/archive/`. CI will fail if a dead doc is found outside the archive directory.
+Documents marked `freshness: dead` SHOULD reside under `docs/archive/`. Treat this as reviewer-enforced policy until agentic checks are active.
 
 ### Master Documentation Index Execution
 
@@ -213,18 +208,6 @@ Generate the canonical index with freshness status:
 
 ```bash
 python scripts/build_docs_index.py
-```
-
-### Auto-fix Missing Frontmatter Execution
-
-Pre-commit hooks will warn about missing frontmatter. To auto-fix files:
-
-```bash
-# Fix specific files
-python scripts/ensure_doc_frontmatter.py --fix docs/path/to/file.md
-
-# Fix all docs in a directory
-python scripts/ensure_doc_frontmatter.py --fix docs/plans/*.md
 ```
 
 ### Domain Filename Convention Enforcement

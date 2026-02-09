@@ -5,9 +5,9 @@ on:
     paths:
       - 'docs/**'
       - '.github/workflows/docs-ci.yml'
-      - 'scripts/validate_docs.py'
       - 'scripts/docs_revision_logger.py'
       - 'scripts/build_docs_index.py'
+      - 'scripts/docs_semantic_review.py'
       - '**/*.md'
 
 jobs:
@@ -36,9 +36,30 @@ jobs:
           uv venv .venv --python 3.12
           uv pip install -r requirements.txt
 
-      - name: Validate documentation frontmatter and placement
+      - name: Build semantic docs review packet (advisory)
         run: |
-          uv run scripts/validate_docs.py "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}"
+          uv run scripts/docs_semantic_review.py "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}" --packet-out .artifacts/docs_semantic_review_packet.json --prompt-out .artifacts/docs_semantic_review_prompt.md
+
+      - name: Upload semantic review artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-semantic-review
+          path: .artifacts/docs_semantic_review_*
+          if-no-files-found: warn
+
+      - name: Run semantic docs judge (OpenAI-compatible, advisory)
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
+          OPENAI_MODEL: ${{ vars.DOCS_REVIEW_MODEL }}
+        run: |
+          uv run scripts/docs_semantic_review.py "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}" \
+            --packet-out .artifacts/docs_semantic_review_packet.json \
+            --prompt-out .artifacts/docs_semantic_review_prompt.md \
+            --run-openai \
+            --allow-missing-openai-key \
+            --llm-output .artifacts/docs_semantic_review_result.json \
+            --fail-on none
 
       - name: Regenerate docs index and enforce commit
         run: |
