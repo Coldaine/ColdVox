@@ -1,10 +1,14 @@
 ---
 doc_type: plan
 subsystem: text-injection
-version: 1.0.0
 status: draft
-owners: Documentation Working Group
+freshness: stale
+preservation: preserve
+summary: Implementation patterns for Wayland vkbd, EIS, KWin
+signals: ['wayland-vkbd', 'portal-eis', 'kwin-fakeinput']
 last_reviewed: 2025-10-19
+owners: Documentation Working Group
+version: 1.0.0
 ---
 
 ## Three vNext Pain Points - Full Implementation

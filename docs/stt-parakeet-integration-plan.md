@@ -1,3 +1,13 @@
+---
+doc_type: reference
+subsystem: general
+status: draft
+freshness: stale
+preservation: preserve
+summary: API contract analysis and gap analysis for Parakeet
+signals: ['stt-api', 'parakeet']
+---
+
 # Parakeet STT Integration Plan - COMPREHENSIVE
 
 ## Executive Summary

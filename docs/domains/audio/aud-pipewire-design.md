@@ -1,11 +1,15 @@
 ---
 doc_type: architecture
 subsystem: audio
-version: 1.0.0
 status: draft
-owners: Documentation Working Group
-last_reviewed: 2025-10-19
+freshness: stale
+preservation: preserve
+summary: PipeWire detection and ALSA fallback strategy
+signals: ['pipewire', 'alsa', 'audio-routing']
 domain_code: aud
+last_reviewed: 2025-10-19
+owners: Documentation Working Group
+version: 1.0.0
 ---
 
 # PipeWire Audio System Integration Design

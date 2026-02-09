@@ -1,3 +1,12 @@
+---
+doc_type: plan
+subsystem: general
+status: active
+freshness: current
+preservation: reference
+summary: Source of truth for currently broken vs working features
+---
+
 # Critical Action Plan
 
 > **Created**: 2025-12-14

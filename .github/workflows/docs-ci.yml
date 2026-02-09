@@ -7,6 +7,7 @@ on:
       - '.github/workflows/docs-ci.yml'
       - 'scripts/validate_docs.py'
       - 'scripts/docs_revision_logger.py'
+      - 'scripts/build_docs_index.py'
       - '**/*.md'
 
 jobs:
@@ -38,6 +39,15 @@ jobs:
       - name: Validate documentation frontmatter and placement
         run: |
           uv run scripts/validate_docs.py "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}"
+
+      - name: Regenerate docs index and enforce commit
+        run: |
+          uv run scripts/build_docs_index.py
+          if ! git diff --quiet -- docs/index.md; then
+            echo "::error::docs/index.md is stale. Run: python scripts/build_docs_index.py and commit the result."
+            git diff -- docs/index.md || true
+            exit 1
+          fi
 
       - name: Validate agent instruction mirrors
         run: |

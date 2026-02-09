@@ -1,3 +1,11 @@
+---
+doc_type: research
+subsystem: general
+status: draft
+freshness: historical
+preservation: delete
+---
+
 # Research: Evolving AGENTS.md / CLAUDE.md for Modern LLM Agents
 
 ## Problem Statement

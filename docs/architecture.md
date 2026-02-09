@@ -1,10 +1,14 @@
 ---
 doc_type: architecture
 subsystem: general
-version: 1.0.0
 status: draft
-owners: Documentation Working Group
+freshness: stale
+preservation: preserve
+summary: High-level architecture and tiered STT vision
+signals: ['always-on', 'tiered-stt', 'decoupled-threading']
 last_reviewed: 2025-10-19
+owners: Documentation Working Group
+version: 1.0.0
 ---
 
 # ColdVox Architecture & Future Vision

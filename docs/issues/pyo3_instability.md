@@ -1,10 +1,13 @@
 ---
 doc_type: troubleshooting
 subsystem: stt
-version: 1.0.0
 status: draft
-owners: Documentation Working Group
+freshness: stale
+preservation: preserve
+summary: Risks of Python 3.13 + PyO3 0.27 free-threading
 last_reviewed: 2025-12-12
+owners: Documentation Working Group
+version: 1.0.0
 ---
 
 # Issue: PyO3 0.27 Instability on Python 3.13 (Moonshine Backend)

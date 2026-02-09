@@ -1,10 +1,13 @@
 ---
 doc_type: research
 subsystem: general
-version: 0.1.0
 status: final
-owners: Maintainers
+freshness: current
+preservation: reference
+summary: Active triage plan for today's work
 last_reviewed: 2026-02-09
+owners: Maintainers
+version: 0.1.0
 ---
 
 # ColdVox Issue & PR Triage — 2026-02-09

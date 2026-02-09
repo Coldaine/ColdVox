@@ -1,3 +1,15 @@
+---
+doc_type: architecture
+subsystem: general
+status: active
+freshness: current
+preservation: reference
+summary: Rationale for self-hosted vs GitHub-hosted CI split
+last_reviewed: 2026-02-09
+owners: Documentation Working Group
+version: 1.1.0
+---
+
 # CI Architecture
 
 > **Principle**: The laptop only does what only the laptop can do.
