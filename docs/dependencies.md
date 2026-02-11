@@ -1,10 +1,12 @@
 ---
 doc_type: reference
 subsystem: general
-version: 1.0.0
 status: draft
-owners: Documentation Working Group
+freshness: stale
+preservation: preserve
 last_reviewed: 2025-12-12
+owners: Documentation Working Group
+version: 1.0.0
 ---
 
 # Dependency Overview

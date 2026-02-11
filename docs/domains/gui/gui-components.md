@@ -1,11 +1,13 @@
 ---
 doc_type: reference
 subsystem: gui
-version: 1.0.0
 status: draft
-owners: Documentation Working Group
-last_reviewed: 2025-10-19
+freshness: stale
+preservation: preserve
 domain_code: gui
+last_reviewed: 2025-10-19
+owners: Documentation Working Group
+version: 1.0.0
 ---
 
 # ColdVox GUI Components Architecture

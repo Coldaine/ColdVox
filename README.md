@@ -6,6 +6,14 @@
 
 Minimal root README. Full developer & architecture guide: see [`CLAUDE.md`](CLAUDE.md). Assistants should read [`AGENTS.md`](AGENTS.md).
 
+## North Star
+
+Current product and documentation direction is anchored in:
+
+- [`docs/northstar.md`](docs/northstar.md)
+- [`docs/anchor-2026-02-09.md`](docs/anchor-2026-02-09.md)
+- [`docs/architecture.md`](docs/architecture.md)
+
 ## Quick Start
 
 Status varies by STT backend and platform. For current “what works” details, see [`docs/plans/critical-action-plan.md`](docs/plans/critical-action-plan.md).

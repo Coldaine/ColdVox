@@ -1,10 +1,12 @@
 ---
-doc_type: implementation-plan
-subsystem: coldvox-gui
-version: 1.1
+doc_type: plan
+subsystem: gui
 status: draft
-owners: gui-team
+freshness: stale
+preservation: preserve
 last_reviewed: 2025-09-06
+owners: gui-team
+version: 1.1
 ---
 
 # ColdVox GUI Backend Integration Implementation Plan

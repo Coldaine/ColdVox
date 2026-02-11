@@ -1,3 +1,11 @@
+---
+doc_type: research
+subsystem: general
+status: draft
+freshness: historical
+preservation: delete
+---
+
 # Research: Change-Scoped File Editing for AI Agents
 
 ## Problem Statement

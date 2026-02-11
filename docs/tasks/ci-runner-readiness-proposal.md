@@ -1,10 +1,12 @@
 ---
 doc_type: plan
 subsystem: general
-version: 1.0.0
 status: superseded
-owners: Documentation Working Group
+freshness: historical
+preservation: delete
 last_reviewed: 2025-12-24
+owners: Documentation Working Group
+version: 1.0.0
 ---
 
 > **SUPERSEDED**: This document is outdated. See [CI Architecture](../dev/CI/architecture.md) for the current approach.

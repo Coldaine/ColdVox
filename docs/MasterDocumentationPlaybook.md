@@ -1,10 +1,15 @@
 ---
 doc_type: playbook
 subsystem: general
-version: 1.0.2
 status: draft
-owners: Documentation Working Group
+freshness: current
+preservation: reference
+summary: Canonical documentation policy and retention rules
 last_reviewed: 2025-12-03
+last_reviewer: Documentation Working Group
+owners: Documentation Working Group
+review_due: 2026-03-31
+version: 1.0.2
 ---
 
 # Master Documentation Playbook (Org‑wide)
@@ -117,12 +122,16 @@ version: [semver, e.g., 1.2.3]
 status: [draft|review|approved|deprecated]
 owners: [team or individual]
 last_reviewed: [YYYY-MM-DD]
+last_reviewer: [team or individual]
+review_due: [YYYY-MM-DD]
 ---
 ```
 
 Notes:
 - `doc_type=index` is used for thin index pages (e.g., crate indexes in `reference/crates/`).
 - `subsystem` MUST match a domain folder when applicable (e.g., `stt`, `text-injection`).
+- `review_due` MUST be set to a future date. Expired reviews are treated as stale docs debt.
+- `last_reviewer` identifies who most recently validated technical accuracy.
 
 ## 4) Placement, Naming, and Linking Rules
 

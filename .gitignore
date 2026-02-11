@@ -37,6 +37,9 @@ logs/
 tmp/
 temp/
 *.tmp
+.artifacts/
+__pycache__/
+*.pyc
 
 # OS files
 Thumbs.db

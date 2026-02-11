@@ -1,10 +1,12 @@
 ---
 doc_type: reference
 subsystem: text-injection
-version: 1.0.0
 status: draft
-owners: Text Injection Maintainers
+freshness: stale
+preservation: preserve
 last_reviewed: 2025-11-06
+owners: Text Injection Maintainers
+version: 1.0.0
 ---
 
 # Testing the ColdVox Text Injection Crate

@@ -1,11 +1,13 @@
 ---
 doc_type: architecture
 subsystem: foundation
-version: 1.0.0
 status: draft
-owners: Documentation Working Group
+freshness: stale
+preservation: preserve
 last_reviewed: 2025-10-19
+owners: Documentation Working Group
 redirect: fdn-voice-pipeline-core-requirements.md
+version: 1.0.0
 ---
 
 # Moved: Requirements Document

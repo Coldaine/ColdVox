@@ -1,10 +1,12 @@
 ---
 doc_type: research
 subsystem: foundation
-version: 1.0.0
 status: draft
-owners: Documentation Working Group
+freshness: historical
+preservation: delete
 last_reviewed: 2025-10-19
+owners: Documentation Working Group
+version: 1.0.0
 ---
 
 Retention: Ephemeral. Delete after 2025-11-12 unless promoted to standards/playbooks/domains.

@@ -1,3 +1,11 @@
+---
+doc_type: research
+subsystem: general
+status: draft
+freshness: stale
+preservation: preserve
+---
+
 # Comprehensive Assessment of PR #190
 
 ## Executive Summary
