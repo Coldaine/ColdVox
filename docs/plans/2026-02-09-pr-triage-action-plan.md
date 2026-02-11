@@ -189,19 +189,20 @@ Valid for Moonshine or any future backend.
 
 ---
 
-## Stale Branches to Delete
+## Branch Cleanup After PR Actions
 
-These remote branches correspond to closed/merged work or superseded bot PRs:
+All remote branches correspond to open PRs. No orphaned branches exist.
+Delete each branch after its PR is merged or closed.
 
-| Branch | Reason |
-|--------|--------|
-| `origin/fix/dependency-audit-rubato-update-13523515918554210530` | Jules bot branch for PR #336 (closing) |
-| `origin/integrate/268` | No corresponding open issue/PR |
-| `origin/integrate/273` | No corresponding open issue/PR |
-| `origin/docs/update-action-plan-phases` | Corresponds to PR #313 (merge then delete) |
-| `origin/feat/ci-bifurcation` | Corresponds to PR #330 (merge then delete) |
-| `origin/dependabot/cargo/rust-dependencies-00915d846b` | Corresponds to PR #343 (merge then delete) |
-| `origin/dependabot/github_actions/actions-e6ee9d7de3` | Corresponds to PR #342 (merge then delete) |
+| Branch | PR | Action | Branch cleanup |
+|--------|-----|--------|----------------|
+| `origin/fix/dependency-audit-rubato-update-13523515918554210530` | #336 | Close PR (superseded by #343) | Delete after closing |
+| `origin/integrate/273` | #311 | Merge (ydotool tests) | Delete after merge |
+| `origin/integrate/268` | #312 | Merge (enigo/kdotool tests) | Delete after merge |
+| `origin/docs/update-action-plan-phases` | #313 | Merge (doc update) | Delete after merge |
+| `origin/feat/ci-bifurcation` | #330 | Merge (CI bifurcation) | Delete after merge |
+| `origin/dependabot/github_actions/actions-e6ee9d7de3` | #342 | Merge if CI passes | Delete after merge |
+| `origin/dependabot/cargo/rust-dependencies-00915d846b` | #343 | Merge if CI passes | Delete after merge |
 
 ---
 
