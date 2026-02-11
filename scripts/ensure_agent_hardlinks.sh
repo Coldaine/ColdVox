@@ -81,14 +81,14 @@ link_or_symlink_or_copy() {
 
   # 2) Fallback to symlink (works across filesystems).
   local rel
-  rel="$(python - <<'PY'
+  rel="$(python - "$src" "$dst" <<'PY'
 import os
 import sys
 src = sys.argv[1]
 dst = sys.argv[2]
 print(os.path.relpath(src, os.path.dirname(dst)))
 PY
-"$src" "$dst" 2>/dev/null || true)"
+)"
 
   if [[ -n "$rel" ]]; then
     if ln -sf "$rel" "$dst" 2>/dev/null; then

@@ -62,7 +62,7 @@ def classify_doc(metadata: Dict, err: str, path: Path) -> Tuple[str, str, str]:
 
     missing_core = CORE_KEYS - set(metadata.keys())
     if missing_core:
-        return "invalid", "unknown", f"missing core: {', '.join(missing_core)}"
+        return "invalid", "unknown", f"missing core: {', '.join(sorted(missing_core))}"
 
     missing_info = INFO_KEYS - set(metadata.keys())
     if missing_info and dt.date.today() >= GRACE_PERIOD_END:

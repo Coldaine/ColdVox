@@ -1,6 +1,6 @@
 ---
-doc_type: implementation-plan
-subsystem: coldvox-gui
+doc_type: plan
+subsystem: gui
 status: draft
 freshness: stale
 preservation: preserve

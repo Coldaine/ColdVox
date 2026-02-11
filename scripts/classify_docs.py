@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Bulk apply classification metadata to documentation frontmatter."""
 
-import os
 import re
 from pathlib import Path
 
@@ -18,23 +17,19 @@ CLASSIFICATIONS = [
     (r"docs/research/logs/.*", {"freshness": "historical", "preservation": "delete"}),
     # DEAD
     (
-        r"crates/coldvox-stt/README.md",
+        r"docs/archive/reference/crates/coldvox-stt.md",
         {"freshness": "dead", "preservation": "summarize"},
     ),
     (
-        r"docs/reference/crates/coldvox-stt.md",
-        {"freshness": "dead", "preservation": "summarize"},
-    ),
-    (
-        r"docs/plans/gui/raw-gui-plan.md",
+        r"docs/archive/plans/gui/raw-gui-plan.md",
         {"freshness": "dead", "preservation": "delete"},
     ),
     (
-        r"docs/plans/gui/comprehensive-gui-plan.md",
+        r"docs/archive/plans/gui/comprehensive-gui-plan.md",
         {"freshness": "dead", "preservation": "delete"},
     ),
     (
-        r"docs/plans/gui/aspirational-gui-plan.md",
+        r"docs/archive/plans/gui/aspirational-gui-plan.md",
         {"freshness": "dead", "preservation": "delete"},
     ),
     # CURRENT / REFERENCE
@@ -272,7 +267,8 @@ def main():
             if update_frontmatter(path, metadata):
                 print(f"  [DEFAULT] Classified {rel_path}")
                 updated_count += 1
-        except:
+        except (ValueError, UnicodeDecodeError) as exc:
+            print(f"  [SKIP] {rel_path}: {exc}")
             continue
 
     print(f"\n[DONE] Updated {updated_count} files.")

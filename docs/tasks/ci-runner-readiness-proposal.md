@@ -1,9 +1,9 @@
 ---
 doc_type: plan
 subsystem: general
-status: draft
-freshness: stale
-preservation: preserve
+status: superseded
+freshness: historical
+preservation: delete
 last_reviewed: 2025-12-24
 owners: Documentation Working Group
 version: 1.0.0

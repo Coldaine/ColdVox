@@ -169,13 +169,19 @@ DOC_TYPE_PATH_POLICY = {
 
 
 def run_git(args: List[str]) -> str:
-    result = subprocess.run(
-        ["git"] + args,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return result.stdout
+    try:
+        result = subprocess.run(
+            ["git"] + args,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return result.stdout
+    except subprocess.CalledProcessError as exc:
+        stderr = exc.stderr.strip() if exc.stderr else "(no stderr)"
+        raise RuntimeError(
+            f"git {' '.join(args)} failed (exit {exc.returncode}): {stderr}"
+        ) from exc
 
 
 def git_changed_docs(base: str, head: str) -> List[Tuple[str, Path]]:
@@ -880,7 +886,14 @@ def main() -> None:
         return
 
     llm_path = Path(llm_output_path)
-    model_output = json.loads(llm_path.read_text(encoding="utf-8"))
+    try:
+        model_output = json.loads(llm_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        print(f"::error ::LLM output file not found: {llm_path}")
+        sys.exit(1)
+    except json.JSONDecodeError as exc:
+        print(f"::error ::LLM output is invalid JSON: {exc}")
+        sys.exit(1)
     validation_errors = validate_model_output(model_output)
     if validation_errors:
         for err in validation_errors:

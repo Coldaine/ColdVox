@@ -1,7 +1,7 @@
 ---
-doc_type: research
+doc_type: plan
 subsystem: general
-status: final
+status: active
 freshness: current
 preservation: reference
 summary: Active triage plan for today's work
@@ -17,14 +17,18 @@ with cross-referencing of actual issue bodies via `gh api`.
 
 **Summary**: Close 32 issues + 1 PR | Keep 32 issues | Merge 6 PRs
 
+> **Rev 2 (2026-02-11)**: Corrections after deeper investigation:
+> - #281 (PyO3 0.24 instability) moved KEEP→CLOSE: already fixed in commit `d3b48ba` (PyO3 bumped to 0.27)
+> - #290 (Parakeet Drop) moved CLOSE→KEEP: valid GPU cleanup bug for a recoverable backend
+> - Parakeet plugin was never compiled successfully (written against fictional API), but parakeet-rs is real and fixable
+
 ---
 
 ## CLOSE — 32 Issues + 1 PR
 
-### Dead STT Backends (7 issues)
+### Dead STT Backends (6 issues)
 
-Whisper is removed, Parakeet is broken. Only Moonshine works.
-These issues reference deleted files, non-existent migration plans, or dead backends.
+Whisper is removed. These issues reference deleted files or non-existent migration plans.
 
 | # | Title | Reason |
 |---|-------|--------|
@@ -32,9 +36,14 @@ These issues reference deleted files, non-existent migration plans, or dead back
 | #222 | Build benchmarking harness comparing legacy vs new Rust pipeline | No legacy Whisper pipeline exists to compare against |
 | #223 | Research word-level timestamps using token-level heuristics | Body references `candle/timestamps.rs` (deleted), `whisper_plugin.rs` (deleted), and Candle examples. 100% Candle-specific despite generic title. Open a fresh backend-agnostic issue if needed |
 | #224 | Update README.md removing Faster-Whisper references | Duplicate of #321 which has the same scope |
-| #290 | Parakeet plugin missing Drop implementation for GPU cleanup | Parakeet backend broken (API drift with parakeet-rs 0.2); not fixable without rewrite |
 | #323 | Research: word-level timestamps for STT output (DTW) | Duplicate of #223; same dead Candle/Whisper scope |
 | #47 | Implement async processing for non-blocking STT operations | Vague single-paragraph stub from Sept 2025; superseded by #322 which has concrete scope |
+
+### Already Resolved (1 issue)
+
+| # | Title | Reason |
+|---|-------|--------|
+| #281 | PyO3 0.24 Instability on Python 3.13 (Moonshine Backend) | **Already fixed** in commit `d3b48ba`: PyO3 bumped from 0.24 to 0.27, all `Python::with_gil` migrated to `Python::attach`. Python 3.13 fully supported since PyO3 0.22 |
 
 ### Duplicates (10 issues)
 
@@ -97,7 +106,7 @@ consistency — keeping these while closing their siblings would be arbitrary.
 
 ## KEEP — 32 Issues
 
-### P0 — Fix This Week (7 issues)
+### P0 — Fix This Week (6 issues)
 
 These block correct operation or actively mislead developers.
 
@@ -107,7 +116,6 @@ These block correct operation or actively mislead developers.
 | #286 | AGENTS.md contains incorrect feature flag descriptions | AGENTS.md claims whisper/parakeet are working features; actively misleading |
 | #285 | Dead code references non-existent WhisperPluginFactory | Compile-time dead code behind `#[cfg(feature = "whisper")]`; blocks understanding the STT pipeline |
 | #321 | docs: remove faster-whisper references from README | README is the first thing contributors see; claims whisper works |
-| #281 | PyO3 0.24 Instability on Python 3.13 (Moonshine Backend) | Blocks the ONLY working STT backend. If Moonshine breaks, ColdVox has zero speech-to-text |
 | #284 | Plugin manager GC can unload active plugins | Concurrency bug — the garbage collector can destroy plugins mid-transcription |
 | #283 | Blocking locks in audio callback violate real-time constraints | Real-time safety violation; can cause audio glitches and dropped frames |
 
@@ -123,7 +131,7 @@ Real bugs and critical test gaps.
 | #289 | No cancellation tokens for background tasks | Shutdown/cleanup bug; background tasks can outlive their parent context |
 | #288 | Plugin manager has zero tests | The plugin manager has 3 confirmed bugs (#284, #293, #291) and zero test coverage. Testing it would catch the bugs above and prevent regressions |
 
-### P2 — STT Enhancement (4 issues)
+### P2 — STT Enhancement (5 issues)
 
 Valid for Moonshine or any future backend.
 
@@ -132,6 +140,7 @@ Valid for Moonshine or any future backend.
 | #322 | Research: async STT refactor for parallel audio processing | Backend-agnostic; applies to Moonshine |
 | #42 | Implement support for long utterance processing | Chunking/buffering strategy needed for any real-world use |
 | #46 | Harden STT model loading and validation | Security hardening; applies to Moonshine's ONNX model loading |
+| #290 | Parakeet plugin missing Drop implementation for GPU cleanup | parakeet-rs is a real published crate (0.2.8+). Plugin code was written against a fictional API and has never compiled, but the crate is recoverable. GPU `Drop` cleanup is needed once the adapter is rewritten against the real API |
 | #316 | feat: AT-SPI focus backend implementation | Has ~100 lines of working code for focus detection. Referenced by #299 |
 
 ### P2 — Testing Infrastructure (8 issues)
@@ -206,3 +215,7 @@ These remote branches correspond to closed/merged work or superseded bot PRs:
   4. #318 has scope beyond PR #330 (sccache, mold, caching optimizations)
   5. #223's body is 100% dead Candle/Whisper despite the generic title
 - #209 and #230 were moved from KEEP to CLOSE for consistency with identical jules stubs being closed
+- **Rev 2 corrections** after deeper code-level investigation:
+  6. #281 (PyO3 0.24) already fixed in commit `d3b48ba` — moved from KEEP P0 to CLOSE
+  7. #290 (Parakeet Drop) is a valid bug for a recoverable backend — moved from CLOSE to KEEP P2
+  8. Parakeet plugin was written against a fictional API (imports types that never existed in any parakeet-rs version) but the crate is real, published (0.2.8), and the adapter is fixable against the actual API
