@@ -6,7 +6,7 @@ description = "Speech-to-text abstraction layer for ColdVox"
 publish = false
 
 [dependencies]
-tokio = { version = "1.35", features = ["sync", "macros", "time"] }
+tokio = { version = "1.49", features = ["sync", "macros", "time"] }
 tracing = "0.1"
 parking_lot = "0.12"
 async-trait = "0.1"
@@ -21,7 +21,7 @@ coldvox-telemetry = { path = "../coldvox-telemetry" }
 parakeet-rs = { version = "0.2", optional = true }
 
 # Moonshine STT via PyO3/HuggingFace - Fixed auto-initialize
-pyo3 = { version = "0.27", optional = true, features = ["auto-initialize"] }
+pyo3 = { version = "0.28", optional = true, features = ["auto-initialize"] }
 tempfile = { version = "3.8", optional = true }
 hound = { version = "3.5", optional = true }
 
@@ -37,8 +37,8 @@ leopard = []
 silero-stt = []
 
 [dev-dependencies]
-tokio = { version = "1.35", features = ["rt-multi-thread", "macros"] }
-serial_test = "3.2"
+tokio = { version = "1.49", features = ["rt-multi-thread", "macros"] }
+serial_test = "3.3"
 hound = "3.5"
 
 # Gate moonshine example behind feature flag
