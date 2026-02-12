@@ -87,6 +87,9 @@ impl GpuProvider {
                 }
                 #[cfg(not(feature = "parakeet-cuda"))]
                 {
+                    warn!(
+                        "CUDA requested but parakeet-cuda feature not enabled; falling back to CPU"
+                    );
                     ExecutionProvider::Cpu
                 }
             }
@@ -97,6 +100,7 @@ impl GpuProvider {
                 }
                 #[cfg(not(feature = "parakeet-tensorrt"))]
                 {
+                    warn!("TensorRT requested but parakeet-tensorrt feature not enabled; falling back to CPU");
                     ExecutionProvider::Cpu
                 }
             }
@@ -283,9 +287,9 @@ impl SttPlugin for ParakeetPlugin {
             streaming: false, // Batch processing only for now
             batch: true,
             word_timestamps: true, // parakeet-rs provides token-level timestamps
-            confidence_scores: true,
+            confidence_scores: false, // parakeet-rs 0.2.6 does not expose per-token confidence
             speaker_diarization: false, // Can be added later via pyannote
-            auto_punctuation: true,     // Both variants support punctuation
+            auto_punctuation: true, // Both variants support punctuation
             custom_vocabulary: false,
         }
     }
