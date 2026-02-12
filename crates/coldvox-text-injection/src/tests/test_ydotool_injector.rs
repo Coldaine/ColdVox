@@ -17,6 +17,8 @@ struct TestHarness {
     home_dir: PathBuf,
     runtime_dir: PathBuf,
     original_path: String,
+    original_home: Option<String>,
+    original_xdg_runtime_dir: Option<String>,
     /// Path to a file that mock binaries can use to report arguments.
     output_file: PathBuf,
 }
@@ -39,6 +41,9 @@ impl TestHarness {
         File::create(&output_file)?;
 
         let original_path = env::var("PATH").unwrap_or_default();
+        let original_home = env::var("HOME").ok();
+        let original_xdg_runtime_dir = env::var("XDG_RUNTIME_DIR").ok();
+
         let new_path = format!("{}:{}", bin_dir.display(), original_path);
         env::set_var("PATH", new_path);
         env::set_var("HOME", &home_dir);
@@ -54,6 +59,8 @@ impl TestHarness {
             home_dir,
             runtime_dir,
             original_path,
+            original_home,
+            original_xdg_runtime_dir,
             output_file,
         })
     }
@@ -91,8 +98,21 @@ impl TestHarness {
 impl Drop for TestHarness {
     fn drop(&mut self) {
         env::set_var("PATH", &self.original_path);
-        env::remove_var("HOME");
-        env::remove_var("XDG_RUNTIME_DIR");
+
+        // Restore or remove HOME
+        if let Some(ref original_home) = self.original_home {
+            env::set_var("HOME", original_home);
+        } else {
+            env::remove_var("HOME");
+        }
+
+        // Restore or remove XDG_RUNTIME_DIR
+        if let Some(ref original_xdg_runtime_dir) = self.original_xdg_runtime_dir {
+            env::set_var("XDG_RUNTIME_DIR", original_xdg_runtime_dir);
+        } else {
+            env::remove_var("XDG_RUNTIME_DIR");
+        }
+
         env::remove_var("YDOTOOL_SOCKET");
         env::remove_var("UID");
         env::remove_var("UINPUT_PATH_OVERRIDE");
@@ -115,7 +135,8 @@ fn test_candidate_socket_paths_priority() {
 #[serial]
 fn test_locate_existing_socket_finds_first_available() {
     let harness = TestHarness::new().unwrap();
-    let _ = harness.runtime_dir.join(".ydotool_socket");
+    let runtime_socket = harness.runtime_dir.join(".ydotool_socket");
+    harness.create_mock_socket(&runtime_socket).unwrap();
     let expected_socket = harness.home_dir.join(".ydotool").join("socket");
     harness.create_mock_socket(&expected_socket).unwrap();
 
@@ -123,9 +144,9 @@ fn test_locate_existing_socket_finds_first_available() {
     assert_eq!(located, Some(expected_socket));
 }
 
-#[tokio::test]
+#[test]
 #[serial]
-async fn test_check_binary_permissions_success() {
+fn test_check_binary_permissions_success() {
     let harness = TestHarness::new().unwrap();
     let ydotool_path = harness
         .create_mock_binary("ydotool", "#!/bin/sh\nexit 0", true)
