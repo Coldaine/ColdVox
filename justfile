@@ -58,6 +58,10 @@ fmt:
 docs:
     cargo doc --workspace --no-deps --locked --open
 
+# Validate domain documentation naming (requires uv and Python 3.12)
+validate-docs-naming:
+    uv run scripts/validate_domain_docs_naming.py
+
 # Validate documentation changes (requires uv and Python 3.12)
 docs-validate base="origin/main" head="HEAD":
     uv run scripts/validate_docs.py {{base}} {{head}}
