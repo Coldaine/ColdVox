@@ -6,11 +6,15 @@ async fn main() {
 
     #[cfg(feature = "enigo")]
     {
-        use coldvox_text_injection::enigo_injector::EnigoInjector;
+        use coldvox_text_injection::{
+            enigo_injector::EnigoInjector, InjectionConfig, TextInjector,
+        };
 
         // Create injector with default config
-        let mut config = InjectionConfig::default();
-        config.allow_enigo = true;
+        let config = InjectionConfig {
+            allow_enigo: true,
+            ..Default::default()
+        };
 
         let injector = EnigoInjector::new(config);
 
