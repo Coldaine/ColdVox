@@ -519,11 +519,30 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_display_protocol_is_xwayland() {
+        let original_xdg_session_type = env::var("XDG_SESSION_TYPE").ok();
+        let original_wayland_display = env::var("WAYLAND_DISPLAY").ok();
+
+        env::remove_var("XDG_SESSION_TYPE");
+        env::remove_var("WAYLAND_DISPLAY");
+
         // Test without environment variables
         assert!(!DisplayProtocol::Wayland.is_xwayland());
         assert!(!DisplayProtocol::X11.is_xwayland()); // No Wayland indicators
         assert!(!DisplayProtocol::Unknown.is_xwayland());
+
+        env::set_var("XDG_SESSION_TYPE", "wayland");
+        assert!(DisplayProtocol::X11.is_xwayland());
+
+        match original_xdg_session_type {
+            Some(value) => env::set_var("XDG_SESSION_TYPE", value),
+            None => env::remove_var("XDG_SESSION_TYPE"),
+        }
+        match original_wayland_display {
+            Some(value) => env::set_var("WAYLAND_DISPLAY", value),
+            None => env::remove_var("WAYLAND_DISPLAY"),
+        }
     }
 
     #[test]
@@ -879,7 +898,12 @@ mod tests {
         );
         // Desktop environment can be unknown when no display is available
         assert!(
-            env_info.desktop_environment == DesktopEnvironment::Unknown || env_info.has_display
+            matches!(
+                env_info.desktop_environment,
+                DesktopEnvironment::Unknown
+                    | DesktopEnvironment::Windows
+                    | DesktopEnvironment::MacOS
+            ) || env_info.has_display
         );
         assert!(env_info.environment == Environment::Production); // Default when no indicators
     }

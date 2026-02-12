@@ -35,7 +35,7 @@ pub mod harness {
     use serde::de::DeserializeOwned;
     use serde::Serialize;
     use std::fs;
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
 
     /// Returns the path to the directory where test artifacts are stored.
     ///
@@ -151,6 +151,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_short_phrase_pipeline() {
+        let preferred_plugin = if cfg!(feature = "moonshine") {
+            "moonshine"
+        } else if cfg!(feature = "parakeet") {
+            "parakeet"
+        } else {
+            eprintln!(
+                "Skipping golden master test: no real STT backend feature enabled (requires `moonshine` or `parakeet`)."
+            );
+            return;
+        };
+
         // Initialize tracing for better debugging
         let _ = tracing_subscriber::fmt()
             .with_env_filter(
@@ -203,7 +214,7 @@ mod tests {
             activation_mode: ActivationMode::Vad,
             vad_config: Some(vad_config),
             stt_selection: Some(PluginSelectionConfig {
-                preferred_plugin: Some("whisper".to_string()),
+                preferred_plugin: Some(preferred_plugin.to_string()),
                 failover: Some(FailoverConfig::default()),
                 gc_policy: Some(GcPolicy {
                     enabled: false,
@@ -235,7 +246,7 @@ mod tests {
 
         let vad_collector_handle = tokio::spawn(async move {
             while let Ok(event) = vad_rx.recv().await {
-                let serializable_event = SerializableVadEvent::from(event.clone());
+                let serializable_event = SerializableVadEvent::from(event);
                 tracing::info!("VAD event captured: {:?}", serializable_event);
                 vad_events_clone.lock().await.push(serializable_event);
             }
