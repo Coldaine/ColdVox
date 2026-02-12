@@ -28,6 +28,8 @@ hound = { version = "3.5", optional = true }
 [features]
 default = []
 parakeet = ["dep:parakeet-rs"]
+parakeet-cuda = ["parakeet", "parakeet-rs/cuda"]
+parakeet-tensorrt = ["parakeet-cuda", "parakeet-rs/tensorrt"]
 whisper = [] # Placeholder until new backend is implemented
 moonshine = ["dep:pyo3", "dep:tempfile", "dep:hound"]
 coqui = []
