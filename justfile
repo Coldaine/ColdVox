@@ -70,9 +70,9 @@ setup-hooks:
 link-agents:
     ./scripts/ensure_agent_hardlinks.sh
 
-# Install git hooks to keep agent hardlinks after checkout/merge
+# Install git hooks to keep agent hardlinks and validate docs
 setup-hardlink-hooks:
-    ./scripts/install_git_hardlink_hooks.sh
+    ./scripts/install-githooks.sh
 
 # Skip Rust checks in pre-commit (useful for quick commits)
 commit-fast *args:
