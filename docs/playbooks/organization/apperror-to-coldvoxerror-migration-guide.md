@@ -1,12 +1,10 @@
 ---
 doc_type: playbook
 subsystem: foundation
-status: draft
-freshness: stale
-preservation: preserve
-last_reviewed: 2025-11-01
-owners: Documentation Working Group
 version: 1.0.0
+status: active
+owners: Documentation Working Group
+last_reviewed: 2025-11-01
 ---
 
 # AppError to ColdVoxError Migration Guide
