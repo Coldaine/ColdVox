@@ -1,5 +1,5 @@
 ---
-doc_type: playbook
+doc_type: reference
 subsystem: telemetry
 version: 1.0.0
 status: active

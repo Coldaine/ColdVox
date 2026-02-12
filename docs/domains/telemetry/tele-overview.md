@@ -3,6 +3,8 @@ doc_type: index
 subsystem: telemetry
 version: 1.0.0
 status: approved
+freshness: current
+preservation: preserve
 owners: Telemetry Team
 last_reviewed: 2026-02-12
 last_reviewer: Jules
