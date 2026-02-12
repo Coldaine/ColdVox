@@ -1,19 +1,17 @@
 {
-  "preferred_plugin": "noop",
-  "fallback_plugins": [
-    "mock"
-  ],
+  "preferred_plugin": "parakeet",
+  "fallback_plugins": ["mock"],
   "require_local": true,
   "max_memory_mb": null,
   "required_language": null,
   "failover": {
     "failover_threshold": 3,
-    "failover_cooldown_secs": 1
+    "failover_cooldown_secs": 30
   },
   "gc_policy": {
-    "model_ttl_secs": 1,
-    "enabled": true
+    "model_ttl_secs": 300,
+    "enabled": false
   },
   "metrics": null,
-  "auto_extract_model": false
+  "auto_extract_model": true
 }
