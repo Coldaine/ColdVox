@@ -1,20 +1,13 @@
 ---
 doc_type: plan
 subsystem: general
-status: draft
-freshness: stale
-preservation: preserve
-last_reviewed: 2025-10-19
-owners: Documentation Working Group
 version: 1.0.0
+status: draft
+owners: Documentation Working Group
+last_reviewed: 2025-10-19
 ---
 
 # Documentation Migration Mapping
-
-> **Note (current-state override)**: This plan predates the current agent-instruction policy.
-> `AGENTS.md` at the repo root is the canonical agent instruction file.
-> Tool-specific entrypoints (`.github/copilot-instructions.md`, `.kilocode/rules/agents.md`) are kept in sync with `AGENTS.md` (and are locally hardlinked where possible).
-> **Do not create** `docs/agents.md`.
 
 This plan catalogs existing Markdown files and maps each one to the canonical target location (or disposition) required by the Master Documentation Playbook v1.0.0. The mapping will guide the relocation work in Phase 3 and ensures no markdown remains outside `/docs` except approved exceptions.
 
@@ -41,6 +34,7 @@ Phase 1 and the majority of Phase 2–3 migrations have been executed. Remaining
 | crates/coldvox-gui/README.md | docs/reference/crates/coldvox-gui.md | move | Replace with thin index linking to crate README. |
 | crates/app/docs/updated_architecture_diagram.md | docs/domains/gui/troubleshooting/updated-architecture-diagram.md | move | Confirm appropriate domain; include retention guidance if exploratory. |
 | crates/app/test_data/README.md | docs/reference/crates/app-test-data.md | move | Determine if this should stay with crate README or become troubleshooting note. |
+| crates/coldvox-stt-vosk/README.md | docs/reference/crates/coldvox-stt-vosk.md | move | Thin index linking back. |
 | crates/voice-activity-detector/MODIFICATIONS.md | docs/domains/vad/modifications.md | move | Normalize filename + frontmatter. |
 | crates/coldvox-telemetry/README.md | docs/reference/crates/coldvox-telemetry.md | move | Thin index. |
 | crates/coldvox-text-injection/TESTING.md | docs/domains/text-injection/ti-testing.md | move | Add frontmatter and align with standards. |
@@ -54,7 +48,7 @@ Phase 1 and the majority of Phase 2–3 migrations have been executed. Remaining
 | .github/prompts/FileInventory.prompt.md | docs/research/logs/file-inventory-prompt.md | move | Add retention banner (ephemeral). |
 | .github/SETUP_RELEASE_TOKEN.md | docs/repo/setup-release-token.md | move | Add frontmatter; categorize under repo meta. |
 | CHANGELOG.md | CHANGELOG.md | retain-exception | Approved root exception. Add reference to docs/standards.md exceptions. |
-| CLAUDE.md | CLAUDE.md | retain-exception | Must reference/import `AGENTS.md` (canonical). |
+| CLAUDE.md | CLAUDE.md | retain-exception | Must mirror docs/agents.md post-migration. |
 | README.md | README.md | retain-exception | Update contributing links to new docs. |
 
 ## Inside `/docs`
@@ -114,6 +108,9 @@ Phase 1 and the majority of Phase 2–3 migrations have been executed. Remaining
 | docs/domains/stt/whisper/README.md | docs/domains/stt/whisper/index.md | move | rename. |
 | docs/domains/stt/whisper/implementation-checklist.md | docs/domains/stt/whisper/implementation-checklist.md | retain | Add frontmatter. |
 | docs/domains/stt/whisper/windows-testing.md | docs/domains/stt/whisper/windows-testing.md | retain | Add frontmatter. |
+| docs/domains/stt/vosk.md | docs/domains/stt/vosk.md | retain | Add frontmatter and move troubleshooting under subfolder. |
+| docs/domains/stt/vosk-architecture.md | docs/domains/stt/vosk-architecture.md | retain | Add frontmatter. |
+| docs/domains/stt/vosk-testing.md | docs/domains/stt/troubleshooting/vosk-testing.md | move | restructure. |
 | docs/domains/foundation.md | docs/domains/foundation/index.md | move | rename. |
 | docs/domains/foundation/README.md | docs/domains/foundation/index.md | consolidate | unify. |
 | docs/domains/foundation/runtime_vision.md | docs/domains/foundation/runtime-vision.md | retain | rename + frontmatter. |
@@ -123,6 +120,7 @@ Phase 1 and the majority of Phase 2–3 migrations have been executed. Remaining
 | docs/domains/text-injection/tracing.md | docs/domains/text-injection/tracing.md | retain | add frontmatter. |
 | docs/domains/text-injection/injection_states.md | docs/domains/text-injection/injection-states.md | retain | rename + frontmatter. |
 | docs/domains/text-injection/voice_selection.md | docs/domains/text-injection/voice-selection.md | retain | rename + frontmatter. |
+| docs/domains/text-injection/vosk.md | docs/domains/text-injection/vosk.md | retain | frontmatter; maybe troubleshooting. |
 | docs/domains/text-injection/silero_audio_stream_injection.md | docs/domains/text-injection/silero-audio-stream-injection.md | retain | rename + frontmatter. |
 | docs/domains/text-injection/docs-review-roadmap.md | docs/domains/text-injection/docs-review-roadmap.md | retain | ensure alignment with architecture roadmap. |
 | docs/review/README.md | docs/research/pr-reports/index.md | move | convert to index for review history or archive. |
@@ -135,7 +133,7 @@ Phase 1 and the majority of Phase 2–3 migrations have been executed. Remaining
 ## Required New Files/Stubs
 
 - docs/standards.md — Document metadata schema, approved exceptions, changelog rubric, watcher spec.
-- (Removed) `docs/agents.md` — superseded by root `AGENTS.md`.
+- docs/agents.md — Assistant interaction index mirrored by CLAUDE.md.
 - docs/dependencies.md — Dependency overview.
 - docs/repo/gitignore.md — Explain .gitignore conventions.
 - docs/repo/editor.md — Editor/IDE guidelines.

@@ -106,3 +106,33 @@ Real injection testing covers:
 - Production-accurate error conditions and handling
 
 This approach ensures that all tests validate actual production functionality without the limitations of mocked dependencies.
+
+## Known Failure Scenarios
+
+The following failure modes are documented for awareness and test coverage planning. Each describes an expected runtime condition and the system's designed response.
+
+| Scenario | Detection | Expected Behavior | User-Facing Message |
+|----------|-----------|-------------------|---------------------|
+| AT-SPI bus not running | D-Bus connection timeout | Fall back to clipboard-based injection | (silent; fallback is automatic) |
+| No application has focus | AT-SPI returns no focused object | Skip injection; wait for focus | "Please click on the target application" |
+| Focused element is not editable | No EditableText interface on focused object | Fall back to clipboard path | (silent; handled internally) |
+| Clipboard locked by another app | Clipboard operation times out | Skip clipboard methods; use remaining methods | (silent) |
+| Unicode character has no keycode | Keymap lookup returns nothing | Use clipboard for that text chunk | (silent) |
+| Rate-limited (rapid injections) | Multiple injections within tight window | Queue and batch via session buffering | (silent) |
+| All methods exhausted | Every method in the chain failed | Return `AllMethodsFailed` error | "No injection method available in this session" |
+| Budget exhausted | Total latency budget exceeded before all methods tried | Return `BudgetExhausted` error | (silent; logged) |
+
+## Performance Budgets
+
+The injection system enforces timing budgets at multiple levels to prevent runaway attempts:
+
+| Operation | Default Budget | Notes |
+|-----------|---------------|-------|
+| Per-method attempt | 250 ms | Configurable via `per_method_timeout_ms` |
+| Total injection | 800 ms | Configurable via `max_total_latency_ms` |
+| Confirmation check | 75 ms | Fixed; 7 polls at 10ms intervals |
+| Paste action | 200 ms | Configurable via `paste_action_timeout_ms` |
+| Focus cache validity | 200 ms | Configurable via `focus_cache_duration_ms` |
+| Clipboard restore delay | 500 ms | Configurable via `clipboard_restore_delay_ms` |
+
+These budgets ensure the system fails fast and moves to the next method rather than blocking indefinitely on an unresponsive backend.
