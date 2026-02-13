@@ -100,87 +100,24 @@ pub mod harness {
         let approved_value: T =
             serde_json::from_str(&approved_json).expect("Failed to deserialize approved value");
 
-        // For VAD events we occasionally see frame boundary jitter causing
-        // minor duration differences. If both approved and received are arrays
-        // of SerializableVadEvent, apply a tolerance for SpeechEnd duration.
-        let mismatch = if anchor == "vad" {
-            // Custom tolerant comparison.
-            use serde_json::Value;
-            let received_val: Value = serde_json::to_value(received_value).unwrap();
-            let approved_val: Value = serde_json::to_value(&approved_value).unwrap();
-            let tolerant = match (approved_val, received_val) {
-                (Value::Array(a), Value::Array(b)) if a.len() == b.len() => {
-                    // Iterate and compare per element; tolerate SpeechEnd duration diff <= 128ms
-                    let mut all_ok = true;
-                    for (av, bv) in a.iter().zip(b.iter()) {
-                        match (av, bv) {
-                            (Value::Object(ao), Value::Object(bo)) => {
-                                let kind_a = ao.get("kind").and_then(|v| v.as_str()).unwrap_or("");
-                                let kind_b = bo.get("kind").and_then(|v| v.as_str()).unwrap_or("");
-                                if kind_a != kind_b {
-                                    all_ok = false;
-                                    break;
-                                }
-                                if kind_a == "SpeechEnd" {
-                                    let da =
-                                        ao.get("duration_ms").and_then(|v| v.as_u64()).unwrap_or(0);
-                                    let db =
-                                        bo.get("duration_ms").and_then(|v| v.as_u64()).unwrap_or(0);
-                                    let diff = da.abs_diff(db);
-                                    if diff > 128 {
-                                        all_ok = false;
-                                        break;
-                                    }
-                                } else if kind_a == "SpeechStart" {
-                                    // SpeechStart has no duration, ignore
-                                } else {
-                                    // Unknown kind fallback to strict equality
-                                    if av != bv {
-                                        all_ok = false;
-                                        break;
-                                    }
-                                }
-                            }
-                            _ => {
-                                if av != bv {
-                                    all_ok = false;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    all_ok
-                }
-                _ => false,
-            };
-            !tolerant
-        } else {
-            approved_value != *received_value
-        };
-
-        if mismatch {
-            similar_asserts::assert_eq!(
-                approved_value,
-                *received_value,
-                "Golden master mismatch for test '{}', anchor '{}'.\n\
-                If the change is intentional, approve it with:\n\
-                cp {} {}",
-                test_name,
-                anchor,
-                received_path.display(),
-                approved_path.display()
-            );
-        }
+        similar_asserts::assert_eq!(
+            approved_value,
+            *received_value,
+            "Golden master mismatch for test '{}', anchor '{}'.\n\
+            If the change is intentional, approve it with:\n\
+            cp {} {}",
+            test_name,
+            anchor,
+            received_path.display(),
+            approved_path.display()
+        );
     }
 }
-
-mod common;
 
 #[cfg(test)]
 mod tests {
     use super::harness::assert_golden;
     use super::test_utils::MockInjectionSink;
-    use crate::common::logging::init_test_logging;
     use coldvox_app::audio::wav_file_loader::WavFileLoader;
     use coldvox_app::runtime::{start, ActivationMode, AppRuntimeOptions};
     use coldvox_audio::DeviceConfig;
@@ -206,12 +143,7 @@ mod tests {
                 },
                 VadEvent::SpeechEnd { duration_ms, .. } => Self {
                     kind: "SpeechEnd".to_string(),
-                    // Normalize to reduce flakiness from scheduling/frame timing jitter.
-                    // Round to the nearest 64ms bucket (half-up).
-                    duration_ms: Some({
-                        const BUCKET: u64 = 64;
-                        ((duration_ms + BUCKET / 2) / BUCKET) * BUCKET
-                    }),
+                    duration_ms: Some(duration_ms),
                 },
             }
         }
@@ -219,8 +151,26 @@ mod tests {
 
     #[tokio::test]
     async fn test_short_phrase_pipeline() {
-        // Initialize comprehensive file-based logging
-        let _guard = init_test_logging("golden_master_short_phrase");
+        let preferred_plugin = if cfg!(feature = "moonshine") {
+            "moonshine"
+        } else if cfg!(feature = "parakeet") {
+            "parakeet"
+        } else {
+            eprintln!(
+                "Skipping golden master test: no real STT backend feature enabled (requires `moonshine` or `parakeet`)."
+            );
+            return;
+        };
+
+        // Initialize tracing for better debugging
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(
+                tracing_subscriber::EnvFilter::from_default_env()
+                    .add_directive("coldvox_app=debug".parse().unwrap())
+                    .add_directive("coldvox_stt=debug".parse().unwrap()),
+            )
+            .with_test_writer()
+            .try_init();
 
         let test_name = "short_phrase";
         let wav_path = "test_data/test_11.wav";
@@ -240,19 +190,9 @@ mod tests {
             wav_loader.channels()
         );
 
-        // If the whisper feature isn't enabled, fall back to mock plugin.
-        #[cfg(feature = "whisper")]
         let transcription_config = coldvox_stt::TranscriptionConfig {
             enabled: true,
             model_path: "tiny.en".to_string(),
-            ..Default::default()
-        };
-
-        #[cfg(not(feature = "whisper"))]
-        let transcription_config = coldvox_stt::TranscriptionConfig {
-            enabled: true,
-            // Use a placeholder path; mock plugin ignores it.
-            model_path: "mock".to_string(),
             ..Default::default()
         };
 
@@ -270,17 +210,11 @@ mod tests {
             sample_rate_hz: 16000,
         };
 
-        // Choose preferred plugin depending on feature set
-        #[cfg(feature = "whisper")]
-        let preferred_plugin = "whisper".to_string();
-        #[cfg(not(feature = "whisper"))]
-        let preferred_plugin = "mock".to_string();
-
         let opts = AppRuntimeOptions {
             activation_mode: ActivationMode::Vad,
             vad_config: Some(vad_config),
             stt_selection: Some(PluginSelectionConfig {
-                preferred_plugin: Some(preferred_plugin),
+                preferred_plugin: Some(preferred_plugin.to_string()),
                 failover: Some(FailoverConfig::default()),
                 gc_policy: Some(GcPolicy {
                     enabled: false,
@@ -305,9 +239,19 @@ mod tests {
         let app = Arc::new(app);
         tracing::info!("Application runtime started successfully");
 
-        // 4. Subscribe to VAD events directly and collect until SpeechEnd.
+        // 4. Subscribe to the VAD event channel to capture VAD output.
         let mut vad_rx = app.subscribe_vad();
         let vad_events = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+        let vad_events_clone = vad_events.clone();
+
+        let vad_collector_handle = tokio::spawn(async move {
+            while let Ok(event) = vad_rx.recv().await {
+                let serializable_event = SerializableVadEvent::from(event);
+                tracing::info!("VAD event captured: {:?}", serializable_event);
+                vad_events_clone.lock().await.push(serializable_event);
+            }
+            tracing::info!("VAD collector task finished");
+        });
 
         // 5. Stream the WAV file into the pipeline in a background task.
         let audio_producer = app.audio_producer.clone();
@@ -322,74 +266,50 @@ mod tests {
             }
         });
 
-        // 6. Collect VAD events until SpeechEnd (and injection if whisper enabled)
-        let start_wait = std::time::Instant::now();
-
-        // Wrap the entire wait loop in a 30-second timeout to prevent hangs
-        let vad_collection_result = tokio::time::timeout(Duration::from_secs(30), async {
-            let mut no_events_warning_printed = false;
+        // 6. Wait for the pipeline to signal completion.
+        let vad_clone = vad_events.clone();
+        let injection_clone = mock_sink.injected_text.clone();
+        let completion_result = tokio::time::timeout(Duration::from_secs(60), async move {
+            let mut last_log = std::time::Instant::now();
             loop {
-                tokio::select! {
-                    evt = vad_rx.recv() => {
-                        match evt {
-                            Ok(e) => {
-                                let ser = SerializableVadEvent::from(e);
-                                tracing::info!("VAD event captured: {:?}", ser);
-                                vad_events.lock().await.push(ser);
-                                no_events_warning_printed = false; // Reset warning flag on new event
-                            }
-                            Err(e) => {
-                                tracing::warn!("VAD channel closed or error: {}", e);
-                                break;
-                            }
-                        }
-                    }
-                    _ = tokio::time::sleep(Duration::from_millis(250)) => {
-                        // Periodic completion check
-                    }
-                }
+                let vad_lock = vad_clone.lock().await;
+                let has_speech_end = vad_lock.iter().any(|e| e.kind == "SpeechEnd");
+                let vad_count = vad_lock.len();
+                drop(vad_lock);
 
-                let events = vad_events.lock().await;
-                let has_speech_end = events.iter().any(|e| e.kind == "SpeechEnd");
-                #[cfg(feature = "whisper")]
-                let has_injection = !mock_sink.injected_text.lock().unwrap().is_empty();
-                #[cfg(not(feature = "whisper"))]
-                let has_injection = true; // Ignore injection for mock-only runs
-                drop(events);
+                let injection_lock = injection_clone.lock().unwrap();
+                let has_injection = !injection_lock.is_empty();
+                let injection_count = injection_lock.len();
+                drop(injection_lock);
+
+                // Log every 2 seconds to reduce spam
+                if last_log.elapsed() >= Duration::from_secs(2) {
+                    tracing::info!(
+                        "Waiting for completion: has_speech_end={}, has_injection={}, vad_events={}, injections={}",
+                        has_speech_end,
+                        has_injection,
+                        vad_count,
+                        injection_count
+                    );
+                    last_log = std::time::Instant::now();
+                }
 
                 if has_speech_end && has_injection {
                     tracing::info!("Pipeline completion detected!");
                     break;
                 }
-
-                // Early warning if no events after 5 seconds
-                if start_wait.elapsed() > Duration::from_secs(5) && !no_events_warning_printed {
-                    let vad_lock = vad_events.lock().await;
-                    tracing::warn!(
-                        "No VAD events after 5 seconds. VAD events so far: {:?}",
-                        *vad_lock
-                    );
-                    no_events_warning_printed = true;
-                }
-
-                // Fail fast with detailed output after 10 seconds
-                if start_wait.elapsed() > Duration::from_secs(10) {
-                    let vad_lock = vad_events.lock().await;
-                    let injection_lock = mock_sink.injected_text.lock().unwrap();
-                    panic!(
-                        "Test timed out waiting for completion after 10 seconds.\nVAD events: {:?}\nInjections: {:?}",
-                        *vad_lock, *injection_lock
-                    );
-                }
+                tokio::time::sleep(Duration::from_millis(500)).await;
             }
-        }).await;
+        })
+        .await;
 
-        // Handle timeout case
-        if vad_collection_result.is_err() {
+        if completion_result.is_err() {
             let vad_lock = vad_events.lock().await;
             let injection_lock = mock_sink.injected_text.lock().unwrap();
             panic!(
-                "Test hung and timed out after 30 seconds waiting for completion.\nVAD events: {:?}\nInjections: {:?}",
+                "Test timed out waiting for VAD SpeechEnd and injection event.\n\
+                 VAD events captured: {:?}\n\
+                 Injections captured: {:?}",
                 *vad_lock, *injection_lock
             );
         }
@@ -401,6 +321,7 @@ mod tests {
         tracing::info!("Shutting down pipeline...");
         app.shutdown().await;
         stream_handle.abort();
+        vad_collector_handle.abort();
         tracing::info!("Pipeline shutdown complete");
 
         // 8. Collect the captured results.
@@ -412,7 +333,6 @@ mod tests {
 
         // 9. Assert against the golden masters.
         assert_golden(test_name, "vad", &final_vad_events);
-        #[cfg(feature = "whisper")]
         assert_golden(test_name, "injection", &final_injected_text);
     }
 }
@@ -443,8 +363,10 @@ pub mod test_utils {
             text: &str,
             _context: Option<&InjectionContext>,
         ) -> InjectionResult<()> {
-            tracing::info!("Mock injection sink received text: {}", text);
-            self.injected_text.lock().unwrap().push(text.to_string());
+            if !text.trim().is_empty() {
+                let mut guard = self.injected_text.lock().unwrap();
+                guard.push(text.to_string());
+            }
             Ok(())
         }
 

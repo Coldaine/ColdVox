@@ -19,7 +19,8 @@ All notable changes to this project are documented here.
   - Supports largest available model: nvidia/parakeet-tdt-1.1b (1.1 billion parameters)
   - TDT variant: Multilingual support for 25 languages with automatic detection
   - CTC variant: English-only for faster inference
-  - GPU-only mode: Requires CUDA/TensorRT, no CPU fallback
+  - GPU acceleration via feature flags: `parakeet-cuda` (CUDA), `parakeet-tensorrt` (TensorRT)
+  - Falls back to CPU when GPU features are not compiled (with warning)
   - Token-level timestamps for word-accurate transcription
   - Environment variables: `PARAKEET_MODEL_PATH`, `PARAKEET_VARIANT` (tdt/ctc), `PARAKEET_DEVICE` (cuda/tensorrt)
   - Pure Rust implementation - no Python dependencies

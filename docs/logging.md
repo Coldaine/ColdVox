@@ -1,5 +1,5 @@
 ---
-doc_type: reference
+doc_type: index
 subsystem: telemetry
 version: 1.0.0
 status: deprecated
