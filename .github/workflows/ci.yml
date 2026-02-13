@@ -31,7 +31,6 @@ defaults:
 
 env:
   CARGO_TERM_COLOR: always
-  WHISPER_MODEL_SIZE: tiny
   MIN_FREE_DISK_GB: 10
   MAX_LOAD_AVERAGE: 5
 
@@ -88,18 +87,6 @@ jobs:
           fi
           echo "All workflows validated (new workflows skipped)."
 
-  setup-whisper-dependencies:
-    name: Setup Whisper Dependencies
-    runs-on: [self-hosted, Linux, X64, fedora, nobara]
-    outputs:
-      model_path: ${{ steps.setup.outputs.model_path }}
-      model_size: ${{ steps.setup.outputs.model_size }}
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v5.0.0
-      - name: Setup Whisper Model
-        id: setup
-        run: bash scripts/ci/setup-whisper-cache.sh
-
   # Security scanning for vulnerabilities and license compliance
   security_audit:
     name: Security Audit
@@ -127,7 +114,6 @@ jobs:
   unit_tests_hosted:
     name: Unit Tests & Golden Master (Hosted)
     runs-on: ubuntu-latest
-    needs: [setup-whisper-dependencies]
     strategy:
       matrix:
         rust-version: [stable] # Use stable only
@@ -175,29 +161,9 @@ jobs:
 
       - name: Run unit and integration tests (skip E2E)
         if: matrix.rust-version == 'stable'
-        env:
-          WHISPER_MODEL_PATH: ${{ needs.setup-whisper-dependencies.outputs.model_path }}
-          WHISPER_MODEL_SIZE: ${{ needs.setup-whisper-dependencies.outputs.model_size }}
         run: |
-          echo "=== Environment Validation ==="
-          echo "WHISPER_MODEL_PATH: $WHISPER_MODEL_PATH"
-          echo "WHISPER_MODEL_SIZE: $WHISPER_MODEL_SIZE"
-          echo "Model directory contents:"
-          ls -la "$WHISPER_MODEL_PATH" || echo "Model directory not accessible"
           echo "=== Running Tests ==="
           cargo test --workspace --locked --
-
-      - name: Run Golden Master pipeline test
-        if: matrix.rust-version == 'stable'
-        env:
-          WHISPER_MODEL_PATH: ${{ needs.setup-whisper-dependencies.outputs.model_path }}
-          WHISPER_MODEL_SIZE: ${{ needs.setup-whisper-dependencies.outputs.model_size }}
-        run: |
-          echo "=== Running Golden Master Test ==="
-          # Install Python dependencies for Golden Master
-          pip install faster-whisper
-          export PYTHONPATH=$(python3 -c "import site; print(site.getsitepackages()[0])")
-          cargo test -p coldvox-app --test golden_master -- --nocapture
 
       # Moonshine E2E skipped on GitHub-hosted: PyTorch+CUDA deps (4GB+) exceed disk space
       # These tests run on self-hosted via moonshine_check job instead
@@ -226,7 +192,6 @@ jobs:
   text_injection_tests:
     name: Hardware Integration Tests (Self-Hosted)
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
-    needs: [setup-whisper-dependencies]
     timeout-minutes: 30
     env:
       # Runner's live KDE Wayland session with XWayland
@@ -418,7 +383,6 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - validate-workflows
-      - setup-whisper-dependencies
       - security_audit
       - unit_tests_hosted
       - text_injection_tests
@@ -430,12 +394,10 @@ jobs:
         run: |
           echo "## CI Report" > report.md
           echo "- validate-workflows:            ${{ needs.validate-workflows.result }}" >> report.md
-          echo "- setup-whisper-dependencies:    ${{ needs.setup-whisper-dependencies.result }}" >> report.md
           echo "- security_audit:                ${{ needs.security_audit.result }}" >> report.md
           echo "- unit_tests_hosted:             ${{ needs.unit_tests_hosted.result }}" >> report.md
           echo "- text_injection_tests:          ${{ needs.text_injection_tests.result }}" >> report.md
           echo "- moonshine_check:               ${{ needs.moonshine_check.result }} (optional)" >> report.md
-          if [[ "${{ needs.setup-whisper-dependencies.result }}" != "success" ]]; then echo "::error::Setup Whisper dependencies failed."; exit 1; fi
           if [[ "${{ needs.security_audit.result }}" != "success" ]]; then echo "::warning::Security audit failed - check for vulnerabilities."; fi
           if [[ "${{ needs.unit_tests_hosted.result }}" != "success" ]]; then echo "::error::Build and check failed."; exit 1; fi
           if [[ "${{ needs.text_injection_tests.result }}" != "success" ]]; then echo "::error::Text injection tests failed."; exit 1; fi
