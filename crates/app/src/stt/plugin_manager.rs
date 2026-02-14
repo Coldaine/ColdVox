@@ -1477,7 +1477,6 @@ mod tests {
         );
     }
 
-
     #[tokio::test]
     async fn test_unload_error_metrics() {
         let metrics = Arc::new(PipelineMetrics::default());
