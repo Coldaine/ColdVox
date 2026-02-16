@@ -1,0 +1,44 @@
+# Canonical line endings for cross-platform consistency.
+# Keep repository text content in LF to prevent Linux/Windows churn.
+* text=auto eol=lf
+
+# Windows-native script files.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Shell scripts should always stay LF.
+*.sh text eol=lf
+
+# Common binary assets and artifacts (never normalize line endings).
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.bz2 binary
+*.xz binary
+*.7z binary
+*.tar binary
+*.rar binary
+*.so binary
+*.dll binary
+*.exe binary
+*.a binary
+*.lib binary
+*.dylib binary
+*.wav binary
+*.mp3 binary
+*.flac binary
+*.ogg binary
+*.onnx binary
+*.pt binary
+*.bin binary
+
+# Vendored model artifacts.
+vendor/vosk/lib/libvosk.so -text
+vendor/vosk/model/vosk-model-en-us-0.22 -text
