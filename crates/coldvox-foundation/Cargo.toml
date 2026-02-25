@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 thiserror = "2.0"
-tokio = { version = "1.35", features = ["sync", "time", "rt", "signal"] }
+tokio = { version = "1.49", features = ["sync", "time", "rt", "signal"] }
 tracing = "0.1"
 cpal = "0.17"
 serde = { version = "1.0", features = ["derive"] }
@@ -20,4 +20,4 @@ config = { version = "0.15", features = ["toml"] }
 default = []
 
 [dev-dependencies]
-serial_test = "3.2"
+serial_test = "3.4"
