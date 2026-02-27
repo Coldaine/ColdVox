@@ -40,16 +40,27 @@ cargo fmt --all -- --check
 
 ### Developer Git Hooks
 
-This project uses a git hook standard powered by **[mise](https://mise.jdx.dev)** and **lint-staged**.
+This project uses repo-tracked git hooks (stored in `.githooks/`) to automate validation tasks, including domain documentation naming checks and AI agent instruction mirror syncing.
 
-1. Install mise: `curl https://mise.run | sh` (or see [docs](https://mise.jdx.dev/getting-started.html))
-2. Install toolchain: `mise install`
-3. Activate hooks + agent mirrors: `mise run prepare`
+1. **Automatic Setup**: If using **[mise](https://mise.jdx.dev)**, run:
+   ```bash
+   mise run prepare
+   ```
 
-To run the hook pipeline manually:
+2. **Manual Setup**: If not using mise, install the hooks directly:
+   ```bash
+   ./scripts/install-githooks.sh
+   ```
 
+#### Active Hooks
+- **pre-commit**: Runs `lint-staged` for formatting and linting.
+- **pre-push**: Runs `scripts/validate_domain_docs_naming.py` to ensure documentation standards are met before pushing to the server.
+
+To run the pre-commit hook pipeline manually:
 ```bash
 mise run pre-commit
+# OR
+pre-commit run --all-files
 ```
 
 ## Contributing

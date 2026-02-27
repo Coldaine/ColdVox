@@ -5,4 +5,8 @@ repo_root="$({
   cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd
 })"
 
+# 1) Keep agent instruction mirrors in sync
 "$repo_root/scripts/ensure_agent_hardlinks.sh" --quiet
+
+# 2) Validate domain documentation naming (MasterDocumentationPlaybook 1.0.1)
+"$repo_root/scripts/validate_domain_docs_naming.py"
