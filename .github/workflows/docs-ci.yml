@@ -17,7 +17,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6.0.1
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -41,7 +41,7 @@ jobs:
           uv run scripts/docs_semantic_review.py "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}" --packet-out .artifacts/docs_semantic_review_packet.json --prompt-out .artifacts/docs_semantic_review_prompt.md
 
       - name: Upload semantic review artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: docs-semantic-review
           path: .artifacts/docs_semantic_review_*
