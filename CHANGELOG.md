@@ -25,6 +25,19 @@ All notable changes to this project are documented here.
   - Environment variables: `PARAKEET_MODEL_PATH`, `PARAKEET_VARIANT` (tdt/ctc), `PARAKEET_DEVICE` (cuda/tensorrt)
   - Pure Rust implementation - no Python dependencies
 
+- **Audio Quality Monitoring** - Real-time audio quality detection and feedback (#345)
+  - New `coldvox-audio-quality` crate for automated quality monitoring
+  - Detects too-quiet audio (RMS < -40 dBFS), clipping (peak > -1 dBFS), and off-axis speech (spectral ratio < 0.3)
+  - FFT-based off-axis detection using high-freq/mid-freq ratio analysis
+  - Configurable thresholds via `QualityConfig` builder or environment variables
+  - Pre-allocated buffers for real-time safety (~12.8µs per 512-sample frame)
+  - Rolling window RMS (500ms) and peak hold (1s) with exponential decay
+  - Rate-limited warnings (2-second cooldown) to avoid spam
+  - Microphone presets (HyperX QuadCast, Omnidirectional)
+  - Environment variables: `COLDVOX_TOO_QUIET_THRESHOLD`, `COLDVOX_CLIPPING_THRESHOLD`, `COLDVOX_OFF_AXIS_THRESHOLD`
+  - Integration tests with real audio data (LibriSpeech, Pyramic anechoic dataset)
+  - Download test datasets: `./scripts/download_test_audio.sh`
+
 ### Configuration
 - Canonicalize STT selection config to `config/plugins.json`. Legacy duplicates like `./plugins.json` and `crates/app/plugins.json` are deprecated and ignored at runtime; a startup warning is logged if detected. Documentation updated to reflect the single source of truth.
 

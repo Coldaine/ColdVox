@@ -4,6 +4,7 @@ members = [
     "crates/coldvox-foundation",
     "crates/coldvox-telemetry",
     "crates/coldvox-audio",
+    "crates/coldvox-audio-quality",
     "crates/coldvox-vad",
     "crates/coldvox-vad-silero",
     "crates/coldvox-text-injection",
