@@ -1,0 +1,36 @@
+[package]
+name = "coldvox-audio-quality"
+version = "0.1.0"
+edition = "2021"
+authors = ["ColdVox Contributors"]
+description = "Real-time audio quality monitoring and analysis"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+# Core dependencies
+tracing = "0.1"
+thiserror = "2.0"
+
+# Audio analysis
+rustfft = "6.2"
+spectrum-analyzer = "1.5"
+
+# Ring buffer for rolling windows
+ringbuf = "0.4"
+
+# Optional: for serialization
+serde = { version = "1.0", features = ["derive"], optional = true }
+
+[dev-dependencies]
+approx = "0.5"  # For floating point comparisons in tests
+criterion = "0.5"
+hound = "3.5"  # For loading real WAV files in integration tests
+walkdir = "2.4"  # For finding test files in directories
+
+[[bench]]
+name = "audio_quality_benchmarks"
+harness = false
+
+[features]
+default = []
+serde = ["dep:serde"]
