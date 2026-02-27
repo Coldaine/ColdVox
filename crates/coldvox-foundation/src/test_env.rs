@@ -565,7 +565,24 @@ mod tests {
         let env = TestEnvironment::detect();
 
         // Should not panic and should provide some information
-        assert!(!env.available_commands.is_empty());
+        assert!(env.available_commands.iter().all(|cmd| {
+            matches!(
+                cmd.as_str(),
+                "wl-copy"
+                    | "wl-paste"
+                    | "xclip"
+                    | "xsel"
+                    | "xdotool"
+                    | "ydotool"
+                    | "enigo"
+                    | "dbus-send"
+                    | "at-spi-bus-launcher"
+                    | "xvfb-run"
+                    | "Xvfb"
+                    | "fluxbox"
+                    | "openbox"
+            )
+        }));
 
         // Check that display detection works
         let has_display = env.has_display;

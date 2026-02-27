@@ -108,6 +108,40 @@ sudo apt install xclip wl-clipboard
 sudo apt install ydotool
 ```
 
+## Error Types
+
+The text injection system uses `InjectionError` (defined in `coldvox-foundation`) with the following variants:
+
+| Variant | Meaning |
+|---------|---------|
+| `NoEditableFocus` | No editable text field has focus in the target application. |
+| `MethodNotAvailable(String)` | A specific injection method is not available in this environment. |
+| `Timeout(u64)` | An operation exceeded its timeout budget (value in ms). |
+| `AllMethodsFailed(String)` | Every method in the fallback chain failed. |
+| `MethodUnavailable(String)` | Requested method is unavailable (similar to MethodNotAvailable, used in different contexts). |
+| `MethodFailed(String)` | A specific method attempted injection and failed. |
+| `BudgetExhausted` | The total latency budget for the injection attempt was exceeded before all methods could be tried. |
+| `Clipboard(String)` | Clipboard read, write, or restore operation failed. |
+| `Process(String)` | An external process (e.g., ydotool, xclip) failed. |
+| `PermissionDenied(String)` | Insufficient permissions for the requested operation (e.g., /dev/uinput access). |
+| `Io(std::io::Error)` | Underlying I/O error. |
+| `Other(String)` | Catch-all for errors that don't fit other variants. |
+
+## Allow/Block List Semantics
+
+The `InjectionConfig` includes `allowlist` and `blocklist` vectors of patterns matched against the window class reported by the window manager.
+
+**Evaluation order (from `StrategyManager::is_app_allowed`):**
+
+1. If the **allowlist is non-empty**, only applications matching at least one allowlist pattern are eligible. The blocklist is not consulted.
+2. If the **allowlist is empty** and the **blocklist is non-empty**, applications matching any blocklist pattern are rejected.
+3. If **both lists are empty**, all applications are eligible.
+
+**Pattern matching:**
+- When the `regex` feature is enabled, patterns are compiled as `Regex` objects at construction time.
+- Without the `regex` feature, patterns use substring matching (with leading `^` and trailing `$` anchors stripped).
+- Invalid regex patterns are logged as warnings and skipped rather than crashing the runtime.
+
 ## Security Considerations
 
 Text injection requires various system permissions:
@@ -152,10 +186,65 @@ Omit `--no-redact` to keep text content hashed in logs.
 - Unified Clipboard: Broad compatibility via clipboard seeding plus paste action; uses Enigo or `ydotool` for the paste trigger depending on features and OS.
 - No AT-SPI paste: When AT-SPI cannot address the control for direct insertion, invoking an AT-SPI "paste" action does not help and adds overhead. Therefore, the clipboard injector does not attempt AT-SPI operations.
 
+## Session State Machine
+
+The `InjectionSession` manages buffering of transcriptions and determines injection timing through a four-state machine:
+
+- **Idle**: No active session; waiting for the first transcription event.
+- **Buffering**: Actively receiving transcriptions. Text is accumulated in a buffer with whitespace normalization.
+- **WaitingForSilence**: No new transcriptions have arrived within the buffer pause timeout. The system waits for the silence timeout before injecting.
+- **ReadyToInject**: Silence timeout reached (or buffer size limit hit, or sentence-ending punctuation detected). The buffered text is handed to the strategy manager for injection.
+
+Transitions:
+- `Idle` -> `Buffering`: First `TranscriptionEvent::Final` received.
+- `Buffering` -> `WaitingForSilence`: `buffer_pause_timeout_ms` elapsed since last transcription.
+- `WaitingForSilence` -> `Buffering`: New transcription arrives (resets the timer).
+- `WaitingForSilence` -> `ReadyToInject`: `silence_timeout_ms` elapsed with no new input.
+- `Buffering` -> `ReadyToInject`: Buffer exceeds `max_buffer_size` chars, or sentence-ending punctuation detected.
+- `ReadyToInject` -> `Idle`: Buffer consumed by the injector.
+
+Default timing values (`silence_timeout_ms = 0`, `buffer_pause_timeout_ms = 0`) cause immediate injection after each final transcription, which is appropriate when the STT engine handles its own audio buffering.
+
+## Focus Detection
+
+The `FocusTracker` gates injection attempts based on the focused element in the target application.
+
+### Focus Status Values
+
+- **EditableText**: Focus is in a text input field that supports editing. Injection proceeds normally.
+- **NonEditable**: Focus is on a non-editable element (button, label, etc.). Injection is skipped unless overridden.
+- **Unknown**: Focus status cannot be determined (accessibility bus unavailable or timed out). Behavior depends on `inject_on_unknown_focus` config.
+
+### Caching and Backends
+
+The tracker caches the last focus query result for `focus_cache_duration_ms` (default 200ms) to avoid flooding the accessibility bus. When the cache expires, the backend is queried again.
+
+The `FocusBackend` trait allows pluggable implementations. The default `SystemFocusAdapter` queries the AT-SPI bus and gracefully falls back to `Unknown` when the bus is unavailable. Custom backends can be injected for deterministic testing.
+
+### Relevant Config Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `inject_on_unknown_focus` | `true` | Allow injection when focus status is Unknown |
+| `require_focus` | `false` | Require EditableText focus before injecting |
+| `focus_cache_duration_ms` | `200` | How long to cache focus status (ms) |
+
 ## Confirmation and Prewarming
 
-- Confirmation: After a successful method returns, the orchestrator runs a quick confirmation check (text-changed heuristic) within a tight budget. Non-success does not immediately fail; the next strategy may be attempted.
-- Prewarming: On entering Buffering state, the orchestrator triggers targeted prewarming for the first method in the current strategy order to reduce first-use latency (e.g., establishing AT-SPI context).
+### Confirmation
+
+After a successful method returns, the orchestrator runs a quick confirmation check using AT-SPI text-changed events. The confirmation system:
+
+- Subscribes to `object:text-changed:inserted` events on the targeted accessible element.
+- Performs **prefix matching** using the first 3-6 Unicode grapheme clusters of the injected text. This avoids false positives from IME composition or grapheme normalization differences.
+- Uses a **75ms timeout** with 10ms polling intervals (up to 7 polls).
+- Returns `ConfirmationResult::Success`, `Timeout`, `Mismatch`, or `Error`.
+
+Non-success does not immediately fail the injection; the next strategy may be attempted.
+
+### Prewarming
+
+On entering `Buffering` state, the orchestrator triggers targeted prewarming for the first method in the current strategy order to reduce first-use latency (e.g., establishing AT-SPI context). Pre-warmed data is cached with a ~3 second TTL that refreshes on new buffer activity.
 
 All tests use real desktop applications and injection backends with full desktop environments available in all environments:
 

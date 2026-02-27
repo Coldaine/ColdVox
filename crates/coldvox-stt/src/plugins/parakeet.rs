@@ -27,11 +27,14 @@ use crate::types::{TranscriptionConfig, TranscriptionEvent, WordInfo};
 use async_trait::async_trait;
 use coldvox_foundation::error::{ColdVoxError, SttError};
 use std::env;
+use std::fmt;
 use std::path::{Path, PathBuf};
 use tracing::{debug, error, info, warn};
 
 #[cfg(feature = "parakeet")]
-use parakeet_rs::{ExecutionProvider, Parakeet, ParakeetConfig, ParakeetVariant};
+use parakeet_rs::{
+    ExecutionConfig, ExecutionProvider, Parakeet, ParakeetTDT, TimestampMode, Transcriber,
+};
 
 /// Parakeet model variant
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,14 +58,6 @@ impl ParakeetModelVariant {
         // Approximate: 1.1B * 4 bytes (fp32) ≈ 4.4GB + overhead
         5000 // 5GB to be safe
     }
-
-    #[cfg(feature = "parakeet")]
-    fn to_parakeet_variant(&self) -> ParakeetVariant {
-        match self {
-            Self::Tdt => ParakeetVariant::Tdt,
-            Self::Ctc => ParakeetVariant::Ctc,
-        }
-    }
 }
 
 impl Default for ParakeetModelVariant {
@@ -85,25 +80,63 @@ impl GpuProvider {
     #[cfg(feature = "parakeet")]
     fn to_execution_provider(&self) -> ExecutionProvider {
         match self {
-            Self::Cuda => ExecutionProvider::Cuda,
-            Self::TensorRt => ExecutionProvider::TensorRt,
+            Self::Cuda => {
+                #[cfg(feature = "parakeet-cuda")]
+                {
+                    ExecutionProvider::Cuda
+                }
+                #[cfg(not(feature = "parakeet-cuda"))]
+                {
+                    warn!(
+                        "CUDA requested but parakeet-cuda feature not enabled; falling back to CPU"
+                    );
+                    ExecutionProvider::Cpu
+                }
+            }
+            Self::TensorRt => {
+                #[cfg(feature = "parakeet-tensorrt")]
+                {
+                    ExecutionProvider::TensorRT
+                }
+                #[cfg(not(feature = "parakeet-tensorrt"))]
+                {
+                    warn!("TensorRT requested but parakeet-tensorrt feature not enabled; falling back to CPU");
+                    ExecutionProvider::Cpu
+                }
+            }
         }
     }
 }
 
+#[cfg(feature = "parakeet")]
+enum LoadedParakeetModel {
+    Ctc(Parakeet),
+    Tdt(ParakeetTDT),
+}
+
 /// Parakeet-based STT plugin backed by parakeet-rs
-#[derive(Debug)]
 pub struct ParakeetPlugin {
     variant: ParakeetModelVariant,
     model_path: Option<PathBuf>,
     gpu_provider: GpuProvider,
     initialized: bool,
     #[cfg(feature = "parakeet")]
-    model: Option<Parakeet>,
+    model: Option<LoadedParakeetModel>,
     #[cfg(feature = "parakeet")]
     audio_buffer: Vec<i16>,
     #[cfg(feature = "parakeet")]
     active_config: Option<TranscriptionConfig>,
+}
+
+impl fmt::Debug for ParakeetPlugin {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ParakeetPlugin")
+            .field("variant", &self.variant)
+            .field("model_path", &self.model_path)
+            .field("gpu_provider", &self.gpu_provider)
+            .field("initialized", &self.initialized)
+            .finish()
+    }
 }
 
 impl ParakeetPlugin {
@@ -254,9 +287,9 @@ impl SttPlugin for ParakeetPlugin {
             streaming: false, // Batch processing only for now
             batch: true,
             word_timestamps: true, // parakeet-rs provides token-level timestamps
-            confidence_scores: true,
+            confidence_scores: false, // parakeet-rs 0.2.6 does not expose per-token confidence
             speaker_diarization: false, // Can be added later via pyannote
-            auto_punctuation: true,     // Both variants support punctuation
+            auto_punctuation: true, // Both variants support punctuation
             custom_vocabulary: false,
         }
     }
@@ -281,28 +314,42 @@ impl SttPlugin for ParakeetPlugin {
                 "Initializing Parakeet model (GPU-only)"
             );
 
-            // Build parakeet-rs configuration
-            let parakeet_config = ParakeetConfig {
-                variant: self.variant.to_parakeet_variant(),
-                execution_provider: self.gpu_provider.to_execution_provider(),
-                // Auto-download from HuggingFace if not in cache
-                model_path: Some(model_path.to_string_lossy().to_string()),
-            };
+            let execution_config = ExecutionConfig::new()
+                .with_execution_provider(self.gpu_provider.to_execution_provider());
 
             // Initialize the model
-            let model =
-                Parakeet::from_pretrained(self.variant.model_identifier(), Some(parakeet_config))
-                    .map_err(|err| {
-                    error!(
-                        target: "coldvox::stt::parakeet",
-                        error = %err,
-                        "Failed to load Parakeet model"
-                    );
-                    SttError::LoadFailed(format!(
-                        "Failed to load Parakeet model: {}. Ensure CUDA GPU is available.",
-                        err
-                    ))
-                })?;
+            let model = match self.variant {
+                ParakeetModelVariant::Ctc => {
+                    let ctc = Parakeet::from_pretrained(&model_path, Some(execution_config.clone()))
+                        .map_err(|err| {
+                            error!(
+                                target: "coldvox::stt::parakeet",
+                                error = %err,
+                                "Failed to load Parakeet CTC model"
+                            );
+                            SttError::LoadFailed(format!(
+                                "Failed to load Parakeet CTC model: {}. Ensure model files exist and CUDA GPU is available.",
+                                err
+                            ))
+                        })?;
+                    LoadedParakeetModel::Ctc(ctc)
+                }
+                ParakeetModelVariant::Tdt => {
+                    let tdt = ParakeetTDT::from_pretrained(&model_path, Some(execution_config))
+                        .map_err(|err| {
+                            error!(
+                                target: "coldvox::stt::parakeet",
+                                error = %err,
+                                "Failed to load Parakeet TDT model"
+                            );
+                            SttError::LoadFailed(format!(
+                                "Failed to load Parakeet TDT model: {}. Ensure model files exist and CUDA GPU is available.",
+                                err
+                            ))
+                        })?;
+                    LoadedParakeetModel::Tdt(tdt)
+                }
+            };
 
             self.model = Some(model);
             self.audio_buffer.clear();
@@ -385,21 +432,48 @@ impl SttPlugin for ParakeetPlugin {
                 .collect();
 
             // Transcribe using parakeet-rs
-            let result = self
-                .model
-                .as_ref()
-                .ok_or_else(|| {
-                    SttError::TranscriptionFailed("Parakeet model not loaded".to_string())
-                })?
-                .transcribe_samples(&samples_f32, crate::constants::SAMPLE_RATE_HZ)
-                .map_err(|err| {
-                    error!(
-                        target: "coldvox::stt::parakeet",
-                        error = %err,
-                        "Parakeet transcription failed"
-                    );
-                    SttError::TranscriptionFailed(format!("Parakeet transcription failed: {}", err))
-                })?;
+            let model = self.model.as_mut().ok_or_else(|| {
+                SttError::TranscriptionFailed("Parakeet model not loaded".to_string())
+            })?;
+
+            let result = match model {
+                LoadedParakeetModel::Ctc(ctc_model) => ctc_model
+                    .transcribe_samples(
+                        samples_f32.clone(),
+                        crate::constants::SAMPLE_RATE_HZ,
+                        1,
+                        Some(TimestampMode::Words),
+                    )
+                    .map_err(|err| {
+                        error!(
+                            target: "coldvox::stt::parakeet",
+                            error = %err,
+                            "Parakeet CTC transcription failed"
+                        );
+                        SttError::TranscriptionFailed(format!(
+                            "Parakeet CTC transcription failed: {}",
+                            err
+                        ))
+                    })?,
+                LoadedParakeetModel::Tdt(tdt_model) => tdt_model
+                    .transcribe_samples(
+                        samples_f32,
+                        crate::constants::SAMPLE_RATE_HZ,
+                        1,
+                        Some(TimestampMode::Words),
+                    )
+                    .map_err(|err| {
+                        error!(
+                            target: "coldvox::stt::parakeet",
+                            error = %err,
+                            "Parakeet TDT transcription failed"
+                        );
+                        SttError::TranscriptionFailed(format!(
+                            "Parakeet TDT transcription failed: {}",
+                            err
+                        ))
+                    })?,
+            };
 
             let text = result.text.trim().to_string();
 
@@ -426,7 +500,7 @@ impl SttPlugin for ParakeetPlugin {
                         .map(|token| WordInfo {
                             start: token.start,
                             end: token.end,
-                            conf: token.confidence.unwrap_or(1.0), // Default to high confidence if not provided
+                            conf: 1.0,
                             text: token.text.clone(),
                         })
                         .collect(),
