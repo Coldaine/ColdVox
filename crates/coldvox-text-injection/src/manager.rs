@@ -1417,13 +1417,22 @@ mod tests {
         assert!(!order.is_empty());
         assert!(order.contains(&InjectionMethod::NoOp));
 
-        // Verify core methods only if a desktop backend is detected in this environment
-        let available = manager.backend_detector.detect_available_backends();
-        let has_desktop = !available.is_empty();
-        if has_desktop {
+        let has_display_env = std::env::var("XDG_SESSION_TYPE")
+            .map(|v| {
+                let normalized = v.to_lowercase();
+                normalized == "wayland" || normalized == "x11"
+            })
+            .unwrap_or(false)
+            || std::env::var("WAYLAND_DISPLAY").is_ok()
+            || std::env::var("DISPLAY").is_ok();
+
+        // Verify core methods based on display environment, matching compute_method_order()
+        if has_display_env {
             assert!(order.contains(&InjectionMethod::AtspiInsert));
-            assert!(order.contains(&InjectionMethod::ClipboardPasteFallback));
+        } else {
+            assert!(!order.contains(&InjectionMethod::AtspiInsert));
         }
+        assert!(order.contains(&InjectionMethod::ClipboardPasteFallback));
 
         // Verify optional methods are included if enabled
         let config = InjectionConfig {
@@ -1440,12 +1449,13 @@ mod tests {
         // NoOp always present
         assert!(order.contains(&InjectionMethod::NoOp));
 
-        // Core methods only asserted when any desktop backend is detected
-        let available = manager.backend_detector.detect_available_backends();
-        if !available.is_empty() {
+        // Core methods based on display environment, matching compute_method_order()
+        if has_display_env {
             assert!(order.contains(&InjectionMethod::AtspiInsert));
-            assert!(order.contains(&InjectionMethod::ClipboardPasteFallback));
+        } else {
+            assert!(!order.contains(&InjectionMethod::AtspiInsert));
         }
+        assert!(order.contains(&InjectionMethod::ClipboardPasteFallback));
         // YdoToolPaste is no longer a standalone method; its behavior is subsumed by ClipboardPaste
         assert!(order.contains(&InjectionMethod::KdoToolAssist));
         assert!(order.contains(&InjectionMethod::EnigoText));

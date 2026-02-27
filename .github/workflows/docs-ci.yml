@@ -83,6 +83,9 @@ jobs:
             exit 1
           fi
 
+      - name: Validate domain documentation naming
+        run: uv run scripts/validate_domain_docs_naming.py
+
       - name: Append revision log entries
         run: |
           uv run scripts/docs_revision_logger.py "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}" "${{ github.actor }}"

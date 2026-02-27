@@ -87,6 +87,15 @@ else
     exit 1
 fi
 
+# 5.5 Validate domain documentation naming
+print_step "Validating domain documentation naming..."
+if uv run scripts/validate_domain_docs_naming.py; then
+    print_success "Documentation naming validation passed"
+else
+    print_error "Documentation naming validation failed"
+    exit 1
+fi
+
 # 6. Run tests
 print_step "Running tests..."
 RUN_WHISPER=0

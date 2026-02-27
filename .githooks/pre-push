@@ -6,3 +6,6 @@ repo_root="$({
 })"
 
 "$repo_root/scripts/ensure_agent_hardlinks.sh" --quiet
+
+# Documentation naming validator (mandatory per docs/MasterDocumentationPlaybook.md)
+uv run "$repo_root/scripts/validate_domain_docs_naming.py"
