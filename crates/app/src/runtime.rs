@@ -786,8 +786,8 @@ mod tests {
             activation_mode,
             vad_config: None,
             stt_selection: Some(PluginSelectionConfig {
-                preferred_plugin: Some("whisper".to_string()),
-                // Do not allow fallback to NoOp in tests; fail loudly if whisper unavailable
+                preferred_plugin: Some("mock".to_string()),
+                // Do not allow fallback to NoOp in tests; fail loudly if mock unavailable
                 fallback_plugins: vec![],
                 require_local: true,
                 max_memory_mb: None,

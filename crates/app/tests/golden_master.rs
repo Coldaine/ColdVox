@@ -272,15 +272,18 @@ mod tests {
         let completion_result = tokio::time::timeout(Duration::from_secs(60), async move {
             let mut last_log = std::time::Instant::now();
             loop {
-                let vad_lock = vad_clone.lock().await;
-                let has_speech_end = vad_lock.iter().any(|e| e.kind == "SpeechEnd");
-                let vad_count = vad_lock.len();
-                drop(vad_lock);
+                let (has_speech_end, vad_count) = {
+                    let vad_lock = vad_clone.lock().await;
+                    (
+                        vad_lock.iter().any(|e| e.kind == "SpeechEnd"),
+                        vad_lock.len(),
+                    )
+                };
 
-                let injection_lock = injection_clone.lock().unwrap();
-                let has_injection = !injection_lock.is_empty();
-                let injection_count = injection_lock.len();
-                drop(injection_lock);
+                let (has_injection, injection_count) = {
+                    let injection_lock = injection_clone.lock().unwrap();
+                    (!injection_lock.is_empty(), injection_lock.len())
+                };
 
                 // Log every 2 seconds to reduce spam
                 if last_log.elapsed() >= Duration::from_secs(2) {
@@ -304,13 +307,19 @@ mod tests {
         .await;
 
         if completion_result.is_err() {
-            let vad_lock = vad_events.lock().await;
-            let injection_lock = mock_sink.injected_text.lock().unwrap();
+            let vad_events_captured = {
+                let vad_lock = vad_events.lock().await;
+                vad_lock.clone()
+            };
+            let injections_captured = {
+                let injection_lock = mock_sink.injected_text.lock().unwrap();
+                injection_lock.clone()
+            };
             panic!(
                 "Test timed out waiting for VAD SpeechEnd and injection event.\n\
                  VAD events captured: {:?}\n\
                  Injections captured: {:?}",
-                *vad_lock, *injection_lock
+                vad_events_captured, injections_captured
             );
         }
 
