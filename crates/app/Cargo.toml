@@ -67,14 +67,14 @@ similar-asserts = "1.5"
 
 [features]
 default = ["silero", "text-injection"]
+# STT Backends (see docs/domains/stt/stt-overview.md)
+moonshine = ["coldvox-stt/moonshine"]      # ✅ Working: Python-based, CPU/GPU
+parakeet = ["coldvox-stt/parakeet"]        # ⚠️ Planned: Not currently functional
+# Other features
+silero = ["coldvox-vad-silero/silero"]     # ✅ Default: Silero VAD
+text-injection = ["dep:coldvox-text-injection"]  # ✅ Default: Text injection backends
 live-hardware-tests = []
-parakeet = ["coldvox-stt/parakeet"]
-moonshine = ["coldvox-stt/moonshine"]
-whisper = [] # Temporarily stubbed; new pure-Rust backend will populate this
-no-stt = []
 examples = []
-text-injection = ["dep:coldvox-text-injection"]
-silero = ["coldvox-vad-silero/silero"]
 sleep-observer = []
 tui = []
 

@@ -8,7 +8,8 @@ min_version = "2024.11.1"
 # --- Core Runtimes ---
 # Pinned to latest stable versions as of Nov 2025
 node        = "22"       # LTS
-python      = "3.13"     # Stable (Performance Improvements)
+# Python is managed by UV only - see .python-version and pyproject.toml
+# Do NOT add python here - mise python (3.13) conflicts with PyO3 (requires <=3.12)
 rust        = "stable"   # Latest Stable
 # go          = "1.23"   # Not currently used in ColdVox
 

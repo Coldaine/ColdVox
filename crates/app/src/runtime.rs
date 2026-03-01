@@ -19,11 +19,11 @@ use coldvox_vad::{UnifiedVadConfig, VadEvent, VadMode, FRAME_SIZE_SAMPLES, SAMPL
 
 use crate::hotkey::spawn_hotkey_listener;
 use crate::stt::plugin_manager::SttPluginManager;
-#[cfg(feature = "whisper")]
+#[cfg(any(feature = "moonshine", feature = "parakeet"))]
 use crate::stt::processor::PluginSttProcessor;
-#[cfg(feature = "whisper")]
+#[cfg(any(feature = "moonshine", feature = "parakeet"))]
 use crate::stt::session::Settings;
-#[cfg(feature = "whisper")]
+#[cfg(any(feature = "moonshine", feature = "parakeet"))]
 use coldvox_stt::TranscriptionConfig;
 
 /// Activation strategy for push-to-talk vs voice activation
@@ -118,9 +118,9 @@ pub struct AppHandle {
     raw_vad_tx: mpsc::Sender<VadEvent>,
     audio_tx: broadcast::Sender<SharedAudioFrame>,
     current_mode: std::sync::Arc<RwLock<ActivationMode>>,
-    #[cfg(feature = "whisper")]
+    #[cfg(any(feature = "moonshine", feature = "parakeet"))]
     pub stt_rx: Option<mpsc::Receiver<TranscriptionEvent>>,
-    #[cfg(feature = "whisper")]
+    #[cfg(any(feature = "moonshine", feature = "parakeet"))]
     pub plugin_manager: Option<Arc<tokio::sync::RwLock<SttPluginManager>>>,
 
     audio_capture: AudioCaptureThread,
@@ -128,9 +128,9 @@ pub struct AppHandle {
     chunker_handle: JoinHandle<()>,
     trigger_handle: Arc<Mutex<JoinHandle<()>>>,
     vad_fanout_handle: JoinHandle<()>,
-    #[cfg(feature = "whisper")]
+    #[cfg(any(feature = "moonshine", feature = "parakeet"))]
     stt_handle: Option<JoinHandle<()>>,
-    #[cfg(feature = "whisper")]
+    #[cfg(any(feature = "moonshine", feature = "parakeet"))]
     stt_forward_handle: Option<JoinHandle<()>>,
     #[cfg(feature = "text-injection")]
     injection_handle: Option<JoinHandle<()>>,
@@ -173,11 +173,11 @@ impl AppHandle {
             trigger_guard.abort();
         }
         this.vad_fanout_handle.abort();
-        #[cfg(feature = "whisper")]
+        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
         if let Some(h) = &this.stt_handle {
             h.abort();
         }
-        #[cfg(feature = "whisper")]
+        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
         if let Some(h) = &this.stt_forward_handle {
             h.abort();
         }
@@ -187,7 +187,7 @@ impl AppHandle {
         }
 
         // Stop plugin manager tasks
-        #[cfg(feature = "whisper")]
+        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
         if let Some(pm) = &this.plugin_manager {
             // Unload all plugins before stopping tasks
             let _ = pm.read().await.unload_all_plugins().await;
@@ -202,7 +202,7 @@ impl AppHandle {
             .into_inner();
         let _ = trigger_handle.await;
         let _ = this.vad_fanout_handle.await;
-        #[cfg(feature = "whisper")]
+        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
         if let Some(h) = this.stt_handle {
             let _ = h.await;
         }
@@ -240,7 +240,7 @@ impl AppHandle {
         info!("Switching activation mode from {:?} to {:?}", *old, mode);
 
         // Unload STT plugins before switching modes to ensure clean state
-        #[cfg(feature = "whisper")]
+        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
         if let Some(ref pm) = self.plugin_manager {
             info!("Unloading STT plugins before activation mode switch");
             let _ = pm.read().await.unload_all_plugins().await;
@@ -505,9 +505,9 @@ pub async fn start(
         };
 
     // Create transcription event channels
-    #[cfg(feature = "whisper")]
+    #[cfg(any(feature = "moonshine", feature = "parakeet"))]
     let (stt_tx, stt_rx) = mpsc::channel::<TranscriptionEvent>(100);
-    #[cfg(not(feature = "whisper"))]
+    #[cfg(not(any(feature = "moonshine", feature = "parakeet")))]
     let (_stt_tx, _stt_rx) = mpsc::channel::<TranscriptionEvent>(100);
 
     // Text injection channel
@@ -517,19 +517,19 @@ pub async fn start(
     let (_text_injection_tx, _text_injection_rx) = mpsc::channel::<TranscriptionEvent>(100);
 
     // 6) STT Processor and Fanout - Unified Path
-    #[cfg(feature = "whisper")]
+    #[cfg(any(feature = "moonshine", feature = "parakeet"))]
     let mut stt_forward_handle: Option<JoinHandle<()>> = None;
     #[allow(unused_variables)]
     let (stt_handle, vad_fanout_handle) = if let Some(pm) = plugin_manager.clone() {
         // This is the single, unified path for STT processing.
-        #[cfg(feature = "whisper")]
+        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
         let (session_tx, session_rx) = mpsc::channel::<SessionEvent>(100);
         let stt_audio_rx = audio_tx.subscribe();
 
-        #[cfg(feature = "whisper")]
+        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
         let (stt_pipeline_tx, stt_pipeline_rx) = mpsc::channel::<TranscriptionEvent>(100);
 
-        #[cfg(feature = "whisper")]
+        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
         let stt_config = opts
             .transcription_config
             .clone()
@@ -540,7 +540,7 @@ pub async fn start(
                 ..Default::default()
             });
 
-        #[cfg(feature = "whisper")]
+        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
         let processor = PluginSttProcessor::new(
             stt_audio_rx,
             session_rx,
@@ -560,8 +560,8 @@ pub async fn start(
                 // Forward the raw VAD event for UI purposes
                 let _ = vad_bcast_tx_clone.send(ev);
 
-                // Translate to SessionEvent for the STT processor (only in whisper builds)
-                #[cfg(feature = "whisper")]
+                // Translate to SessionEvent for the STT processor (only when STT enabled)
+                #[cfg(any(feature = "moonshine", feature = "parakeet"))]
                 {
                     let session_event = match ev {
                         VadEvent::SpeechStart { .. } => {
@@ -591,14 +591,14 @@ pub async fn start(
             }
         });
 
-        #[cfg(feature = "whisper")]
+        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
         let stt_handle = Some(tokio::spawn(async move {
             processor.run().await;
         }));
-        #[cfg(not(feature = "whisper"))]
+        #[cfg(not(any(feature = "moonshine", feature = "parakeet")))]
         let stt_handle: Option<JoinHandle<()>> = None;
 
-        #[cfg(feature = "whisper")]
+        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
         {
             let mut pipeline_rx = stt_pipeline_rx;
             let stt_tx_forward = stt_tx.clone();
@@ -674,9 +674,9 @@ pub async fn start(
             }
         });
 
-        #[cfg(feature = "whisper")]
+        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
         let stt_handle = None;
-        #[cfg(not(feature = "whisper"))]
+        #[cfg(not(any(feature = "moonshine", feature = "parakeet")))]
         let stt_handle: Option<JoinHandle<()>> = None;
 
         (stt_handle, vad_fanout_handle)
@@ -749,18 +749,18 @@ pub async fn start(
         raw_vad_tx,
         audio_tx,
         current_mode: std::sync::Arc::new(RwLock::new(opts.activation_mode)),
-        #[cfg(feature = "whisper")]
+        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
         stt_rx: Some(stt_rx),
-        #[cfg(feature = "whisper")]
+        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
         plugin_manager,
         audio_capture,
         audio_producer,
         chunker_handle,
         trigger_handle: Arc::new(Mutex::new(trigger_handle)),
         vad_fanout_handle,
-        #[cfg(feature = "whisper")]
+        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
         stt_handle,
-        #[cfg(feature = "whisper")]
+        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
         stt_forward_handle,
         #[cfg(feature = "text-injection")]
         injection_handle,
@@ -814,7 +814,7 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "whisper")]
+    #[cfg(any(feature = "moonshine", feature = "parakeet"))]
     fn summarize_event(event: &TranscriptionEvent) -> String {
         match event {
             TranscriptionEvent::Partial { text, .. } => {
@@ -829,7 +829,7 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "whisper")]
+    #[cfg(any(feature = "moonshine", feature = "parakeet"))]
     fn preview(text: &str) -> String {
         const MAX_PREVIEW: usize = 48;
         if text.len() <= MAX_PREVIEW {
@@ -839,7 +839,7 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "whisper")]
+    #[cfg(any(feature = "moonshine", feature = "parakeet"))]
     #[tokio::test]
     async fn test_unified_stt_pipeline_vad_mode() {
         // Ensure tqdm is enabled to avoid buggy 'disabled_tqdm' stub in some Python envs

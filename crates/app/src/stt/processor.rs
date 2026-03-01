@@ -53,7 +53,7 @@ const BUFFER_CEILING_SAMPLES: usize = 16000 * 30;
 /// The primary STT processor, designed to be unified and extensible.
 /// It uses the plugin manager to delegate STT work and handles different
 /// activation and processing strategies defined by `Settings`.
-#[cfg(feature = "whisper")]
+#[cfg(any(feature = "moonshine", feature = "parakeet"))]
 pub struct PluginSttProcessor {
     audio_rx: broadcast::Receiver<SharedAudioFrame>,
     session_event_rx: mpsc::Receiver<SessionEvent>,
@@ -66,14 +66,14 @@ pub struct PluginSttProcessor {
 }
 
 /// The internal, mutable state of the processor, protected by a Mutex.
-#[cfg(feature = "whisper")]
+#[cfg(any(feature = "moonshine", feature = "parakeet"))]
 struct State {
     pub state: UtteranceState,
     pub source: crate::stt::session::SessionSource,
     pub buffer: Vec<i16>,
 }
 
-#[cfg(feature = "whisper")]
+#[cfg(any(feature = "moonshine", feature = "parakeet"))]
 impl PluginSttProcessor {
     /// Creates a new instance of the unified STT processor.
     pub fn new(
@@ -313,11 +313,11 @@ impl PluginSttProcessor {
     }
 }
 
-/// A stub implementation of the processor for when the `whisper` feature is disabled.
-#[cfg(not(feature = "whisper"))]
+/// A stub implementation of the processor for when no STT feature is enabled.
+#[cfg(not(any(feature = "moonshine", feature = "parakeet")))]
 pub struct PluginSttProcessor;
 
-#[cfg(not(feature = "whisper"))]
+#[cfg(not(any(feature = "moonshine", feature = "parakeet")))]
 impl PluginSttProcessor {
     pub fn new(
         _audio_rx: broadcast::Receiver<SharedAudioFrame>,

@@ -34,7 +34,7 @@ jobs:
       - name: Create virtual environment
         run: |
           uv venv .venv --python 3.12
-          uv pip install -r requirements.txt
+          uv sync
 
       - name: Build semantic docs review packet (advisory)
         run: |

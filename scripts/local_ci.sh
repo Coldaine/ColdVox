@@ -89,21 +89,7 @@ fi
 
 # 6. Run tests
 print_step "Running tests..."
-RUN_WHISPER=0
-for arg in "$@"; do
-  case "$arg" in
-    --whisper)
-      RUN_WHISPER=1
-      shift
-      ;;
-  esac
-done
-
-if [[ $RUN_WHISPER -eq 1 ]]; then
-    print_step "--whisper flag provided: ensuring venv and running with whisper feature"
-    ./scripts/ensure_venv.sh cargo test --workspace --features whisper --locked || { print_error "Whisper feature tests failed"; exit 1; }
-    print_success "Whisper feature tests passed"
-elif cargo test --workspace --locked; then
+if cargo test --workspace --locked; then
     print_success "All tests passed"
 else
     print_error "Tests failed"
