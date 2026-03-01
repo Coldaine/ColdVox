@@ -1,5 +1,0 @@
-# Python dependencies for ColdVox tooling and scripts
-# Install with: uv pip install -r requirements.txt
-
-# No external dependencies currently required for docs validation scripts
-# Scripts use only Python standard library
