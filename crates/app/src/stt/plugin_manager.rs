@@ -288,9 +288,16 @@ impl SttPluginManager {
                 // First, collect the IDs of inactive plugins
                 let inactive_plugins: Vec<String> = {
                     let activity = last_activity.read().await;
+                    let current = current_plugin.read().await;
+                    let current_id = current.as_ref().map(|p| p.info().id.clone());
+
                     activity
                         .iter()
                         .filter_map(|(plugin_id, last_used)| {
+                            // NEVER GC the actively selected plugin (#284)
+                            if Some(plugin_id.clone()) == current_id {
+                                return None;
+                            }
                             if now.duration_since(*last_used).as_secs() > ttl_secs as u64 {
                                 Some(plugin_id.clone())
                             } else {
@@ -462,16 +469,23 @@ impl SttPluginManager {
             _ => return,
         };
 
-        let now = Instant::now();
+        let time_threshold = Instant::now();
         let ttl_secs = gc_policy.model_ttl_secs as u64;
 
         // First, collect the IDs of inactive plugins
         let inactive_plugins: Vec<String> = {
             let activity = self.last_activity.read().await;
+            let current = self.current_plugin.read().await;
+            let current_id = current.as_ref().map(|p| p.info().id.clone());
+
             activity
                 .iter()
                 .filter_map(|(plugin_id, last_used)| {
-                    if now.duration_since(*last_used).as_secs() > ttl_secs {
+                    // NEVER GC the actively selected plugin (#284)
+                    if Some(plugin_id.clone()) == current_id {
+                        return None;
+                    }
+                    if time_threshold.duration_since(*last_used).as_secs() > ttl_secs {
                         Some(plugin_id.clone())
                     } else {
                         None
