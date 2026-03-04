@@ -6,7 +6,7 @@ description = "Speech-to-text abstraction layer for ColdVox"
 publish = false
 
 [dependencies]
-tokio = { version = "1.49", features = ["sync", "macros", "time"] }
+tokio = { version = "1.50", features = ["sync", "macros", "time"] }
 tracing = "0.1"
 parking_lot = "0.12"
 async-trait = "0.1"
@@ -37,7 +37,7 @@ leopard = []
 silero-stt = []
 
 [dev-dependencies]
-tokio = { version = "1.49", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1.50", features = ["rt-multi-thread", "macros"] }
 serial_test = "3.4"
 hound = "3.5"
 
