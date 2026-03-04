@@ -14,7 +14,7 @@ rtrb = "0.3"
 dasp = { version = "0.11", features = ["all"] }
 rubato = "1.0"
 parking_lot = "0.12"
-tokio = { version = "1.49", features = ["sync", "rt"] }
+tokio = { version = "1.50", features = ["sync", "rt"] }
 tracing = "0.1"
 anyhow = "1.0"
 thiserror = "2.0"
