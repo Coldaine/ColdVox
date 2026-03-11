@@ -23,7 +23,7 @@ serde = { version = "1.0", features = ["derive"], optional = true }
 
 [dev-dependencies]
 approx = "0.5"  # For floating point comparisons in tests
-criterion = "0.5"
+criterion = "0.8"
 hound = "3.5"  # For loading real WAV files in integration tests
 walkdir = "2.4"  # For finding test files in directories
 
