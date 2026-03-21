@@ -17,6 +17,10 @@ name = "tui_dashboard"
 path = "src/bin/tui_dashboard.rs"
 
 [[bin]]
+name = "tui_dashboard_manual"
+path = "src/bin/tui_dashboard_manual.rs"
+
+[[bin]]
 name = "mic_probe"
 path = "src/bin/mic_probe.rs"
 
