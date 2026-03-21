@@ -1,17 +1,24 @@
 {
-  "preferred_plugin": "parakeet",
-  "fallback_plugins": ["mock"],
-  "require_local": true,
+  "preferred_plugin": null,
+  "fallback_plugins": [
+    "whisper",
+    "whisper-local",
+    "gcloud"
+  ],
+  "require_local": false,
   "max_memory_mb": null,
-  "required_language": null,
+  "required_language": "en",
   "failover": {
     "failover_threshold": 3,
     "failover_cooldown_secs": 30
   },
   "gc_policy": {
     "model_ttl_secs": 300,
-    "enabled": false
+    "enabled": true
   },
-  "metrics": null,
+  "metrics": {
+    "log_interval_secs": 60,
+    "debug_dump_events": false
+  },
   "auto_extract_model": true
 }
