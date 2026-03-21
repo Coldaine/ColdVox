@@ -81,9 +81,9 @@ impl VadAdapter {
     }
 }
 
-use rubato::{
-    Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,
-};
+use audioadapter::Adapter;
+use audioadapter_buffers::owned::SequentialOwned;
+use rubato::{Async, FixedAsync, PolynomialDegree, Resampler};
 
 struct AudioResampler {
     input_rate: u32,
@@ -92,7 +92,7 @@ struct AudioResampler {
     output_frame_size: usize,
     accumulator: Vec<i16>,
     output_buffer: Vec<i16>,
-    resampler: Option<SincFixedIn<f32>>,
+    resampler: Option<Async<f32>>,
     f32_input_buffer: Vec<f32>,
     f32_output_buffer: Vec<f32>,
     chunk_size: usize,
@@ -110,21 +110,14 @@ impl AudioResampler {
             // Use a chunk size that works well with typical frame sizes
             let chunk_size = 512;
 
-            // Configure for low-latency VAD processing
-            let sinc_params = SincInterpolationParameters {
-                sinc_len: 64,
-                f_cutoff: 0.95,
-                interpolation: SincInterpolationType::Cubic,
-                oversampling_factor: 128,
-                window: WindowFunction::Blackman2,
-            };
-
-            let resampler = SincFixedIn::<f32>::new(
-                output_rate as f64 / input_rate as f64, // Resample ratio
-                2.0, // Max resample ratio change (not used in fixed mode)
-                sinc_params,
+            // Use polynomial interpolation for low-latency VAD processing (faster than sinc)
+            let resampler = Async::<f32>::new_poly(
+                output_rate as f64 / input_rate as f64,
+                2.0, // Max ratio change
+                PolynomialDegree::Cubic,
                 chunk_size,
                 1, // mono
+                FixedAsync::Input,
             )
             .map_err(|e| format!("Failed to create Rubato resampler: {}", e))?;
 
@@ -178,14 +171,25 @@ impl AudioResampler {
             // Process complete chunks through Rubato
             while self.f32_input_buffer.len() >= self.chunk_size {
                 let chunk: Vec<f32> = self.f32_input_buffer.drain(..self.chunk_size).collect();
-                let input_frames = vec![chunk];
+
+                // Create adapter for input
+                let input_adapter = SequentialOwned::<f32>::new_from(chunk, 1, self.chunk_size)
+                    .map_err(|e| format!("Failed to create input adapter: {:?}", e))?;
 
                 // Process with Rubato
-                match resampler.process(&input_frames, None) {
+                match resampler.process(
+                    &input_adapter,
+                    0,    // input_offset
+                    None, // active_channels_mask
+                ) {
                     Ok(output_frames) => {
-                        if !output_frames.is_empty() && !output_frames[0].is_empty() {
-                            self.f32_output_buffer.extend_from_slice(&output_frames[0]);
-                        }
+                        // Copy output from interleaved format
+                        let out_frames = output_frames.frames();
+                        let mut temp_buffer = vec![0.0f32; out_frames];
+                        let copied =
+                            output_frames.copy_from_channel_to_slice(0, 0, &mut temp_buffer);
+                        self.f32_output_buffer
+                            .extend_from_slice(&temp_buffer[..copied]);
                     }
                     Err(e) => {
                         return Err(format!("Resampler error: {}", e));

@@ -721,6 +721,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "audioadapter",
+ "audioadapter-buffers",
  "chrono",
  "clap",
  "coldvox-audio",
@@ -767,8 +769,10 @@ name = "coldvox-audio"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "audioadapter-buffers",
  "coldvox-foundation",
  "coldvox-telemetry",
+ "coldvox-vad",
  "cpal",
  "dasp",
  "libc",
@@ -791,7 +795,7 @@ dependencies = [
  "rustfft",
  "serde",
  "spectrum-analyzer",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tracing",
  "walkdir",
 ]
