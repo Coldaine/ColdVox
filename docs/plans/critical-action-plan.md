@@ -49,33 +49,33 @@ cargo run --features whisper,text-injection  # With STT
 
 ---
 
-### Issue 2: `parakeet` Feature Doesn't Compile
+### Issue 2: `parakeet` Feature Status - CORRECTED
 
-**Docs claim** (AGENTS.md):
-```
-Use feature flags: whisper, parakeet, text-injection, silero
-```
+**Previous claim** (AGENTS.md):
+> Parakeet doesn't compile
 
-**Reality**:
+**Actual Status**:
 ```bash
-cargo build -p coldvox-app --features parakeet
-# FAILS with 6 compile errors
-# - transcribe_samples() signature mismatch
-# - confidence field doesn't exist on TimedToken
+cargo check -p coldvox-app --features parakeet
+# ✅ COMPILES successfully
 ```
 
-**Root cause**: `parakeet-rs = "0.2"` API changed, plugin code not updated.
+**Reality**: Parakeet compiles cleanly. Current work is not compilation fixes, but **runtime validation and STT accuracy testing**.
 
-**Decision**: Parakeet will be fixed, but is low priority. For now, remove from docs as "working" and mark as "planned".
+**Decision**: Parakeet is a planned backend that compiles. Focus development on:
+1. Runtime integration testing (does transcription work end-to-end?)
+2. STT accuracy validation (output quality vs. Moonshine)
+3. Model loading and inference performance
+4. CUDA acceleration path verification
 
 **Action Required**:
-- [ ] Remove parakeet from AGENTS.md "Use feature flags" list (immediate)
-- [ ] Add note that parakeet is planned but not yet working
-- [ ] Fix `crates/coldvox-stt/src/plugins/parakeet.rs` to match parakeet-rs 0.2 API (low priority)
-- [ ] Add CI job that builds with `--features parakeet` once fixed
+- [x] Verify parakeet compiles (DONE 2026-03-24)
+- [ ] Add CI job that verifies `--features parakeet` compilation
+- [ ] Document parakeet as "compiles, requires runtime testing"
+- [ ] Plan integration tests for parakeet transcription quality
 
-**Files to fix**:
-- `crates/coldvox-stt/src/plugins/parakeet.rs` (low priority)
+**Files to reference**:
+- `crates/coldvox-stt/src/plugins/parakeet.rs`
 
 ---
 
