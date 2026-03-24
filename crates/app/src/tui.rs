@@ -25,8 +25,6 @@ use tokio::sync::mpsc;
 // Reuse global tracing subscriber initialized in `main.rs`.
 
 use crate::runtime::ActivationMode;
-#[cfg(feature = "whisper")]
-use crate::stt::TranscriptionEvent;
 use coldvox_vad::types::VadEvent;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -42,8 +40,6 @@ enum AppEvent {
     Vad(VadEvent),
     /// Internal control signal: runtime replaced (after restart)
     AppReplaced(std::sync::Arc<crate::runtime::AppHandle>),
-    #[cfg(feature = "whisper")]
-    Transcription(TranscriptionEvent),
     PluginLoad(String),
     PluginUnload(String),
     PluginSwitch(String),
@@ -84,27 +80,6 @@ struct DashboardState {
     metrics: PipelineMetricsSnapshot,
     has_metrics_snapshot: bool,
     current_tab: Tab,
-    /// Last final transcript (if STT enabled)
-    #[cfg(feature = "whisper")]
-    last_transcript: Option<String>,
-
-    #[cfg(feature = "whisper")]
-    plugin_manager: Option<Arc<tokio::sync::RwLock<crate::stt::plugin_manager::SttPluginManager>>>,
-
-    #[cfg(feature = "whisper")]
-    plugin_current: Option<String>,
-
-    #[cfg(feature = "whisper")]
-    plugin_active_count: usize,
-
-    #[cfg(feature = "whisper")]
-    plugin_transcription_requests: u64,
-
-    #[cfg(feature = "whisper")]
-    plugin_success: u64,
-
-    #[cfg(feature = "whisper")]
-    plugin_failures: u64,
 }
 
 #[derive(Clone)]

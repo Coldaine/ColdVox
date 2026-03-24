@@ -1,5 +1,5 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
-use coldvox_audio_quality::{AudioQualityMonitor, QualityConfig, LevelMonitor, SpectralAnalyzer};
+use coldvox_audio_quality::{AudioQualityMonitor, LevelMonitor, QualityConfig, SpectralAnalyzer};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 
 /// Generate test signal at specific amplitude
 fn generate_signal(samples: usize, amplitude: f32) -> Vec<i16> {
@@ -19,13 +19,9 @@ fn bench_rms_calculation(c: &mut Criterion) {
         let samples = generate_signal(*size, 0.5);
         let mut monitor = LevelMonitor::new(16000, 500, 1000);
 
-        group.bench_with_input(
-            BenchmarkId::from_parameter(size),
-            &samples,
-            |b, s| b.iter(|| {
-                monitor.update_rms(black_box(s))
-            }),
-        );
+        group.bench_with_input(BenchmarkId::from_parameter(size), &samples, |b, s| {
+            b.iter(|| monitor.update_rms(black_box(s)))
+        });
     }
 
     group.finish();
@@ -38,13 +34,9 @@ fn bench_peak_detection(c: &mut Criterion) {
         let samples = generate_signal(*size, 0.5);
         let mut monitor = LevelMonitor::new(16000, 500, 1000);
 
-        group.bench_with_input(
-            BenchmarkId::from_parameter(size),
-            &samples,
-            |b, s| b.iter(|| {
-                monitor.update_peak(black_box(s))
-            }),
-        );
+        group.bench_with_input(BenchmarkId::from_parameter(size), &samples, |b, s| {
+            b.iter(|| monitor.update_peak(black_box(s)))
+        });
     }
 
     group.finish();
@@ -55,15 +47,11 @@ fn bench_spectral_analysis(c: &mut Criterion) {
 
     for size in [512, 1024, 2048].iter() {
         let samples = generate_signal(*size, 0.5);
-        let mut analyzer = SpectralAnalyzer::new(16000);
+        let mut analyzer = SpectralAnalyzer::new(16000, 0.3);
 
-        group.bench_with_input(
-            BenchmarkId::from_parameter(size),
-            &samples,
-            |b, s| b.iter(|| {
-                analyzer.detect_off_axis(black_box(s))
-            }),
-        );
+        group.bench_with_input(BenchmarkId::from_parameter(size), &samples, |b, s| {
+            b.iter(|| analyzer.detect_off_axis(black_box(s)))
+        });
     }
 
     group.finish();
@@ -77,13 +65,9 @@ fn bench_full_analysis(c: &mut Criterion) {
         let config = QualityConfig::default();
         let mut monitor = AudioQualityMonitor::new(config);
 
-        group.bench_with_input(
-            BenchmarkId::from_parameter(size),
-            &samples,
-            |b, s| b.iter(|| {
-                monitor.analyze(black_box(s))
-            }),
-        );
+        group.bench_with_input(BenchmarkId::from_parameter(size), &samples, |b, s| {
+            b.iter(|| monitor.analyze(black_box(s)))
+        });
     }
 
     group.finish();
@@ -99,9 +83,7 @@ fn bench_frame_budget_compliance(c: &mut Criterion) {
     let mut monitor = AudioQualityMonitor::new(config);
 
     c.bench_function("frame_budget_512_samples", |b| {
-        b.iter(|| {
-            monitor.analyze(black_box(&samples))
-        })
+        b.iter(|| monitor.analyze(black_box(&samples)))
     });
 }
 

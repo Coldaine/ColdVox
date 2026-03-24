@@ -1,7 +1,7 @@
+use coldvox_audio::StreamResampler;
 use coldvox_vad::{UnifiedVadConfig, VadEngine, VadEvent, VadMode, VadState};
 #[cfg(feature = "silero")]
 use coldvox_vad_silero::SileroEngine;
-use coldvox_audio::StreamResampler;
 
 pub struct VadAdapter {
     engine: Box<dyn VadEngine>,

@@ -79,10 +79,7 @@ impl QualityWarning {
                 )
             }
             QualityWarning::Clipping { peak_dbfs } => {
-                format!(
-                    "Audio clipping ({:.1} dBFS) - Reduce mic gain",
-                    peak_dbfs
-                )
+                format!("Audio clipping ({:.1} dBFS) - Reduce mic gain", peak_dbfs)
             }
             QualityWarning::OffAxis { spectral_ratio } => {
                 format!(

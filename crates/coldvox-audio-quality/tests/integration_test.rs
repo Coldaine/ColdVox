@@ -1,6 +1,4 @@
-use coldvox_audio_quality::{
-    AudioQualityMonitor, QualityConfig, QualityStatus, QualityWarning,
-};
+use coldvox_audio_quality::{AudioQualityMonitor, QualityConfig, QualityStatus, QualityWarning};
 use hound::WavReader;
 use std::path::{Path, PathBuf};
 
@@ -33,8 +31,8 @@ fn pyramic_available() -> bool {
 #[test]
 fn test_committed_sample_baseline() {
     // Test with committed samples (always available, ~320KB total)
-    let samples = load_wav_samples("test_data/test_1.wav")
-        .expect("Failed to load committed test sample");
+    let samples =
+        load_wav_samples("test_data/test_1.wav").expect("Failed to load committed test sample");
 
     let config = QualityConfig::default();
     let mut monitor = AudioQualityMonitor::new(config);
@@ -115,7 +113,9 @@ fn test_synthetic_clipping_detection() {
 
     let mut found_clipping = false;
     for chunk in samples.chunks(512) {
-        if let QualityStatus::Warning(QualityWarning::Clipping { peak_dbfs }) = monitor.analyze(chunk) {
+        if let QualityStatus::Warning(QualityWarning::Clipping { peak_dbfs }) =
+            monitor.analyze(chunk)
+        {
             found_clipping = true;
             // Verify peak is actually near 0 dBFS
             assert!(
@@ -147,7 +147,9 @@ fn test_synthetic_quiet_audio() {
 
     let mut found_too_quiet = false;
     for chunk in samples.chunks(512) {
-        if let QualityStatus::Warning(QualityWarning::TooQuiet { rms_dbfs }) = monitor.analyze(chunk) {
+        if let QualityStatus::Warning(QualityWarning::TooQuiet { rms_dbfs }) =
+            monitor.analyze(chunk)
+        {
             found_too_quiet = true;
             // Verify RMS is actually below threshold
             assert!(
@@ -239,7 +241,10 @@ fn test_pyramic_off_axis_detection() {
     let config = QualityConfig::default();
 
     for (angle_dir, expect_warning, description) in test_cases {
-        let audio_path = PathBuf::from(format!("../../test_audio/off_axis/pyramic/{}/speech.wav", angle_dir));
+        let audio_path = PathBuf::from(format!(
+            "../../test_audio/off_axis/pyramic/{}/speech.wav",
+            angle_dir
+        ));
 
         if !audio_path.exists() {
             println!("Skipping {} - file not found", angle_dir);
@@ -316,8 +321,8 @@ fn test_custom_thresholds() {
     // Test with more aggressive thresholds
     let config = QualityConfig::builder()
         .too_quiet_threshold_dbfs(-30.0) // More strict (default: -40.0)
-        .clipping_threshold_dbfs(-3.0)   // More lenient (default: -1.0)
-        .off_axis_threshold(0.5)         // More lenient (default: 0.3)
+        .clipping_threshold_dbfs(-3.0) // More lenient (default: -1.0)
+        .off_axis_threshold(0.5) // More lenient (default: 0.3)
         .build();
 
     let mut monitor = AudioQualityMonitor::new(config);
@@ -332,7 +337,10 @@ fn test_custom_thresholds() {
     // With -30 dBFS threshold, this should trigger warning
     let status = monitor.analyze(&samples);
     assert!(
-        matches!(status, QualityStatus::Warning(QualityWarning::TooQuiet { .. })),
+        matches!(
+            status,
+            QualityStatus::Warning(QualityWarning::TooQuiet { .. })
+        ),
         "Audio at -35 dBFS should trigger warning with -30 dBFS threshold"
     );
 }
