@@ -89,18 +89,79 @@ Before committing to the merge, verify `parakeet-rs` actually transcribes on the
 1. Port Mini's command processor from Python to Rust
 2. End-to-end testing: mic → VAD → STT → injection on Windows
 
-## Risks
+## Critical Implementation Details ("The Dragons")
 
-| Risk | Mitigation |
-|---|---|
-| `parakeet-rs` runtime failure on 5090 | Phase 1 is a hard gate; fall back to whisper.cpp CUDA if needed |
-| Tauri v2 + existing crates integration friction | Start with a minimal "hello transcription" before full UI |
-| Windows audio capture differences | `cpal` is cross-platform; test early |
-| Voice command accuracy | Can iterate post-launch |
+### 1. Global Hotkeys (PTT)
+Unlike the TUI, a background dictation app Needs to listen to keys even when blurred.
+- **Solution**: Use the `rdev` crate for cross-platform global listeners, or directly use `GetAsyncKeyState` via the `windows` crate on a background thread.
+- **Logic**: 
+  - On KeyDown(Hotkey) -> Start Capture
+  - On KeyUp(Hotkey) -> Stop Capture & Start Inference
 
-## Decision Required
+### 2. Voice Command Processor
+We need to port the logic from Mini's `voice_commands.py` to a Rust module in `coldvox-stt` or a new `coldvox-commands` crate.
+- **Features**: 
+  - Token matching (e.g., "new line" -> `\n`)
+  - Semantic actions (e.g., "scratch that" -> Backspace last word)
+  - Auto-punctuation (if not handled by Parakeet)
 
-> Where do we build this?
-> 1. **Inside ColdVox repo** — replace `coldvox-gui` crate, keep workspace
-> 2. **Inside ColdVox_Mini repo** — rip out Python, add Rust crates
-> 3. **New repo** — clean start, cherry-pick what we need
+### 3. Packaging & Model Distribution (Heavyweight)
+The final binary will be massive if bundled, or brittle if separate.
+- **Payload**:
+  - `onnxruntime.dll` (CUDA/TensorRT) ~ 200MB
+  - Parakeet 1.1B Model ~ 1.1GB
+  - Silero VAD ~ 2MB
+- **Strategy**: Use Tauri's "Sidecar" or a custom `setup` hook to download models to `%LOCALAPPDATA%` on first run if not present.
+
+---
+
+## Path to Production: Packaging & Deployment
+
+### 4. Installation & Runtime Dependencies
+This is the single biggest "user friction" point.
+- **Problem**: CUDA apps usually require the user to install a 3GB NVIDIA driver/toolkit.
+- **Solution**: We must bundle the specific `onnxruntime_providers_cuda.dll` and its dependencies (or use a static build of ORT if possible).
+- **Installer**: Use Tauri's **WiX** or **NSIS** bundler to create a standard Windows `.msi` or `.exe`.
+- **Requirement Check**: The app should check for a compatible NVIDIA GPU on startup and fallback gracefully to a "Non-compatible hardware" screen if no CUDA is found.
+
+### 5. Auto-Updates
+Since the model (~1GB) and the binary (~50MB) are separate, the update strategy matters.
+- **Core Update**: Use Tauri's built-in updater for the `.exe` and UI.
+- **Model Update**: The Rust backend should check a `version.txt` on the model CDN and re-download the Parakeet ONNX file if it changes, rather than re-bundling it in every app update.
+
+### 6. Final UX Polish
+- **Dynamic Island States**: 
+  - `IDLE`: Small pill, grey icon.
+  - `LISTENING`: Expanding pill, pulsing red icon/waveform.
+  - `THINKING`: Spinning loader (Inference).
+  - `INJECTING`: Success checkmark.
+- **Settings GUI**: A secondary window for:
+  - Hotkey rebinding.
+  - Custom voice commands (User-defined shortcuts).
+  - Model selection (Small vs Large Parakeet).
+
+---
+
+## Pain Points & Help Needed Matrix
+
+| Feature | Difficulty | Transition Logic | Help Needed |
+|---|---|---|---|
+| **CUDA Runtime** | 🔴 High | Moving from "it works on my machine" to "it works on every 5090". | DLL sideloading expert. |
+| **Global Hooks** | 🟡 Med | Ensuring low-latency hotkey detection without being flagged by Anti-Cheat. | Windows Low-Level Hooking. |
+| **Command Port** | 🟢 Low | Rewriting Python string logic to Rust. | Just "boring" work. |
+| **Installer** | 🟡 Med | Handling the 1GB+ payload without crashing common installers. | WiX / CI Pipeline tuning. |
+
+---
+
+## Build Location: ColdVox Repo
+
+We will build inside the existing **ColdVox** repository:
+1. **Pros**: Direct access to verified `parakeet-rs` crates, existing workspace structure, and GitHub Actions.
+2. **Action**: `rm -rf crates/coldvox-gui` (the legacy Qt/QML stub) and replace it with the Tauri v2 scaffold.
+
+---
+
+## Next Step: Phase 1 (Validation)
+Before scaffolding the GUI, we MUST prove the engine works.
+- **Task**: Run `cargo run -p coldvox-stt --example verify_parakeet --features parakeet,parakeet-cuda`
+- **Success Criteria**: Real audio input results in correct text on the terminal.
