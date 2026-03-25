@@ -69,6 +69,13 @@ else
     exit 1
 fi
 
+# 3.5a Install Visual C++ redistributable on Windows CI
+print_step "Installing Visual C++ redistributable..."
+# Download the installer (quiet, no restart)
+curl -L -o vc_redist.x64.exe https://aka.ms/vs/17/release/vc_redist.x64.exe
+vc_redist.x64.exe /quiet /norestart
+print_success "Visual C++ redistributable installed"
+
 # 4. Build
 print_step "Building workspace..."
 if cargo build --workspace --locked; then

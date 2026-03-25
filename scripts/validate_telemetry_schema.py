@@ -5,6 +5,10 @@ Telemetry Schema Validator for ColdVox
 Validates that metrics follow the naming convention:
   coldvox.{subsystem}.{metric_name}.{unit}
 
+Supported formats:
+  - New (preferred): coldvox.pipeline.vad_frames.count
+  - Legacy (allowed): coldvox_pipeline_vad_frames_count
+
 Exit codes:
   0 - All metrics follow the schema
   1 - Schema violations found
@@ -40,31 +44,22 @@ VALID_SUBSYSTEMS = {
     "telemetry",  # Telemetry self-monitoring
 }
 
-# Valid units (non-exhaustive, add as needed)
+# Valid units (enforced exact match or known suffix)
 VALID_UNITS = {
     # Time
-    "us",
-    "ms",
-    "s",
+    "us", "ms", "s", "seconds",
     # Count
-    "total",
-    "count",
+    "total", "count", "events",
     # Data
-    "bytes",
-    "kb",
-    "mb",
+    "bytes", "kb", "mb",
     # Percentage
-    "pct",
-    "percent",
+    "pct", "percent",
     # Rate
-    "fps",
-    "hz",
+    "fps", "hz",
     # Boolean/state
-    "bool",
-    "state",
+    "bool", "state", "active",
     # Level
-    "db",
-    "level",
+    "db", "level", "rms", "peak",
 }
 
 # Legacy metric names that are grandfathered in (TODO: migrate these)
@@ -81,6 +76,7 @@ LEGACY_METRICS = {
     "stt_unload_count",
     "stt_transcription_success",
     "end_to_end_ms",
+    "coldvox_ptt", # Hotkey ID, not a metric
 }
 
 # Pattern to find metric names in Rust code
@@ -92,12 +88,14 @@ METRIC_PATTERNS = [
     # histogram!("name", ...)
     re.compile(r'histogram!\s*\(\s*"([^"]+)"'),
     # Metric names in string literals (heuristic)
-    re.compile(r'"(coldvox_[a-z_]+)"'),
-    # Atomic store names like stt_transcription_success.store(...)
-    re.compile(r"(\w+)\.store\s*\("),
-    # Arc<AtomicU64> field names in structs
-    re.compile(r"pub\s+\w+:\s*Arc<Atomic\w+>,\s*//\s*(\w+)"),
+    re.compile(r'"(coldvox[\._][a-z\._]+)"'),
 ]
+
+# Strings to ignore (e.g. filenames, log patterns)
+IGNORE_STRINGS = {
+    "coldvox.log",
+    "coldvox.log.",
+}
 
 
 def validate_metric_name(name: str) -> Tuple[bool, str, str]:
@@ -110,42 +108,37 @@ def validate_metric_name(name: str) -> Tuple[bool, str, str]:
     if name in LEGACY_METRICS:
         return True, "", ""
 
-    # Skip non-metric strings
-    if not (
-        name.startswith("coldvox")
-        or name.startswith("stt_")
-        or name.startswith("capture_")
-        or name.startswith("chunker_")
-        or name.startswith("vad_")
-    ):
-        return True, "", ""  # Not a metric we care about
+    # Skip ignored strings (filenames etc)
+    if name in IGNORE_STRINGS or any(name.startswith(s) for s in IGNORE_STRINGS):
+        return True, "", ""
 
-    # Check for new schema: coldvox.{subsystem}.{name}.{unit}
-    if name.startswith("coldvox_"):
-        parts = name.split("_")
-        if len(parts) < 3:
-            return (
-                False,
-                "Too few components",
-                f"Use format: coldvox_{{subsystem}}_{{name}}_{{unit}}",
-            )
+    # Determine separator
+    sep = "." if "." in name else "_"
+    
+    parts = name.split(sep)
+    if len(parts) < 4:
+        return (
+            False,
+            "Too few components",
+            f"Use format: coldvox{sep}{{subsystem}}{sep}{{name}}{sep}{{unit}}",
+        )
 
-        subsystem = parts[1]
-        if subsystem not in VALID_SUBSYSTEMS:
-            return (
-                False,
-                f"Invalid subsystem '{subsystem}'",
-                f"Use one of: {VALID_SUBSYSTEMS}",
-            )
+    subsystem = parts[1]
+    if subsystem not in VALID_SUBSYSTEMS:
+        return (
+            False,
+            f"Invalid subsystem '{subsystem}'",
+            f"Use one of: {', '.join(sorted(VALID_SUBSYSTEMS))}",
+        )
 
-        # Check for unit suffix
-        unit = parts[-1]
-        if unit not in VALID_UNITS and not any(u in unit for u in VALID_UNITS):
-            return (
-                False,
-                f"Missing/invalid unit suffix",
-                f"Add unit suffix from: {VALID_UNITS}",
-            )
+    # Check for unit suffix
+    unit = parts[-1]
+    if unit not in VALID_UNITS:
+        return (
+            False,
+            f"Invalid unit suffix '{unit}'",
+            f"Use unit from: {', '.join(sorted(VALID_UNITS))}",
+        )
 
     return True, "", ""
 
@@ -153,14 +146,15 @@ def validate_metric_name(name: str) -> Tuple[bool, str, str]:
 def find_metrics_in_file(file_path: Path) -> List[Tuple[int, str]]:
     """Find all metric names in a Rust source file."""
     metrics = []
-    content = file_path.read_text(encoding="utf-8")
-
-    for line_num, line in enumerate(content.split("\n"), 1):
-        for pattern in METRIC_PATTERNS:
-            for match in pattern.finditer(line):
-                metric_name = match.group(1)
-                metrics.append((line_num, metric_name))
-
+    try:
+        content = file_path.read_text(encoding="utf-8")
+        for line_num, line in enumerate(content.split("\n"), 1):
+            for pattern in METRIC_PATTERNS:
+                for match in pattern.finditer(line):
+                    metric_name = match.group(1)
+                    metrics.append((line_num, metric_name))
+    except (IOError, UnicodeDecodeError) as e:
+        print(f"Warning: Could not read {file_path}: {e}")
     return metrics
 
 
@@ -201,7 +195,7 @@ def main() -> int:
     parser.add_argument("--crate", type=str, help="Specific crate to scan")
     args = parser.parse_args()
 
-    repo_root = Path(__file__).parent.parent
+    repo_root = Path(__file__).resolve().parent.parent
     crates_dir = repo_root / "crates"
 
     all_violations = []
@@ -213,17 +207,12 @@ def main() -> int:
             return 1
         all_violations = scan_crate(crate_path)
     else:
-        # Scan telemetry crates specifically
-        for crate_name in [
-            "coldvox-telemetry",
-            "coldvox-stt",
-            "coldvox-audio",
-            "coldvox-vad",
-        ]:
-            crate_path = crates_dir / crate_name
-            if crate_path.exists():
-                violations = scan_crate(crate_path)
-                all_violations.extend(violations)
+        # Dynamically find all crates in crates/
+        if crates_dir.exists():
+            for crate_path in crates_dir.iterdir():
+                if crate_path.is_dir() and (crate_path / "Cargo.toml").exists():
+                    violations = scan_crate(crate_path)
+                    all_violations.extend(violations)
 
     if not all_violations:
         print("✅ All metrics follow the naming schema!")
@@ -234,7 +223,10 @@ def main() -> int:
     print(f"❌ Found {len(all_violations)} schema violation(s):\n")
 
     for v in all_violations:
-        rel_path = v.file.relative_to(repo_root)
+        try:
+            rel_path = v.file.relative_to(repo_root)
+        except ValueError:
+            rel_path = v.file
         print(f"  {rel_path}:{v.line}")
         print(f"    Metric: '{v.metric_name}'")
         print(f"    Issue:  {v.issue}")
@@ -242,7 +234,7 @@ def main() -> int:
         print()
 
     print("\nTo fix these issues:")
-    print("1. Rename metrics to follow: coldvox_{subsystem}_{name}_{unit}")
+    print("1. Rename metrics to follow: coldvox.{subsystem}.{name}.{unit}")
     print("2. Or add legacy metric to LEGACY_METRICS in this script")
     print("3. Update docs/domains/telemetry/tele-observability-playbook.md")
 

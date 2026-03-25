@@ -331,7 +331,7 @@ impl PluginSttProcessor {
     }
     pub async fn run(self) {
         tracing::info!(
-            "STT processor stub running - no actual processing (Whisper feature disabled)"
+            "STT processor stub running - no actual processing (STT features disabled)"
         );
     }
 }

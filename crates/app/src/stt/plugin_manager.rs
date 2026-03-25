@@ -1334,11 +1334,11 @@ impl Drop for SttPluginManager {
 mod tests {
     use super::*;
     use coldvox_stt::plugin::{FailoverConfig, GcPolicy};
-    #[cfg(feature = "whisper")]
+    #[cfg(any(feature = "moonshine", feature = "parakeet"))]
     use coldvox_stt::TranscriptionEvent;
-    #[cfg(feature = "whisper")]
+    #[cfg(any(feature = "moonshine", feature = "parakeet"))]
     use coldvox_vad::constants::FRAME_SIZE_SAMPLES;
-    #[cfg(feature = "whisper")]
+    #[cfg(any(feature = "moonshine", feature = "parakeet"))]
     use std::path::PathBuf;
 
     /// Create a test manager - uses Mock plugin for tests to avoid model dependencies

@@ -147,19 +147,19 @@ impl Default for DashboardState {
             },
             has_metrics_snapshot: false,
             current_tab: Tab::Audio,
-            #[cfg(feature = "whisper")]
+            #[cfg(any(feature = "moonshine", feature = "parakeet"))]
             last_transcript: None,
-            #[cfg(feature = "whisper")]
+            #[cfg(any(feature = "moonshine", feature = "parakeet"))]
             plugin_manager: None,
-            #[cfg(feature = "whisper")]
+            #[cfg(any(feature = "moonshine", feature = "parakeet"))]
             plugin_current: None,
-            #[cfg(feature = "whisper")]
+            #[cfg(any(feature = "moonshine", feature = "parakeet"))]
             plugin_active_count: 0,
-            #[cfg(feature = "whisper")]
+            #[cfg(any(feature = "moonshine", feature = "parakeet"))]
             plugin_transcription_requests: 0,
-            #[cfg(feature = "whisper")]
+            #[cfg(any(feature = "moonshine", feature = "parakeet"))]
             plugin_success: 0,
-            #[cfg(feature = "whisper")]
+            #[cfg(any(feature = "moonshine", feature = "parakeet"))]
             plugin_failures: 0,
         }
     }
@@ -238,7 +238,7 @@ pub async fn run_tui(
     state.app = Some(app.clone());
 
     // Set up plugin manager reference if available
-    #[cfg(feature = "whisper")]
+    #[cfg(any(feature = "moonshine", feature = "parakeet"))]
     if let Some(ref app) = state.app {
         if let Some(ref pm) = app.plugin_manager {
             state.plugin_manager = Some(pm.clone());
@@ -324,7 +324,7 @@ async fn run_app(
                             state.log(LogLevel::Info, format!("Switched to {:?} tab", state.current_tab));
                         }
                         KeyCode::Char('l') | KeyCode::Char('L') => {
-                            #[cfg(feature = "whisper")]
+                            #[cfg(any(feature = "moonshine", feature = "parakeet"))]
                             {
                                 if let Some(ref pm) = state.plugin_manager {
                                     let pm_clone = pm.clone();
@@ -341,7 +341,7 @@ async fn run_app(
                             state.log(LogLevel::Info, "Loading plugin...".to_string());
                         }
                         KeyCode::Char('u') | KeyCode::Char('U') => {
-                            #[cfg(feature = "whisper")]
+                            #[cfg(any(feature = "moonshine", feature = "parakeet"))]
                             {
                                 if let Some(ref pm) = state.plugin_manager {
                                     let pm_clone = pm.clone();
@@ -382,7 +382,7 @@ async fn run_app(
                         state.app = Some(app);
                         state.is_running = true;
                     }
-                        #[cfg(feature = "whisper")]
+                        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
                         AppEvent::Transcription(tevent) => {
                             tracing::debug!(target: "coldvox::tui", transcription_event = ?tevent, "Received TranscriptionEvent");
                             match tevent.clone() {
@@ -714,7 +714,7 @@ fn draw_status(f: &mut Frame, area: Rect, state: &DashboardState) {
     status_text.push(Line::from(
         state.last_vad_event.as_deref().unwrap_or("None"),
     ));
-    #[cfg(feature = "whisper")]
+    #[cfg(any(feature = "moonshine", feature = "parakeet"))]
     {
         status_text.push(Line::from(""));
         status_text.push(Line::from("Last Transcript (final):"));
@@ -788,19 +788,21 @@ fn draw_plugins(f: &mut Frame, area: Rect, _state: &DashboardState) {
 
     let mut plugin_lines: Vec<Line> = Vec::new();
 
-    #[cfg(feature = "whisper")]
+    #[cfg(any(feature = "moonshine", feature = "parakeet"))]
     {
         plugin_lines.push(Line::from("noop - NoOp Plugin"));
         plugin_lines.push(Line::from("mock - Mock Plugin"));
-        plugin_lines.push(Line::from("whisper - Whisper Plugin [STUB]"));
+
+        #[cfg(feature = "moonshine")]
+        plugin_lines.push(Line::from("moonshine - Moonshine Plugin"));
 
         #[cfg(feature = "parakeet")]
         plugin_lines.push(Line::from("parakeet - Parakeet Plugin"));
     }
 
-    #[cfg(not(feature = "whisper"))]
+    #[cfg(not(any(feature = "moonshine", feature = "parakeet")))]
     {
-        plugin_lines.push(Line::from("STT plugins require 'whisper' feature"));
+        plugin_lines.push(Line::from("STT plugins require 'moonshine' or 'parakeet' feature"));
     }
 
     let paragraph = Paragraph::new(plugin_lines);
@@ -817,7 +819,7 @@ fn draw_plugin_status(f: &mut Frame, area: Rect, state: &DashboardState) {
 
     let mut status_lines: Vec<Line> = Vec::new();
 
-    #[cfg(feature = "whisper")]
+    #[cfg(any(feature = "moonshine", feature = "parakeet"))]
     {
         let current = state.plugin_current.as_deref().unwrap_or("None");
         status_lines.push(Line::from(vec![
@@ -845,9 +847,9 @@ fn draw_plugin_status(f: &mut Frame, area: Rect, state: &DashboardState) {
         status_lines.push(Line::from("[U] Unload Plugin  [S] Switch"));
     }
 
-    #[cfg(not(feature = "whisper"))]
+    #[cfg(not(any(feature = "moonshine", feature = "parakeet")))]
     {
-        status_lines.push(Line::from("STT plugins require 'whisper' feature"));
+        status_lines.push(Line::from("STT plugins require 'moonshine' or 'parakeet' feature"));
     }
 
     let paragraph = Paragraph::new(status_lines);
