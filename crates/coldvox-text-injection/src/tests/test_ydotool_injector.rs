@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! Unit tests for ydotool_injector.rs
 use crate::types::InjectionConfig;
 use crate::ydotool_injector::{candidate_socket_paths, locate_existing_socket, YdotoolInjector};

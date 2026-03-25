@@ -17,11 +17,11 @@ The project is currently in a "Compiles & Unit-Tested" state. Live hardware vali
 
 | Subsystem | Status | Technical Details |
 |---|---|---|
-| **Audio Capture** | ⚠️ COMPILES | `coldvox-audio` unit tests pass. Live capture unverified due to environment security policy. |
-| **VAD** | ⚠️ COMPILES | Silero VAD unit tests pass. End-to-end speech detection in a live stream unverified. |
-| **STT (Moonshine)** | ⚠️ COMPILES | Python backend initialized. Transcription from a live buffer unverified. |
-| **Text Injection** | ✅ STABLE | Enigo Windows injection verified via unit tests (non-hardware dependent). |
-| **Workspace** | ✅ CLEAN | All crates compile on Windows. Legacy flags removed. |
+| **Audio Capture** | ✅ VERIFIED | Live capture verified (288k samples/3s) via WASAPI. Signal flow confirmed to ring buffer. |
+| **VAD** | ✅ VERIFIED | Silero VAD unit tests pass. Dynamic trigger verified in captured stream. |
+| **STT** | ⚠️ BLOCKED | **Moonshine**: Build succeeds, but Windows App Control blocks every newly hashed test binary. Requires **Folder Exemption** for `target/`. **Parakeet**: 🏗️ NEXT (Requires Stable Moonshine first). |
+| **Text Injection** | ✅ STABLE | Enigo Windows injection verified via unit tests. |
+| **Workspace** | ✅ CLEAN | All crates compile on Windows. `runtime.rs` patched for Moonshine compatibility. |
 
 ## 🚧 Path to "Stable" (Project Roadmap)
 

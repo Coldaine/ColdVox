@@ -1,7 +1,6 @@
 use coldvox_audio::ring_buffer::AudioProducer;
 use coldvox_audio::SharedAudioFrame;
 use std::sync::Arc;
-use std::time::Instant;
 
 use parking_lot::Mutex;
 use tokio::signal;

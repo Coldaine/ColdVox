@@ -191,6 +191,7 @@ enum AppEvent {
 enum LogLevel {
     Info,
     Success,
+    #[allow(dead_code)]
     Warning,
     Error,
 }
@@ -202,7 +203,7 @@ struct DashboardState {
     audio_frames: u64,
     vad_events: u64,
     last_vad_event: Option<String>,
-    current_level: u8,
+    _current_level: u8,
 }
 
 impl Default for DashboardState {
@@ -214,7 +215,7 @@ impl Default for DashboardState {
             audio_frames: 0,
             vad_events: 0,
             last_vad_event: None,
-            current_level: 0,
+            _current_level: 0,
         }
     }
 }
@@ -289,7 +290,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let (tx, mut rx) = mpsc::channel(100);
+    let (tx, rx) = mpsc::channel(100);
     let mut state = DashboardState::default();
 
     let res = run_app(&mut terminal, &mut state, tx, rx, cli).await;
@@ -375,13 +376,8 @@ async fn run_app(
                                         let mut audio_rx = app.subscribe_audio();
                                         let ui_tx2 = tx.clone();
                                         tokio::spawn(async move {
-                                            loop {
-                                                match audio_rx.recv().await {
-                                                    Ok(_) => {
-                                                        let _ = ui_tx2.send(AppEvent::Log(LogLevel::Info, "Audio frame".to_string())).await;
-                                                    }
-                                                    Err(_) => break,
-                                                }
+                                            while audio_rx.recv().await.is_ok() {
+                                                let _ = ui_tx2.send(AppEvent::Log(LogLevel::Info, "Audio frame".to_string())).await;
                                             }
                                         });
 
@@ -412,7 +408,7 @@ async fn run_app(
                                 state.last_vad_event = Some(format!("Speech START @ {}ms ({:.1}dB)", timestamp_ms, energy_db));
                                 state.logs.push((Instant::now(), LogLevel::Success, "Speech detected!".to_string()));
                             }
-                            VadEvent::SpeechEnd { timestamp_ms, duration_ms, energy_db } => {
+                            VadEvent::SpeechEnd { timestamp_ms, duration_ms, energy_db: _ } => {
                                 state.last_vad_event = Some(format!("Speech END @ {}ms ({}ms)", timestamp_ms, duration_ms));
                                 state.logs.push((Instant::now(), LogLevel::Info, format!("Speech ended, {}ms", duration_ms)));
                             }

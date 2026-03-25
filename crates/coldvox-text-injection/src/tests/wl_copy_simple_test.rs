@@ -1,3 +1,4 @@
+#![cfg(unix)]
 //! Simple wl-copy stdin piping test
 //!
 //! This test verifies that wl-copy stdin piping fix works correctly

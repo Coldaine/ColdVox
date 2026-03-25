@@ -7,7 +7,7 @@ use std::collections::VecDeque;
 /// This struct maintains a rolling window for RMS calculation and peak hold
 /// with decay. It's designed to be called from audio callback threads.
 pub struct LevelMonitor {
-    sample_rate: u32,
+    _sample_rate: u32,
 
     // RMS calculation
     rms_window: VecDeque<f32>,  // Rolling window of mean-square values
@@ -50,7 +50,7 @@ impl LevelMonitor {
         let peak_hold_frames = (peak_hold_ms / typical_frame_ms).max(1) as usize;
 
         Self {
-            sample_rate,
+            _sample_rate: sample_rate,
             rms_window: VecDeque::with_capacity(rms_window_frames),
             rms_window_capacity: rms_window_frames,
             current_rms_linear: 0.0,
@@ -153,6 +153,7 @@ impl LevelMonitor {
     ///
     /// RMS = sqrt(mean(samples^2))
     /// Note: For rolling window RMS, use calculate_frame_mean_square instead.
+    #[allow(dead_code)]
     fn calculate_frame_rms(samples: &[i16]) -> f32 {
         Self::calculate_frame_mean_square(samples).sqrt()
     }

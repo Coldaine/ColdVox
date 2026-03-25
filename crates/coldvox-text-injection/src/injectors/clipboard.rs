@@ -967,6 +967,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(unix)]
     async fn test_execute_command_with_stdin_success() {
         let config = InjectionConfig::default();
         let injector = ClipboardInjector::new(config);
@@ -1002,6 +1003,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(unix)]
     async fn test_execute_command_with_stdin_timeout() {
         let config = InjectionConfig::default();
         let injector = ClipboardInjector::new(config);
