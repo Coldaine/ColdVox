@@ -1,6 +1,6 @@
 {
-  "preferred_plugin": "mock",
-  "fallback_plugins": [],
+  "preferred_plugin": "http-remote",
+  "fallback_plugins": ["mock"],
   "require_local": false,
   "max_memory_mb": null,
   "required_language": "en",
