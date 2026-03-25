@@ -1,4 +1,5 @@
-//! Unit tests for ydotool_injector.rs
+use crate::TextInjector;
+
 use crate::types::InjectionConfig;
 use crate::ydotool_injector::{candidate_socket_paths, locate_existing_socket, YdotoolInjector};
 use anyhow::Result;

@@ -88,3 +88,15 @@ This plan is explicitly designed to be executed by **independent subagents**, wi
 - **No Mocking:** If testing VAD or STT, use the live Windows microphone or a local `.wav` file. Mocking audio buffers hides API mismatches.
 - **Fail Fast:** If an agent encounters a broken build or deep API mismatch (like the `rubato` buffer issue), it must stop and prioritize fixing the compilation blocker over logical features.
 - **Workspace Priority:** Use `cargo {cmd} -p {crate}` for speed, but always finish with `cargo check --workspace --all-targets` to ensure global safety.
+
+## 🤖 Completed Remediation Tasks (2026-03-25)
+
+**Dependency Audit & CI Fixes:**
+- Added `choco install vcredist140` to `.github/workflows/ci.yml` to resolve native Windows issues.
+- Upgraded Rust crates (`tar`, `tokio`, `serde`, `clap`, `tracing`, `serde_json`, `thiserror`, `log`) to their latest stable/compatible versions.
+- Upgraded Python packages using `uv` while respecting the Python `<3.13` constraint.
+- Refactored `coldvox-audio-quality` to use `rustfft` instead of `spectrum-analyzer` to completely remove the unmaintained `paste` crate.
+- Removed dead `whisper` feature flags and references from `Cargo.toml`.
+- Re-built PyO3 bindings for `coldvox-stt` using `uv sync` and `cargo build -p coldvox-stt --features moonshine`.
+- Created `docs/system/Windows-dll-requirements.md` to explicitly document DLL dependencies (VCRUNTIME140.dll, PyO3 DLLs, ONNX/CUDA DLLs).
+- Ran a full dependency audit (`cargo audit`, `cargo outdated`, `uv pip list`) and stored the results in `docs/research/dependency-audit-report-2026-03-25.md`.

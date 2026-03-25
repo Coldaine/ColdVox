@@ -13,13 +13,13 @@ thiserror = "2.0"
 
 # Audio analysis
 rustfft = "6.2"
-spectrum-analyzer = "1.5"
 
 # Ring buffer for rolling windows
 ringbuf = "0.4"
 
 # Optional: for serialization
 serde = { version = "1.0", features = ["derive"], optional = true }
+microfft = "0.6.0"
 
 [dev-dependencies]
 approx = "0.5"  # For floating point comparisons in tests

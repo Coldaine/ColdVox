@@ -1,12 +1,9 @@
-//! Spectral analysis for off-axis detection.
+use rustfft::{num_complex::Complex, FftPlanner};
+use std::sync::Arc;
 
-use spectrum_analyzer::scaling::divide_by_N;
-use spectrum_analyzer::{samples_fft_to_spectrum, FrequencyLimit, FrequencySpectrum};
-use tracing;
-
-/// Spectral analyzer for detecting off-axis audio via frequency analysis.
+/// Analyzes audio to detect if the speaker is off-axis.
 ///
-/// When a speaker moves off-axis from a cardioid microphone, high frequencies
+/// When a speaker turns their head away from the microphone, high frequencies
 /// (4-8kHz) drop off significantly more than mid frequencies (500Hz-2kHz).
 /// This analyzer measures this effect and classifies the audio as on-axis or off-axis.
 pub struct SpectralAnalyzer {
@@ -14,7 +11,8 @@ pub struct SpectralAnalyzer {
     off_axis_threshold: f32,
     last_spectral_ratio: f32,
     /// Pre-allocated buffer for i16 → f32 conversion (real-time safe, no allocations)
-    conversion_buffer: Vec<f32>,
+    conversion_buffer: Vec<Complex<f32>>,
+    planner: FftPlanner<f32>,
 }
 
 impl SpectralAnalyzer {
@@ -25,15 +23,13 @@ impl SpectralAnalyzer {
     /// * `sample_rate` - Sample rate in Hz
     /// * `off_axis_threshold` - Spectral ratio threshold for off-axis detection (default: 0.3)
     pub fn new(sample_rate: u32, off_axis_threshold: f32) -> Self {
-        // Pre-allocate conversion buffer (up to 2048 samples)
-        // This avoids allocations in the hot path (detect_off_axis)
         let conversion_buffer = Vec::with_capacity(2048);
-
         Self {
             sample_rate,
             off_axis_threshold,
             last_spectral_ratio: 1.0, // Start with neutral ratio
             conversion_buffer,
+            planner: FftPlanner::new(),
         }
     }
 
@@ -44,110 +40,89 @@ impl SpectralAnalyzer {
     /// # Arguments
     ///
     /// * `samples` - Audio samples as i16 PCM data
-    ///
-    /// # Algorithm
-    ///
-    /// 1. Compute FFT of audio samples
-    /// 2. Calculate average energy in high-freq band (4-8kHz)
-    /// 3. Calculate average energy in mid-freq band (500Hz-2kHz)
-    /// 4. Compute ratio: high_freq / mid_freq
-    /// 5. If ratio < threshold (0.3), classify as off-axis
     pub fn detect_off_axis(&mut self, samples: &[i16]) -> bool {
         // Need at least 512 samples for meaningful FFT
         if samples.len() < 512 {
             return false;
         }
 
-        // Compute frequency spectrum
-        let spectrum = match self.compute_spectrum(samples) {
-            Some(s) => s,
-            None => return false,
-        };
+        // We will process a power of 2 number of samples for FFT, up to 2048
+        let mut len = 1;
+        while len * 2 <= samples.len() && len * 2 <= 2048 {
+            len *= 2;
+        }
+
+        self.conversion_buffer.clear();
+        for &sample in samples.iter().take(len) {
+            // Apply Hann window and scale
+            // Hann window: 0.5 * (1 - cos(2 * PI * i / (N - 1)))
+            let i = self.conversion_buffer.len();
+            let window =
+                0.5 * (1.0 - (2.0 * std::f32::consts::PI * i as f32 / (len - 1) as f32).cos());
+            self.conversion_buffer.push(Complex {
+                re: (sample as f32 / 32768.0) * window,
+                im: 0.0,
+            });
+        }
+
+        let fft = self.planner.plan_fft_forward(len);
+        fft.process(&mut self.conversion_buffer);
+
+        // Calculate magnitudes (we only need the first half, up to Nyquist)
+        let magnitudes: Vec<f32> = self
+            .conversion_buffer
+            .iter()
+            .take(len / 2)
+            .map(|c| c.norm_sqr())
+            .collect();
 
         // Calculate spectral ratio
-        self.last_spectral_ratio = self.calculate_spectral_ratio(&spectrum);
+        self.last_spectral_ratio = self.calculate_spectral_ratio(&magnitudes, len);
 
-        // Threshold-based classification
-        // Ratio below threshold indicates significant high-frequency rolloff (off-axis)
         self.last_spectral_ratio < self.off_axis_threshold
     }
 
     /// Get the last computed spectral ratio.
-    ///
-    /// This can be used for debugging or visualization.
     pub fn last_spectral_ratio(&self) -> f32 {
         self.last_spectral_ratio
     }
 
-    /// Compute frequency spectrum from audio samples.
-    ///
-    /// **Real-time safe:** Uses pre-allocated buffer, no allocations on hot path.
-    fn compute_spectrum(&mut self, samples: &[i16]) -> Option<FrequencySpectrum> {
-        // Reuse pre-allocated buffer for conversion (real-time safe, no allocation)
-        self.conversion_buffer.clear();
-
-        // Convert i16 samples to f32 for FFT
-        // Note: If samples.len() > capacity, this will allocate once, then reuse
-        for &sample in samples.iter().take(2048) {
-            self.conversion_buffer.push(sample as f32 / 32768.0);
-        }
-
-        // Compute FFT
-        let samples_for_fft = &self.conversion_buffer[..];
-
-        match samples_fft_to_spectrum(
-            samples_for_fft,
-            self.sample_rate,
-            FrequencyLimit::All,
-            Some(&divide_by_N),
-        ) {
-            Ok(spectrum) => Some(spectrum),
-            Err(e) => {
-                tracing::debug!(
-                    error = ?e,
-                    sample_count = samples_for_fft.len(),
-                    "FFT computation failed, skipping off-axis detection for this frame"
-                );
-                None
-            }
-        }
-    }
-
     /// Calculate spectral ratio: high_freq_energy / mid_freq_energy.
-    ///
-    /// High-freq band: 4-8kHz (consonants, sibilants)
-    /// Mid-freq band: 500Hz-2kHz (fundamental speech frequencies)
-    fn calculate_spectral_ratio(&self, spectrum: &FrequencySpectrum) -> f32 {
-        // Define frequency bands
+    fn calculate_spectral_ratio(&self, magnitudes: &[f32], fft_len: usize) -> f32 {
         const HIGH_FREQ_START: f32 = 4000.0; // 4 kHz
         const HIGH_FREQ_END: f32 = 8000.0; // 8 kHz
         const MID_FREQ_START: f32 = 500.0; // 500 Hz
         const MID_FREQ_END: f32 = 2000.0; // 2 kHz
 
-        // Calculate average energy in each band
+        let hz_per_bin = self.sample_rate as f32 / fft_len as f32;
+
         let high_freq_energy =
-            Self::average_energy_in_band(spectrum, HIGH_FREQ_START, HIGH_FREQ_END);
+            Self::average_energy_in_band(magnitudes, hz_per_bin, HIGH_FREQ_START, HIGH_FREQ_END);
+        let mid_freq_energy =
+            Self::average_energy_in_band(magnitudes, hz_per_bin, MID_FREQ_START, MID_FREQ_END);
 
-        let mid_freq_energy = Self::average_energy_in_band(spectrum, MID_FREQ_START, MID_FREQ_END);
-
-        // Avoid division by zero
         if mid_freq_energy < 1e-10 {
             return 0.0; // Silence or very quiet
         }
 
-        // Calculate ratio
         high_freq_energy / mid_freq_energy
     }
 
-    /// Calculate average energy in a frequency band.
-    fn average_energy_in_band(spectrum: &FrequencySpectrum, start_hz: f32, end_hz: f32) -> f32 {
+    fn average_energy_in_band(
+        magnitudes: &[f32],
+        hz_per_bin: f32,
+        start_hz: f32,
+        end_hz: f32,
+    ) -> f32 {
         let mut sum = 0.0;
         let mut count = 0;
 
-        for (freq, val) in spectrum.data().iter() {
-            if freq.val() >= start_hz && freq.val() <= end_hz {
-                // Use magnitude squared (energy)
-                sum += val.val() * val.val();
+        let start_bin = (start_hz / hz_per_bin).floor() as usize;
+        let end_bin = (end_hz / hz_per_bin).ceil() as usize;
+
+        for bin in start_bin..=end_bin {
+            if bin < magnitudes.len() {
+                sum += magnitudes[bin];
                 count += 1;
             }
         }
@@ -194,22 +169,6 @@ mod tests {
     #[test]
     fn test_analyzer_creation() {
         let _analyzer = SpectralAnalyzer::new(16000, 0.3);
-    }
-
-    #[test]
-    fn test_spectrum_computation() {
-        let mut analyzer = SpectralAnalyzer::new(16000, 0.3);
-
-        // Generate 1kHz sine wave
-        let samples = generate_sine_wave(1000.0, 16000, 1024);
-
-        let spectrum = analyzer.compute_spectrum(&samples);
-        assert!(spectrum.is_some());
-
-        let spectrum = spectrum.unwrap();
-        // Should have peak around 1kHz
-        let peak_freq = spectrum.max();
-        assert!(peak_freq.0.val() > 900.0 && peak_freq.0.val() < 1100.0);
     }
 
     #[test]
