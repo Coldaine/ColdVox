@@ -74,11 +74,23 @@ test-filter filter:
 
 # Run main app with default features
 run:
-    cd crates/app && cargo run
+    #!/usr/bin/env pwsh
+    if ($IsWindows) {
+        $base = uv run python -c "import sys; print(sys.base_prefix)"
+        $env:PATH = "$base;$env:PATH"
+    }
+    cd crates/app
+    cargo run --features moonshine,text-injection
 
 # Run TUI dashboard
 tui:
-    cd crates/app && cargo run --bin tui_dashboard
+    #!/usr/bin/env pwsh
+    if ($IsWindows) {
+        $base = uv run python -c "import sys; print(sys.base_prefix)"
+        $env:PATH = "$base;$env:PATH"
+    }
+    cd crates/app
+    cargo run --bin tui_dashboard --features moonshine,text-injection
 
 # Run mic probe utility
 mic-probe duration="30":

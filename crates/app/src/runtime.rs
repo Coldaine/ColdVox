@@ -19,10 +19,12 @@ use coldvox_vad::{UnifiedVadConfig, VadEvent, VadMode, FRAME_SIZE_SAMPLES, SAMPL
 
 use crate::hotkey::spawn_hotkey_listener;
 use crate::stt::plugin_manager::SttPluginManager;
+use std::time::Instant;
+
 #[cfg(any(feature = "moonshine", feature = "parakeet"))]
 use crate::stt::processor::PluginSttProcessor;
 #[cfg(any(feature = "moonshine", feature = "parakeet"))]
-use crate::stt::session::Settings;
+use crate::stt::session::{SessionEvent, SessionSource, Settings};
 #[cfg(any(feature = "moonshine", feature = "parakeet"))]
 use coldvox_stt::TranscriptionConfig;
 
