@@ -11,6 +11,9 @@ version: 1.0.0
 
 # Documentation Todo Backlog
 
+## Epic: Test OS Scoping (High Priority)
+- [ ] Scope text-injection integration tests to fix `cargo test` failures on Windows. ([plan](./plans/test-os-scoping.md))
+
 ## Epic: Documentation Migration
 
 - [x] Establish canonical directory skeleton and enforcement tooling (Phase 1).

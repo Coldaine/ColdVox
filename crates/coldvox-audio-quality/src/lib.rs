@@ -105,7 +105,9 @@ impl AudioQualityMonitor {
             let is_off_axis = self.spectral_analyzer.detect_off_axis(samples);
             if is_off_axis {
                 let ratio = self.spectral_analyzer.last_spectral_ratio();
-                return QualityStatus::Warning(QualityWarning::OffAxis { spectral_ratio: ratio });
+                return QualityStatus::Warning(QualityWarning::OffAxis {
+                    spectral_ratio: ratio,
+                });
             }
         }
 

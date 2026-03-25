@@ -27,14 +27,11 @@ hound = { version = "3.5", optional = true }
 
 [features]
 default = []
-parakeet = ["dep:parakeet-rs"]
+# STT Backends (see docs/domains/stt/stt-overview.md)
+moonshine = ["dep:pyo3", "dep:tempfile", "dep:hound"]  # ✅ Working: Python-based, CPU/GPU
+parakeet = ["dep:parakeet-rs"]                         # ⚠️ Planned: Not currently functional
 parakeet-cuda = ["parakeet", "parakeet-rs/cuda"]
 parakeet-tensorrt = ["parakeet-cuda", "parakeet-rs/tensorrt"]
-whisper = [] # Placeholder until new backend is implemented
-moonshine = ["dep:pyo3", "dep:tempfile", "dep:hound"]
-coqui = []
-leopard = []
-silero-stt = []
 
 [dev-dependencies]
 tokio = { version = "1.49", features = ["rt-multi-thread", "macros"] }

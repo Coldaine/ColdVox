@@ -1,7 +1,7 @@
 //! Spectral analysis for off-axis detection.
 
-use spectrum_analyzer::{samples_fft_to_spectrum, FrequencyLimit, FrequencySpectrum};
 use spectrum_analyzer::scaling::divide_by_N;
+use spectrum_analyzer::{samples_fft_to_spectrum, FrequencyLimit, FrequencySpectrum};
 use tracing;
 
 /// Spectral analyzer for detecting off-axis audio via frequency analysis.
@@ -120,22 +120,15 @@ impl SpectralAnalyzer {
     fn calculate_spectral_ratio(&self, spectrum: &FrequencySpectrum) -> f32 {
         // Define frequency bands
         const HIGH_FREQ_START: f32 = 4000.0; // 4 kHz
-        const HIGH_FREQ_END: f32 = 8000.0;   // 8 kHz
-        const MID_FREQ_START: f32 = 500.0;   // 500 Hz
-        const MID_FREQ_END: f32 = 2000.0;    // 2 kHz
+        const HIGH_FREQ_END: f32 = 8000.0; // 8 kHz
+        const MID_FREQ_START: f32 = 500.0; // 500 Hz
+        const MID_FREQ_END: f32 = 2000.0; // 2 kHz
 
         // Calculate average energy in each band
-        let high_freq_energy = Self::average_energy_in_band(
-            spectrum,
-            HIGH_FREQ_START,
-            HIGH_FREQ_END,
-        );
+        let high_freq_energy =
+            Self::average_energy_in_band(spectrum, HIGH_FREQ_START, HIGH_FREQ_END);
 
-        let mid_freq_energy = Self::average_energy_in_band(
-            spectrum,
-            MID_FREQ_START,
-            MID_FREQ_END,
-        );
+        let mid_freq_energy = Self::average_energy_in_band(spectrum, MID_FREQ_START, MID_FREQ_END);
 
         // Avoid division by zero
         if mid_freq_energy < 1e-10 {
@@ -147,11 +140,7 @@ impl SpectralAnalyzer {
     }
 
     /// Calculate average energy in a frequency band.
-    fn average_energy_in_band(
-        spectrum: &FrequencySpectrum,
-        start_hz: f32,
-        end_hz: f32,
-    ) -> f32 {
+    fn average_energy_in_band(spectrum: &FrequencySpectrum, start_hz: f32, end_hz: f32) -> f32 {
         let mut sum = 0.0;
         let mut count = 0;
 
@@ -188,8 +177,8 @@ mod tests {
 
     /// Generate white noise (all frequencies equal).
     fn generate_white_noise(duration_samples: usize) -> Vec<i16> {
-        use std::hash::{Hash, Hasher};
         use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
 
         let mut hasher = DefaultHasher::new();
         (0..duration_samples)

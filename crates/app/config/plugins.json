@@ -1,4 +1,5 @@
 {
+<<<<<<< HEAD
   "preferred_plugin": null,
   "fallback_plugins": [
     "whisper",
@@ -6,13 +7,21 @@
     "gcloud"
   ],
   "require_local": false,
+=======
+  "preferred_plugin": "noop",
+  "fallback_plugins": [
+    "mock"
+  ],
+  "require_local": true,
+>>>>>>> fix/p0-python-cleanup-and-dead-whisper
   "max_memory_mb": null,
   "required_language": "en",
   "failover": {
     "failover_threshold": 3,
-    "failover_cooldown_secs": 30
+    "failover_cooldown_secs": 1
   },
   "gc_policy": {
+<<<<<<< HEAD
     "model_ttl_secs": 300,
     "enabled": true
   },
@@ -21,4 +30,11 @@
     "debug_dump_events": false
   },
   "auto_extract_model": true
+=======
+    "model_ttl_secs": 1,
+    "enabled": true
+  },
+  "metrics": null,
+  "auto_extract_model": false
+>>>>>>> fix/p0-python-cleanup-and-dead-whisper
 }

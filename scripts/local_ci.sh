@@ -69,6 +69,13 @@ else
     exit 1
 fi
 
+# 3.5a Install Visual C++ redistributable on Windows CI
+print_step "Installing Visual C++ redistributable..."
+# Download the installer (quiet, no restart)
+curl -L -o vc_redist.x64.exe https://aka.ms/vs/17/release/vc_redist.x64.exe
+vc_redist.x64.exe /quiet /norestart
+print_success "Visual C++ redistributable installed"
+
 # 4. Build
 print_step "Building workspace..."
 if cargo build --workspace --locked; then
@@ -89,21 +96,7 @@ fi
 
 # 6. Run tests
 print_step "Running tests..."
-RUN_WHISPER=0
-for arg in "$@"; do
-  case "$arg" in
-    --whisper)
-      RUN_WHISPER=1
-      shift
-      ;;
-  esac
-done
-
-if [[ $RUN_WHISPER -eq 1 ]]; then
-    print_step "--whisper flag provided: ensuring venv and running with whisper feature"
-    ./scripts/ensure_venv.sh cargo test --workspace --features whisper --locked || { print_error "Whisper feature tests failed"; exit 1; }
-    print_success "Whisper feature tests passed"
-elif cargo test --workspace --locked; then
+if cargo test --workspace --locked; then
     print_success "All tests passed"
 else
     print_error "Tests failed"

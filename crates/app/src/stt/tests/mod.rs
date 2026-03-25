@@ -10,7 +10,7 @@ pub mod timeout_utils;
 #[allow(dead_code)]
 pub mod wer_utils;
 
-#[cfg(feature = "whisper")]
+#[cfg(any(feature = "moonshine", feature = "parakeet"))]
 #[cfg(test)]
 mod stt_core_tests {
     use crate::stt::*;
@@ -83,7 +83,7 @@ mod stt_core_tests {
     }
 }
 
-#[cfg(all(test, feature = "whisper"))]
+#[cfg(all(test, any(feature = "moonshine", feature = "parakeet")))]
 mod processor_tests {
     use crate::stt::processor::*;
 

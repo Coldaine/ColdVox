@@ -1,6 +1,6 @@
 //! Unit tests for ydotool_injector.rs
-use crate::ydotool_injector::{candidate_socket_paths, locate_existing_socket, YdotoolInjector};
 use crate::types::InjectionConfig;
+use crate::ydotool_injector::{candidate_socket_paths, locate_existing_socket, YdotoolInjector};
 use anyhow::Result;
 use serial_test::serial;
 use std::env;
@@ -160,9 +160,7 @@ fn test_check_binary_permissions_success() {
 #[serial]
 async fn test_check_ydotool_available_when_binary_and_socket_present() {
     let harness = TestHarness::new().unwrap();
-    let ydotool_path = harness
-        .create_mock_binary("ydotool", "", true)
-        .unwrap();
+    let ydotool_path = harness.create_mock_binary("ydotool", "", true).unwrap();
     harness.create_which_mock(&ydotool_path).unwrap();
     let socket_path = harness.home_dir.join(".ydotool/socket");
     harness.create_mock_socket(&socket_path).unwrap();
@@ -175,10 +173,7 @@ async fn test_check_ydotool_available_when_binary_and_socket_present() {
 #[serial]
 async fn test_inject_text_uses_paste_by_default() {
     let harness = TestHarness::new().unwrap();
-    let ydotool_script = format!(
-        "#!/bin/sh\necho \"$@\" > {}",
-        harness.output_file.display()
-    );
+    let ydotool_script = format!("#!/bin/sh\necho \"$@\" > {}", harness.output_file.display());
     let ydotool_path = harness
         .create_mock_binary("ydotool", &ydotool_script, true)
         .unwrap();

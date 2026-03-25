@@ -2,7 +2,7 @@
 
 > ⚠️ **Internal Alpha** - This project is in early development and not ready for production use.
 
-> **⚠️ CRITICAL**: Documentation and feature status changes quickly. See [`docs/plans/critical-action-plan.md`](docs/plans/critical-action-plan.md) for what currently works.
+> **⚠️ CRITICAL**: Documentation and feature status changes quickly. See [`docs/plans/windows-multi-agent-recovery.md`](docs/plans/windows-multi-agent-recovery.md) for what currently works.
 
 Minimal root README. Full developer & architecture guide: see [`CLAUDE.md`](CLAUDE.md). Assistants should read [`AGENTS.md`](AGENTS.md).
 
@@ -16,7 +16,7 @@ Current product and documentation direction is anchored in:
 
 ## Quick Start
 
-Status varies by STT backend and platform. For current “what works” details, see [`docs/plans/critical-action-plan.md`](docs/plans/critical-action-plan.md).
+Status varies by STT backend and platform. For current “what works” details, see [`docs/plans/windows-multi-agent-recovery.md`](docs/plans/windows-multi-agent-recovery.md).
 
 ```bash
 # Main app

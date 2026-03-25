@@ -1,3 +1,4 @@
+use coldvox_audio::StreamResampler;
 use coldvox_vad::{UnifiedVadConfig, VadEngine, VadEvent, VadMode, VadState};
 #[cfg(feature = "silero")]
 use coldvox_vad_silero::SileroEngine;
@@ -5,7 +6,7 @@ use coldvox_vad_silero::SileroEngine;
 pub struct VadAdapter {
     engine: Box<dyn VadEngine>,
     config: UnifiedVadConfig,
-    resampler: Option<AudioResampler>,
+    resampler: Option<StreamResampler>,
 }
 
 impl VadAdapter {
@@ -29,15 +30,11 @@ impl VadAdapter {
         };
 
         #[cfg(feature = "silero")]
-        let resampler = if engine.required_sample_rate() != config.sample_rate_hz
-            || engine.required_frame_size_samples() != config.frame_size_samples
-        {
-            Some(AudioResampler::new(
+        let resampler = if engine.required_sample_rate() != config.sample_rate_hz {
+            Some(StreamResampler::new(
                 config.sample_rate_hz,
                 engine.required_sample_rate(),
-                config.frame_size_samples,
-                engine.required_frame_size_samples(),
-            )?)
+            ))
         } else {
             None
         };
@@ -52,7 +49,7 @@ impl VadAdapter {
 
     pub fn process(&mut self, frame: &[i16]) -> Result<Option<VadEvent>, String> {
         if let Some(resampler) = &mut self.resampler {
-            let processed_frame = resampler.process(frame)?;
+            let processed_frame = resampler.process(frame);
             // Only process if we got a complete frame
             if !processed_frame.is_empty() {
                 self.engine.process(&processed_frame)
@@ -80,6 +77,7 @@ impl VadAdapter {
         &self.config
     }
 }
+
 
 use audioadapter::Adapter;
 use audioadapter_buffers::owned::SequentialOwned;
