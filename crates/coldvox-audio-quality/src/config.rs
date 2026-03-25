@@ -78,7 +78,7 @@ impl QualityConfig {
         Self {
             // QuadCast is sensitive, tends to be louder
             too_quiet_threshold_dbfs: -35.0, // Slightly higher threshold
-            off_axis_threshold: 0.35,         // QuadCast has tight cardioid pattern
+            off_axis_threshold: 0.35,        // QuadCast has tight cardioid pattern
             ..Default::default()
         }
     }
@@ -192,9 +192,7 @@ impl QualityConfigBuilder {
             off_axis_threshold: self
                 .off_axis_threshold
                 .unwrap_or(defaults.off_axis_threshold),
-            warning_cooldown: self
-                .warning_cooldown
-                .unwrap_or(defaults.warning_cooldown),
+            warning_cooldown: self.warning_cooldown.unwrap_or(defaults.warning_cooldown),
         }
     }
 }

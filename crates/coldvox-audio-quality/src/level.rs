@@ -10,14 +10,14 @@ pub struct LevelMonitor {
     sample_rate: u32,
 
     // RMS calculation
-    rms_window: VecDeque<f32>,      // Rolling window of mean-square values
-    rms_window_capacity: usize,      // Max window size
-    current_rms_linear: f32,         // Current RMS in linear scale [0, 1]
+    rms_window: VecDeque<f32>,  // Rolling window of mean-square values
+    rms_window_capacity: usize, // Max window size
+    current_rms_linear: f32,    // Current RMS in linear scale [0, 1]
 
     // Peak detection
-    current_peak_linear: f32,        // Current peak in linear scale [0, 1]
-    peak_hold_frames: usize,         // How many frames to hold peak
-    peak_hold_counter: usize,        // Frames since last peak update
+    current_peak_linear: f32, // Current peak in linear scale [0, 1]
+    peak_hold_frames: usize,  // How many frames to hold peak
+    peak_hold_counter: usize, // Frames since last peak update
 }
 
 impl LevelMonitor {
@@ -303,6 +303,6 @@ mod tests {
         // RMS should reflect average of recent frames
         let rms = monitor.current_rms_dbfs();
         assert!(rms > -40.0); // Should be reasonably loud
-        assert!(rms < 0.0);   // But not clipping
+        assert!(rms < 0.0); // But not clipping
     }
 }

@@ -133,18 +133,24 @@ Span Attributes:
 - queue.name / queue.wait_ms (workers)
 - user.action.id (frontend hashed)
 
-Metrics Naming Format: `<domain>.<subsystem>.<metric>`
-Examples:
-- agent.llm.tokens.input_total (counter)
-- agent.llm.tokens.output_total (counter)
-- agent.llm.call_duration_ms (histogram)
-- realtime.audio.frames_processed_total (counter)
-- realtime.audio.vad_activation_ratio (gauge)
-- worker.task.execution_duration_ms (histogram)
-- worker.task.failures_total (counter)
-- web.ui.interaction_latency_ms (histogram)
-- system.cpu.utilization_pct (gauge)
-- cost.llm.estimated_per_minute_usd (gauge)
+### 7.1 Metrics Naming Convention
+Metrics MUST follow the format:
+`coldvox.{subsystem}.{metric_name}.{unit}`
+
+**Supported formats:**
+- `coldvox.pipeline.vad_frames.count` (Preferred)
+- `coldvox_pipeline_vad_frames_count` (Legacy support)
+
+**Components:**
+- `subsystem`: crate or domain (pipeline, stt, vad, audio, text_injection, gui)
+- `metric_name`: snake_case descriptive name
+- `unit`: unit suffix (ms, count, pct, fps, db, state, etc.)
+
+**Examples:**
+- `coldvox.stt.transcription_time.ms`
+- `coldvox.audio.ptt_active.state`
+- `coldvox.pipeline.buffer_fill.pct`
+- `coldvox.vad.speech_segments.count`
 
 Logs:
 - Structured JSON (or key=value fallback for Loki).

@@ -7,14 +7,13 @@ Canonical AI agent instructions for ColdVox. This file is the source of truth fo
 - Product and technical anchor: `docs/northstar.md`
 - Documentation triage anchor: `docs/anchor-2026-02-09.md`
 - Architecture direction: `docs/architecture.md`
-- Current breakage/reality tracker: `docs/plans/critical-action-plan.md`
+- Current breakage/reality tracker: `docs/plans/windows-multi-agent-recovery.md`
 - CI source of truth: `docs/dev/CI/architecture.md`
 
 If guidance conflicts, use this precedence:
 1. `docs/northstar.md`
-2. `docs/anchor-2026-02-09.md`
+2. `docs/plans/windows-multi-agent-recovery.md`
 3. `docs/dev/CI/architecture.md`
-4. other docs
 
 ## Current Product Direction (2026-02-09)
 
@@ -85,13 +84,10 @@ cargo run --features text-injection,moonshine
 
 ## Feature Flags
 
-Default features: `silero`, `text-injection`.
-
 - `silero`: Silero VAD
 - `text-injection`: text injection backends
 - `moonshine`: Current working STT backend (Python-based, CPU/GPU)
 - `parakeet`: planned backend work; not current reliable path
-- `whisper`: legacy/removed path; do not treat as active
 - `examples`: example binaries
 - `live-hardware-tests`: hardware test suites
 
