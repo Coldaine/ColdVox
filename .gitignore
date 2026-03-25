@@ -33,6 +33,11 @@ flamegraph.svg
 logs/
 *.log
 
+# PR review and temporary files
+compile_errors.txt
+pr_*.txt
+prs*.txt
+
 # Temporary files
 tmp/
 temp/

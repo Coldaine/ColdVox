@@ -1,40 +1,20 @@
 {
-<<<<<<< HEAD
-  "preferred_plugin": null,
-  "fallback_plugins": [
-    "whisper",
-    "whisper-local",
-    "gcloud"
-  ],
+  "preferred_plugin": "mock",
+  "fallback_plugins": [],
   "require_local": false,
-=======
-  "preferred_plugin": "noop",
-  "fallback_plugins": [
-    "mock"
-  ],
-  "require_local": true,
->>>>>>> fix/p0-python-cleanup-and-dead-whisper
   "max_memory_mb": null,
   "required_language": "en",
   "failover": {
-    "failover_threshold": 3,
-    "failover_cooldown_secs": 1
+    "failover_threshold": 5,
+    "failover_cooldown_secs": 10
   },
   "gc_policy": {
-<<<<<<< HEAD
     "model_ttl_secs": 300,
     "enabled": true
   },
   "metrics": {
-    "log_interval_secs": 60,
+    "log_interval_secs": 30,
     "debug_dump_events": false
   },
   "auto_extract_model": true
-=======
-    "model_ttl_secs": 1,
-    "enabled": true
-  },
-  "metrics": null,
-  "auto_extract_model": false
->>>>>>> fix/p0-python-cleanup-and-dead-whisper
 }

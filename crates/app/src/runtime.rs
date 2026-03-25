@@ -19,7 +19,7 @@ use coldvox_vad::{UnifiedVadConfig, VadEvent, VadMode, FRAME_SIZE_SAMPLES, SAMPL
 
 use crate::hotkey::spawn_hotkey_listener;
 use crate::stt::plugin_manager::SttPluginManager;
-use std::time::Instant;
+
 
 #[cfg(any(feature = "moonshine", feature = "parakeet"))]
 use crate::stt::processor::PluginSttProcessor;
@@ -192,9 +192,17 @@ impl AppHandle {
         #[cfg(any(feature = "moonshine", feature = "parakeet"))]
         if let Some(pm) = &this.plugin_manager {
             // Unload all plugins before stopping tasks
-            let _ = pm.read().await.unload_all_plugins().await;
-            let _ = pm.read().await.stop_gc_task().await;
-            let _ = pm.read().await.stop_metrics_task().await;
+            // Hold a single read lock for all operations to avoid deadlock
+            let pm_guard = pm.read().await;
+            if let Err(e) = pm_guard.unload_all_plugins().await {
+                tracing::warn!("Failed to unload plugins during shutdown: {}", e);
+            }
+            if let Err(e) = pm_guard.stop_gc_task().await {
+                tracing::warn!("Failed to stop GC task during shutdown: {}", e);
+            }
+            if let Err(e) = pm_guard.stop_metrics_task().await {
+                tracing::warn!("Failed to stop metrics task during shutdown: {}", e);
+            }
         }
 
         // Await tasks to ensure clean termination

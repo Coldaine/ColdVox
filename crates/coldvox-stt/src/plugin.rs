@@ -224,9 +224,8 @@ impl Default for PluginSelectionConfig {
         Self {
             preferred_plugin: None,
             fallback_plugins: vec![
-                "whisper".to_string(),
-                "whisper-local".to_string(),
-                "gcloud".to_string(),
+                "moonshine".to_string(),
+                "mock".to_string(),
             ],
             require_local: false,
             max_memory_mb: None,
