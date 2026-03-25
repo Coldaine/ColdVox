@@ -1,5 +1,5 @@
 {
-  "preferred_plugin": "whisper",
+  "preferred_plugin": "moonshine",
   "fallback_plugins": [],
   "require_local": false,
   "max_memory_mb": null,

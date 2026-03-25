@@ -2,89 +2,170 @@
 doc_type: plan
 subsystem: general
 status: active
-freshness: current
-summary: Windows-focused multi-agent execution plan for ColdVox recovery and STT modernization.
+freshness: 2026-03-25
+summary: Canonical ColdVox recovery plan. Single source of truth for Windows modernization, STT pipeline, and feature reality.
 ---
 
-# Windows Multi-Agent Recovery & Modernization Plan
+# ColdVox Recovery & Modernization Plan
 
-> **Status**: ACTIVE
-> **Target OS**: Windows 11
-> **Hardware Priority**: Native CUDA / DirectML acceleration
-
-This document is the definitive action plan to recover the ColdVox codebase from compilation blockers, sanitize the environment, stabilize the STT pipeline, and pave the way for a pure-Rust, Windows-native STT backend.
-
-This plan is explicitly designed to be executed by **independent subagents**, with an absolute requirement for **live testing over mock testing** to validate audio and STT.
+> **Status**: ACTIVE (Updated 2026-03-25)
+> **Target OS**: Windows 11 (primary), Linux secondary
+> **Hardware Priority**: RTX 5090 / CUDA acceleration
+> **This document supersedes:** `option-c-unified-architecture.md`, `critical-action-plan-REVIEW.md`, `stt-http-remote-plugin.md`
 
 ---
 
-## 🤖 Subagent 1: Windows Build & Environment Stabilization
+## What Actually Works (Verified)
 
-**Objective:** Get the project compiling on Windows and establish a single source of truth for the Python environment (`uv`).
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Default build | ✅ | `cargo build -p coldvox-app` |
+| Moonshine STT | ✅ | Requires `uv sync` first |
+| Text injection | ✅ | Default feature |
+| Silero VAD | ✅ | Default feature |
+| Tests | ✅ | `cargo test -p coldvox-app` |
+| Rubato 1.0.1 | ✅ | Migration complete |
+
+## What Is Broken / Removed
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Whisper | ❌ REMOVED | Nuclear pruning complete |
+| Coqui | ❌ REMOVED | Nuclear pruning complete |
+| Leopard | ❌ REMOVED | Nuclear pruning complete |
+| Silero-STT | ❌ REMOVED | Nuclear pruning complete |
+| Parakeet (in-process) | ⚠️ PLANNED | Compiles but needs runtime validation |
+
+---
+
+## Phase 1: Foundation (COMPLETE ✓)
+
+**Subagent 1: Windows Build & Environment Stabilization** ✅ DONE
+- [x] Rubato 1.0.1 Migration
+- [x] Environment Sanitization (requirements.txt deleted, mise.toml fixed)
+- [x] live_capture example created
+
+**Subagent 2: STT Lifecycle & Codebase Pruning** ✅ DONE
+- [x] STT GC Fix (active plugin protected from garbage collection)
+- [x] Nuclear Pruning (whisper, coqui, leopard, silero-stt removed)
+- [x] Plugin configs cleaned
+
+**Subagent 3: Test Infrastructure** ⏳ NEXT
+- [ ] Scope tests by OS (`#[cfg(unix)]` for Linux-only tests)
+- [ ] Enable `cargo test --workspace` to pass on Windows
+- [ ] Document: No mocking for audio/STT tests—use live hardware
+
+---
+
+## Phase 2: STT Modernization (IN PROGRESS)
+
+We have **TWO viable paths** for modern STT. Choose based on validation results:
+
+### Path A: HTTP Remote STT (RECOMMENDED FIRST)
+
+Use local HTTP servers for STT to avoid PyO3 fragility entirely.
+
+**Benchmarked Options (all tested, RTX 5090):**
+
+| Service | Port | Latency (4s clip) | VRAM | Status |
+|---------|------|-------------------|------|--------|
+| Moonshine base | 5096 | 309ms | 0 GB | ✅ Working |
+| Moonshine tiny | 5096 | 158ms | 0 GB | ✅ Fastest |
+| Parakeet-TDT-0.6B | 8200 | 86ms | ~4 GB | ✅ GPU Docker |
+| IBM Granite 4.0 1B | 5093 | 780ms | 4.3 GB | ✅ Best accuracy |
+| Qwen3-ASR-1.7B | 5094 | 1.07s | 14-24 GB | ✅ 52 languages |
+
+**Implementation:** See archived `stt-http-remote-plugin.md` for detailed code.
+
+**Advantages:**
+- Zero PyO3/Python dependencies in the main app
+- Model runs in isolated container/process
+- Easy to swap models without recompiling
+- Works today
+
+### Path B: In-Process Parakeet (VALIDATION REQUIRED)
+
+Direct ONNX Runtime integration via `parakeet-rs` crate.
+
+**Status:** Compiles with `cargo check -p coldvox-stt --features parakeet,parakeet-cuda`
+
+**Gate:** Must validate actual transcription on RTX 5090 before committing.
+
+**Validation Checklist:**
+- [ ] `cargo run -p coldvox-stt --example verify_parakeet --features parakeet,parakeet-cuda -- test.wav` produces correct text
+- [ ] Live microphone → Parakeet → transcription works
+- [ ] GPU utilization confirmed (not falling back to CPU)
+
+**If validation passes:** Proceed with Tauri GUI integration.
+**If validation fails:** Default to Path A (HTTP Remote).
+
+---
+
+## Phase 3: GUI Modernization (OPTION C)
+
+**Decision:** Replace Qt/QML with Tauri v2 + React.
+
+**Architecture:**
+```
+┌──────────────────────────────────────────────┐
+│            Tauri v2 Shell                     │
+│  ┌────────────────────────────────────────┐   │
+│  │  React Frontend (Dynamic Island UI)    │   │
+│  │  - Glassmorphism floating pill         │   │
+│  │  - States: Idle → Listening → Done     │   │
+│  └──────────────┬─────────────────────────┘   │
+│                 │ tauri::command invoke()      │
+│  ┌──────────────▼─────────────────────────┐   │
+│  │  Rust Backend (existing crates)        │   │
+│  │                                        │   │
+│  │  coldvox-audio ──► coldvox-vad-silero  │   │
+│  │       │                    │            │   │
+│  │       ▼                    ▼            │   │
+│  │  coldvox-stt (HTTP or Parakeet)        │   │
+│  │       │                                │   │
+│  │       ▼                                │   │
+│  │  Windows text injection (SendInput)    │   │
+│  └────────────────────────────────────────┘   │
+└──────────────────────────────────────────────┘
+```
 
 **Action Items:**
-1. **Rubato 1.0.1 Migration:**
-    - Rewrite `StreamResampler` in `crates/coldvox-audio/src/resampler.rs` to conform to the `rubato = "1.0"` breaking changes.
-    - Implement the `audioadapter` wrapping logic required by the new `SincFixedIn` API.
-    - Validate with `cargo check -p coldvox-audio`.
-2. **Environment Sanitization:**
-    - Delete `requirements.txt` (it conflicts with `pyproject.toml`).
-    - Remove `python = "3.13"` from `mise.toml` to prevent PyO3 compilation errors.
-    - Enforce `.python-version` (`3.12`) and `uv sync` as the exclusive Python environment management path.
-3. **Live Testing:**
-    - Build a minimal capture test: `cargo run -p coldvox-audio --example live_capture` (create if missing) to prove microphone access and resampling on Windows without crashing.
+- [ ] Remove `crates/coldvox-gui/` (Qt/QML stub)
+- [ ] Scaffold Tauri v2 app at `crates/coldvox-gui/`
+- [ ] Port ColdVox_Mini React components
+- [ ] Wire tauri::command handlers to Rust backend
+- [ ] Global hotkey handling (PTT) via `rdev` or `windows` crate
+
+**What We Drop:**
+- Qt/QML GUI (incomplete)
+- Moonshine PyO3 dependency (if using HTTP path)
+- whisper.dll / Vulkan path
+- Linux-specific injection (for now)
 
 ---
 
-## 🤖 Subagent 2: STT Lifecycle & Codebase Pruning
+## Execution Rules
 
-**Objective:** Stop aggressive STT garbage collection and delete "vaporware" features that clutter the project.
-
-**Action Items:**
-1. **Port PR #366 (STT GC Fix):**
-    - Modify `SttPluginManager` in `crates/app/src/stt/plugin_manager.rs` to absolutely prevent garbage collection of the *currently active* STT plugin.
-2. **Nuclear Pruning:**
-    - Open `crates/coldvox-stt/Cargo.toml`.
-    - Delete the `whisper`, `coqui`, `leopard`, and `silero-stt` feature flags.
-    - Delete the corresponding unused plugin `.rs` files in `crates/coldvox-stt/src/plugins/`.
-3. **Live Testing:**
-    - Run `cargo run --features moonshine,text-injection`.
-    - Perform a continuous 5-minute live dictation session into Notepad to prove the STT model does not unload unprompted.
+1. **No Mocking:** Audio and STT tests use live microphone or `.wav` files
+2. **Fail Fast:** Build blockers take priority over features
+3. **Windows First:** Linux support is secondary until Windows is solid
+4. **Live Testing Over Unit Tests:** For audio pipeline, integration tests with real hardware matter more than mocks
 
 ---
 
-## 🤖 Subagent 3: Windows-Native STT Path (Parakeet)
+## Superseded Documents
 
-**Objective:** Transition away from fragile Python/PyO3 dependencies to a pure-Rust or ONNX-based Windows STT backend (Parakeet).
+The following plans have been consolidated into this document:
 
-**Action Items:**
-1. **Parakeet Compilation Verification:**
-    - Run `cargo check -p coldvox-app --features parakeet` on Windows.
-2. **CUDA / DirectML Probing:**
-    - Ensure `ort` (ONNX Runtime) or the underlying ML framework for Parakeet is configured to leverage the Windows GPU (CUDA or DirectML).
-3. **Live Validation Harness:**
-    - Create a command-line harness to feed a known `.wav` file into the Parakeet backend directly: `cargo run -p coldvox-app --bin test_parakeet -- test.wav`.
-    - Once file transcription is validated, pipe live Windows microphone input directly to Parakeet.
-4. **Transition Plan:**
-    - Once Parakeet achieves parity with Moonshine in accuracy and latency, document the deprecation of Moonshine and the removal of the PyO3 dependency.
+| Old Plan | Content Merged Here |
+|----------|---------------------|
+| `option-c-unified-architecture.md` | Phase 3: GUI Modernization section |
+| `critical-action-plan-REVIEW.md` | "What Actually Works" table |
+| `stt-http-remote-plugin.md` | Phase 2: Path A (HTTP Remote STT) |
+| `test-os-scoping.md` | Phase 1: Subagent 3 |
+
+**Action:** Archive the above documents to `docs/archive/plans/`.
 
 ---
 
-## 🤖 Subagent 4: Documentation & Alignment
-
-**Objective:** Ensure all documentation accurately reflects working reality and guides future development.
-
-**Action Items:**
-1. **Documentation Updates:**
-    - Update `README.md`, `CLAUDE.md`, and project docs to remove any claims that `whisper` is available.
-    - Update the Quick Start guide to firmly mandate `uv sync` on Windows before building Moonshine.
-2. **Anchor Updates:**
-    - Ensure `AGENTS.md` and `GEMINI.md` reflect `docs/plans/windows-multi-agent-recovery.md` as the core reality tracker.
-
----
-
-## Execution Rules for Agents
-
-- **No Mocking:** If testing VAD or STT, use the live Windows microphone or a local `.wav` file. Mocking audio buffers hides API mismatches.
-- **Fail Fast:** If an agent encounters a broken build or deep API mismatch (like the `rubato` buffer issue), it must stop and prioritize fixing the compilation blocker over logical features.
-- **Workspace Priority:** Use `cargo {cmd} -p {crate}` for speed, but always finish with `cargo check --workspace --all-targets` to ensure global safety.
+*This is the single source of truth. All other plans are historical.*

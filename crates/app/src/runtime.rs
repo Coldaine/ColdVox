@@ -1,6 +1,7 @@
 use coldvox_audio::ring_buffer::AudioProducer;
 use coldvox_audio::SharedAudioFrame;
 use std::sync::Arc;
+use std::time::Instant;
 
 use parking_lot::Mutex;
 use tokio::signal;
@@ -197,12 +198,8 @@ impl AppHandle {
             if let Err(e) = pm_guard.unload_all_plugins().await {
                 tracing::warn!("Failed to unload plugins during shutdown: {}", e);
             }
-            if let Err(e) = pm_guard.stop_gc_task().await {
-                tracing::warn!("Failed to stop GC task during shutdown: {}", e);
-            }
-            if let Err(e) = pm_guard.stop_metrics_task().await {
-                tracing::warn!("Failed to stop metrics task during shutdown: {}", e);
-            }
+            pm_guard.stop_gc_task().await;
+            pm_guard.stop_metrics_task().await;
         }
 
         // Await tasks to ensure clean termination

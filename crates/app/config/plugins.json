@@ -1,6 +1,8 @@
 {
-  "preferred_plugin": "mock",
-  "fallback_plugins": [],
+  "preferred_plugin": "moonshine",
+  "fallback_plugins": [
+    "mock"
+  ],
   "require_local": false,
   "max_memory_mb": null,
   "required_language": "en",
