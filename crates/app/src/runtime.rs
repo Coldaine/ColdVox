@@ -1,6 +1,8 @@
 use coldvox_audio::ring_buffer::AudioProducer;
 use coldvox_audio::SharedAudioFrame;
 use std::sync::Arc;
+#[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+use std::time::Instant;
 
 use parking_lot::Mutex;
 use tokio::signal;
@@ -19,7 +21,6 @@ use coldvox_vad::{UnifiedVadConfig, VadEvent, VadMode, FRAME_SIZE_SAMPLES, SAMPL
 
 use crate::hotkey::spawn_hotkey_listener;
 use crate::stt::plugin_manager::SttPluginManager;
-
 
 #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
 use crate::stt::processor::PluginSttProcessor;
@@ -175,11 +176,11 @@ impl AppHandle {
             trigger_guard.abort();
         }
         this.vad_fanout_handle.abort();
-        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
+        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
         if let Some(h) = &this.stt_handle {
             h.abort();
         }
-        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
+        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
         if let Some(h) = &this.stt_forward_handle {
             h.abort();
         }
@@ -189,7 +190,7 @@ impl AppHandle {
         }
 
         // Stop plugin manager tasks
-        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
+        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
         if let Some(pm) = &this.plugin_manager {
             // Unload all plugins before stopping tasks
             // Hold a single read lock for all operations to avoid deadlock
@@ -208,7 +209,7 @@ impl AppHandle {
             .into_inner();
         let _ = trigger_handle.await;
         let _ = this.vad_fanout_handle.await;
-        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
+        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
         if let Some(h) = this.stt_handle {
             let _ = h.await;
         }
@@ -246,7 +247,7 @@ impl AppHandle {
         info!("Switching activation mode from {:?} to {:?}", *old, mode);
 
         // Unload STT plugins before switching modes to ensure clean state
-        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
+        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
         if let Some(ref pm) = self.plugin_manager {
             info!("Unloading STT plugins before activation mode switch");
             let _ = pm.read().await.unload_all_plugins().await;

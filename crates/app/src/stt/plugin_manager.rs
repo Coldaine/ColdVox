@@ -1457,6 +1457,18 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_preferred_plugin_unavailable_falls_back_to_mock() {
+        let mut manager = SttPluginManager::new();
+        manager.selection_config.preferred_plugin = Some("non-existent".to_string());
+        manager.selection_config.fallback_plugins = vec!["mock".to_string()];
+
+        let plugin_id = manager.initialize().await.unwrap();
+
+        assert_eq!(plugin_id, "mock");
+        assert_eq!(manager.current_plugin().await, Some("mock".to_string()));
+    }
+
+    #[tokio::test]
     async fn test_unload_metrics() {
         let metrics = Arc::new(PipelineMetrics::default());
         let mut manager = create_test_manager().with_metrics_sink(metrics.clone());

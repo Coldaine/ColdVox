@@ -314,10 +314,10 @@ impl PluginSttProcessor {
 }
 
 /// A stub implementation of the processor for when no STT feature is enabled.
-#[cfg(not(any(feature = "moonshine", feature = "parakeet")))]
+#[cfg(not(any(feature = "moonshine", feature = "parakeet", feature = "http-remote")))]
 pub struct PluginSttProcessor;
 
-#[cfg(not(any(feature = "moonshine", feature = "parakeet")))]
+#[cfg(not(any(feature = "moonshine", feature = "parakeet", feature = "http-remote")))]
 impl PluginSttProcessor {
     pub fn new(
         _audio_rx: broadcast::Receiver<SharedAudioFrame>,
@@ -330,8 +330,6 @@ impl PluginSttProcessor {
         Self
     }
     pub async fn run(self) {
-        tracing::info!(
-            "STT processor stub running - no actual processing (STT features disabled)"
-        );
+        tracing::info!("STT processor stub running - no actual processing (STT features disabled)");
     }
 }
