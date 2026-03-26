@@ -580,6 +580,12 @@ impl SttPluginManager {
             registry.register(Box::new(MockPluginFactory::default()));
         }
 
+        #[cfg(feature = "http-remote")]
+        {
+            use coldvox_stt::plugins::http_remote::HttpRemotePluginFactory;
+            registry.register(Box::new(HttpRemotePluginFactory::moonshine_base()));
+        }
+
         // Register Parakeet plugin if the parakeet feature is enabled
         #[cfg(feature = "parakeet")]
         {

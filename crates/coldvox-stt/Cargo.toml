@@ -24,12 +24,14 @@ parakeet-rs = { version = "0.2", optional = true }
 pyo3 = { version = "0.28", optional = true, features = ["auto-initialize"] }
 tempfile = { version = "3.26", optional = true }
 hound = { version = "3.5", optional = true }
+ureq = { version = "3.1.4", optional = true, features = ["json", "multipart"] }
 
 [features]
 default = []
 # STT Backends (see docs/domains/stt/stt-overview.md)
 moonshine = ["dep:pyo3", "dep:tempfile", "dep:hound"]  # ✅ Working: Python-based, CPU/GPU
 parakeet = ["dep:parakeet-rs"]                         # ⚠️ Planned: Not currently functional
+http-remote = ["dep:ureq", "dep:hound"]
 parakeet-cuda = ["parakeet", "parakeet-rs/cuda"]
 parakeet-tensorrt = ["parakeet-cuda", "parakeet-rs/tensorrt"]
 

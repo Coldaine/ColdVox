@@ -91,3 +91,7 @@ docs/install.md
 docs/reference.md
 docs/usage.md
 .omc/ 
+
+# AI Agent working directories
+.sisyphus/
+_ext_refs/
