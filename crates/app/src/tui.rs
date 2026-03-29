@@ -802,7 +802,9 @@ fn draw_plugins(f: &mut Frame, area: Rect, _state: &DashboardState) {
 
     #[cfg(not(any(feature = "moonshine", feature = "parakeet")))]
     {
-        plugin_lines.push(Line::from("STT plugins require 'moonshine' or 'parakeet' feature"));
+        plugin_lines.push(Line::from(
+            "STT plugins require 'moonshine' or 'parakeet' feature",
+        ));
     }
 
     let paragraph = Paragraph::new(plugin_lines);
@@ -849,7 +851,9 @@ fn draw_plugin_status(f: &mut Frame, area: Rect, state: &DashboardState) {
 
     #[cfg(not(any(feature = "moonshine", feature = "parakeet")))]
     {
-        status_lines.push(Line::from("STT plugins require 'moonshine' or 'parakeet' feature"));
+        status_lines.push(Line::from(
+            "STT plugins require 'moonshine' or 'parakeet' feature",
+        ));
     }
 
     let paragraph = Paragraph::new(status_lines);

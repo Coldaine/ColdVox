@@ -11,7 +11,7 @@ Minimal root README. Full developer & architecture guide: see [`CLAUDE.md`](CLAU
 Current product and documentation direction is anchored in:
 
 - [`docs/northstar.md`](docs/northstar.md)
-- [`docs/anchor-2026-02-09.md`](docs/anchor-2026-02-09.md)
+- [`docs/PRODUCT_STATUS.md`](docs/PRODUCT_STATUS.md)
 - [`docs/architecture.md`](docs/architecture.md)
 
 ## Quick Start
@@ -54,6 +54,6 @@ mise run pre-commit
 
 ## Contributing
 
-- Review the [Master Documentation Playbook](docs/MasterDocumentationPlaybook.md).
+- Review the [Product Status](docs/PRODUCT_STATUS.md) and [North Star](docs/northstar.md).
 - Follow the repository [Documentation Standards](docs/standards.md).
 - Coordinate work through the [Documentation Todo Backlog](docs/todo.md).

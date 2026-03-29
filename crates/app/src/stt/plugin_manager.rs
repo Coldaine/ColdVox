@@ -84,7 +84,9 @@ impl SttPluginManager {
     }
     /// Create a new plugin manager with default configuration
     pub fn new() -> Self {
-        Self::new_with_config_path(PathBuf::from("config/plugins.json"))
+        let config_path = crate::discover_plugin_selection_config_path()
+            .unwrap_or_else(|| PathBuf::from("config/plugins.json"));
+        Self::new_with_config_path(config_path)
     }
 
     /// Create a new plugin manager with custom config path
@@ -112,9 +114,14 @@ impl SttPluginManager {
             last_unloaded_plugin_id: Arc::new(RwLock::new(None)),
         };
 
-        // Load existing configuration if available
-        #[allow(clippy::let_underscore_future)]
-        let _ = manager.load_config();
+        if let Err(err) = manager.load_config_sync() {
+            warn!(
+                target: "coldvox::stt",
+                error = %err,
+                config_path = %manager.config_path.display(),
+                "Failed to load plugin configuration during startup"
+            );
+        }
 
         manager
     }
@@ -137,7 +144,11 @@ impl SttPluginManager {
     }
 
     /// Update plugin selection configuration at runtime
-    pub async fn set_selection_config(&mut self, cfg: PluginSelectionConfig) {
+    pub async fn set_selection_config(
+        &mut self,
+        cfg: PluginSelectionConfig,
+    ) -> Result<(), ColdVoxError> {
+        cfg.validate_runtime_policy()?;
         let gc_enabled = cfg.gc_policy.as_ref().is_some_and(|gc| gc.enabled);
         let metrics_enabled = cfg.metrics.is_some();
 
@@ -173,6 +184,33 @@ impl SttPluginManager {
             event = "config_updated",
             "Updated STT plugin selection configuration and saved to disk"
         );
+
+        Ok(())
+    }
+
+    fn load_config_sync(&mut self) -> Result<(), ColdVoxError> {
+        if !self.config_path.exists() {
+            return Ok(());
+        }
+
+        let config_data = std::fs::read_to_string(&self.config_path)
+            .map_err(|e| ConfigError::MissingField(format!("Failed to read config file: {}", e)))?;
+        let config: PluginSelectionConfig = serde_json::from_str(&config_data).map_err(|e| {
+            ConfigError::Parse(config::ConfigError::Message(format!(
+                "Failed to parse config: {}",
+                e
+            )))
+        })?;
+        config.validate_runtime_policy()?;
+        self.selection_config = config;
+
+        info!(
+            target: "coldvox::stt",
+            config_path = %self.config_path.display(),
+            "Loaded plugin configuration from disk"
+        );
+
+        Ok(())
     }
 
     /// Load configuration from disk
@@ -194,10 +232,10 @@ impl SttPluginManager {
                 e
             )))
         })?;
-        self.selection_config = config.clone();
+        config.validate_runtime_policy()?;
 
         // Apply loaded configuration
-        self.set_selection_config(config).await;
+        self.set_selection_config(config).await?;
 
         info!(
             target: "coldvox::stt",
@@ -580,6 +618,12 @@ impl SttPluginManager {
             registry.register(Box::new(MockPluginFactory::default()));
         }
 
+        #[cfg(feature = "http-remote")]
+        {
+            use coldvox_stt::plugins::http_remote::HttpRemotePluginFactory;
+            registry.register(Box::new(HttpRemotePluginFactory::moonshine_base()));
+        }
+
         // Register Parakeet plugin if the parakeet feature is enabled
         #[cfg(feature = "parakeet")]
         {
@@ -599,6 +643,7 @@ impl SttPluginManager {
     pub async fn initialize(&mut self) -> Result<String, ColdVoxError> {
         // Surface any legacy/duplicate config files to help users consolidate configs
         self.warn_on_duplicate_configs();
+        self.selection_config.validate_runtime_policy()?;
         let registry = self.registry.read().await;
         let init_start = Instant::now();
 
@@ -1340,15 +1385,41 @@ mod tests {
     use coldvox_vad::constants::FRAME_SIZE_SAMPLES;
     #[cfg(any(feature = "moonshine", feature = "parakeet"))]
     use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+
+    static TEST_CONFIG_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    fn create_test_config_path() -> PathBuf {
+        let unique = TEST_CONFIG_COUNTER.fetch_add(1, AtomicOrdering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "coldvox-plugin-manager-test-{}-{}.json",
+            std::process::id(),
+            unique
+        ))
+    }
+
+    fn create_isolated_manager() -> SttPluginManager {
+        SttPluginManager::new_with_config_path(create_test_config_path())
+    }
 
     /// Create a test manager - uses Mock plugin for tests to avoid model dependencies
     fn create_test_manager() -> SttPluginManager {
-        let mut manager = SttPluginManager::new();
+        let mut manager = create_isolated_manager();
         // For tests, prefer Mock plugin to avoid model dependencies
         manager.selection_config.preferred_plugin = Some("mock".to_string());
         // Do not include NoOp in fallbacks for stricter behavior
         manager.selection_config.fallback_plugins = vec![];
         manager
+    }
+
+    #[test]
+    fn test_new_uses_canonical_plugin_config_path() {
+        let manager = SttPluginManager::new();
+        let path = manager.config_path();
+        let normalized = path.to_string_lossy().replace('\\', "/");
+
+        assert!(normalized.ends_with("config/plugins.json"));
+        assert!(!normalized.ends_with("crates/app/config/plugins.json"));
     }
 
     #[tokio::test]
@@ -1394,7 +1465,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_unload_nonexistent_plugin() {
-        let manager = SttPluginManager::new();
+        let manager = create_isolated_manager();
 
         // Try to unload a plugin that doesn't exist
         let result = manager.unload_plugin("nonexistent").await;
@@ -1439,7 +1510,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fallback_failure_when_no_plugins_available() {
-        let mut manager = SttPluginManager::new();
+        let mut manager = create_isolated_manager();
 
         // Configure to prefer a non-existent plugin and no fallbacks
         manager.selection_config.preferred_plugin = Some("non-existent".to_string());
@@ -1448,6 +1519,42 @@ mod tests {
         // Initialization should fail explicitly (no NoOp fallback)
         let init_result = manager.initialize().await;
         assert!(init_result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_preferred_plugin_unavailable_falls_back_to_mock_for_noncanonical_profiles() {
+        let mut manager = create_isolated_manager();
+        manager.selection_config.preferred_plugin = Some("non-existent".to_string());
+        manager.selection_config.fallback_plugins = vec!["mock".to_string()];
+
+        let plugin_id = manager.initialize().await.unwrap();
+
+        assert_eq!(plugin_id, "mock");
+        assert_eq!(manager.current_plugin().await, Some("mock".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_http_remote_rejects_mock_fallback_policy() {
+        let mut manager = create_isolated_manager();
+
+        let err = manager
+            .set_selection_config(PluginSelectionConfig {
+                preferred_plugin: Some("http-remote".to_string()),
+                fallback_plugins: vec!["mock".to_string()],
+                require_local: false,
+                max_memory_mb: None,
+                required_language: Some("en".to_string()),
+                failover: None,
+                gc_policy: None,
+                metrics: None,
+                auto_extract_model: true,
+            })
+            .await
+            .expect_err("canonical http-remote profile must reject mock fallback");
+
+        assert!(err
+            .to_string()
+            .contains("mock is test-only and cannot be a production fallback"));
     }
 
     #[tokio::test]
@@ -1661,7 +1768,8 @@ mod tests {
                 metrics: None,
                 auto_extract_model: false,
             })
-            .await;
+            .await
+            .unwrap();
         }
 
         // Create some test audio data

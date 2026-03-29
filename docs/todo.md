@@ -34,5 +34,5 @@ version: 1.0.0
 - [ ] Implement non-blocking advisory mode first; collect precision/recall notes on 20+ PRs.
 - [ ] Add human override label/process for contested LLM findings.
 - [ ] Decide blocking threshold after advisory trial and document the promotion criteria.
-- [ ] Track rollout issue and scope decisions in [docs issue](./issues/docs-agentic-semantic-review-rollout.md).
-- [ ] Keep the review rules synced with [semantic review contract](./reference/docs-semantic-review-contract.md).
+- [ ] Track rollout issue and scope decisions in archived docs (see docs/archive/).
+- [x] Review rules consolidated into AGENTS.md and PRODUCT_STATUS.md.

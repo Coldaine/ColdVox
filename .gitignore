@@ -33,6 +33,11 @@ flamegraph.svg
 logs/
 *.log
 
+# PR review and temporary files
+compile_errors.txt
+pr_*.txt
+prs*.txt
+
 # Temporary files
 tmp/
 temp/
@@ -85,3 +90,8 @@ docs/config.md
 docs/install.md
 docs/reference.md
 docs/usage.md
+.omc/ 
+
+# AI Agent working directories
+.sisyphus/
+_ext_refs/

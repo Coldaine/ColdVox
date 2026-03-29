@@ -5,7 +5,7 @@ Canonical AI agent instructions for ColdVox. This file is the source of truth fo
 ## Anchor
 
 - Product and technical anchor: `docs/northstar.md`
-- Documentation triage anchor: `docs/anchor-2026-02-09.md`
+- Documentation triage anchor: `docs/PRODUCT_STATUS.md`
 - Architecture direction: `docs/architecture.md`
 - Current breakage/reality tracker: `docs/plans/windows-multi-agent-recovery.md`
 - CI source of truth: `docs/dev/CI/architecture.md`

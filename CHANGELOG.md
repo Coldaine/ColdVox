@@ -4,6 +4,15 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Nuclear Pruning & Documentation Cleanup
+- Removed vaporware STT backends (whisper, coqui, leopard, silero-stt) and legacy feature flags.
+- Archived outdated plans, PR reports, and reference docs to `docs/archive/`.
+- Updated all agent anchors (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `README.md`) to new `docs/PRODUCT_STATUS.md`.
+- Added `.omc/` (AI tool state) to `.gitignore`.
+- Synced `plugins.json` configs to prefer `moonshine` (removed whisper references).
+- Fixed broken links and references post-restructure.
+- Updated `docs/plans/windows-multi-agent-recovery.md` with current verified status and paths.
+
 ### Added
 - **Moonshine STT Plugin** - CPU-optimized speech recognition using UsefulSensors' Moonshine model via PyO3/HuggingFace Transformers
   - 5x faster than Whisper on CPU with comparable accuracy (~2.5% WER)

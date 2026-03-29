@@ -1,6 +1,8 @@
 use coldvox_audio::ring_buffer::AudioProducer;
 use coldvox_audio::SharedAudioFrame;
 use std::sync::Arc;
+#[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+use std::time::Instant;
 
 use parking_lot::Mutex;
 use tokio::signal;
@@ -19,11 +21,12 @@ use coldvox_vad::{UnifiedVadConfig, VadEvent, VadMode, FRAME_SIZE_SAMPLES, SAMPL
 
 use crate::hotkey::spawn_hotkey_listener;
 use crate::stt::plugin_manager::SttPluginManager;
-#[cfg(any(feature = "moonshine", feature = "parakeet"))]
+
+#[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
 use crate::stt::processor::PluginSttProcessor;
-#[cfg(any(feature = "moonshine", feature = "parakeet"))]
-use crate::stt::session::Settings;
-#[cfg(any(feature = "moonshine", feature = "parakeet"))]
+#[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+use crate::stt::session::{SessionEvent, SessionSource, Settings};
+#[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
 use coldvox_stt::TranscriptionConfig;
 
 /// Activation strategy for push-to-talk vs voice activation
@@ -118,9 +121,9 @@ pub struct AppHandle {
     raw_vad_tx: mpsc::Sender<VadEvent>,
     audio_tx: broadcast::Sender<SharedAudioFrame>,
     current_mode: std::sync::Arc<RwLock<ActivationMode>>,
-    #[cfg(any(feature = "moonshine", feature = "parakeet"))]
+    #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
     pub stt_rx: Option<mpsc::Receiver<TranscriptionEvent>>,
-    #[cfg(any(feature = "moonshine", feature = "parakeet"))]
+    #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
     pub plugin_manager: Option<Arc<tokio::sync::RwLock<SttPluginManager>>>,
 
     audio_capture: AudioCaptureThread,
@@ -128,9 +131,9 @@ pub struct AppHandle {
     chunker_handle: JoinHandle<()>,
     trigger_handle: Arc<Mutex<JoinHandle<()>>>,
     vad_fanout_handle: JoinHandle<()>,
-    #[cfg(any(feature = "moonshine", feature = "parakeet"))]
+    #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
     stt_handle: Option<JoinHandle<()>>,
-    #[cfg(any(feature = "moonshine", feature = "parakeet"))]
+    #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
     stt_forward_handle: Option<JoinHandle<()>>,
     #[cfg(feature = "text-injection")]
     injection_handle: Option<JoinHandle<()>>,
@@ -173,11 +176,11 @@ impl AppHandle {
             trigger_guard.abort();
         }
         this.vad_fanout_handle.abort();
-        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
+        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
         if let Some(h) = &this.stt_handle {
             h.abort();
         }
-        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
+        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
         if let Some(h) = &this.stt_forward_handle {
             h.abort();
         }
@@ -187,12 +190,16 @@ impl AppHandle {
         }
 
         // Stop plugin manager tasks
-        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
+        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
         if let Some(pm) = &this.plugin_manager {
             // Unload all plugins before stopping tasks
-            let _ = pm.read().await.unload_all_plugins().await;
-            let _ = pm.read().await.stop_gc_task().await;
-            let _ = pm.read().await.stop_metrics_task().await;
+            // Hold a single read lock for all operations to avoid deadlock
+            let pm_guard = pm.read().await;
+            if let Err(e) = pm_guard.unload_all_plugins().await {
+                tracing::warn!("Failed to unload plugins during shutdown: {}", e);
+            }
+            pm_guard.stop_gc_task().await;
+            pm_guard.stop_metrics_task().await;
         }
 
         // Await tasks to ensure clean termination
@@ -202,7 +209,7 @@ impl AppHandle {
             .into_inner();
         let _ = trigger_handle.await;
         let _ = this.vad_fanout_handle.await;
-        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
+        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
         if let Some(h) = this.stt_handle {
             let _ = h.await;
         }
@@ -240,7 +247,7 @@ impl AppHandle {
         info!("Switching activation mode from {:?} to {:?}", *old, mode);
 
         // Unload STT plugins before switching modes to ensure clean state
-        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
+        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
         if let Some(ref pm) = self.plugin_manager {
             info!("Unloading STT plugins before activation mode switch");
             let _ = pm.read().await.unload_all_plugins().await;
@@ -483,7 +490,10 @@ pub async fn start(
             let metrics_clone = metrics.clone();
             let mut manager = SttPluginManager::new().with_metrics_sink(metrics_clone);
             if let Some(config) = opts.stt_selection.clone() {
-                manager.set_selection_config(config).await;
+                if let Err(e) = manager.set_selection_config(config).await {
+                    error!("Rejected STT plugin selection configuration: {}", e);
+                    return Err(Box::new(e));
+                }
             }
             // Initialize the plugin manager; enforce fail-fast semantics when no STT plugin is available
             match manager.initialize().await {
@@ -505,9 +515,9 @@ pub async fn start(
         };
 
     // Create transcription event channels
-    #[cfg(any(feature = "moonshine", feature = "parakeet"))]
+    #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
     let (stt_tx, stt_rx) = mpsc::channel::<TranscriptionEvent>(100);
-    #[cfg(not(any(feature = "moonshine", feature = "parakeet")))]
+    #[cfg(not(any(feature = "moonshine", feature = "parakeet", feature = "http-remote")))]
     let (_stt_tx, _stt_rx) = mpsc::channel::<TranscriptionEvent>(100);
 
     // Text injection channel
@@ -517,19 +527,19 @@ pub async fn start(
     let (_text_injection_tx, _text_injection_rx) = mpsc::channel::<TranscriptionEvent>(100);
 
     // 6) STT Processor and Fanout - Unified Path
-    #[cfg(any(feature = "moonshine", feature = "parakeet"))]
+    #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
     let mut stt_forward_handle: Option<JoinHandle<()>> = None;
     #[allow(unused_variables)]
     let (stt_handle, vad_fanout_handle) = if let Some(pm) = plugin_manager.clone() {
         // This is the single, unified path for STT processing.
-        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
+        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
         let (session_tx, session_rx) = mpsc::channel::<SessionEvent>(100);
         let stt_audio_rx = audio_tx.subscribe();
 
-        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
+        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
         let (stt_pipeline_tx, stt_pipeline_rx) = mpsc::channel::<TranscriptionEvent>(100);
 
-        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
+        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
         let stt_config = opts
             .transcription_config
             .clone()
@@ -540,7 +550,7 @@ pub async fn start(
                 ..Default::default()
             });
 
-        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
+        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
         let processor = PluginSttProcessor::new(
             stt_audio_rx,
             session_rx,
@@ -561,7 +571,7 @@ pub async fn start(
                 let _ = vad_bcast_tx_clone.send(ev);
 
                 // Translate to SessionEvent for the STT processor (only when STT enabled)
-                #[cfg(any(feature = "moonshine", feature = "parakeet"))]
+                #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
                 {
                     let session_event = match ev {
                         VadEvent::SpeechStart { .. } => {
@@ -591,14 +601,14 @@ pub async fn start(
             }
         });
 
-        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
+        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
         let stt_handle = Some(tokio::spawn(async move {
             processor.run().await;
         }));
-        #[cfg(not(any(feature = "moonshine", feature = "parakeet")))]
+        #[cfg(not(any(feature = "moonshine", feature = "parakeet", feature = "http-remote")))]
         let stt_handle: Option<JoinHandle<()>> = None;
 
-        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
+        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
         {
             let mut pipeline_rx = stt_pipeline_rx;
             let stt_tx_forward = stt_tx.clone();
@@ -674,9 +684,9 @@ pub async fn start(
             }
         });
 
-        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
+        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
         let stt_handle = None;
-        #[cfg(not(any(feature = "moonshine", feature = "parakeet")))]
+        #[cfg(not(any(feature = "moonshine", feature = "parakeet", feature = "http-remote")))]
         let stt_handle: Option<JoinHandle<()>> = None;
 
         (stt_handle, vad_fanout_handle)
@@ -749,18 +759,18 @@ pub async fn start(
         raw_vad_tx,
         audio_tx,
         current_mode: std::sync::Arc::new(RwLock::new(opts.activation_mode)),
-        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
+        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
         stt_rx: Some(stt_rx),
-        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
+        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
         plugin_manager,
         audio_capture,
         audio_producer,
         chunker_handle,
         trigger_handle: Arc::new(Mutex::new(trigger_handle)),
         vad_fanout_handle,
-        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
+        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
         stt_handle,
-        #[cfg(any(feature = "moonshine", feature = "parakeet"))]
+        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
         stt_forward_handle,
         #[cfg(feature = "text-injection")]
         injection_handle,

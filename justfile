@@ -72,13 +72,23 @@ commit-fast *args:
 test-filter filter:
     cargo test --workspace --locked {{filter}}
 
-# Run main app with default features
+# Run main app with the canonical wave-1 HTTP remote profile
 run:
-    cd crates/app && cargo run
+    #!/usr/bin/env pwsh
+    if ($IsWindows) {
+        $base = uv run python -c "import sys; print(sys.base_prefix)"
+        $env:PATH = "$base;$env:PATH"
+    }
+    cargo run -p coldvox-app --features http-remote,text-injection
 
-# Run TUI dashboard
+# Run TUI dashboard with the canonical wave-1 HTTP remote profile
 tui:
-    cd crates/app && cargo run --bin tui_dashboard
+    #!/usr/bin/env pwsh
+    if ($IsWindows) {
+        $base = uv run python -c "import sys; print(sys.base_prefix)"
+        $env:PATH = "$base;$env:PATH"
+    }
+    cargo run -p coldvox-app --bin tui_dashboard --features http-remote,text-injection
 
 # Run mic probe utility
 mic-probe duration="30":

@@ -8,7 +8,7 @@ use std::fmt::Debug;
 use std::path::Path;
 
 use crate::types::{TranscriptionConfig, TranscriptionEvent};
-use coldvox_foundation::error::{ColdVoxError, SttError};
+use coldvox_foundation::error::{ColdVoxError, ConfigError, SttError};
 
 /// Metadata about an STT plugin
 #[derive(Debug, Clone)]
@@ -223,11 +223,7 @@ impl Default for PluginSelectionConfig {
     fn default() -> Self {
         Self {
             preferred_plugin: None,
-            fallback_plugins: vec![
-                "whisper".to_string(),
-                "whisper-local".to_string(),
-                "gcloud".to_string(),
-            ],
+            fallback_plugins: vec![],
             require_local: false,
             max_memory_mb: None,
             required_language: Some("en".to_string()),
@@ -236,6 +232,37 @@ impl Default for PluginSelectionConfig {
             metrics: Some(MetricsConfig::default()),
             auto_extract_model: true,
         }
+    }
+}
+
+impl PluginSelectionConfig {
+    pub fn validate_runtime_policy(&self) -> Result<(), ColdVoxError> {
+        if self
+            .fallback_plugins
+            .iter()
+            .any(|fallback| fallback == "noop")
+        {
+            return Err(ConfigError::Validation {
+                field: "stt.fallback_plugins".to_string(),
+                reason: "noop cannot be used as a runtime STT fallback".to_string(),
+            }
+            .into());
+        }
+
+        if self.preferred_plugin.as_deref() == Some("http-remote")
+            && self
+                .fallback_plugins
+                .iter()
+                .any(|fallback| fallback == "mock")
+        {
+            return Err(ConfigError::Validation {
+                field: "stt.fallback_plugins".to_string(),
+                reason: "mock is test-only and cannot be a production fallback for the canonical http-remote profile".to_string(),
+            }
+            .into());
+        }
+
+        Ok(())
     }
 }
 
