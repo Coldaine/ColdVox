@@ -1,5 +1,5 @@
 ---
-doc_type: design
+doc_type: reference
 subsystem: gui
 status: draft
 freshness: current
