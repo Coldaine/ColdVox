@@ -25,18 +25,19 @@ parakeet-rs = { version = "0.2", optional = true }
 pyo3 = { version = "0.28", optional = true, features = ["auto-initialize"] }
 tempfile = { version = "3.26", optional = true }
 hound = { version = "3.5", optional = true }
+reqwest = { version = "0.13", default-features = false, features = ["multipart"], optional = true }
 
 [features]
 default = []
 # STT Backends (see docs/domains/stt/stt-overview.md)
 moonshine = ["dep:pyo3", "dep:tempfile", "dep:hound"]  # ✅ Working: Python-based, CPU/GPU
 parakeet = ["dep:parakeet-rs"]                         # ⚠️ Planned: Not currently functional
-http-remote = ["dep:hound"]
+http-remote = ["dep:hound", "dep:reqwest"]
 parakeet-cuda = ["parakeet", "parakeet-rs/cuda"]
 parakeet-tensorrt = ["parakeet-cuda", "parakeet-rs/tensorrt"]
 
 [dev-dependencies]
-tokio = { version = "1.49", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1.49", features = ["rt-multi-thread", "macros", "io-util", "net", "time"] }
 serial_test = "3.4"
 hound = "3.5"
 

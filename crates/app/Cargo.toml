@@ -3,6 +3,7 @@ name = "coldvox-app"
 version = "0.1.0"
 edition = "2021"
 publish = false
+autotests = false
 
 [lib]
 name = "coldvox_app"
@@ -15,14 +16,45 @@ path = "src/main.rs"
 [[bin]]
 name = "tui_dashboard"
 path = "src/bin/tui_dashboard.rs"
+test = false
 
 [[bin]]
 name = "tui_dashboard_manual"
 path = "src/bin/tui_dashboard_manual.rs"
+test = false
 
 [[bin]]
 name = "mic_probe"
 path = "src/bin/mic_probe.rs"
+test = false
+
+[[test]]
+name = "chunker_timing_tests"
+path = "tests/chunker_timing_tests.rs"
+
+[[test]]
+name = "golden_master"
+path = "tests/golden_master.rs"
+
+[[test]]
+name = "hardware_check"
+path = "tests/hardware_check.rs"
+
+[[test]]
+name = "pipeline_integration"
+path = "tests/pipeline_integration.rs"
+
+[[test]]
+name = "settings_test"
+path = "tests/settings_test.rs"
+
+[[test]]
+name = "tui_dashboard_manual_test"
+path = "tests/tui_dashboard_manual_test.rs"
+
+[[test]]
+name = "verify_mock_injection_fix"
+path = "tests/verify_mock_injection_fix.rs"
 
 
 [dependencies]

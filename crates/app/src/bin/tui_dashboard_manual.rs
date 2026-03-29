@@ -85,7 +85,7 @@ impl Default for Cli {
 fn parse_args() -> Cli {
     let mut cli = Cli::default();
     let args: Vec<String> = std::env::args().collect();
-    
+
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
@@ -159,7 +159,7 @@ fn parse_args() -> Cli {
         }
         i += 1;
     }
-    
+
     cli
 }
 
@@ -211,7 +211,11 @@ impl Default for DashboardState {
         Self {
             is_running: false,
             start_time: Instant::now(),
-            logs: vec![(Instant::now(), LogLevel::Info, "Dashboard started. Press 'S' to start pipeline, 'Q' to quit.".to_string())],
+            logs: vec![(
+                Instant::now(),
+                LogLevel::Info,
+                "Dashboard started. Press 'S' to start pipeline, 'Q' to quit.".to_string(),
+            )],
             audio_frames: 0,
             vad_events: 0,
             last_vad_event: None,
@@ -231,25 +235,38 @@ fn draw_ui(f: &mut Frame, state: &DashboardState) {
         .split(f.area());
 
     // Status bar
-    let status = if state.is_running { "RUNNING" } else { "STOPPED" };
-    let status_color = if state.is_running { Color::Green } else { Color::Gray };
+    let status = if state.is_running {
+        "RUNNING"
+    } else {
+        "STOPPED"
+    };
+    let status_color = if state.is_running {
+        Color::Green
+    } else {
+        Color::Gray
+    };
     let elapsed = state.start_time.elapsed().as_secs();
-    
+
     let status_text = vec![
         Line::from(vec![
             Span::raw("Status: "),
             Span::styled(status, Style::default().fg(status_color)),
             Span::raw(format!(" | Runtime: {}s", elapsed)),
         ]),
-        Line::from(format!("Audio Frames: {} | VAD Events: {}", state.audio_frames, state.vad_events)),
+        Line::from(format!(
+            "Audio Frames: {} | VAD Events: {}",
+            state.audio_frames, state.vad_events
+        )),
     ];
-    
-    let status_widget = Paragraph::new(status_text)
-        .block(Block::default().title("Status").borders(Borders::ALL));
+
+    let status_widget =
+        Paragraph::new(status_text).block(Block::default().title("Status").borders(Borders::ALL));
     f.render_widget(status_widget, chunks[0]);
 
     // Logs area
-    let log_lines: Vec<Line> = state.logs.iter()
+    let log_lines: Vec<Line> = state
+        .logs
+        .iter()
         .rev()
         .take(chunks[1].height as usize - 2)
         .rev()
@@ -263,26 +280,29 @@ fn draw_ui(f: &mut Frame, state: &DashboardState) {
             Line::from(Span::styled(msg.clone(), Style::default().fg(color)))
         })
         .collect();
-    
-    let logs_widget = Paragraph::new(log_lines)
-        .block(Block::default().title("Logs").borders(Borders::ALL));
+
+    let logs_widget =
+        Paragraph::new(log_lines).block(Block::default().title("Logs").borders(Borders::ALL));
     f.render_widget(logs_widget, chunks[1]);
 
     // Controls
     let controls = vec![
         Line::from("Controls:"),
         Line::from("[S] Start  [Q] Quit"),
-        Line::from(format!("Last VAD: {}", state.last_vad_event.as_deref().unwrap_or("None"))),
+        Line::from(format!(
+            "Last VAD: {}",
+            state.last_vad_event.as_deref().unwrap_or("None")
+        )),
     ];
-    let controls_widget = Paragraph::new(controls)
-        .block(Block::default().title("Controls").borders(Borders::ALL));
+    let controls_widget =
+        Paragraph::new(controls).block(Block::default().title("Controls").borders(Borders::ALL));
     f.render_widget(controls_widget, chunks[2]);
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = parse_args();
-    
+
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -343,7 +363,7 @@ async fn run_app(
                         KeyCode::Char('s') | KeyCode::Char('S') => {
                             if !state.is_running {
                                 state.logs.push((Instant::now(), LogLevel::Info, "Starting audio pipeline...".to_string()));
-                                
+
                                 let opts = app_runtime::AppRuntimeOptions {
                                     device: cli.device.clone(),
                                     activation_mode: match cli.activation_mode {

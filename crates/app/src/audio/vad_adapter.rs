@@ -77,5 +77,3 @@ impl VadAdapter {
         &self.config
     }
 }
-
-

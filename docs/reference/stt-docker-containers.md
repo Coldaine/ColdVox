@@ -16,6 +16,10 @@ Evaluated speech-to-text models and Docker containers on an RTX 5090 (32 GB VRAM
 
 All benchmarks run against ColdVox WAV files (`D:\_projects\ColdVox\crates\app\test_data\test_{1-5}.wav`).
 
+**Canonical wave-1 backend profile for the HTTP container hardening workstream:** **Parakeet CPU on `http://localhost:5092`**. Repo-owned docs, launcher defaults, and config comments should treat that OpenAI-compatible `/v1/audio/transcriptions` + `/health` profile as the one first-class backend for this workstream. Moonshine, Granite, Qwen3-ASR, and Voxtral remain deferred comparison/non-default profiles here.
+
+**Frozen ColdVox client upload contract for wave 1:** ColdVox uploads mono 16 kHz 16-bit WAV audio to `POST /v1/audio/transcriptions`, probes `GET /health`, and expects JSON containing `text`. That is the ColdVox client contract only; it is not a claim that every backend only accepts that exact audio shape.
+
 ---
 
 ## Benchmarked Models — Real RTX 5090 Results (March 25, 2026)
@@ -47,7 +51,7 @@ Six models downloaded, installed, served, and benchmarked on this hardware. Sort
 
 ---
 
-### 1. Parakeet-TDT-0.6B v2 — Speed Champion
+### 1. Parakeet-TDT-0.6B v2 — Speed Champion (archived comparison profile, not the canonical wave-1 container)
 
 - **Source**: `marcpope/parakeet-api` Docker image (13.7 GB, model baked in)
 - **Architecture**: NVIDIA NeMo Parakeet transducer, non-autoregressive
@@ -291,7 +295,7 @@ model = VibeVoiceAsrForConditionalGeneration.from_pretrained(model_id, device_ma
 
 ## Docker Containers — Tested (March 2026)
 
-### 1. marcpope/parakeet-api (Fastest — GPU Parakeet)
+### 1. marcpope/parakeet-api (Fastest — GPU Parakeet, archived comparison profile)
 
 - **Image**: `marcpope/parakeet-api:latest` (13.7 GB)
 - **Port**: 8200 (mapped from 8000)
@@ -304,7 +308,7 @@ model = VibeVoiceAsrForConditionalGeneration.from_pretrained(model_id, device_ma
 docker run -d --name parakeet-gpu -p 8200:8000 --gpus all marcpope/parakeet-api:latest
 ```
 
-**Caveat**: API endpoint is `/audio/transcriptions` not `/v1/audio/transcriptions`. Not directly OpenAI SDK-compatible without path adjustment.
+**Caveat**: API endpoint is `/audio/transcriptions` not `/v1/audio/transcriptions`. Keep this image as an archived comparison profile for benchmarking only, not as the first-wave ColdVox container target.
 
 **Source**: [hub.docker.com/r/marcpope/parakeet-api](https://hub.docker.com/r/marcpope/parakeet-api)
 
@@ -341,7 +345,7 @@ Supports model swapping: `Systran/faster-whisper-tiny`, `small`, `medium`, `larg
 
 ---
 
-### 3. ghcr.io/achetronic/parakeet (CPU-only — Zero VRAM)
+### 3. ghcr.io/achetronic/parakeet (CPU-only — Zero VRAM, canonical wave-1 profile)
 
 - **Image**: `ghcr.io/achetronic/parakeet:latest` (1.31 GB)
 - **Port**: 5092
@@ -354,7 +358,7 @@ Supports model swapping: `Systran/faster-whisper-tiny`, `small`, `medium`, `larg
 docker run -d --name parakeet-cpu -p 5092:5092 ghcr.io/achetronic/parakeet:latest
 ```
 
-**Use case**: Always-on background STT that doesn't compete for GPU VRAM.
+**Use case**: Canonical wave-1 ColdVox HTTP container profile — local `http://localhost:5092` with OpenAI-compatible `POST /v1/audio/transcriptions` and `GET /health`, while avoiding GPU contention.
 
 **Source**: [github.com/achetronic/parakeet](https://github.com/achetronic/parakeet)
 
@@ -532,7 +536,8 @@ print(result.text)
 | **Real-time streaming** | Nemotron Streaming 0.6B (not tested) | Purpose-built, configurable latency |
 | **Speaker diarization** | VibeVoice-ASR (not tested) | ASR + diarization in one model |
 | **99-language coverage** | Whisper large-v3 (faster-whisper Docker) | Broadest language support |
-| **ColdVox production** | Moonshine base (primary) + Granite (quality) | CPU for speed, GPU for accuracy when needed |
+| **ColdVox wave-1 HTTP container default** | Parakeet CPU (`http://localhost:5092`) | Canonical first-class backend profile; OpenAI-compatible `/v1/audio/transcriptions` + `/health` |
+| **Deferred comparison profiles** | Moonshine, Granite, Qwen3-ASR, Voxtral | Useful benchmarks and follow-on options, but not first-wave default obligations |
 
 ---
 
