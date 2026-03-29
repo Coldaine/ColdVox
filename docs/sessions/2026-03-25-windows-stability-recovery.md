@@ -1,3 +1,12 @@
+---
+doc_type: research
+subsystem: general
+version: 1.0.0
+status: draft
+owners: Documentation Working Group
+last_reviewed: 2026-03-29
+---
+
 # Session Log: Windows Stability & Pipeline Recovery (2026-03-25)
 
 ## Objective
