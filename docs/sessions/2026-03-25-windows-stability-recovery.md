@@ -7,7 +7,7 @@ Establish a stable, verified baseline for ColdVox on Windows 11, moving from "Un
 
 ### 1. Documentation Triage (The Cleanup)
 - **Problem**: 20+ stale or contradictory plan files were creating "hallucination loops" for AI agents.
-- **Action**: Archived 7 critical plans, deleted 10 obsolete meta-docs, and established `docs/PRODUCT_STATUS.md` as the **Single Source of Truth**.
+- **Action**: Archived 7 critical plans, deleted 10 obsolete meta-docs, and consolidated current guidance around the active recovery plan and anchor docs.
 - **Result**: Cognitive load reduced; project health is now transparent.
 
 ### 2. Live Hardware Verification (Audio Stage)

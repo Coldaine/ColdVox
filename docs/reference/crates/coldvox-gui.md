@@ -2,16 +2,18 @@
 doc_type: index
 subsystem: gui
 status: draft
-freshness: stale
+freshness: current
 preservation: preserve
-last_reviewed: 2025-10-19
+last_reviewed: 2026-03-29
 owners: Documentation Working Group
 version: 1.0.0
 ---
 
 # crate: coldvox-gui (Index)
 
-Authoritative documentation lives in [`crates/coldvox-gui/README.md`](../../../crates/coldvox-gui/README.md).
+Current GUI direction lives in [`docs/plans/windows-multi-agent-recovery.md`](../../plans/windows-multi-agent-recovery.md).
+
+The crate-level status note lives in [`crates/coldvox-gui/README.md`](../../../crates/coldvox-gui/README.md).
 
 ## Key Entry Points
 

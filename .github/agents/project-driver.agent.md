@@ -84,9 +84,9 @@ Execute these phases in order. Do NOT skip phases.
 Read these files in this exact order. Absorb every detail:
 
 1. `docs/northstar.md` — Product and technical anchor
-2. `docs/anchor-2026-02-09.md` — Documentation triage anchor
+2. `docs/plans/windows-multi-agent-recovery.md` — Current execution plan
 3. `docs/architecture.md` — Architecture direction
-4. `docs/plans/critical-action-plan.md` — Current breakage/reality tracker
+4. `docs/dev/CI/architecture.md` — CI source of truth
 5. `AGENTS.md` — Agent conventions and working rules
 6. `CHANGELOG.md` — Recent changes
 7. `Cargo.toml` — Workspace structure and dependencies

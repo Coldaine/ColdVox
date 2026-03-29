@@ -7,7 +7,7 @@ All notable changes to this project are documented here.
 ### Nuclear Pruning & Documentation Cleanup
 - Removed vaporware STT backends (whisper, coqui, leopard, silero-stt) and legacy feature flags.
 - Archived outdated plans, PR reports, and reference docs to `docs/archive/`.
-- Updated all agent anchors (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `README.md`) to new `docs/PRODUCT_STATUS.md`.
+- Updated all agent anchors (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `README.md`) to the current documentation chain centered on `docs/plans/windows-multi-agent-recovery.md`.
 - Added `.omc/` (AI tool state) to `.gitignore`.
 - Synced `plugins.json` configs to prefer `moonshine` (removed whisper references).
 - Fixed broken links and references post-restructure.

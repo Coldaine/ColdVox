@@ -7,9 +7,9 @@ ColdVox is a Rust voice pipeline: microphone audio capture → VAD (voice activi
 Read every single one of these files carefully. Do not skim:
 
 1. `docs/northstar.md` — Product anchor: reliability first, CUDA-first STT, live overlay
-2. `docs/anchor-2026-02-09.md` — Documentation triage anchor
+2. `docs/plans/windows-multi-agent-recovery.md` — Current execution plan
 3. `docs/architecture.md` — Architecture direction
-4. `docs/plans/critical-action-plan.md` — CRITICAL: what's broken, what works, what's misleading
+4. `docs/plans/windows-multi-agent-recovery.md` — CRITICAL: what's broken, what works, what's misleading
 5. `AGENTS.md` — Agent conventions, working rules, commands, feature flags
 6. `CHANGELOG.md` — Recent changes
 7. `Cargo.toml` — Workspace structure, dependencies, feature flags
@@ -25,17 +25,16 @@ Read every single one of these files carefully. Do not skim:
 17. `crates/coldvox-gui/src/` — Overlay GUI (scan all files)
 18. `crates/coldvox-foundation/src/` — Shared types and utilities
 19. `crates/coldvox-telemetry/src/` — Observability
-20. `mise.toml` — Toolchain config (NOTE: Python version conflict documented in critical-action-plan)
+20. `mise.toml` — Tooling bootstrap config
 21. `pyproject.toml` — Python dependencies for Moonshine
-22. `requirements.txt` — Check if this is vestigial (likely is)
-23. `scripts/local_ci.sh` — Local CI script
-24. `docs/dev/CI/architecture.md` — CI source of truth
-25. Scan all files under `docs/` and `docs/plans/`
+22. `scripts/local_ci.sh` — Local CI script
+23. `docs/dev/CI/architecture.md` — CI source of truth
+24. Scan all files under `docs/` and `docs/plans/`
 
 After reading everything, write a 500+ word internal assessment answering:
 - What works end-to-end right now? (mic → VAD → STT → injection)
 - What is broken, misleading, or stub code?
-- What are the P0 issues from critical-action-plan.md and their current status?
+- What are the P0 issues from `docs/plans/windows-multi-agent-recovery.md` and their current status?
 - Which crates need the most work?
 - What is the gap between current state and "it works reliably"?
 - What dead code, stub features, and misleading docs exist?
@@ -43,7 +42,7 @@ After reading everything, write a 500+ word internal assessment answering:
 
 ## PHASE 2: DETAILED IMPLEMENTATION PLAN
 
-Create the file `PLAN.md` in the repo root. This plan must be extremely detailed — at minimum 2000 words. Structure it as follows:
+Create the file `docs/plans/implementation-plan.md`. This plan must be extremely detailed — at minimum 2000 words. Structure it as follows:
 
 ```markdown
 # ColdVox Implementation Plan
@@ -231,7 +230,7 @@ Use #runSubagent to spawn 4 subagents simultaneously. Each subagent works in its
 **Subagent 1 — P0 Cleanup:**
 ```
 You are working in the git worktree at .worktrees/ws1-p0-cleanup on ColdVox, a Rust voice pipeline.
-Read PLAN.md for full context, then execute Workstream 1: P0 Cleanup.
+Read `docs/plans/implementation-plan.md` for full context, then execute Workstream 1: P0 Cleanup.
 
 Your scope:
 - Remove all whisper dead code (plugins, features, docs)
@@ -253,7 +252,7 @@ Constraints:
 **Subagent 2 — STT Reliability:**
 ```
 You are working in the git worktree at .worktrees/ws2-stt-reliability on ColdVox, a Rust voice pipeline.
-Read PLAN.md for full context, then execute Workstream 2: STT Pipeline Reliability.
+Read `docs/plans/implementation-plan.md` for full context, then execute Workstream 2: STT Pipeline Reliability.
 
 Your scope (crates ONLY):
 - coldvox-stt (moonshine audit, parakeet fix, streaming partial transcription)
@@ -272,7 +271,7 @@ Constraints:
 **Subagent 3 — Overlay GUI:**
 ```
 You are working in the git worktree at .worktrees/ws3-overlay-gui on ColdVox, a Rust voice pipeline.
-Read PLAN.md for full context, then execute Workstream 3: Overlay GUI & UX.
+Read `docs/plans/implementation-plan.md` for full context, then execute Workstream 3: Overlay GUI & UX.
 
 Your scope (crates ONLY):
 - coldvox-gui (all overlay work)
@@ -289,7 +288,7 @@ Constraints:
 **Subagent 4 — Build & CI:**
 ```
 You are working in the git worktree at .worktrees/ws4-build-ci on ColdVox, a Rust voice pipeline.
-Read PLAN.md for full context, then execute Workstream 4: Build System, CI, Testing.
+Read `docs/plans/implementation-plan.md` for full context, then execute Workstream 4: Build System, CI, Testing.
 
 Your scope:
 - scripts/local_ci.sh

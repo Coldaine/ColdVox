@@ -11,7 +11,7 @@ Minimal root README. Full developer & architecture guide: see [`CLAUDE.md`](CLAU
 Current product and documentation direction is anchored in:
 
 - [`docs/northstar.md`](docs/northstar.md)
-- [`docs/PRODUCT_STATUS.md`](docs/PRODUCT_STATUS.md)
+- [`docs/plans/windows-multi-agent-recovery.md`](docs/plans/windows-multi-agent-recovery.md)
 - [`docs/architecture.md`](docs/architecture.md)
 
 ## Quick Start
@@ -40,11 +40,13 @@ cargo fmt --all -- --check
 
 ### Developer Git Hooks
 
-This project uses a git hook standard powered by **[mise](https://mise.jdx.dev)** and **lint-staged**.
+Python environments are managed with `uv`. Git hooks and local tooling bootstrap are handled with **[mise](https://mise.jdx.dev)** and **lint-staged**.
 
 1. Install mise: `curl https://mise.run | sh` (or see [docs](https://mise.jdx.dev/getting-started.html))
 2. Install toolchain: `mise install`
 3. Activate hooks + agent mirrors: `mise run prepare`
+
+If you are working on Moonshine or any Python-backed STT flow, run `uv sync` before building.
 
 To run the hook pipeline manually:
 
@@ -54,6 +56,6 @@ mise run pre-commit
 
 ## Contributing
 
-- Review the [Product Status](docs/PRODUCT_STATUS.md) and [North Star](docs/northstar.md).
+- Review the [North Star](docs/northstar.md) and [current execution plan](docs/plans/windows-multi-agent-recovery.md).
 - Follow the repository [Documentation Standards](docs/standards.md).
 - Coordinate work through the [Documentation Todo Backlog](docs/todo.md).
