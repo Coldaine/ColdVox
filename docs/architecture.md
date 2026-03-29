@@ -2,28 +2,28 @@
 doc_type: architecture
 subsystem: general
 status: draft
-freshness: stale
+freshness: current
 preservation: preserve
 summary: High-level architecture and tiered STT vision
 signals: ['always-on', 'tiered-stt', 'decoupled-threading']
-last_reviewed: 2025-10-19
+last_reviewed: 2026-03-29
 owners: Documentation Working Group
 version: 1.0.0
 ---
 
 # ColdVox Architecture & Future Vision
 
-> **⚠️ CRITICAL**: STT backend status has changed. See [`plans/critical-action-plan.md`](plans/critical-action-plan.md) for current working features.
+> **⚠️ CRITICAL**: Current implementation priorities and working-state details live in [`./plans/windows-multi-agent-recovery.md`](./plans/windows-multi-agent-recovery.md).
 
 ## Navigation
 
 - [Architecture Roadmap](./architecture/roadmap.md)
 - [Architecture Decisions](./architecture/adr/)
-- [Critical Action Plan](plans/critical-action-plan.md) - Current broken features tracking
+- [Current Execution Plan](./plans/windows-multi-agent-recovery.md) - Current broken features tracking and near-term work
 
 
 
-This document is the canonical architecture reference for ColdVox. It summarizes the current structural goals and records speculative directions that guide long-term planning. Sections below will continue to evolve as implementation proceeds.
+This document is the canonical architecture reference for ColdVox. It summarizes the system's structural goals and records speculative directions that guide long-term planning. For current execution priorities and near-term delivery work, use `docs/plans/windows-multi-agent-recovery.md`.
 
 ## ColdVox Future Vision
 
