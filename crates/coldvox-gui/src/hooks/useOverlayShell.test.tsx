@@ -1,0 +1,138 @@
+import { act, render, screen, waitFor } from "@testing-library/react";
+import { useOverlayShell } from "./useOverlayShell";
+import type { OverlayEvent, OverlaySnapshot } from "../contracts/overlay";
+import type { UnlistenFn } from "@tauri-apps/api/event";
+
+const bridgeMocks = vi.hoisted(() => {
+  let listener: ((event: OverlayEvent) => void) | null = null;
+  const idleSnapshot: OverlaySnapshot = {
+    expanded: false,
+    status: "idle",
+    paused: false,
+    partialTranscript: "",
+    finalTranscript: "",
+    statusDetail: "Host shell connected.",
+    errorMessage: null,
+  };
+
+  return {
+    idleSnapshot,
+    getOverlaySnapshot: vi.fn<() => Promise<OverlaySnapshot>>().mockResolvedValue(idleSnapshot),
+    setOverlayExpanded: vi
+      .fn<(expanded: boolean) => Promise<OverlaySnapshot>>()
+      .mockImplementation(async (expanded) => ({ ...idleSnapshot, expanded })),
+    startDemoDriver: vi.fn<() => Promise<OverlaySnapshot>>().mockResolvedValue({
+      ...idleSnapshot,
+      expanded: true,
+      status: "listening",
+    }),
+    togglePauseState: vi.fn<() => Promise<OverlaySnapshot>>().mockResolvedValue({
+      ...idleSnapshot,
+      expanded: true,
+      status: "listening",
+      paused: true,
+    }),
+    stopDemoDriver: vi.fn<() => Promise<OverlaySnapshot>>().mockResolvedValue(idleSnapshot),
+    clearOverlayTranscript: vi.fn<() => Promise<OverlaySnapshot>>().mockResolvedValue(idleSnapshot),
+    openSettingsPlaceholder: vi
+      .fn<() => Promise<OverlaySnapshot>>()
+      .mockResolvedValue({ ...idleSnapshot, expanded: true, statusDetail: "Settings later." }),
+    subscribeToOverlayEvents: vi.fn<(callback: (event: OverlayEvent) => void) => Promise<UnlistenFn>>()
+      .mockImplementation(async (callback) => {
+        listener = callback;
+        return () => {
+          listener = null;
+        };
+      }),
+    emit(event: OverlayEvent) {
+      listener?.(event);
+    },
+  };
+});
+
+vi.mock("../lib/overlayBridge", () => ({
+  getOverlaySnapshot: bridgeMocks.getOverlaySnapshot,
+  setOverlayExpanded: bridgeMocks.setOverlayExpanded,
+  startDemoDriver: bridgeMocks.startDemoDriver,
+  togglePauseState: bridgeMocks.togglePauseState,
+  stopDemoDriver: bridgeMocks.stopDemoDriver,
+  clearOverlayTranscript: bridgeMocks.clearOverlayTranscript,
+  openSettingsPlaceholder: bridgeMocks.openSettingsPlaceholder,
+  subscribeToOverlayEvents: bridgeMocks.subscribeToOverlayEvents,
+}));
+
+function HookHarness() {
+  const { snapshot, setExpanded, startDemo } = useOverlayShell();
+
+  return (
+    <div>
+      <span data-testid="status">{snapshot.status}</span>
+      <span data-testid="detail">{snapshot.statusDetail}</span>
+      <span data-testid="partial">{snapshot.partialTranscript}</span>
+      <button
+        type="button"
+        onClick={() => {
+          void setExpanded(true);
+        }}
+      >
+        expand
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          void startDemo();
+        }}
+      >
+        demo
+      </button>
+    </div>
+  );
+}
+
+describe("useOverlayShell", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("loads the initial snapshot and subscribes to overlay events", async () => {
+    render(<HookHarness />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("detail")).toHaveTextContent("Host shell connected.");
+    });
+
+    act(() => {
+      bridgeMocks.emit({
+        reason: "demo-step",
+        snapshot: {
+          ...bridgeMocks.idleSnapshot,
+          expanded: true,
+          status: "processing",
+          partialTranscript: "streamed partial text",
+          statusDetail: "Processing demo result.",
+        },
+      });
+    });
+
+    expect(screen.getByTestId("status")).toHaveTextContent("processing");
+    expect(screen.getByTestId("partial")).toHaveTextContent("streamed partial text");
+  });
+
+  it("routes UI actions through the bridge helpers", async () => {
+    render(<HookHarness />);
+
+    await waitFor(() => {
+      expect(bridgeMocks.getOverlaySnapshot).toHaveBeenCalledTimes(1);
+    });
+
+    act(() => {
+      screen.getByRole("button", { name: "expand" }).click();
+      screen.getByRole("button", { name: "demo" }).click();
+    });
+
+    await waitFor(() => {
+      expect(bridgeMocks.setOverlayExpanded).toHaveBeenCalledWith(true);
+      expect(bridgeMocks.startDemoDriver).toHaveBeenCalledTimes(1);
+    });
+  });
+});
