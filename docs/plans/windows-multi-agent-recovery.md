@@ -25,6 +25,7 @@ summary: Canonical ColdVox recovery plan. Single source of truth for Windows mod
 | Silero VAD | ✅ | Default feature |
 | Tests | ✅ | `cargo test -p coldvox-app` |
 | Rubato 1.0.1 | ✅ | Migration complete |
+| Tauri overlay shell | ✅ | `crates/coldvox-gui` now hosts a demo-only Phase 3A seam |
 
 ## What Is Broken / Removed
 
@@ -122,6 +123,8 @@ Direct ONNX Runtime integration via `parakeet-rs` crate.
 
 **Decision:** Replace Qt/QML with Tauri v2 + React.
 
+**Current status:** Phase 3A is now in place as a thin transparent overlay shell with typed commands/events and a demo driver. It proves the host-shell contract without claiming real backend integration.
+
 **Product goal:** Merge the best of ColdVox and ColdVox_Mini into a single Windows-first dictation app.
 
 **What we keep from each codebase:**
@@ -129,41 +132,37 @@ Direct ONNX Runtime integration via `parakeet-rs` crate.
 | Source | Keep |
 |--------|------|
 | ColdVox | `coldvox-audio`, `coldvox-vad-silero`, `coldvox-stt`, `coldvox-foundation`, `coldvox-telemetry` |
-| ColdVox_Mini | Tauri v2 + React shell, polished floating overlay UX, Windows-oriented injection flow, voice command ideas, user-facing config patterns |
+| ColdVox_Mini | Tauri v2 + React shell concepts, floating overlay behavior ideas, Windows-oriented injection flow ideas, voice command ideas, user-facing config patterns |
 
 **Architecture:**
 ```
 ┌──────────────────────────────────────────────┐
 │            Tauri v2 Shell                     │
 │  ┌────────────────────────────────────────┐   │
-│  │  React Frontend (Dynamic Island UI)    │   │
-│  │  - Glassmorphism floating pill         │   │
-│  │  - States: Idle → Listening → Thinking │   │
-│  │    → Injecting / Done                  │   │
-│  │  - Live partial transcript rendering   │   │
-│  │  - Voice command feedback              │   │
+│  │  React Frontend (Phase 3A host shell)  │   │
+│  │  - restrained overlay layout           │   │
+│  │  - states: idle / listening /          │   │
+│  │    processing / ready / error          │   │
+│  │  - partial vs final transcript lanes   │   │
+│  │  - nearby control bar + shell seam     │   │
 │  └──────────────┬─────────────────────────┘   │
 │                 │ tauri::command invoke()      │
 │  ┌──────────────▼─────────────────────────┐   │
-│  │  Rust Backend (existing crates)        │   │
+│  │  Rust Host Shell + later backend bind  │   │
 │  │                                        │   │
-│  │  coldvox-audio ──► coldvox-vad-silero  │   │
-│  │       │                    │            │   │
-│  │       ▼                    ▼            │   │
-│  │  coldvox-stt (HTTP or Parakeet)        │   │
-│  │       │                                │   │
-│  │       ▼                                │   │
-│  │  Windows text injection                │   │
+│  │  Phase 3A: bootstrap + demo events     │   │
+│  │  Phase 3B+: bind coldvox-audio / STT   │   │
+│  │  and later injection workflows         │   │
 │  └────────────────────────────────────────┘   │
 └──────────────────────────────────────────────┘
 ```
 
 **Action Items:**
-- [ ] Remove `crates/coldvox-gui/` (Qt/QML stub)
-- [ ] Scaffold Tauri v2 app at `crates/coldvox-gui/`
-- [ ] Port ColdVox_Mini React components
-- [ ] Wire tauri::command handlers to Rust backend
-- [ ] Implement live partial transcript updates in the overlay
+- [x] Remove the active Qt/QML stub path from `crates/coldvox-gui/`
+- [x] Scaffold a Tauri v2 + React shell at `crates/coldvox-gui/`
+- [x] Add a typed command/event seam with a demo driver for overlay states and transcript updates
+- [ ] Replace the demo seam with real runtime bindings from existing Rust crates
+- [ ] Implement live partial transcript updates from the actual audio/STT path
 - [ ] Keep partials visible in UI while buffering injection until final text
 - [ ] Port ColdVox_Mini voice command behaviors into Rust
 - [ ] Port Windows-first text injection behavior into `coldvox-text-injection`
@@ -177,8 +176,8 @@ Direct ONNX Runtime integration via `parakeet-rs` crate.
 - Linux-specific injection (for now)
 
 **Implementation phases inside GUI modernization:**
-- Phase 3A: Replace the Qt/QML shell with Tauri v2 and get the floating overlay rendering.
-- Phase 3B: Port the ColdVox_Mini React frontend and bind it to Rust commands/events.
+- Phase 3A: Replace the Qt/QML shell with Tauri v2 and deliver a floating overlay host shell with a typed demo seam. ✅
+- Phase 3B: Replace the demo seam with real runtime commands/events and deepen the React shell where needed.
 - Phase 3C: Surface live partial transcripts and rich state transitions without injecting partial text.
 - Phase 3D: Port Windows-first injection ergonomics and voice command behaviors.
 - Phase 3E: Package the app for Windows with sane first-run model/runtime setup.

@@ -4,6 +4,11 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### GUI
+- Replaced the old `crates/coldvox-gui` Qt/QML placeholder with a Tauri v2 + React overlay shell.
+- Added a demo-only typed command/event seam between the Rust host shell and the frontend to exercise collapsed/expanded states, transcript promotion, and visible `idle`/`listening`/`processing`/`ready`/`error` feedback without real STT integration.
+- Added focused Rust and frontend tests for the overlay state contract and React hook/component behavior.
+
 ### Nuclear Pruning & Documentation Cleanup
 - Removed vaporware STT backends (whisper, coqui, leopard, silero-stt) and legacy feature flags.
 - Archived outdated plans, PR reports, and reference docs to `docs/archive/`.
