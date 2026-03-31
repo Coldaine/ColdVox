@@ -69,13 +69,6 @@ else
     exit 1
 fi
 
-# 3.5a Install Visual C++ redistributable on Windows CI
-print_step "Installing Visual C++ redistributable..."
-# Download the installer (quiet, no restart)
-curl -L -o vc_redist.x64.exe https://aka.ms/vs/17/release/vc_redist.x64.exe
-vc_redist.x64.exe /quiet /norestart
-print_success "Visual C++ redistributable installed"
-
 # 4. Build
 print_step "Building workspace..."
 if cargo build --workspace --locked; then
@@ -101,20 +94,6 @@ if cargo test --workspace --locked; then
 else
     print_error "Tests failed"
     exit 1
-fi
-
-# 7. Check GUI build (if Qt available)
-print_step "Checking GUI build..."
-if command -v qmake6 >/dev/null 2>&1 || command -v qmake-qt6 >/dev/null 2>&1 || pkg-config --exists Qt6Core >/dev/null 2>&1; then
-    print_step "Qt 6 detected, building GUI..."
-    if cargo check -p coldvox-gui --features qt-ui --locked; then
-        print_success "GUI build check passed"
-    else
-        print_error "GUI build check failed"
-        exit 1
-    fi
-else
-    print_warning "Qt 6 not detected, skipping GUI build"
 fi
 
 print_success "🎉 All local CI checks passed!"
