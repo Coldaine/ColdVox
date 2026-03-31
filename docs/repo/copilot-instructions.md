@@ -78,10 +78,10 @@ Key defaults right now:
 **Working Directory**: `crates/app` (package `coldvox-app`)
 
 ### Main Binaries
-- App (default build, no STT): `cargo run`
+- App (default build, no STT): `cargo run --bin coldvox`
 - TUI Dashboard: `cargo run --bin tui_dashboard` (add `-- --device "<device name>"` and/or `--log-level <level>`)
 - Mic Probe: `cargo run --bin mic_probe -- --duration 30 --device "<name>" --silence_threshold 120`
-- Minimal (disable text injection too): `cargo run --no-default-features --features silero`
+- Minimal (disable text injection too): `cargo run --bin coldvox --no-default-features --features silero`
 
 ### Examples (at repo root `/examples/`, wired via Cargo metadata)
 - Foundation: `cargo run --example foundation_probe -- --duration 30`

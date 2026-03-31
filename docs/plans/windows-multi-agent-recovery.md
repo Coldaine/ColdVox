@@ -111,7 +111,7 @@ Direct ONNX Runtime integration via `parakeet-rs` crate.
 **Gate:** Must validate actual transcription on RTX 5090 before committing.
 
 **Validation Checklist:**
-- [ ] `cargo run -p coldvox-stt --example verify_parakeet --features parakeet,parakeet-cuda -- test.wav` produces correct text
+- [ ] `cargo run -p coldvox-stt --example verify_parakeet --features parakeet,parakeet-cuda -- test.wav` produces correct text (from crate directory)
 - [ ] Live microphone → Parakeet → transcription works
 - [ ] GPU utilization confirmed (not falling back to CPU)
 

@@ -156,10 +156,10 @@ Enable through the main ColdVox application:
 
 ```bash
 # Basic text injection
-cargo run --features text-injection
+cargo run --bin coldvox --features text-injection
 
 # With specific backends
-cargo run --features text-injection -- --allow-ydotool --restore-clipboard
+cargo run --bin coldvox --features text-injection -- --allow-ydotool --restore-clipboard
 ```
 
 ### Diagnostics
