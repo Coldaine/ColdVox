@@ -4,6 +4,10 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### STT
+- Hardened the canonical Parakeet CPU HTTP-remote profile so `http-remote` now resolves to the configured `5092` `/health` + `/v1/audio/transcriptions` contract, honors remote request/guardrail settings, and ships with a repo-owned CPU compose profile under `ops/parakeet/`.
+- Added an optional containerized Parakeet GPU HTTP comparison profile (`http-remote-parakeet-gpu`) with a repo-owned compose service on `8200`, using the live `/healthz` + `/audio/transcriptions` contract while preserving the CPU profile as the wave-1 default.
+
 ### GUI
 - Replaced the old `crates/coldvox-gui` Qt/QML placeholder with a Tauri v2 + React overlay shell.
 - Added a demo-only typed command/event seam between the Rust host shell and the frontend to exercise collapsed/expanded states, transcript promotion, and visible `idle`/`listening`/`processing`/`ready`/`error` feedback without real STT integration.
