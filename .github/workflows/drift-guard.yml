@@ -1,0 +1,73 @@
+name: "Weekly Drift Guard (Jules)"
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'  # Every Monday at 6 AM UTC
+  workflow_dispatch:
+    inputs:
+      extra_context:
+        description: 'Additional context for Jules audit'
+        required: false
+        type: string
+
+jobs:
+  drift-audit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Run Jules Drift Guard
+        uses: google-labs-code/jules-action@v1
+        with:
+          jules_api_key: ${{ secrets.JULES_API_KEY }}
+          starting_branch: main
+          include_last_commit: true
+          include_commit_log: true
+          prompt: |
+            You are the ColdVox North Star Drift Guard. Your job is to audit this
+            repository for alignment with its product goals and report findings.
+
+            ## Step 1: Read the North Star
+            Read `docs/northstar.md`. This contains the canonical product goals:
+            - Windows 11 primary target
+            - GPU Parakeet (CUDA) primary STT
+            - CPU Parakeet fallback
+            - DirectML for non-NVIDIA Windows
+            - Moonshine (PyO3) tertiary fallback
+            - HTTP Remote emergency fallback
+            - Tauri GUI overlay
+            - Streaming STT support
+
+            ## Step 2: Check Upstream Dependency Versions
+            Read `crates/coldvox-stt/Cargo.toml` and find the `parakeet-rs` version.
+            Run: `curl -s https://crates.io/api/v1/crates/parakeet-rs | python3 -c "import sys,json; print(json.load(sys.stdin)['crate']['newest_version'])"`
+            Compare the current pinned version against the latest.
+            Read `crates/coldvox-gui/src-tauri/Cargo.toml` and find the `tauri` version.
+            Run: `curl -s https://crates.io/api/v1/crates/tauri | python3 -c "import sys,json; print(json.load(sys.stdin)['crate']['newest_version'])"`
+            Compare the current pinned version against the latest.
+            Flag any crate that is more than 1 minor version behind latest.
+
+            ## Step 3: Scan for Dead Backend References
+            Search all `.md` files in `docs/` (EXCLUDING `docs/archive/` and `docs/history/`)
+            for these terms: whisper_plugin, faster-whisper, candle (as STT backend),
+            coqui, leopard, silero-stt, vosk.
+            Also search `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` for the same.
+            Report each finding with file path.
+
+            ## Step 4: Feature Flag Audit
+            Read all `Cargo.toml` files in `crates/*/` and extract [features] sections.
+            Compare against the feature flags documented in `AGENTS.md`.
+            Flag mismatches.
+
+            ## Step 5: Produce Drift Report
+            Create or update the file `docs/drift-reports/latest.md` with:
+            - Date of audit
+            - Summary counts (version gaps, dead refs, flag mismatches)
+            - Detailed findings with file paths
+            - Recommended priority actions
+
+            If NO drift is found, write "Drift Guard: all clear — [date]" to the file.
+
+            Jules will automatically create a PR with this report.
+
+            ${{ github.event.inputs.extra_context }}
