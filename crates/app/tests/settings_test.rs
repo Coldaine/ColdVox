@@ -22,7 +22,10 @@ fn get_test_config_path() -> PathBuf {
 }
 
 fn write_temp_config(contents: &str) -> NamedTempFile {
-    let file = NamedTempFile::new().expect("create temp config file");
+    let file = tempfile::Builder::new()
+        .suffix(".toml")
+        .tempfile()
+        .expect("create temp config file");
     std::fs::write(file.path(), contents).expect("write temp config");
     file
 }

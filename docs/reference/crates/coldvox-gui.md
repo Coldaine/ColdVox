@@ -17,4 +17,9 @@ The crate-level status note lives in [`crates/coldvox-gui/README.md`](../../../c
 
 ## Key Entry Points
 
-- [`src/lib.rs`](../../../crates/coldvox-gui/src/lib.rs)
+- Frontend app shell: [`package.json`](../../../crates/coldvox-gui/package.json)
+- Frontend React entry: [`src/App.tsx`](../../../crates/coldvox-gui/src/App.tsx)
+- Frontend Tauri bridge hook: [`src/hooks/useOverlayShell.ts`](../../../crates/coldvox-gui/src/hooks/useOverlayShell.ts)
+- Rust package manifest: [`src-tauri/Cargo.toml`](../../../crates/coldvox-gui/src-tauri/Cargo.toml)
+- Rust shell entry: [`src-tauri/src/lib.rs`](../../../crates/coldvox-gui/src-tauri/src/lib.rs)
+- Rust overlay model: [`src-tauri/src/state.rs`](../../../crates/coldvox-gui/src-tauri/src/state.rs)

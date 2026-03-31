@@ -70,6 +70,7 @@ crates/app/.coldvox/*
 
 # Node.js dependencies
 node_modules/
+dist/
 
 # Binary executables and archives
 actionlint
@@ -81,8 +82,8 @@ man/
 
 # External tool documentation (actionlint, etc)
 LICENSE.txt
-package.json
-package-lock.json
+/package.json
+/package-lock.json
 docs/README.md
 docs/api.md
 docs/checks.md

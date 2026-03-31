@@ -14,6 +14,8 @@ use coldvox_audio::{
     AudioCaptureThread, AudioChunker, AudioRingBuffer, ChunkerConfig, FrameReader, ResamplerQuality,
 };
 use coldvox_foundation::AudioConfig;
+#[cfg(feature = "http-remote")]
+use coldvox_stt::plugins::http_remote::HttpRemoteConfig;
 use coldvox_stt::TranscriptionEvent;
 use coldvox_telemetry::PipelineMetrics;
 use coldvox_vad::config::SileroConfig;
@@ -61,6 +63,8 @@ pub struct AppRuntimeOptions {
     pub vad_config: Option<coldvox_vad::config::UnifiedVadConfig>,
     /// STT plugin selection configuration
     pub stt_selection: Option<coldvox_stt::plugin::PluginSelectionConfig>,
+    #[cfg(feature = "http-remote")]
+    pub stt_remote_config: Option<HttpRemoteConfig>,
     #[cfg(feature = "text-injection")]
     pub injection: Option<InjectionOptions>,
     /// Whether to poll for device hotplug events (ALSA/CPAL enumeration)
@@ -75,11 +79,15 @@ pub struct AppRuntimeOptions {
 
 impl std::fmt::Debug for AppRuntimeOptions {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AppRuntimeOptions")
+        let mut debug = f.debug_struct("AppRuntimeOptions");
+        debug
             .field("device", &self.device)
             .field("resampler_quality", &self.resampler_quality)
             .field("activation_mode", &self.activation_mode)
-            .field("stt_selection", &self.stt_selection)
+            .field("stt_selection", &self.stt_selection);
+        #[cfg(feature = "http-remote")]
+        debug.field("stt_remote_config", &self.stt_remote_config);
+        debug
             .field("injection", &self.injection)
             .field("enable_device_monitor", &self.enable_device_monitor)
             .field("capture_buffer_samples", &self.capture_buffer_samples)
@@ -102,6 +110,8 @@ impl Default for AppRuntimeOptions {
             activation_mode: ActivationMode::Vad,
             vad_config: None, // Use VAD defaults
             stt_selection: None,
+            #[cfg(feature = "http-remote")]
+            stt_remote_config: None,
             #[cfg(feature = "text-injection")]
             injection: None,
             enable_device_monitor: false,
@@ -489,6 +499,10 @@ pub async fn start(
         if opts.stt_selection.is_some() {
             let metrics_clone = metrics.clone();
             let mut manager = SttPluginManager::new().with_metrics_sink(metrics_clone);
+            #[cfg(feature = "http-remote")]
+            if let Some(remote_config) = opts.stt_remote_config.clone() {
+                manager.configure_http_remote_factory(remote_config).await;
+            }
             if let Some(config) = opts.stt_selection.clone() {
                 if let Err(e) = manager.set_selection_config(config).await {
                     error!("Rejected STT plugin selection configuration: {}", e);

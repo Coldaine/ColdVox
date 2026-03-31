@@ -1,6 +1,6 @@
-# GEMINI.md
+# AGENTS.md
 
-Canonical AI agent instructions for ColdVox. This file is the source of truth for all agent context.
+Canonical AI agent instructions for ColdVox. This file is the source of truth for all agent tools.
 
 ## Anchor
 
@@ -18,7 +18,7 @@ If guidance conflicts, use this precedence:
 
 - **Target OS:** Windows 11 priority.
 - **Python Environment:** Exclusively managed by `uv`. Do NOT use `mise` or raw `pip` for Python packages. Ensure `.python-version` is respected.
-- **STT Backend:** 
+- **STT Backend:**
   - **Moonshine:** The current working backend, but considered a fragile dependency due to PyO3.
   - **Parakeet:** The designated successor for a pure-Rust/Windows-native STT pipeline (CUDA/DirectML). It *does* compile; focus on runtime validation.
   - **Vaporware:** The `whisper`, `coqui`, `leopard`, and `silero-stt` feature flags are dead stubs. Do not attempt to use them.
@@ -46,8 +46,65 @@ Key crates to know:
 - Modify Python dependencies without using `uv`.
 - Auto-run commands that destroy data or commit unverified changes.
 
+## Commands
+
+File-scoped (preferred):
+```bash
+cargo check -p coldvox-stt
+cargo clippy -p coldvox-audio
+cargo test -p coldvox-text-injection
+cargo fmt --all -- --check
+```
+
+Workspace (when needed):
+```bash
+./scripts/local_ci.sh
+cargo clippy --workspace --all-targets --locked
+cargo test --workspace --locked
+cargo build --workspace --locked
+```
+
+Run:
+```bash
+cargo run -p coldvox-app --bin coldvox
+cargo run -p coldvox-app --bin tui_dashboard
+cargo run --features text-injection,moonshine
+```
+
 ## Feature Flags
 
-- Default features: `silero`, `text-injection`.
-- `moonshine`: Current working Python-based STT.
-- `parakeet`: Planned backend work (requires runtime testing).
+- `silero`: Silero VAD
+- `text-injection`: text injection backends
+- `moonshine`: Current working STT backend (Python-based, CPU/GPU)
+- `parakeet`: planned backend work; not current reliable path
+- `examples`: example binaries
+- `live-hardware-tests`: hardware test suites
+
+## CI Environment
+
+Canonical CI policy is `docs/dev/CI/architecture.md`.
+
+Principle:
+- GitHub-hosted runners handle fast general CI work.
+- Self-hosted Fedora/Nobara runner handles hardware-dependent tests.
+
+Do not use:
+- Xvfb on self-hosted runner
+- `apt-get` on Fedora runner
+- `DISPLAY=:99` in self-hosted jobs
+
+## Key Files
+
+- Main entry: `crates/app/src/main.rs`
+- Audio capture: `crates/coldvox-audio/src/capture.rs`
+- VAD engine: `crates/coldvox-vad-silero/src/silero_wrapper.rs`
+- STT plugins: `crates/coldvox-stt/src/plugins/`
+- Text injection manager: `crates/coldvox-text-injection/src/manager.rs`
+- Build detection: `crates/app/build.rs`
+
+## PR Checklist
+
+- `./scripts/local_ci.sh` passes (or equivalent crate-scoped checks)
+- Docs updated for behavior/direction changes
+- `CHANGELOG.md` updated for user-visible changes
+- No secrets committed

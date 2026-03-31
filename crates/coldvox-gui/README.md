@@ -1,27 +1,57 @@
 # ColdVox GUI
 
-This crate is currently a placeholder while ColdVox transitions to a Windows-first GUI path.
+ColdVox now uses a **Tauri v2 + React** overlay shell under this folder.
 
-## Current Direction
+This tranche replaces the old Qt/QML placeholder with a Windows-first transparent host shell that is intentionally narrow in scope:
 
-- The old Qt/QML prototype direction is superseded.
-- The active GUI plan is documented in [`../../docs/plans/windows-multi-agent-recovery.md`](../../docs/plans/windows-multi-agent-recovery.md).
-- The intended shell is a Windows-first **Tauri v2 + React** overlay that carries forward the relevant UX and workflow ideas from **ColdVox_Mini**.
+- collapsed idle presence
+- expanded transcript panel
+- visible state feedback (`idle`, `listening`, `processing`, `ready`, `error`)
+- clear separation between live partial text and committed final text
+- typed Tauri command/event seam exercised by a demo driver
 
-## Scope
+It is **not** a Mini lift-and-shift and it does **not** wire real STT, injection, hotkeys, or settings persistence yet.
 
-The GUI direction is centered on:
+## Layout
 
-- live provisional text in the UI while the user speaks
-- final-text injection at utterance end
-- Windows-first overlay and hotkey behavior
-- porting the relevant ColdVox_Mini UX, voice-command, and configuration patterns into the new shell
+```text
+crates/coldvox-gui/
+├── src/                    # React frontend
+│   ├── components/
+│   ├── contracts/
+│   ├── hooks/
+│   └── lib/
+└── src-tauri/              # Rust Tauri host shell package
+    └── src/
+```
 
-## Current Runtime
+## Key Entry Points
 
-Until the replacement GUI shell is scaffolded, use the main application and TUI binaries for runtime validation:
+- Frontend shell: [`src/App.tsx`](./src/App.tsx)
+- Frontend contract hook: [`src/hooks/useOverlayShell.ts`](./src/hooks/useOverlayShell.ts)
+- Rust host shell: [`src-tauri/src/lib.rs`](./src-tauri/src/lib.rs)
+- Rust state model: [`src-tauri/src/state.rs`](./src-tauri/src/state.rs)
+
+## Development Commands
+
+Run these from `crates/coldvox-gui/`:
 
 ```bash
-cargo run -p coldvox-app --bin coldvox
-cargo run -p coldvox-app --bin tui_dashboard
+npm install
+npm run test
+npm run build
+npm run tauri dev
 ```
+
+Rust verification still happens through the workspace package:
+
+```bash
+cargo check -p coldvox-gui
+cargo test -p coldvox-gui
+```
+
+## Current Runtime Reality
+
+- The frontend renders a restrained overlay shell, not the final product UI.
+- The Rust side owns window sizing/bootstrap plus demo command/event emission.
+- The demo driver proves the UI contract end-to-end without touching the real audio/STT runtime.

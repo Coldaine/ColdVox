@@ -132,6 +132,13 @@ impl SttPluginRegistry {
         self.factories.push(factory);
     }
 
+    /// Register a new plugin factory, replacing any existing factory with the same plugin id.
+    pub fn register_or_replace(&mut self, factory: Box<dyn SttPluginFactory>) {
+        let plugin_id = factory.plugin_info().id;
+        self.factories.retain(|existing| existing.plugin_info().id != plugin_id);
+        self.factories.push(factory);
+    }
+
     /// Set the preferred order of plugins to try
     pub fn set_preferred_order(&mut self, order: Vec<String>) {
         self.preferred_order = order;

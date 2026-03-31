@@ -167,6 +167,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tracing::error!("Failed to resolve canonical STT plugin selection: {}", e);
         std::process::exit(1);
     }));
+    #[cfg(feature = "http-remote")]
+    let stt_remote_config = Some(settings.runtime_http_remote_config());
 
     let device = settings.device.clone();
     let resampler_quality = match settings.resampler_quality.to_lowercase().as_str() {
@@ -186,6 +188,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         resampler_quality,
         activation_mode,
         stt_selection,
+        #[cfg(feature = "http-remote")]
+        stt_remote_config,
         enable_device_monitor: settings.enable_device_monitor,
         capture_buffer_samples: settings.audio.capture_buffer_samples,
         ..Default::default()
@@ -197,6 +201,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         resampler_quality,
         activation_mode,
         stt_selection,
+        #[cfg(feature = "http-remote")]
+        stt_remote_config,
         enable_device_monitor: settings.enable_device_monitor,
         capture_buffer_samples: settings.audio.capture_buffer_samples,
         ..Default::default()
