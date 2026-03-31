@@ -1,0 +1,137 @@
+---
+name: "Agentic Evidence Assessor (Shadow Mode)"
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+    branches:
+      - main
+
+# Shadow mode: this job is advisory only. It never blocks a PR.
+# All merge decisions remain with human reviewers.
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: evidence-assessor-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  assess-evidence:
+    name: "Evidence Assessor (shadow)"
+    runs-on: ubuntu-latest
+    # Never fail the PR — this is a shadow reviewer, not a gate.
+    continue-on-error: true
+
+    steps:
+      - name: Checkout repository (full history)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v5.0.0
+        with:
+          # fetch-depth: 0 is REQUIRED for git diff origin/base...HEAD to work.
+          # Shallow clones (depth: 1) lack the common ancestor needed for three-dot diffs.
+          fetch-depth: 0
+          # Explicitly fetch the base branch so origin/base_ref is available.
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Ensure base branch is fetched
+        run: |
+          git fetch origin "${{ github.event.pull_request.base.ref }}" --depth=0 2>/dev/null || \
+          git fetch origin "${{ github.event.pull_request.base.ref }}" || true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Gather PR context and compose prompt
+        id: compose
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+
+          echo "=== Generating git diff ==="
+          GIT_DIFF=$(git diff "origin/${BASE_REF}...HEAD" 2>/dev/null || echo "[diff unavailable]")
+
+          # Truncate large diffs to avoid token budget exhaustion.
+          # 2000 lines is plenty for structural analysis; large refactors get a note.
+          DIFF_LINES=$(echo "$GIT_DIFF" | wc -l)
+          if [ "$DIFF_LINES" -gt 2000 ]; then
+            GIT_DIFF=$(echo "$GIT_DIFF" | head -2000)
+            GIT_DIFF="${GIT_DIFF}
+          ... [diff truncated at 2000 lines — ${DIFF_LINES} total lines in this PR]"
+          fi
+
+          echo "=== Collecting docs index ==="
+          DOCS_INDEX=$(find docs/ -name "*.md" | sort 2>/dev/null | head -100 || echo "[docs/ not found]")
+
+          echo "=== Extracting northstar excerpt ==="
+          NORTHSTAR=$(head -60 docs/northstar.md 2>/dev/null || echo "[northstar.md not found]")
+
+          echo "=== Reading prompt template ==="
+          PROMPT_TEMPLATE=$(cat .github/prompts/evidence-assessor.md)
+
+          echo "=== Composing full prompt ==="
+          FULL_PROMPT="${PROMPT_TEMPLATE}"
+          FULL_PROMPT="${FULL_PROMPT/\{PR_TITLE_PLACEHOLDER\}/${PR_TITLE}}"
+          FULL_PROMPT="${FULL_PROMPT/\{PR_BODY_PLACEHOLDER\}/${PR_BODY}}"
+          FULL_PROMPT="${FULL_PROMPT/\{GIT_DIFF_PLACEHOLDER\}/${GIT_DIFF}}"
+          FULL_PROMPT="${FULL_PROMPT/\{DOCS_INDEX_PLACEHOLDER\}/${DOCS_INDEX}}"
+          FULL_PROMPT="${FULL_PROMPT/\{NORTHSTAR_EXCERPT_PLACEHOLDER\}/${NORTHSTAR}}"
+
+          # Write the composed prompt to a file to avoid shell quoting issues.
+          printf '%s' "$FULL_PROMPT" > /tmp/composed_prompt.txt
+          echo "Prompt composed: $(wc -l < /tmp/composed_prompt.txt) lines"
+
+      - name: Run Gemini evidence assessor
+        id: assess
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${GEMINI_API_KEY:-}" ]; then
+            echo "GEMINI_API_KEY secret is not configured — skipping assessment."
+            echo "**⚠️ Evidence Assessor skipped:** \`GEMINI_API_KEY\` secret not configured." >> /tmp/report.md
+            exit 0
+          fi
+
+          echo "=== Running Gemini evidence assessor ==="
+          # Use gemini-cli in non-interactive mode.
+          # --model: gemini-2.5-flash balances quality and cost for this use case.
+          # Input is piped from the composed prompt file; stdout is the report.
+          npx --yes @google/gemini-cli \
+            --model gemini-2.0-flash \
+            --api_key "${GEMINI_API_KEY}" \
+            < /tmp/composed_prompt.txt \
+            > /tmp/report.md 2>/tmp/report_stderr.txt || {
+              echo "Gemini CLI exited with error. Capturing stderr."
+              echo "**⚠️ Evidence Assessor error:**" > /tmp/report.md
+              echo '```' >> /tmp/report.md
+              cat /tmp/report_stderr.txt >> /tmp/report.md
+              echo '```' >> /tmp/report.md
+            }
+
+          echo "Assessment complete: $(wc -l < /tmp/report.md) lines of output"
+
+      - name: Write assessment to Step Summary
+        if: always()
+        run: |
+          {
+            echo "## 🤖 Agentic Evidence Assessor (Shadow Mode)"
+            echo ""
+            echo "> **Shadow Mode**: This report is non-blocking. It is advisory only and does not gate merges."
+            echo "> Reviewers should read this before approving, but merge decisions remain with humans."
+            echo ""
+            echo "---"
+            echo ""
+            if [ -f /tmp/report.md ]; then
+              cat /tmp/report.md
+            else
+              echo "_No report generated — assessor step did not complete._"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
