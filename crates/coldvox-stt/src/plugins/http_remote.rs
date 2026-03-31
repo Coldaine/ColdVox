@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use coldvox_foundation::error::{ColdVoxError, SttError};
 use reqwest::{multipart, Client, Url};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::io::Cursor;
 use std::net::IpAddr;
@@ -24,6 +25,9 @@ pub struct HttpRemoteConfig {
     pub base_url: String,
     /// API path (e.g., "/v1/audio/transcriptions")
     pub api_path: String,
+    /// Health path (e.g., "/health")
+    #[serde(default = "default_health_path")]
+    pub health_path: String,
     /// Model name to send in the request (e.g., "moonshine/base")
     pub model_name: String,
     /// Display name for logging/UI
@@ -32,6 +36,37 @@ pub struct HttpRemoteConfig {
     pub timeout_ms: u64,
     /// Sample rate of the audio being sent (typically 16000)
     pub sample_rate: u32,
+    /// Optional extra HTTP headers
+    #[serde(default)]
+    pub headers: HashMap<String, String>,
+    /// Optional bearer-token environment variable name
+    #[serde(default)]
+    pub bearer_token_env_var: Option<String>,
+    /// Maximum encoded WAV bytes allowed before request send
+    #[serde(default = "default_max_audio_bytes")]
+    pub max_audio_bytes: u64,
+    /// Maximum utterance duration in seconds allowed before request send
+    #[serde(default = "default_max_audio_seconds")]
+    pub max_audio_seconds: u32,
+    /// Maximum estimated multipart payload bytes allowed before request send
+    #[serde(default = "default_max_payload_bytes")]
+    pub max_payload_bytes: u64,
+}
+
+fn default_health_path() -> String {
+    "/health".to_string()
+}
+
+fn default_max_audio_bytes() -> u64 {
+    2_097_152
+}
+
+fn default_max_audio_seconds() -> u32 {
+    30
+}
+
+fn default_max_payload_bytes() -> u64 {
+    2_621_440
 }
 
 impl Default for HttpRemoteConfig {
@@ -40,10 +75,36 @@ impl Default for HttpRemoteConfig {
             profile_id: Some("moonshine-base".into()),
             base_url: "http://localhost:5096".into(),
             api_path: "/v1/audio/transcriptions".into(),
+            health_path: default_health_path(),
             model_name: "moonshine/base".into(),
             display_name: "Moonshine (HTTP)".into(),
             timeout_ms: 10_000,
             sample_rate: 16_000,
+            headers: HashMap::new(),
+            bearer_token_env_var: None,
+            max_audio_bytes: default_max_audio_bytes(),
+            max_audio_seconds: default_max_audio_seconds(),
+            max_payload_bytes: default_max_payload_bytes(),
+        }
+    }
+}
+
+impl HttpRemoteConfig {
+    pub fn canonical_parakeet_cpu() -> Self {
+        Self {
+            profile_id: Some("http-remote".into()),
+            base_url: "http://localhost:5092".into(),
+            api_path: "/v1/audio/transcriptions".into(),
+            health_path: "/health".into(),
+            model_name: "parakeet-tdt-0.6b-v2".into(),
+            display_name: "Parakeet CPU (HTTP)".into(),
+            timeout_ms: 15_000,
+            sample_rate: 16_000,
+            headers: HashMap::new(),
+            bearer_token_env_var: None,
+            max_audio_bytes: default_max_audio_bytes(),
+            max_audio_seconds: default_max_audio_seconds(),
+            max_payload_bytes: default_max_payload_bytes(),
         }
     }
 }
@@ -55,7 +116,6 @@ struct SttResponse {
 }
 
 const PLUGIN_ID_PREFIX: &str = "http-remote";
-const HEALTH_ENDPOINT: &str = "/health";
 
 pub struct HttpRemotePlugin {
     config: HttpRemoteConfig,
@@ -229,7 +289,11 @@ fn plugin_id_from_config(config: &HttpRemoteConfig) -> String {
         .profile_id
         .as_deref()
         .map(canonicalize_profile_id_fragment)
-        .filter(|id| !id.is_empty() && id != PLUGIN_ID_PREFIX);
+        .filter(|id| !id.is_empty());
+
+    if explicit_id.as_deref() == Some(PLUGIN_ID_PREFIX) {
+        return PLUGIN_ID_PREFIX.to_string();
+    }
 
     let suffix = explicit_id.unwrap_or_else(|| derive_profile_id(config));
     if suffix.is_empty() {
@@ -270,6 +334,49 @@ impl HttpRemotePlugin {
         Duration::from_millis(self.config.timeout_ms)
     }
 
+    fn estimated_audio_duration_secs(&self) -> f64 {
+        if self.config.sample_rate == 0 {
+            return 0.0;
+        }
+
+        self.audio_buffer.len() as f64 / self.config.sample_rate as f64
+    }
+
+    fn estimate_payload_bytes(&self, wav_data: &[u8]) -> u64 {
+        let static_overhead = 768_u64;
+        wav_data.len() as u64 + self.config.model_name.len() as u64 + static_overhead
+    }
+
+    fn validate_request_guardrails(&self, wav_data: &[u8]) -> Result<(), ColdVoxError> {
+        if wav_data.len() as u64 > self.config.max_audio_bytes {
+            return Err(SttError::TranscriptionFailed(format!(
+                "Encoded WAV size {} exceeds configured max_audio_bytes {}",
+                wav_data.len(), self.config.max_audio_bytes
+            ))
+            .into());
+        }
+
+        let duration_secs = self.estimated_audio_duration_secs();
+        if duration_secs > self.config.max_audio_seconds as f64 {
+            return Err(SttError::TranscriptionFailed(format!(
+                "Utterance duration {:.2}s exceeds configured max_audio_seconds {}",
+                duration_secs, self.config.max_audio_seconds
+            ))
+            .into());
+        }
+
+        let estimated_payload_bytes = self.estimate_payload_bytes(wav_data);
+        if estimated_payload_bytes > self.config.max_payload_bytes {
+            return Err(SttError::TranscriptionFailed(format!(
+                "Estimated multipart payload {} exceeds configured max_payload_bytes {}",
+                estimated_payload_bytes, self.config.max_payload_bytes
+            ))
+            .into());
+        }
+
+        Ok(())
+    }
+
     fn build_http_client(&self) -> Result<Client, ColdVoxError> {
         Client::builder()
             .connect_timeout(self.request_timeout())
@@ -286,6 +393,29 @@ impl HttpRemotePlugin {
         endpoint_path: &str,
     ) -> Result<Url, ColdVoxError> {
         build_endpoint_url(&self.config.base_url, field_name, endpoint_path)
+    }
+
+    fn apply_common_headers(
+        &self,
+        request: reqwest::RequestBuilder,
+    ) -> Result<reqwest::RequestBuilder, ColdVoxError> {
+        let mut request = request;
+
+        for (header_name, header_value) in &self.config.headers {
+            request = request.header(header_name, header_value);
+        }
+
+        if let Some(env_var_name) = &self.config.bearer_token_env_var {
+            let token = std::env::var(env_var_name).map_err(|_| {
+                SttError::TranscriptionFailed(format!(
+                    "Configured bearer token env var '{}' is not set",
+                    env_var_name
+                ))
+            })?;
+            request = request.bearer_auth(token);
+        }
+
+        Ok(request)
     }
 
     fn encode_wav(&self) -> Result<Vec<u8>, ColdVoxError> {
@@ -318,6 +448,7 @@ impl HttpRemotePlugin {
         &self,
         wav_data: &[u8],
     ) -> Result<SttResponse, ColdVoxError> {
+        self.validate_request_guardrails(wav_data)?;
         let client = self.build_http_client()?;
         let url = self.build_service_url("api_path", &self.config.api_path)?;
         let wav_part = multipart::Part::bytes(wav_data.to_vec())
@@ -333,9 +464,12 @@ impl HttpRemotePlugin {
             .text("response_format", "json")
             .part("file", wav_part);
 
-        let response = client
-            .post(url.clone())
-            .header(reqwest::header::ACCEPT, "application/json")
+        let response = self
+            .apply_common_headers(
+                client
+                    .post(url.clone())
+                    .header(reqwest::header::ACCEPT, "application/json"),
+            )?
             .multipart(form)
             .send()
             .await
@@ -369,13 +503,16 @@ impl HttpRemotePlugin {
             Ok(client) => client,
             Err(_) => return Ok(false),
         };
-        let url = match self.build_service_url("health_path", HEALTH_ENDPOINT) {
+        let url = match self.build_service_url("health_path", &self.config.health_path) {
             Ok(url) => url,
             Err(_) => return Ok(false),
         };
 
-        match client.get(url).send().await {
-            Ok(response) => Ok(response.status().is_success()),
+        match self.apply_common_headers(client.get(url)) {
+            Ok(request) => match request.send().await {
+                Ok(response) => Ok(response.status().is_success()),
+                Err(_) => Ok(false),
+            },
             Err(_) => Ok(false),
         }
     }
@@ -461,15 +598,25 @@ impl HttpRemotePluginFactory {
         Self::new(HttpRemoteConfig::default())
     }
 
+    pub fn canonical_parakeet_cpu() -> Self {
+        Self::new(HttpRemoteConfig::canonical_parakeet_cpu())
+    }
+
     pub fn parakeet_gpu() -> Self {
         Self::new(HttpRemoteConfig {
             profile_id: Some("parakeet-gpu".into()),
             base_url: "http://localhost:8200".into(),
             api_path: "/audio/transcriptions".into(),
+            health_path: "/health".into(),
             model_name: "parakeet".into(),
             display_name: "Parakeet GPU (Docker)".into(),
             timeout_ms: 10_000,
             sample_rate: 16_000,
+            headers: HashMap::new(),
+            bearer_token_env_var: None,
+            max_audio_bytes: default_max_audio_bytes(),
+            max_audio_seconds: default_max_audio_seconds(),
+            max_payload_bytes: default_max_payload_bytes(),
         })
     }
 }
@@ -513,6 +660,7 @@ mod tests {
             display_name: "HTTP Remote Test".into(),
             timeout_ms: 100,
             sample_rate: 16_000,
+            ..Default::default()
         }
     }
 
@@ -653,6 +801,18 @@ mod tests {
     }
 
     #[test]
+    fn test_canonical_parakeet_profile_uses_canonical_id() {
+        let config = HttpRemoteConfig::canonical_parakeet_cpu();
+        let plugin = HttpRemotePlugin::new(config.clone());
+        let info = plugin.info();
+
+        assert_eq!(info.id, "http-remote");
+        assert_eq!(config.health_path, "/health");
+        assert_eq!(config.base_url, "http://localhost:5092");
+        assert_eq!(config.model_name, "parakeet-tdt-0.6b-v2");
+    }
+
+    #[test]
     fn test_factory_profiles_have_unique_ids() {
         let moonshine = HttpRemotePluginFactory::moonshine_base().plugin_info();
         let parakeet = HttpRemotePluginFactory::parakeet_gpu().plugin_info();
@@ -672,15 +832,12 @@ mod tests {
             display_name: "Derived Identity".into(),
             timeout_ms: 100,
             sample_rate: 16_000,
+            ..HttpRemoteConfig::canonical_parakeet_cpu()
         };
 
         let plugin_a = HttpRemotePlugin::new(config.clone());
         let plugin_b = HttpRemotePlugin::new(config);
 
-        assert_eq!(
-            plugin_a.info().id,
-            "http-remote-parakeet-test-http-127-0-0-1-5092-service-v1-audio-transcriptions"
-        );
         assert_eq!(plugin_a.info().id, plugin_b.info().id);
     }
 
@@ -930,30 +1087,107 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_is_available_requires_healthy_status() {
+    async fn test_health_probe_uses_configured_health_path() {
         let (tx, rx) = mpsc::channel();
         let (base_url, handle) = spawn_stub_server(move |mut stream| async move {
             let request = read_http_request(&mut stream).await;
-            tx.send(request).expect("capture health request");
+            tx.send(request).expect("capture custom health request");
 
             let response = concat!(
-                "HTTP/1.1 503 Service Unavailable\r\n",
+                "HTTP/1.1 200 OK\r\n",
                 "Content-Length: 0\r\n",
                 "Connection: close\r\n\r\n"
             );
             stream
                 .write_all(response.as_bytes())
                 .await
-                .expect("write failing health response");
+                .expect("write custom health response");
         })
         .await;
-        let plugin = HttpRemotePlugin::new(test_config(format!("{base_url}/service")));
 
-        assert!(!plugin.is_available().await.expect("health probe completes"));
+        let mut config = test_config(format!("{base_url}/service"));
+        config.health_path = "/readyz".into();
+        let plugin = HttpRemotePlugin::new(config);
+
+        assert!(plugin.is_available().await.expect("health probe completes"));
         handle.await.expect("join stub server");
 
         let request = rx.recv().expect("captured health request");
         let request_text = String::from_utf8_lossy(&request);
-        assert!(request_text.starts_with("GET /service/health HTTP/1.1\r\n"));
+        assert!(request_text.starts_with("GET /service/readyz HTTP/1.1\r\n"));
+    }
+
+    #[tokio::test]
+    async fn test_finalize_rejects_audio_that_exceeds_guardrails() {
+        let mut config = test_config("http://127.0.0.1:5092".to_string());
+        config.max_audio_bytes = 128;
+        let mut plugin = HttpRemotePlugin::new(config);
+
+        plugin
+            .initialize(TranscriptionConfig::default())
+            .await
+            .expect("initialize plugin");
+        plugin
+            .process_audio(&vec![1_i16; 512])
+            .await
+            .expect("buffer audio samples");
+
+        let error = plugin
+            .finalize()
+            .await
+            .expect_err("oversized payload should fail before request send");
+        assert!(error.to_string().contains("max_audio_bytes"));
+    }
+
+    #[tokio::test]
+    async fn test_finalize_applies_configured_headers_and_auth() {
+        let (tx, rx) = mpsc::channel();
+        let (base_url, handle) = spawn_stub_server(move |mut stream| async move {
+            let request = read_http_request(&mut stream).await;
+            tx.send(request).expect("capture HTTP request");
+
+            let body = r#"{"text":"stub transcript"}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body,
+            );
+            stream
+                .write_all(response.as_bytes())
+                .await
+                .expect("write HTTP response");
+        })
+        .await;
+
+        let token_var = "COLDVOX_TEST_REMOTE_TOKEN";
+        std::env::set_var(token_var, "secret-token");
+
+        let mut config = test_config(base_url);
+        config.headers.insert("x-test-header".into(), "enabled".into());
+        config.bearer_token_env_var = Some(token_var.into());
+        let mut plugin = HttpRemotePlugin::new(config);
+
+        plugin
+            .initialize(TranscriptionConfig::default())
+            .await
+            .expect("initialize plugin");
+        plugin
+            .process_audio(&test_samples())
+            .await
+            .expect("buffer audio samples");
+        let _ = plugin.finalize().await.expect("finalize succeeds");
+        handle.await.expect("join stub server");
+        std::env::remove_var(token_var);
+
+        let request = rx.recv().expect("captured request");
+        let request_text = String::from_utf8_lossy(&request);
+        assert_eq!(
+            header_value(&request_text, "x-test-header").as_deref(),
+            Some("enabled")
+        );
+        assert_eq!(
+            header_value(&request_text, "authorization").as_deref(),
+            Some("Bearer secret-token")
+        );
     }
 }

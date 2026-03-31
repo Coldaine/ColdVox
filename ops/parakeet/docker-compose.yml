@@ -1,0 +1,25 @@
+services:
+  # Canonical ColdVox wave-1 HTTP STT container profile.
+  # Pattern source: D:\LocalLargeLanguageModels\parakeet-stt\docker-compose.yml
+  parakeet-cpu:
+    image: ghcr.io/achetronic/parakeet:latest
+    ports:
+      - "5092:5092"
+    volumes:
+      # Persist downloaded ONNX/Hugging Face model assets across restarts.
+      - parakeet-models:/app/models
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "bash -lc \"exec 3<>/dev/tcp/127.0.0.1/5092 && printf 'GET /health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3\"",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  parakeet-models:
+    name: parakeet-models

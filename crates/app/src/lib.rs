@@ -1,4 +1,6 @@
 use coldvox_stt::plugin::PluginSelectionConfig;
+#[cfg(feature = "http-remote")]
+use coldvox_stt::plugins::http_remote::HttpRemoteConfig;
 use config::{Case, Config, ConfigError, Environment, File};
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -394,6 +396,25 @@ impl Settings {
         Ok(selection)
     }
 
+    #[cfg(feature = "http-remote")]
+    pub fn runtime_http_remote_config(&self) -> HttpRemoteConfig {
+        HttpRemoteConfig {
+            profile_id: Some("http-remote".to_string()),
+            base_url: self.stt.remote.base_url.clone(),
+            api_path: self.stt.remote.api_path.clone(),
+            health_path: self.stt.remote.health_path.clone(),
+            model_name: self.stt.remote.model_name.clone(),
+            display_name: "Parakeet CPU (HTTP)".to_string(),
+            timeout_ms: self.stt.remote.timeout_ms,
+            sample_rate: self.stt.remote.sample_rate,
+            headers: self.stt.remote.headers.clone(),
+            bearer_token_env_var: self.stt.remote.auth.bearer_token_env_var.clone(),
+            max_audio_bytes: self.stt.remote.max_audio_bytes,
+            max_audio_seconds: self.stt.remote.max_audio_seconds,
+            max_payload_bytes: self.stt.remote.max_payload_bytes,
+        }
+    }
+
     /// Load settings from a specific config file path (for tests)
     pub fn from_path(config_path: impl AsRef<Path>) -> Result<Self, String> {
         let config = Self::build_config(Some(config_path.as_ref().to_path_buf()))
@@ -712,6 +733,23 @@ mod tests {
 
         assert_eq!(selection.preferred_plugin.as_deref(), Some("http-remote"));
         assert!(selection.fallback_plugins.is_empty());
+    }
+
+    #[cfg(feature = "http-remote")]
+    #[test]
+    fn runtime_http_remote_config_matches_validated_settings() {
+        let settings = Settings::from_path(PathBuf::from("../../config/default.toml"))
+            .or_else(|_| Settings::from_path(PathBuf::from("config/default.toml")))
+            .expect("load default config");
+
+        let remote = settings.runtime_http_remote_config();
+        assert_eq!(remote.profile_id.as_deref(), Some("http-remote"));
+        assert_eq!(remote.base_url, "http://localhost:5092");
+        assert_eq!(remote.api_path, "/v1/audio/transcriptions");
+        assert_eq!(remote.health_path, "/health");
+        assert_eq!(remote.model_name, "parakeet-tdt-0.6b-v2");
+        assert_eq!(remote.max_audio_bytes, 2_097_152);
+        assert_eq!(remote.max_payload_bytes, 2_621_440);
     }
 
     #[test]

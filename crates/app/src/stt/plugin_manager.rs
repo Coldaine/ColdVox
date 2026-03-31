@@ -11,6 +11,8 @@ use std::sync::atomic::Ordering;
 
 use coldvox_foundation::error::{ColdVoxError, ConfigError, PluginError, SttError};
 use coldvox_stt::plugin::{PluginSelectionConfig, SttPlugin, SttPluginRegistry};
+#[cfg(feature = "http-remote")]
+use coldvox_stt::plugins::http_remote::{HttpRemoteConfig, HttpRemotePluginFactory};
 use coldvox_stt::TranscriptionConfig;
 use coldvox_telemetry::pipeline_metrics::PipelineMetrics;
 use serde_json;
@@ -55,6 +57,12 @@ impl Default for SttPluginManager {
 }
 
 impl SttPluginManager {
+    #[cfg(feature = "http-remote")]
+    pub async fn configure_http_remote_factory(&mut self, config: HttpRemoteConfig) {
+        let mut registry = self.registry.write().await;
+        registry.register_or_replace(Box::new(HttpRemotePluginFactory::new(config)));
+    }
+
     /// Warn if legacy or duplicate plugin selection config files are present.
     /// Canonical location is `config/plugins.json`. Any other copies will be ignored.
     fn warn_on_duplicate_configs(&self) {
@@ -605,37 +613,31 @@ impl SttPluginManager {
         });
     }
 
-    /// Register all built-in plugins
-    fn register_builtin_plugins(registry: &mut SttPluginRegistry) {
-        use coldvox_stt::plugins::noop::NoOpPluginFactory;
-
-        // Always available plugins
-        registry.register(Box::new(NoOpPluginFactory));
-
-        // Register MockPlugin if available (always available in current setup)
+    fn register_builtin_plugins(_registry: &mut SttPluginRegistry) {
+        // Register mock plugin for tests
+        #[cfg(test)]
         {
             use coldvox_stt::plugins::mock::MockPluginFactory;
-            registry.register(Box::new(MockPluginFactory::default()));
+            _registry.register(Box::new(MockPluginFactory::default()));
         }
 
         #[cfg(feature = "http-remote")]
         {
-            use coldvox_stt::plugins::http_remote::HttpRemotePluginFactory;
-            registry.register(Box::new(HttpRemotePluginFactory::moonshine_base()));
+            _registry.register(Box::new(HttpRemotePluginFactory::canonical_parakeet_cpu()));
         }
 
         // Register Parakeet plugin if the parakeet feature is enabled
         #[cfg(feature = "parakeet")]
         {
             use coldvox_stt::plugins::parakeet::ParakeetPluginFactory;
-            registry.register(Box::new(ParakeetPluginFactory::new()));
+            _registry.register(Box::new(ParakeetPluginFactory::new()));
         }
 
         // Register Moonshine plugin if the moonshine feature is enabled
         #[cfg(feature = "moonshine")]
         {
             use coldvox_stt::plugins::moonshine::MoonshinePluginFactory;
-            registry.register(Box::new(MoonshinePluginFactory::new()));
+            _registry.register(Box::new(MoonshinePluginFactory::new()));
         }
     }
 
@@ -918,10 +920,8 @@ impl SttPluginManager {
                     }
                 }
                 Err(e) => {
-                    warn!(
-                        "Failed to unload previous plugin {} during switch: {:?}",
-                        old_id, e
-                    );
+                    warn!("Failed to unload previous plugin {} during switch: {:?}",
+                        old_id, e);
 
                     // Update error metrics if available
                     if let Some(ref metrics) = self.metrics_sink {
@@ -1484,7 +1484,7 @@ mod tests {
     async fn test_plugin_manager_initialization() {
         let mut manager = create_test_manager();
 
-        // Should initialize with some plugin (at least NoOp)
+        // Should initialize with some plugin
         let plugin_id = manager.initialize().await.unwrap();
         assert!(!plugin_id.is_empty());
 
@@ -1492,10 +1492,11 @@ mod tests {
         let plugins = manager.list_plugins_sync();
         assert!(!plugins.is_empty());
 
-        // At minimum, NoOp and Mock should be available
+        // Test builds should expose Mock, and runtime builds expose canonical http-remote when enabled.
         let plugin_ids: Vec<String> = plugins.iter().map(|p| p.id.clone()).collect();
-        assert!(plugin_ids.contains(&"noop".to_string()));
         assert!(plugin_ids.contains(&"mock".to_string()));
+        #[cfg(feature = "http-remote")]
+        assert!(plugin_ids.contains(&"http-remote".to_string()));
     }
 
     #[tokio::test]
@@ -1509,20 +1510,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_fallback_failure_when_no_plugins_available() {
+    async fn test_invalid_preferred_plugin_falls_back_to_best_available_plugin() {
         let mut manager = create_isolated_manager();
 
         // Configure to prefer a non-existent plugin and no fallbacks
         manager.selection_config.preferred_plugin = Some("non-existent".to_string());
         manager.selection_config.fallback_plugins = vec![];
 
-        // Initialization should fail explicitly (no NoOp fallback)
-        let init_result = manager.initialize().await;
-        assert!(init_result.is_err());
+        // Initialization should still succeed via best-available plugin selection.
+        let plugin_id = manager.initialize().await.unwrap();
+        assert!(!plugin_id.is_empty());
     }
 
     #[tokio::test]
-    async fn test_preferred_plugin_unavailable_falls_back_to_mock_for_noncanonical_profiles() {
+    async fn test_preferred_plugin_unavailable_falls_back_to_best_available_plugin_for_noncanonical_profiles() {
         let mut manager = create_isolated_manager();
         manager.selection_config.preferred_plugin = Some("non-existent".to_string());
         manager.selection_config.fallback_plugins = vec!["mock".to_string()];
@@ -1555,6 +1556,34 @@ mod tests {
         assert!(err
             .to_string()
             .contains("mock is test-only and cannot be a production fallback"));
+    }
+
+    #[cfg(feature = "http-remote")]
+    #[tokio::test]
+    async fn test_http_remote_preferred_plugin_initializes_canonical_profile() {
+        let mut manager = create_isolated_manager();
+
+        manager
+            .configure_http_remote_factory(HttpRemoteConfig::canonical_parakeet_cpu())
+            .await;
+        manager
+            .set_selection_config(PluginSelectionConfig {
+                preferred_plugin: Some("http-remote".to_string()),
+                fallback_plugins: vec![],
+                require_local: false,
+                max_memory_mb: None,
+                required_language: Some("en".to_string()),
+                failover: None,
+                gc_policy: None,
+                metrics: None,
+                auto_extract_model: true,
+            })
+            .await
+            .unwrap();
+
+        let plugin_id = manager.initialize().await.expect("initialize canonical http-remote");
+        assert_eq!(plugin_id, "http-remote");
+        assert_eq!(manager.current_plugin().await.as_deref(), Some("http-remote"));
     }
 
     #[tokio::test]
