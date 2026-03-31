@@ -13,17 +13,17 @@ version: 1.0.0
 
 # ColdVox Architecture & Future Vision
 
-> **⚠️ CRITICAL**: Current implementation priorities and working-state details live in [`./plans/windows-multi-agent-recovery.md`](./plans/windows-multi-agent-recovery.md).
+> **⚠️ CRITICAL**: Current implementation priorities and working-state details live in [`./plans/current-status.md`](./plans/current-status.md).
 
 ## Navigation
 
 - [Architecture Roadmap](./architecture/roadmap.md)
 - [Architecture Decisions](./architecture/adr/)
-- [Current Execution Plan](./plans/windows-multi-agent-recovery.md) - Current broken features tracking and near-term work
+- [Current Status & Direction](./plans/current-status.md) - Current state, priorities, and near-term work
 
 
 
-This document is the canonical architecture reference for ColdVox. It summarizes the system's structural goals and records speculative directions that guide long-term planning. For current execution priorities and near-term delivery work, use `docs/plans/windows-multi-agent-recovery.md`.
+This document is the canonical architecture reference for ColdVox. It summarizes the system's structural goals and records speculative directions that guide long-term planning. For current execution priorities and near-term delivery work, use `docs/plans/current-status.md`.
 
 ## ColdVox Future Vision
 
@@ -83,8 +83,8 @@ The always-on listening capability necessitates a fundamental architectural rest
 - **Fast Reload Capability**: Efficient reloading mechanisms when activity resumes
 
 ###### Standby Engine Configuration
-- **Tiered Engine System**: Multiple STT engines of varying resource requirements
-- **Primary/Secondary/Tertiary**: Large (high accuracy), medium (balanced), small (fast activation)
+- **Tiered Engine System**: Parakeet CUDA → Parakeet DirectML → Parakeet CPU → Moonshine → HTTP Remote
+- **Primary/Fallback chain**: GPU CUDA (highest accuracy), DirectML (Windows non-NVIDIA), CPU (universal), Moonshine (legacy Python), HTTP Remote (emergency)
 - **Smart Selection**: Choose appropriate engine based on current context and available resources
 - **Failover Mechanisms**: Graceful degradation when preferred engines are unavailable
 
@@ -110,9 +110,11 @@ STTMemoryController
 
 ```
 TieredSTTSystem
-├── PrimaryEngine (High Accuracy/High Memory)
-├── SecondaryEngine (Balanced Performance)  
-├── TertiaryEngine (Low Latency/Low Memory)
+├── ParakeetCUDA (Primary — GPU, highest accuracy)
+├── ParakeetDirectML (Fallback — Windows non-NVIDIA GPU)
+├── ParakeetCPU (Fallback — universal, no GPU required)
+├── Moonshine (Legacy — PyO3/Python, fragile)
+├── HTTPRemote (Emergency — external server fallback)
 └── EngineSelector (Context-Aware Selection)
 ```
 

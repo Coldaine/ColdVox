@@ -19,9 +19,10 @@ If guidance conflicts, use this precedence:
 - **Target OS:** Windows 11 priority.
 - **Python Environment:** Exclusively managed by `uv`. Do NOT use `mise` or raw `pip` for Python packages. Ensure `.python-version` is respected.
 - **STT Backend:**
-  - **Moonshine:** The current working backend, but considered a fragile dependency due to PyO3.
-  - **Parakeet:** The designated successor for a pure-Rust/Windows-native STT pipeline (CUDA/DirectML). It *does* compile; focus on runtime validation.
-  - **Vaporware:** The `whisper`, `coqui`, `leopard`, and `silero-stt` feature flags are dead stubs. Do not attempt to use them.
+  - **Parakeet (CUDA/DirectML/CPU):** The primary STT path. Pure Rust via ONNX Runtime. GPU primary, CPU fallback. Upgrade from v0.2 to v0.3.4 needed.
+  - **Moonshine:** Working Python-based fallback via PyO3. Fragile on Windows.
+  - **HTTP Remote:** Emergency cloud/remote STT fallback (stub).
+  - **Dead stubs:** `whisper`, `coqui`, `leopard`, `silero-stt` feature flags are dead. Do not use.
 
 ## Project Overview
 
@@ -68,15 +69,20 @@ Run:
 ```bash
 cargo run -p coldvox-app --bin coldvox
 cargo run -p coldvox-app --bin tui_dashboard
-cargo run --features text-injection,moonshine
+cargo run --features text-injection,parakeet
+cargo run --features text-injection,parakeet-cuda  # With CUDA GPU
+cargo run --features text-injection,moonshine       # Fallback with Python
 ```
 
 ## Feature Flags
 
 - `silero`: Silero VAD
 - `text-injection`: text injection backends
-- `moonshine`: Current working STT backend (Python-based, CPU/GPU)
-- `parakeet`: planned backend work; not current reliable path
+- `moonshine`: Current working STT backend (Python-based via PyO3, CPU/GPU) — fragile
+- `parakeet`: Parakeet STT via ONNX Runtime (parakeet-rs) — primary path forward
+- `parakeet-cuda`: Parakeet with CUDA GPU acceleration
+- `parakeet-tensorrt`: Parakeet with TensorRT optimization
+- `http-remote`: HTTP remote STT endpoint
 - `examples`: example binaries
 - `live-hardware-tests`: hardware test suites
 
@@ -98,7 +104,7 @@ Do not use:
 - Main entry: `crates/app/src/main.rs`
 - Audio capture: `crates/coldvox-audio/src/capture.rs`
 - VAD engine: `crates/coldvox-vad-silero/src/silero_wrapper.rs`
-- STT plugins: `crates/coldvox-stt/src/plugins/`
+- STT plugins: `crates/coldvox-stt/src/plugins/` (parakeet.rs, moonshine.rs, http_remote.rs, mock.rs, noop.rs)
 - Text injection manager: `crates/coldvox-text-injection/src/manager.rs`
 - Build detection: `crates/app/build.rs`
 

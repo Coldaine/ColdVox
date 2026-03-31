@@ -18,23 +18,44 @@ When other docs conflict with this, they should be updated, archived, or removed
 
 ## Core Goals
 
-- Maximize performance on high-end NVIDIA GPUs (specifically RTX 5090 class) with CUDA-first STT execution.
-- Provide a reliable fallback STT path for non-CUDA machines, with Moonshine as the baseline fallback backend.
-- Deliver a transparent GUI overlay that shows recognized words while speaking.
-- Show words live in both push-to-talk (PTT) mode and speech-detection mode.
-- Support streaming partial transcription so users do not wait for end-of-utterance text.
+1. **Windows 11 Primary Target** — ColdVox is a Windows-first voice pipeline.
+2. **GPU Parakeet (CUDA) Primary STT** — Using parakeet-rs (latest v0.3.4) with NVIDIA CUDA for best performance on RTX-class GPUs.
+3. **CPU Parakeet Fallback** — parakeet-rs auto-falls back to CPU; no GPU still works.
+4. **DirectML Support** — parakeet-rs `features=["directml"]` for Windows non-NVIDIA GPU acceleration.
+5. **Moonshine (PyO3) Tertiary Fallback** — Only if Python is available; fragile on Windows.
+6. **HTTP Remote Emergency Fallback** — Cloud/remote STT as last resort.
+7. **Tauri GUI Overlay** — Windows-native transparent overlay showing live transcription.
+8. **Streaming STT** — parakeet-rs v0.3 supports EOU (End-of-Utterance) and Nemotron streaming models.
+
+## STT Fallback Chain
+
+The STT backend selection follows a strict priority order:
+
+1. GPU Parakeet (CUDA)
+2. GPU Parakeet (DirectML)
+3. CPU Parakeet
+4. Moonshine (PyO3, Python required)
+5. HTTP Remote (cloud/remote, emergency only)
+
+Dead stubs (Whisper, Candle, Coqui, Leopard, Silero-STT) must not be referenced as viable backends. Remove on sight.
 
 ## Execution Priority (Current)
 
-- Primary delivery goal: complete reliable end-to-end flow from microphone input to correct text injection.
-- Supported STT now: Moonshine.
-- Planned later: Parakeet.
+- Primary: Complete end-to-end flow on Windows 11: mic → VAD → Parakeet STT → text injection.
+- Upgrade parakeet-rs from v0.2 to v0.3.4 — required for CUDA, DirectML, CPU auto-fallback, and streaming support.
+- Fix `ParakeetPlugin`: currently coded as GPU-only; must add CPU fallback path.
+- GUI: Tauri overlay visible during capture, showing streaming partial transcription.
 - No "no-STT" product mode for normal operation.
-- Overlay visibility target: visible while actively capturing.
-- Do not overfit to synthetic numeric tolerances at this stage; prioritize practical "it works reliably" behavior.
-- CUDA focus means selecting and integrating the best-performing CUDA-capable model path, not hardware-specific micro-optimization.
 - Injection failure behavior target: retry once, then notify in overlay.
-- Injection confirmation beyond current methods (for example OCR-based verification) is long-term roadmap, not near-term gate.
+- Linux: Supported but secondary; no AT-SPI/Wayland testing priority.
+
+## Key Technical Facts
+
+- parakeet-rs v0.3.4 supports: CPU, CUDA, TensorRT, DirectML, WebGPU with auto-fallback.
+- Current ColdVox uses parakeet-rs v0.2 — upgrade needed.
+- `ParakeetPlugin` incorrectly coded as GPU-only — needs CPU fallback added.
+- Moonshine is a fragile dependency due to PyO3 and Python environment requirements on Windows.
+- Whisper, Candle, Coqui, Leopard, and Silero-STT feature flags are dead stubs; do not use.
 
 ## Documentation Policy Alignment
 
