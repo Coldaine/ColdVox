@@ -91,6 +91,7 @@ Use local HTTP servers for STT to avoid PyO3 fragility entirely.
 
 **Local endpoint reality on this machine:**
 - Canonical wave-1 backend — Parakeet CPU: `http://localhost:5092/v1/audio/transcriptions`
+- Optional GPU comparison profile — Parakeet GPU: `http://localhost:8200/audio/transcriptions`
 - Deferred comparison profile — Moonshine: `http://localhost:5096/v1/audio/transcriptions`
 - Deferred comparison profile — Granite: `http://localhost:5093/v1/audio/transcriptions`
 - Deferred comparison profile — Qwen3-ASR: `http://localhost:5094/v1/audio/transcriptions`

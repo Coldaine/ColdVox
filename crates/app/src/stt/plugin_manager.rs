@@ -624,6 +624,7 @@ impl SttPluginManager {
         #[cfg(feature = "http-remote")]
         {
             _registry.register(Box::new(HttpRemotePluginFactory::canonical_parakeet_cpu()));
+            _registry.register(Box::new(HttpRemotePluginFactory::parakeet_gpu()));
         }
 
         // Register Parakeet plugin if the parakeet feature is enabled
@@ -1496,7 +1497,10 @@ mod tests {
         let plugin_ids: Vec<String> = plugins.iter().map(|p| p.id.clone()).collect();
         assert!(plugin_ids.contains(&"mock".to_string()));
         #[cfg(feature = "http-remote")]
-        assert!(plugin_ids.contains(&"http-remote".to_string()));
+        {
+            assert!(plugin_ids.contains(&"http-remote".to_string()));
+            assert!(plugin_ids.contains(&"http-remote-parakeet-gpu".to_string()));
+        }
     }
 
     #[tokio::test]
@@ -1564,9 +1568,6 @@ mod tests {
         let mut manager = create_isolated_manager();
 
         manager
-            .configure_http_remote_factory(HttpRemoteConfig::canonical_parakeet_cpu())
-            .await;
-        manager
             .set_selection_config(PluginSelectionConfig {
                 preferred_plugin: Some("http-remote".to_string()),
                 fallback_plugins: vec![],
@@ -1584,6 +1585,34 @@ mod tests {
         let plugin_id = manager.initialize().await.expect("initialize canonical http-remote");
         assert_eq!(plugin_id, "http-remote");
         assert_eq!(manager.current_plugin().await.as_deref(), Some("http-remote"));
+    }
+
+    #[cfg(feature = "http-remote")]
+    #[tokio::test]
+    async fn test_http_remote_preferred_plugin_initializes_gpu_profile() {
+        let mut manager = create_isolated_manager();
+
+        manager
+            .set_selection_config(PluginSelectionConfig {
+                preferred_plugin: Some("http-remote-parakeet-gpu".to_string()),
+                fallback_plugins: vec![],
+                require_local: false,
+                max_memory_mb: None,
+                required_language: Some("en".to_string()),
+                failover: None,
+                gc_policy: None,
+                metrics: None,
+                auto_extract_model: true,
+            })
+            .await
+            .unwrap();
+
+        let plugin_id = manager.initialize().await.expect("initialize gpu http-remote profile");
+        assert_eq!(plugin_id, "http-remote-parakeet-gpu");
+        assert_eq!(
+            manager.current_plugin().await.as_deref(),
+            Some("http-remote-parakeet-gpu")
+        );
     }
 
     #[tokio::test]

@@ -303,12 +303,19 @@ model = VibeVoiceAsrForConditionalGeneration.from_pretrained(model_id, device_ma
 - **GPU**: Yes (CUDA, NeMo + PyTorch, Parakeet-TDT 0.6B v2 baked in)
 - **VRAM**: ~4 GB
 - **Tested**: Yes — **86ms for 3s clip**, fastest tested
+- **ColdVox plugin id**: `http-remote-parakeet-gpu` (optional comparison profile)
 
 ```bash
 docker run -d --name parakeet-gpu -p 8200:8000 --gpus all marcpope/parakeet-api:latest
 ```
 
-**Caveat**: API endpoint is `/audio/transcriptions` not `/v1/audio/transcriptions`. Keep this image as an archived comparison profile for benchmarking only, not as the first-wave ColdVox container target.
+Repo-owned launcher path:
+
+```bash
+docker compose -f ops/parakeet/docker-compose.yml --profile gpu up -d parakeet-gpu
+```
+
+**Caveat**: API endpoint is `/audio/transcriptions` (with liveness on `/healthz`) rather than the canonical CPU profile’s `/v1/audio/transcriptions` + `/health`. Keep this image as an optional GPU comparison profile, not as the first-wave ColdVox container default.
 
 **Source**: [hub.docker.com/r/marcpope/parakeet-api](https://hub.docker.com/r/marcpope/parakeet-api)
 
