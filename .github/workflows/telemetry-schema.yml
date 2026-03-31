@@ -1,0 +1,57 @@
+---
+name: Telemetry Schema Check
+
+on:
+  push:
+    branches: [main, feature/*, feat/*, fix/*]
+    paths:
+      - 'crates/coldvox-telemetry/**'
+      - 'crates/coldvox-stt/**'
+      - 'crates/coldvox-audio/**'
+      - 'crates/coldvox-vad/**'
+      - 'scripts/validate_telemetry_schema.py'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'crates/coldvox-telemetry/**'
+      - 'crates/coldvox-stt/**'
+      - 'crates/coldvox-audio/**'
+      - 'crates/coldvox-vad/**'
+      - 'scripts/validate_telemetry_schema.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: telemetry-schema-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-telemetry-schema:
+    name: Validate Telemetry Naming Schema
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v5.0.0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate telemetry schema
+        run: |
+          echo "Checking telemetry metric naming conventions..."
+          python3 scripts/validate_telemetry_schema.py
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Telemetry Schema Check" >> $GITHUB_STEP_SUMMARY
+          if [[ ${{ job.status }} == "success" ]]; then
+            echo "✅ All metrics follow naming schema" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Schema violations detected" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Schema: \`coldvox.{subsystem}.{metric_name}.{unit}\`" >> $GITHUB_STEP_SUMMARY
+          fi

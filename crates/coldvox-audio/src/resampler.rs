@@ -1,19 +1,22 @@
+use audioadapter_buffers::owned::SequentialOwned;
+use rubato::audioadapter::Adapter;
 use rubato::{
-    Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction,
+    Async, FixedAsync, PolynomialDegree, Resampler, SincInterpolationParameters,
+    SincInterpolationType, WindowFunction,
 };
 
 use super::chunker::ResamplerQuality;
 
-/// Streaming resampler for mono i16 audio using Rubato's high-quality sinc interpolation.
+/// Streaming resampler for mono i16 audio using Rubato's high-quality resampling.
 ///
 /// - Maintains internal buffers to handle arbitrary-sized input chunks
-/// - Uses Rubato's SincFixedIn for high-quality, configurable resampling
+/// - Uses Rubato's Async resampler for high-quality, configurable resampling
 /// - Automatically handles buffering for Rubato's fixed chunk requirements
 pub struct StreamResampler {
     in_rate: u32,
     out_rate: u32,
     /// Rubato resampler instance
-    resampler: SincFixedIn<f32>,
+    resampler: Async<f32>,
     /// Input buffer for accumulating samples
     input_buffer: Vec<f32>,
     /// Output buffer for accumulating resampled samples
@@ -40,50 +43,52 @@ impl StreamResampler {
         // 512 samples at 16kHz = 32ms, which aligns well with typical VAD frame sizes
         let chunk_size = 512;
 
-        // Configure sinc interpolation based on quality preset
-        let sinc_params = match quality {
+        // Create the resampler based on quality preset
+        let resampler = match quality {
             ResamplerQuality::Fast => {
-                // Lower quality, faster processing
-                SincInterpolationParameters {
-                    sinc_len: 32,                                 // Shorter filter for lower CPU usage
-                    f_cutoff: 0.92,                               // Slightly more aggressive cutoff
-                    interpolation: SincInterpolationType::Linear, // Simpler interpolation
-                    oversampling_factor: 64,                      // Lower oversampling
-                    window: WindowFunction::Blackman,             // Simple window
-                }
+                // Fast polynomial interpolation (no anti-aliasing)
+                Async::<f32>::new_poly(
+                    out_rate as f64 / in_rate as f64,
+                    2.0, // Max ratio change
+                    PolynomialDegree::Linear,
+                    chunk_size,
+                    1, // mono
+                    FixedAsync::Input,
+                )
+                .expect("Failed to create polynomial resampler")
             }
             ResamplerQuality::Balanced => {
-                // Medium quality, good for speech
-                SincInterpolationParameters {
-                    sinc_len: 64,   // Medium quality
-                    f_cutoff: 0.95, // Slightly below Nyquist for better anti-aliasing
-                    interpolation: SincInterpolationType::Cubic,
-                    oversampling_factor: 128, // Good balance of quality vs memory
-                    window: WindowFunction::Blackman2, // Good stopband attenuation
-                }
+                // Cubic polynomial interpolation (good balance)
+                Async::<f32>::new_poly(
+                    out_rate as f64 / in_rate as f64,
+                    2.0,
+                    PolynomialDegree::Cubic,
+                    chunk_size,
+                    1, // mono
+                    FixedAsync::Input,
+                )
+                .expect("Failed to create polynomial resampler")
             }
             ResamplerQuality::Quality => {
-                // Higher quality, more CPU usage
-                SincInterpolationParameters {
-                    sinc_len: 128,  // Longer filter for better quality
-                    f_cutoff: 0.97, // Closer to Nyquist for sharper cutoff
+                // Sinc interpolation with anti-aliasing (best quality)
+                let sinc_params = SincInterpolationParameters {
+                    sinc_len: 128,
+                    f_cutoff: 0.95,
                     interpolation: SincInterpolationType::Cubic,
-                    oversampling_factor: 256, // Higher oversampling for better quality
-                    window: WindowFunction::BlackmanHarris2, // Best stopband attenuation
-                }
+                    oversampling_factor: 128,
+                    window: WindowFunction::Blackman2,
+                };
+                Async::<f32>::new_sinc(
+                    out_rate as f64 / in_rate as f64,
+                    2.0,
+                    &sinc_params,
+                    chunk_size,
+                    1, // mono
+                    FixedAsync::Input,
+                )
+                .expect("Failed to create sinc resampler")
             }
         };
-
-        // Create the resampler
-        // We only need 1 channel for mono audio
-        let resampler = SincFixedIn::<f32>::new(
-            out_rate as f64 / in_rate as f64, // Resample ratio
-            2.0,                              // Max resample ratio change (not used in fixed mode)
-            sinc_params,
-            chunk_size,
-            1, // mono
-        )
-        .expect("Failed to create Rubato resampler");
 
         Self {
             in_rate,
@@ -114,23 +119,30 @@ impl StreamResampler {
 
         // Process complete chunks
         while self.input_buffer.len() >= self.chunk_size {
-            // Prepare input for Rubato (it expects Vec<Vec<f32>> for channels)
+            // Prepare input for Rubato using SequentialOwned adapter
+            // SequentialOwned stores all samples for one channel consecutively
             let chunk: Vec<f32> = self.input_buffer.drain(..self.chunk_size).collect();
-            let input_frames = vec![chunk];
+            let input_adapter = SequentialOwned::new_from(chunk, 1, self.chunk_size)
+                .expect("Failed to create input adapter");
 
-            // Process the chunk
-            let output_frames = match self.resampler.process(&input_frames, None) {
-                Ok(frames) => frames,
+            // Process the chunk - use process method which allocates output
+            match self.resampler.process(
+                &input_adapter,
+                0,    // input_offset
+                None, // active_channels_mask
+            ) {
+                Ok(output_frames) => {
+                    // output_frames is SequentialOwned - copy data from channel 0
+                    let out_frames = output_frames.frames();
+                    let mut temp_buffer = vec![0.0f32; out_frames];
+                    let copied = output_frames.copy_from_channel_to_slice(0, 0, &mut temp_buffer);
+                    self.output_buffer.extend_from_slice(&temp_buffer[..copied]);
+                }
                 Err(e) => {
                     tracing::error!("Resampler error: {}", e);
                     // Return empty on error to maintain stream continuity
                     return Vec::new();
                 }
-            };
-
-            // Append resampled output (first channel only, since we're mono)
-            if !output_frames.is_empty() && !output_frames[0].is_empty() {
-                self.output_buffer.extend_from_slice(&output_frames[0]);
             }
         }
 

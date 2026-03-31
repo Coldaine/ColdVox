@@ -168,7 +168,7 @@ pub struct StrategyManager {
     /// Metrics for the strategy manager
     metrics: Arc<Mutex<InjectionMetrics>>,
     /// Backend detector for platform-specific capabilities
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[allow(dead_code)]
     backend_detector: BackendDetector,
     /// Registry of available injectors
     injectors: Arc<InjectorRegistry>,

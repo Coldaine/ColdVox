@@ -4,7 +4,7 @@ subsystem: general
 version: 1.0.0
 status: draft
 owners: Documentation Working Group
-last_reviewed: 2025-10-19
+last_reviewed: 2026-03-29
 ---
 
 # Documentation Standards
@@ -131,7 +131,9 @@ The following files are explicitly allowed outside `/docs/`:
 **Root-level files:**
 - `README.md` - Repository overview and quick-start
 - `CHANGELOG.md` - User-facing release notes
+- `AGENTS.md` - Canonical AI agent instructions and doc-routing entry point
 - `CLAUDE.md` - AI assistant context and guidelines
+- `GEMINI.md` - AI assistant context and guidelines
 - `PR-NNN-*.md` - Pull request assessment documents (temporary)
 
 **GitHub templates:**

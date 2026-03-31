@@ -1,34 +1,25 @@
 # ColdVox GUI Development Commands
-# Requires: just (https://github.com/casey/just)
 
-# Run GUI with Qt UI enabled
-gui:
-    QMAKE=$(which qmake6) cargo run -p coldvox-gui --features qt-ui
+frontend-dev:
+    npm run dev
 
-# Run tests (Qt not included)
-test:
-    cargo test
+frontend-test:
+    npm run test
 
-# Build GUI crate
-build:
-    cargo build -p coldvox-gui
+frontend-build:
+    npm run build
 
-# Build with Qt UI
-build-qt:
-    QMAKE=$(which qmake6) cargo build -p coldvox-gui --features qt-ui
+tauri-dev:
+    npm run tauri dev
 
-# Clean build artifacts
-clean:
-    cargo clean
-
-# Check code without building
 check:
     cargo check -p coldvox-gui
 
-# Format code
-fmt:
-    cargo fmt -p coldvox-gui
+test:
+    cargo test -p coldvox-gui
 
-# Lint code
-clippy:
-    cargo clippy -p coldvox-gui
+fmt:
+    cargo fmt --all
+
+clean:
+    cargo clean

@@ -104,6 +104,7 @@ impl SttMetricsManager {
         engine_processing_time: Duration,
         confidence_score: Option<f64>,
     ) {
+        self.metrics.increment_requests();
         self.metrics.record_end_to_end_latency(end_to_end_latency);
         self.metrics
             .record_engine_processing_time(engine_processing_time);
@@ -117,6 +118,7 @@ impl SttMetricsManager {
 
     /// Record a failed transcription
     pub fn record_failed_transcription(&self, error_latency: Option<Duration>) {
+        self.metrics.increment_requests();
         self.metrics.record_transcription_failure();
         self.metrics.record_error();
 

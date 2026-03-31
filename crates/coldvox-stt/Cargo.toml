@@ -6,13 +6,14 @@ description = "Speech-to-text abstraction layer for ColdVox"
 publish = false
 
 [dependencies]
-tokio = { version = "1.35", features = ["sync", "macros", "time"] }
+tokio = { version = "1.49", features = ["sync", "macros", "time"] }
 tracing = "0.1"
 parking_lot = "0.12"
 async-trait = "0.1"
 thiserror = "2.0"
 dirs = "6.0"
 serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 coldvox-foundation = { path = "../coldvox-foundation" }
 coldvox-telemetry = { path = "../coldvox-telemetry" }
 ## Removed Python-dependent faster-whisper backend; will replace with pure Rust implementation
@@ -21,24 +22,23 @@ coldvox-telemetry = { path = "../coldvox-telemetry" }
 parakeet-rs = { version = "0.2", optional = true }
 
 # Moonshine STT via PyO3/HuggingFace - Fixed auto-initialize
-pyo3 = { version = "0.27", optional = true, features = ["auto-initialize"] }
-tempfile = { version = "3.8", optional = true }
+pyo3 = { version = "0.28", optional = true, features = ["auto-initialize"] }
+tempfile = { version = "3.26", optional = true }
 hound = { version = "3.5", optional = true }
+reqwest = { version = "0.13", default-features = false, features = ["multipart"], optional = true }
 
 [features]
 default = []
-parakeet = ["dep:parakeet-rs"]
+# STT Backends (see docs/domains/stt/stt-overview.md)
+moonshine = ["dep:pyo3", "dep:tempfile", "dep:hound"]  # ✅ Working: Python-based, CPU/GPU
+parakeet = ["dep:parakeet-rs"]                         # ⚠️ Planned: Not currently functional
+http-remote = ["dep:hound", "dep:reqwest"]
 parakeet-cuda = ["parakeet", "parakeet-rs/cuda"]
 parakeet-tensorrt = ["parakeet-cuda", "parakeet-rs/tensorrt"]
-whisper = [] # Placeholder until new backend is implemented
-moonshine = ["dep:pyo3", "dep:tempfile", "dep:hound"]
-coqui = []
-leopard = []
-silero-stt = []
 
 [dev-dependencies]
-tokio = { version = "1.35", features = ["rt-multi-thread", "macros"] }
-serial_test = "3.2"
+tokio = { version = "1.49", features = ["rt-multi-thread", "macros", "io-util", "net", "time"] }
+serial_test = "3.4"
 hound = "3.5"
 
 # Gate moonshine example behind feature flag

@@ -1,6 +1,11 @@
+use coldvox_stt::plugin::PluginSelectionConfig;
+#[cfg(feature = "http-remote")]
+use coldvox_stt::plugins::http_remote::HttpRemoteConfig;
 use config::{Case, Config, ConfigError, Environment, File};
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::env;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Deserialize)]
@@ -67,6 +72,52 @@ impl Default for InjectionSettings {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct SttRemoteAuthSettings {
+    pub bearer_token_env_var: Option<String>,
+}
+
+impl Default for SttRemoteAuthSettings {
+    fn default() -> Self {
+        Self {
+            bearer_token_env_var: None,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SttRemoteSettings {
+    pub base_url: String,
+    pub api_path: String,
+    pub health_path: String,
+    pub model_name: String,
+    pub timeout_ms: u64,
+    pub sample_rate: u32,
+    pub headers: HashMap<String, String>,
+    pub auth: SttRemoteAuthSettings,
+    pub max_audio_bytes: u64,
+    pub max_audio_seconds: u32,
+    pub max_payload_bytes: u64,
+}
+
+impl Default for SttRemoteSettings {
+    fn default() -> Self {
+        Self {
+            base_url: "http://localhost:5092".to_string(),
+            api_path: "/v1/audio/transcriptions".to_string(),
+            health_path: "/health".to_string(),
+            model_name: "parakeet-tdt-0.6b-v2".to_string(),
+            timeout_ms: 15_000,
+            sample_rate: 16_000,
+            headers: HashMap::new(),
+            auth: SttRemoteAuthSettings::default(),
+            max_audio_bytes: 2_097_152,
+            max_audio_seconds: 30,
+            max_payload_bytes: 2_621_440,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
 pub struct SttSettings {
     pub preferred: Option<String>,
     pub fallbacks: Vec<String>,
@@ -80,6 +131,7 @@ pub struct SttSettings {
     pub metrics_log_interval_secs: u32,
     pub debug_dump_events: bool,
     pub auto_extract: bool,
+    pub remote: SttRemoteSettings,
 }
 
 impl Default for SttSettings {
@@ -97,6 +149,7 @@ impl Default for SttSettings {
             metrics_log_interval_secs: 30,
             debug_dump_events: false,
             auto_extract: true,
+            remote: SttRemoteSettings::default(),
         }
     }
 }
@@ -140,6 +193,40 @@ impl Default for Settings {
 }
 
 impl Settings {
+    fn build_runtime_plugin_selection_with_overrides(
+        stt: &SttSettings,
+        plugin_overrides: Option<&PluginSelectionConfig>,
+    ) -> PluginSelectionConfig {
+        PluginSelectionConfig {
+            preferred_plugin: plugin_overrides
+                .and_then(|cfg| cfg.preferred_plugin.clone())
+                .or_else(|| stt.preferred.clone()),
+            fallback_plugins: plugin_overrides
+                .map(|cfg| cfg.fallback_plugins.clone())
+                .unwrap_or_else(|| stt.fallbacks.clone()),
+            require_local: stt.require_local,
+            max_memory_mb: stt.max_mem_mb,
+            required_language: stt.language.clone(),
+            failover: Some(coldvox_stt::plugin::FailoverConfig {
+                failover_threshold: stt.failover_threshold,
+                failover_cooldown_secs: stt.failover_cooldown_secs,
+            }),
+            gc_policy: Some(coldvox_stt::plugin::GcPolicy {
+                model_ttl_secs: stt.model_ttl_secs,
+                enabled: !stt.disable_gc,
+            }),
+            metrics: Some(coldvox_stt::plugin::MetricsConfig {
+                log_interval_secs: if stt.metrics_log_interval_secs == 0 {
+                    None
+                } else {
+                    Some(stt.metrics_log_interval_secs)
+                },
+                debug_dump_events: stt.debug_dump_events,
+            }),
+            auto_extract_model: stt.auto_extract,
+        }
+    }
+
     fn build_config(explicit_path: Option<PathBuf>) -> Result<Config, ConfigError> {
         let mut builder = Config::builder()
             .set_default("resampler_quality", "balanced")?
@@ -186,7 +273,21 @@ impl Settings {
             .set_default("stt.disable_gc", false)?
             .set_default("stt.metrics_log_interval_secs", 30)?
             .set_default("stt.debug_dump_events", false)?
-            .set_default("stt.auto_extract", true)?;
+            .set_default("stt.auto_extract", true)?
+            .set_default("stt.remote.base_url", "http://localhost:5092")?
+            .set_default("stt.remote.api_path", "/v1/audio/transcriptions")?
+            .set_default("stt.remote.health_path", "/health")?
+            .set_default("stt.remote.model_name", "parakeet-tdt-0.6b-v2")?
+            .set_default("stt.remote.timeout_ms", 15_000)?
+            .set_default("stt.remote.sample_rate", 16_000)?
+            .set_default("stt.remote.headers", HashMap::<String, String>::new())?
+            .set_default(
+                "stt.remote.auth.bearer_token_env_var",
+                Option::<String>::None,
+            )?
+            .set_default("stt.remote.max_audio_bytes", 2_097_152)?
+            .set_default("stt.remote.max_audio_seconds", 30)?
+            .set_default("stt.remote.max_payload_bytes", 2_621_440)?;
 
         // Allow tests or callers to skip config file discovery entirely
         let skip_discovery = std::env::var("COLDVOX_SKIP_CONFIG_DISCOVERY")
@@ -281,6 +382,37 @@ impl Settings {
         }
 
         None
+    }
+
+    pub fn runtime_plugin_selection(&self) -> Result<PluginSelectionConfig, String> {
+        let plugin_overrides = load_canonical_plugin_selection_config()?;
+        let selection = Self::build_runtime_plugin_selection_with_overrides(
+            &self.stt,
+            plugin_overrides.as_ref(),
+        );
+        selection
+            .validate_runtime_policy()
+            .map_err(|err| err.to_string())?;
+        Ok(selection)
+    }
+
+    #[cfg(feature = "http-remote")]
+    pub fn runtime_http_remote_config(&self) -> HttpRemoteConfig {
+        HttpRemoteConfig {
+            profile_id: Some("http-remote".to_string()),
+            base_url: self.stt.remote.base_url.clone(),
+            api_path: self.stt.remote.api_path.clone(),
+            health_path: self.stt.remote.health_path.clone(),
+            model_name: self.stt.remote.model_name.clone(),
+            display_name: "Parakeet CPU (HTTP)".to_string(),
+            timeout_ms: self.stt.remote.timeout_ms,
+            sample_rate: self.stt.remote.sample_rate,
+            headers: self.stt.remote.headers.clone(),
+            bearer_token_env_var: self.stt.remote.auth.bearer_token_env_var.clone(),
+            max_audio_bytes: self.stt.remote.max_audio_bytes,
+            max_audio_seconds: self.stt.remote.max_audio_seconds,
+            max_payload_bytes: self.stt.remote.max_payload_bytes,
+        }
     }
 
     /// Load settings from a specific config file path (for tests)
@@ -412,6 +544,68 @@ impl Settings {
         if self.stt.model_ttl_secs == 0 {
             errors.push("STT model_ttl_secs must be >0".to_string());
         }
+        if self.stt.remote.base_url.trim().is_empty() {
+            errors.push("STT remote base_url must not be empty".to_string());
+        } else if !self.stt.remote.base_url.starts_with("http://") {
+            errors.push(format!(
+                "STT remote base_url '{}' must start with http://",
+                self.stt.remote.base_url
+            ));
+        }
+        if self.stt.remote.api_path.trim().is_empty() {
+            errors.push("STT remote api_path must not be empty".to_string());
+        } else if !self.stt.remote.api_path.starts_with('/') {
+            errors.push(format!(
+                "STT remote api_path '{}' must start with '/'",
+                self.stt.remote.api_path
+            ));
+        }
+        if self.stt.remote.health_path.trim().is_empty() {
+            errors.push("STT remote health_path must not be empty".to_string());
+        } else if !self.stt.remote.health_path.starts_with('/') {
+            errors.push(format!(
+                "STT remote health_path '{}' must start with '/'",
+                self.stt.remote.health_path
+            ));
+        }
+        if self.stt.remote.model_name.trim().is_empty() {
+            errors.push("STT remote model_name must not be empty".to_string());
+        }
+        if self.stt.remote.timeout_ms == 0 {
+            errors.push("STT remote timeout_ms must be >0".to_string());
+        }
+        if self.stt.remote.sample_rate == 0 {
+            errors.push("STT remote sample_rate must be >0".to_string());
+        }
+        if self.stt.remote.max_audio_bytes == 0 {
+            errors.push("STT remote max_audio_bytes must be >0".to_string());
+        }
+        if self.stt.remote.max_audio_seconds == 0 {
+            errors.push("STT remote max_audio_seconds must be >0".to_string());
+        }
+        if self.stt.remote.max_payload_bytes == 0 {
+            errors.push("STT remote max_payload_bytes must be >0".to_string());
+        }
+        if self.stt.remote.max_payload_bytes < self.stt.remote.max_audio_bytes {
+            errors.push(format!(
+                "STT remote max_payload_bytes ({}) must be >= max_audio_bytes ({})",
+                self.stt.remote.max_payload_bytes, self.stt.remote.max_audio_bytes
+            ));
+        }
+        for header_name in self.stt.remote.headers.keys() {
+            if header_name.trim().is_empty() {
+                errors.push("STT remote headers must not contain an empty header name".to_string());
+                break;
+            }
+        }
+        if let Some(env_var) = &self.stt.remote.auth.bearer_token_env_var {
+            if env_var.trim().is_empty() {
+                errors.push(
+                    "STT remote auth.bearer_token_env_var must not be blank when set"
+                        .to_string(),
+                );
+            }
+        }
 
         if !errors.is_empty() {
             let error_msg = format!("Critical config validation errors: {:?}", errors);
@@ -423,6 +617,75 @@ impl Settings {
 
         Ok(())
     }
+}
+
+pub(crate) fn discover_plugin_selection_config_path() -> Option<PathBuf> {
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").ok().map(PathBuf::from);
+    let cwd = env::current_dir().ok();
+    discover_plugin_selection_config_path_with(manifest_dir.as_deref(), cwd.as_deref())
+}
+
+fn discover_plugin_selection_config_path_with(
+    manifest_dir: Option<&Path>,
+    cwd: Option<&Path>,
+) -> Option<PathBuf> {
+    if let Some(manifest_dir) = manifest_dir {
+        let candidate = manifest_dir.join("../..").join("config/plugins.json");
+        if candidate.exists() {
+            return Some(candidate);
+        }
+    }
+
+    if let Some(cwd) = cwd {
+        for ancestor in cwd.ancestors() {
+            let candidate = ancestor.join("config/plugins.json");
+            if candidate.exists() && !is_legacy_app_local_plugin_config_path(&candidate) {
+                return Some(candidate);
+            }
+        }
+    }
+
+    None
+}
+
+fn is_legacy_app_local_plugin_config_path(path: &Path) -> bool {
+    let mut reversed = path.iter().rev();
+    matches!(
+        (
+            reversed.next(),
+            reversed.next(),
+            reversed.next(),
+            reversed.next()
+        ),
+        (Some(file), Some(config), Some(app), Some(crates))
+            if file == "plugins.json" && config == "config" && app == "app" && crates == "crates"
+    )
+}
+
+pub(crate) fn load_canonical_plugin_selection_config(
+) -> Result<Option<PluginSelectionConfig>, String> {
+    let Some(path) = discover_plugin_selection_config_path() else {
+        return Ok(None);
+    };
+
+    let raw = fs::read_to_string(&path).map_err(|err| {
+        format!(
+            "Failed to read plugin selection config {}: {}",
+            path.display(),
+            err
+        )
+    })?;
+    let config: PluginSelectionConfig = serde_json::from_str(&raw).map_err(|err| {
+        format!(
+            "Failed to parse plugin selection config {}: {}",
+            path.display(),
+            err
+        )
+    })?;
+    config
+        .validate_runtime_policy()
+        .map_err(|err| err.to_string())?;
+    Ok(Some(config))
 }
 
 pub mod audio;
@@ -442,3 +705,113 @@ pub mod vad;
 
 #[cfg(test)]
 pub mod test_utils;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_runtime_plugin_selection_prefers_canonical_plugin_owner() {
+        let mut stt = SttSettings::default();
+        stt.preferred = Some("mock".to_string());
+        stt.fallbacks = vec!["mock".to_string()];
+
+        let selection = Settings::build_runtime_plugin_selection_with_overrides(
+            &stt,
+            Some(&PluginSelectionConfig {
+                preferred_plugin: Some("http-remote".to_string()),
+                fallback_plugins: vec![],
+                require_local: false,
+                max_memory_mb: None,
+                required_language: Some("en".to_string()),
+                failover: None,
+                gc_policy: None,
+                metrics: None,
+                auto_extract_model: true,
+            }),
+        );
+
+        assert_eq!(selection.preferred_plugin.as_deref(), Some("http-remote"));
+        assert!(selection.fallback_plugins.is_empty());
+    }
+
+    #[cfg(feature = "http-remote")]
+    #[test]
+    fn runtime_http_remote_config_matches_validated_settings() {
+        let settings = Settings::from_path(PathBuf::from("../../config/default.toml"))
+            .or_else(|_| Settings::from_path(PathBuf::from("config/default.toml")))
+            .expect("load default config");
+
+        let remote = settings.runtime_http_remote_config();
+        assert_eq!(remote.profile_id.as_deref(), Some("http-remote"));
+        assert_eq!(remote.base_url, "http://localhost:5092");
+        assert_eq!(remote.api_path, "/v1/audio/transcriptions");
+        assert_eq!(remote.health_path, "/health");
+        assert_eq!(remote.model_name, "parakeet-tdt-0.6b-v2");
+        assert_eq!(remote.max_audio_bytes, 2_097_152);
+        assert_eq!(remote.max_payload_bytes, 2_621_440);
+    }
+
+    #[test]
+    fn discover_plugin_selection_config_path_skips_app_local_copy() {
+        let temp = tempfile::tempdir().expect("create tempdir");
+        let repo_root = temp.path();
+        let root_config_dir = repo_root.join("config");
+        let app_config_dir = repo_root.join("crates/app/config");
+        fs::create_dir_all(&root_config_dir).expect("create root config dir");
+        fs::create_dir_all(&app_config_dir).expect("create app config dir");
+        fs::write(root_config_dir.join("plugins.json"), "{}").expect("write root plugin config");
+        fs::write(app_config_dir.join("plugins.json"), "{}")
+            .expect("write app-local plugin config");
+
+        let resolved = discover_plugin_selection_config_path_with(
+            Some(&repo_root.join("crates/app")),
+            Some(&repo_root.join("crates/app")),
+        )
+        .expect("resolve canonical plugin config path");
+        let resolved = resolved
+            .canonicalize()
+            .expect("canonicalize resolved plugin config path");
+        let expected = repo_root
+            .join("config/plugins.json")
+            .canonicalize()
+            .expect("canonicalize expected plugin config path");
+
+        assert_eq!(resolved, expected);
+    }
+
+    #[test]
+    fn repo_root_plugins_json_keeps_canonical_http_remote_profile() {
+        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let root_plugins_path = repo_root.join("config/plugins.json");
+        let app_local_plugins_path = repo_root.join("crates/app/config/plugins.json");
+
+        let raw =
+            fs::read_to_string(&root_plugins_path).expect("read repo-root plugin selection config");
+        let root_config: PluginSelectionConfig =
+            serde_json::from_str(&raw).expect("parse repo-root plugin selection config");
+
+        assert_eq!(root_config.preferred_plugin.as_deref(), Some("http-remote"));
+        assert!(
+            root_config.fallback_plugins.is_empty(),
+            "canonical root plugin config must not fall back to mock/noop: {:?}",
+            root_config.fallback_plugins
+        );
+        assert_eq!(root_config.required_language.as_deref(), Some("en"));
+        assert!(!root_config.require_local);
+
+        let resolved = discover_plugin_selection_config_path()
+            .expect("resolve canonical plugin selection config path")
+            .canonicalize()
+            .expect("canonicalize resolved canonical plugin selection config path");
+        let expected = root_plugins_path
+            .canonicalize()
+            .expect("canonicalize repo-root plugin selection config path");
+        let deprecated = app_local_plugins_path
+            .canonicalize()
+            .expect("canonicalize deprecated app-local plugin selection config path");
+
+        assert_eq!(resolved, expected);
+        assert_ne!(resolved, deprecated);
+    }
+}

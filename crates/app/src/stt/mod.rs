@@ -6,12 +6,12 @@ pub use coldvox_stt::{
     WordInfo,
 };
 
-#[cfg(feature = "whisper")]
+#[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
 pub mod processor;
 
 pub mod session;
 
-#[cfg(feature = "whisper")]
+#[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
 pub mod persistence;
 
 pub mod plugin_manager;

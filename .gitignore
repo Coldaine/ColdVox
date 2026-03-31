@@ -33,6 +33,11 @@ flamegraph.svg
 logs/
 *.log
 
+# PR review and temporary files
+compile_errors.txt
+pr_*.txt
+prs*.txt
+
 # Temporary files
 tmp/
 temp/
@@ -65,6 +70,7 @@ crates/app/.coldvox/*
 
 # Node.js dependencies
 node_modules/
+dist/
 
 # Binary executables and archives
 actionlint
@@ -76,8 +82,8 @@ man/
 
 # External tool documentation (actionlint, etc)
 LICENSE.txt
-package.json
-package-lock.json
+/package.json
+/package-lock.json
 docs/README.md
 docs/api.md
 docs/checks.md
@@ -85,3 +91,8 @@ docs/config.md
 docs/install.md
 docs/reference.md
 docs/usage.md
+.omc/ 
+
+# AI Agent working directories
+.sisyphus/
+_ext_refs/

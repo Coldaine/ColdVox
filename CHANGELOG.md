@@ -4,6 +4,24 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### STT
+- Hardened the canonical Parakeet CPU HTTP-remote profile so `http-remote` now resolves to the configured `5092` `/health` + `/v1/audio/transcriptions` contract, honors remote request/guardrail settings, and ships with a repo-owned CPU compose profile under `ops/parakeet/`.
+- Added an optional containerized Parakeet GPU HTTP comparison profile (`http-remote-parakeet-gpu`) with a repo-owned compose service on `8200`, using the live `/healthz` + `/audio/transcriptions` contract while preserving the CPU profile as the wave-1 default.
+
+### GUI
+- Replaced the old `crates/coldvox-gui` Qt/QML placeholder with a Tauri v2 + React overlay shell.
+- Added a demo-only typed command/event seam between the Rust host shell and the frontend to exercise collapsed/expanded states, transcript promotion, and visible `idle`/`listening`/`processing`/`ready`/`error` feedback without real STT integration.
+- Added focused Rust and frontend tests for the overlay state contract and React hook/component behavior.
+
+### Nuclear Pruning & Documentation Cleanup
+- Removed vaporware STT backends (whisper, coqui, leopard, silero-stt) and legacy feature flags.
+- Archived outdated plans, PR reports, and reference docs to `docs/archive/`.
+- Updated all agent anchors (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `README.md`) to the current documentation chain centered on `docs/plans/windows-multi-agent-recovery.md`.
+- Added `.omc/` (AI tool state) to `.gitignore`.
+- Synced `plugins.json` configs to prefer `moonshine` (removed whisper references).
+- Fixed broken links and references post-restructure.
+- Updated `docs/plans/windows-multi-agent-recovery.md` with current verified status and paths.
+
 ### Added
 - **Moonshine STT Plugin** - CPU-optimized speech recognition using UsefulSensors' Moonshine model via PyO3/HuggingFace Transformers
   - 5x faster than Whisper on CPU with comparable accuracy (~2.5% WER)
@@ -19,10 +37,24 @@ All notable changes to this project are documented here.
   - Supports largest available model: nvidia/parakeet-tdt-1.1b (1.1 billion parameters)
   - TDT variant: Multilingual support for 25 languages with automatic detection
   - CTC variant: English-only for faster inference
-  - GPU-only mode: Requires CUDA/TensorRT, no CPU fallback
+  - GPU acceleration via feature flags: `parakeet-cuda` (CUDA), `parakeet-tensorrt` (TensorRT)
+  - Falls back to CPU when GPU features are not compiled (with warning)
   - Token-level timestamps for word-accurate transcription
   - Environment variables: `PARAKEET_MODEL_PATH`, `PARAKEET_VARIANT` (tdt/ctc), `PARAKEET_DEVICE` (cuda/tensorrt)
   - Pure Rust implementation - no Python dependencies
+
+- **Audio Quality Monitoring** - Real-time audio quality detection and feedback (#345)
+  - New `coldvox-audio-quality` crate for automated quality monitoring
+  - Detects too-quiet audio (RMS < -40 dBFS), clipping (peak > -1 dBFS), and off-axis speech (spectral ratio < 0.3)
+  - FFT-based off-axis detection using high-freq/mid-freq ratio analysis
+  - Configurable thresholds via `QualityConfig` builder or environment variables
+  - Pre-allocated buffers for real-time safety (~12.8µs per 512-sample frame)
+  - Rolling window RMS (500ms) and peak hold (1s) with exponential decay
+  - Rate-limited warnings (2-second cooldown) to avoid spam
+  - Microphone presets (HyperX QuadCast, Omnidirectional)
+  - Environment variables: `COLDVOX_TOO_QUIET_THRESHOLD`, `COLDVOX_CLIPPING_THRESHOLD`, `COLDVOX_OFF_AXIS_THRESHOLD`
+  - Integration tests with real audio data (LibriSpeech, Pyramic anechoic dataset)
+  - Download test datasets: `./scripts/download_test_audio.sh`
 
 ### Configuration
 - Canonicalize STT selection config to `config/plugins.json`. Legacy duplicates like `./plugins.json` and `crates/app/plugins.json` are deprecated and ignored at runtime; a startup warning is logged if detected. Documentation updated to reflect the single source of truth.
