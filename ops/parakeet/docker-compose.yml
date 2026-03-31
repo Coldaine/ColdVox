@@ -20,6 +20,29 @@ services:
       retries: 3
       start_period: 60s
 
+  # Optional GPU-backed Parakeet comparison profile.
+  # Upstream image serves on container port 8000 and is not the canonical wave-1 default.
+  parakeet-gpu:
+    profiles: ["gpu"]
+    image: marcpope/parakeet-api:latest
+    ports:
+      - "8200:8000"
+    environment:
+      DEVICE: cuda
+      MODEL_PRECISION: fp16
+    gpus: all
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz').getcode()==200 else 1)\"",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
 volumes:
   parakeet-models:
     name: parakeet-models
