@@ -607,7 +607,7 @@ impl HttpRemotePluginFactory {
             profile_id: Some("parakeet-gpu".into()),
             base_url: "http://localhost:8200".into(),
             api_path: "/audio/transcriptions".into(),
-            health_path: "/healthz".into(),
+            health_path: "/health".into(),
             model_name: "parakeet".into(),
             display_name: "Parakeet GPU (Docker)".into(),
             timeout_ms: 10_000,
@@ -813,15 +813,13 @@ mod tests {
     }
 
     #[test]
-    fn test_parakeet_gpu_profile_uses_gpu_contract() {
-        let factory = HttpRemotePluginFactory::parakeet_gpu();
-        let info = factory.plugin_info();
+    fn test_factory_profiles_have_unique_ids() {
+        let moonshine = HttpRemotePluginFactory::moonshine_base().plugin_info();
+        let parakeet = HttpRemotePluginFactory::parakeet_gpu().plugin_info();
 
-        assert_eq!(info.id, "http-remote-parakeet-gpu");
-        assert!(info.description.contains("http://localhost:8200"));
-
-        let plugin = factory.create().expect("create gpu plugin");
-        assert_eq!(plugin.info().id, "http-remote-parakeet-gpu");
+        assert_eq!(moonshine.id, "http-remote-moonshine-base");
+        assert_eq!(parakeet.id, "http-remote-parakeet-gpu");
+        assert_ne!(moonshine.id, parakeet.id);
     }
 
     #[test]

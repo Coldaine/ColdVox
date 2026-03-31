@@ -163,5 +163,5 @@ We will build inside the existing **ColdVox** repository:
 
 ## Next Step: Phase 1 (Validation)
 Before scaffolding the GUI, we MUST prove the engine works.
-- **Task**: Run `cargo run -p coldvox-stt --example verify_parakeet --features parakeet,parakeet-cuda`
+- **Task**: Run `cargo run -p coldvox-stt --example verify_parakeet --features parakeet,parakeet-cuda` (from crate directory, experimental)
 - **Success Criteria**: Real audio input results in correct text on the terminal.
