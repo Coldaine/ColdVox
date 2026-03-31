@@ -1,8 +1,8 @@
 # ColdVox GUI Master Plan
 
-> The single source of truth for the ColdVox overlay shell. It synthesizes prior vision documents into a buildable target without prescribing every implementation step.
+> The single source of truth for the ColdVox overlay shell.
 >
-> For visual and interaction principles, see [`docs/domains/gui/gui-design-overview.md`](../../domains/gui/gui-design-overview.md). For archived historical vision, see [`docs/archive/plans/gui/`](../../archive/plans/gui/).
+> We are building on **Tauri v2 + React**. We will push this stack as far as it can go. If the Aurora aesthetic cannot be fully achieved in WebView2/WebGL, we accept the compromise and ship what works.
 
 ---
 
@@ -22,23 +22,21 @@ Core principles (from [`docs/domains/gui/gui-design-overview.md`](../../domains/
 
 ## 2. Visual Direction
 
-The archived **Aurora Oracle** plans ([`docs/archive/plans/gui/aspirational-gui-plan.md`](../../archive/plans/gui/aspirational-gui-plan.md)) established the visual language for ColdVox. The Qt/QML implementation stack is dead, but **the aesthetic is being ported to the Tauri/WebGL stack**:
+The archived **Aurora Oracle** plans ([`docs/archive/plans/gui/aspirational-gui-plan.md`](../../archive/plans/gui/aspirational-gui-plan.md)) established the visual target. We are porting as much of this as possible into the Tauri/WebGL stack:
 
-- **Circular lens presence:** A strongly rounded, bubble-like overlay. The OS window remains rectangular (a Windows limitation in any stack), but the *content* is masked to a circle or superellipse.
+- **Circular lens presence:** A strongly rounded, bubble-like overlay. The OS window is rectangular (a Windows limitation in any stack), but the *content* is masked to a circle or superellipse.
 - **Audio-reactive aurora:** A generative glow shader behind the text that pulses with voice volume.
-- **Curved text rendering:** Finalized words arc along the bottom curve of the lens (implemented via SVG `textPath`, Canvas, or WebGL text rendering).
-- **Finalization cue:** A brief highlight, ripple, or solar flare when an utterance is committed and injected.
+- **Curved text rendering:** Finalized words arc along the bottom curve of the lens, implemented via SVG `textPath`, Canvas, or WebGL text rendering.
+- **Finalization flash / ripple / solar flare:** A brief visual cue when an utterance is committed and injected.
 - **Live word appearance:** Words materialize as they are recognized.
 
-**Explicitly rejected from Aurora Oracle:** Qt/QML toolchain, hyper-realistic material shaders (clear coat, ice crystals, micro-scratches), and Linux-first windowing assumptions.
+**Explicitly rejected:** Qt/QML toolchain, hyper-realistic material shaders (clear coat, ice crystals, micro-scratches), and Linux-first windowing assumptions.
 
 For detailed design qualities, see [`docs/domains/gui/gui-design-overview.md`](../../domains/gui/gui-design-overview.md).
 
 ---
 
 ## 3. Feature Inventory
-
-The following features are derived from existing documentation. Each maps back to its source.
 
 ### 3.1 Overlay States
 - **Collapsed state** — minimal pill showing presence and status ([`gui-design-overview.md`](../../domains/gui/gui-design-overview.md)).
@@ -48,7 +46,7 @@ The following features are derived from existing documentation. Each maps back t
 
 ### 3.2 Transcription Display
 - **Live provisional text** — dimmed, mutable text while speech is ongoing ([`northstar.md`](../../northstar.md)).
-- **Finalized transcript** — solid, committed text that scrolls ([`gui-design-overview.md`](../../domains/gui/gui-design-overview.md)).
+- **Finalized transcript** — solid, committed text that scrolls or arcs along the lens ([`gui-design-overview.md`](../../domains/gui/gui-design-overview.md)).
 - **Auto-scroll to latest text** ([`gui-design-overview.md`](../../domains/gui/gui-design-overview.md)).
 - **Clear distinction between partial and final** ([`gui-design-overview.md`](../../domains/gui/gui-design-overview.md)).
 - **Do not inject partial text by default** (this document).
@@ -56,9 +54,9 @@ The following features are derived from existing documentation. Each maps back t
 ### 3.3 State Feedback & Visuals
 - **Color-coded state indication** (idle, listening, processing, ready, error) ([`gui-design-overview.md`](../../domains/gui/gui-design-overview.md)).
 - **Audio level visualization** ([`gui-design-overview.md`](../../domains/gui/gui-design-overview.md)).
-- **Audio-reactive aurora** (ported from Aurora Oracle; multi-layered noise shader simplified to a performant WebGL/Canvas implementation).
+- **Audio-reactive aurora** (ported from Aurora Oracle; rebuilt as a WebGL/Canvas shader).
 - **Visible failure or retry messaging** ([`gui-design-overview.md`](../../domains/gui/gui-design-overview.md)).
-- **Injection confirmation / finalization flash** — a brief glow pulse, ripple, or solar flare when finalized text is committed and injected (from Aurora Oracle §5.3).
+- **Finalization flash / ripple / solar flare** when text is injected (from Aurora Oracle §5.3).
 
 ### 3.4 Controls
 - **Stop**, **Pause / Resume**, **Clear**, **Settings access** ([`gui-design-overview.md`](../../domains/gui/gui-design-overview.md)).
@@ -90,13 +88,10 @@ The following features are derived from existing documentation. Each maps back t
 
 - **Frontend:** Tauri v2 + React
 - **Windowing:** Transparent, frameless, always-on-top WebView2 window
-- **Graphics:** WebGL/Canvas for audio-reactive visuals
-- **Backend integration:** Rust commands/events bridging the existing `coldvox-audio`, `coldvox-stt`, and `coldvox-text-injection` pipeline
+- **Graphics:** WebGL/Canvas for the audio-reactive aurora and curved text
+- **Backend integration:** Rust commands/events bridging `coldvox-audio`, `coldvox-stt`, and `coldvox-text-injection`
 
-**Rejected alternatives** ([`docs/research/AlternateGUIToolingresearch.md`](../../research/AlternateGUIToolingresearch.md)):
-- **Xilem + Vello** — rejected due to `wgpu` transparency issues on Windows.
-- **egui + WGPU** — deferred fallback only.
-- **Qt/QML** — archived.
+We are **not** maintaining an escape hatch to egui, Xilem, or Qt. We build on Tauri and push it to its limit.
 
 ---
 
@@ -126,7 +121,7 @@ The crate index in [`docs/reference/crates/coldvox-gui.md`](../../reference/crat
 ### 6.3 Phase 1: Core Dictation Loop
 
 **Definition of Done:**
-> When the global hotkey is pressed, the overlay enters a "listening" state. The aurora shader pulses with voice volume. Partial transcripts appear dimmed along the arc. Finalized transcripts solidify and arc along the lens, trigger text injection into the focused application, and produce a brief finalization flash or ripple at the moment of commitment.
+> When the global hotkey is pressed, the overlay enters a "listening" state. The aurora shader pulses with voice volume. Partial transcripts appear dimmed. Finalized transcripts solidify and arc along the lens, trigger text injection into the focused application, and produce a brief finalization flash or ripple at the moment of commitment.
 
 **Architectural Boundary:**
 > The backend in `coldvox-gui` owns the pipeline lifecycle. The frontend owns rendering and user input. Do not leak STT backend details into the React layer.
@@ -151,8 +146,6 @@ The crate index in [`docs/reference/crates/coldvox-gui.md`](../../reference/crat
 - (b) Window position and opacity persist across restarts.
 - (c) STT backend can be switched in settings.
 - (d) Windows installer packages the app with required runtimes.
-
-**Note:** The exact implementation of settings persistence and packaging will depend on how Phase 1 settles the backend/frontend boundary.
 
 ---
 
