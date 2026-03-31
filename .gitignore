@@ -96,3 +96,8 @@ docs/usage.md
 # AI Agent working directories
 .sisyphus/
 _ext_refs/
+
+# Generated metadata - do not commit
+_open_issues.json
+_open_prs.json
+_repo_metadata.json
