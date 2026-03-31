@@ -1,3 +1,11 @@
+---
+doc_type: research
+subsystem: gui
+status: active
+freshness: current
+summary: Research on alternate GUI tooling approaches for Phase 3A-3C, including Tauri alternatives.
+---
+
 # Research: Alternate GUI Tooling & Spike Plan
 
 ## Strategic Timing
