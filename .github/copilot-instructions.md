@@ -13,7 +13,6 @@ If guidance conflicts, use this precedence:
 1. `docs/northstar.md`
 2. `docs/plans/windows-multi-agent-recovery.md`
 3. `docs/dev/CI/architecture.md`
-4. other docs
 
 ## Current Product Direction & Reality
 
@@ -74,13 +73,10 @@ cargo run --features text-injection,moonshine
 
 ## Feature Flags
 
-Default features: `silero`, `text-injection`.
-
 - `silero`: Silero VAD
 - `text-injection`: text injection backends
 - `moonshine`: Current working STT backend (Python-based, CPU/GPU)
 - `parakeet`: planned backend work; not current reliable path
-- `whisper`: legacy/removed path; do not treat as active
 - `examples`: example binaries
 - `live-hardware-tests`: hardware test suites
 
