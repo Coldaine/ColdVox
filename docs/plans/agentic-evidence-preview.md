@@ -83,14 +83,18 @@ Diffs larger than 2000 lines are truncated before passing to the model, with a n
 
 ## Prompt Architecture
 
-The assessor operates in a single-shot (non-agentic) mode. All context is pre-gathered by the shell and composed into one prompt that is passed to Gemini. This is more reliable than agentic tool-use in CI because:
+The assessor operates in an **autonomous agentic mode** using Gemini CLI's YOLO approval mode. Instead of pre-gathering all context in bash and sending a massive prompt, the CI runner provides the PR title, body, and base branch as environment variables.
 
-- No sandbox configuration needed
-- Predictable token usage
-- No risk of infinite loops
-- Deterministic execution time
+The agent is then invoked with:
+`npx @google/gemini-cli --approval-mode=yolo -p "..."`
 
-The prompt file lives at `.github/prompts/evidence-assessor.md`. See that file for the full Chain-of-Thought instructions.
+This allows the agent to:
+- Use its tools to actively run `git diff origin/main...HEAD`.
+- Search the workspace, read files, and explore documentation dynamically.
+- Reason about the code changes in a much deeper way than a static prompt allows.
+- Produce a highly context-aware Markdown report.
+
+The system instructions for the agent live at `.github/prompts/evidence-assessor.md`. See that file for the full Chain-of-Thought instructions.
 
 ## Output Format
 

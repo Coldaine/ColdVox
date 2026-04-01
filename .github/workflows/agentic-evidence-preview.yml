@@ -45,52 +45,13 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Gather PR context and compose prompt
-        id: compose
-        env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_BODY: ${{ github.event.pull_request.body }}
-          BASE_REF: ${{ github.event.pull_request.base.ref }}
-        run: |
-          set -euo pipefail
-
-          echo "=== Generating git diff ==="
-          GIT_DIFF=$(git diff "origin/${BASE_REF}...HEAD" 2>/dev/null || echo "[diff unavailable]")
-
-          # Truncate large diffs to avoid token budget exhaustion.
-          # 2000 lines is plenty for structural analysis; large refactors get a note.
-          DIFF_LINES=$(echo "$GIT_DIFF" | wc -l)
-          if [ "$DIFF_LINES" -gt 2000 ]; then
-            GIT_DIFF=$(echo "$GIT_DIFF" | head -2000)
-            GIT_DIFF="${GIT_DIFF}
-          ... [diff truncated at 2000 lines — ${DIFF_LINES} total lines in this PR]"
-          fi
-
-          echo "=== Collecting docs index ==="
-          DOCS_INDEX=$(find docs/ -name "*.md" | sort 2>/dev/null | head -100 || echo "[docs/ not found]")
-
-          echo "=== Extracting northstar excerpt ==="
-          NORTHSTAR=$(head -60 docs/northstar.md 2>/dev/null || echo "[northstar.md not found]")
-
-          echo "=== Reading prompt template ==="
-          PROMPT_TEMPLATE=$(cat .github/prompts/evidence-assessor.md)
-
-          echo "=== Composing full prompt ==="
-          FULL_PROMPT="${PROMPT_TEMPLATE}"
-          FULL_PROMPT="${FULL_PROMPT/\{PR_TITLE_PLACEHOLDER\}/${PR_TITLE}}"
-          FULL_PROMPT="${FULL_PROMPT/\{PR_BODY_PLACEHOLDER\}/${PR_BODY}}"
-          FULL_PROMPT="${FULL_PROMPT/\{GIT_DIFF_PLACEHOLDER\}/${GIT_DIFF}}"
-          FULL_PROMPT="${FULL_PROMPT/\{DOCS_INDEX_PLACEHOLDER\}/${DOCS_INDEX}}"
-          FULL_PROMPT="${FULL_PROMPT/\{NORTHSTAR_EXCERPT_PLACEHOLDER\}/${NORTHSTAR}}"
-
-          # Write the composed prompt to a file to avoid shell quoting issues.
-          printf '%s' "$FULL_PROMPT" > /tmp/composed_prompt.txt
-          echo "Prompt composed: $(wc -l < /tmp/composed_prompt.txt) lines"
-
-      - name: Run Gemini evidence assessor
+      - name: Run Autonomous Gemini Agent
         id: assess
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           set -euo pipefail
 
@@ -100,23 +61,25 @@ jobs:
             exit 0
           fi
 
-          echo "=== Running Gemini evidence assessor ==="
-          # Use gemini-cli in non-interactive mode.
-          # --model: gemini-2.5-flash balances quality and cost for this use case.
-          # Input is piped from the composed prompt file; stdout is the report.
+          echo "=== Running Gemini autonomous agent ==="
+          # Create an instructions file for the agent
+          cat .github/prompts/evidence-assessor.md > /tmp/agent_instructions.md
+          echo -e "\n## PR Context:\n**Title:** $PR_TITLE\n**Body:** $PR_BODY\n**Base Branch:** origin/$BASE_REF\n" >> /tmp/agent_instructions.md
+          
+          # Run Gemini CLI in autonomous YOLO mode to actively investigate the repository.
+          # It has a high turn limit to allow for deep exploration.
           npx --yes @google/gemini-cli \
             --model gemini-2.0-flash \
             --api_key "${GEMINI_API_KEY}" \
-            < /tmp/composed_prompt.txt \
-            > /tmp/report.md 2>/tmp/report_stderr.txt || {
-              echo "Gemini CLI exited with error. Capturing stderr."
-              echo "**⚠️ Evidence Assessor error:**" > /tmp/report.md
-              echo '```' >> /tmp/report.md
-              cat /tmp/report_stderr.txt >> /tmp/report.md
-              echo '```' >> /tmp/report.md
+            --approval-mode=yolo \
+            -p "You are the Agentic Evidence Assessor. Read your instructions from /tmp/agent_instructions.md. Investigate the current workspace to review the PR against the base branch (origin/$BASE_REF). Do whatever searches, file reads, or command runs you need. Finally, write your markdown report to /tmp/report.md. Stop when the report is written." || {
+              echo "Gemini CLI exited with an error code. Check the action logs."
             }
 
-          echo "Assessment complete: $(wc -l < /tmp/report.md) lines of output"
+          # Ensure report exists even if the agent failed to create it
+          if [ ! -f /tmp/report.md ]; then
+              echo "**⚠️ Evidence Assessor error:** Agent failed to write to /tmp/report.md." > /tmp/report.md
+          fi
 
       - name: Write assessment to Step Summary
         if: always()
