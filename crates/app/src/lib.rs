@@ -71,17 +71,9 @@ impl Default for InjectionSettings {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct SttRemoteAuthSettings {
     pub bearer_token_env_var: Option<String>,
-}
-
-impl Default for SttRemoteAuthSettings {
-    fn default() -> Self {
-        Self {
-            bearer_token_env_var: None,
-        }
-    }
 }
 
 #[derive(Debug, Deserialize)]
