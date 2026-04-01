@@ -84,7 +84,7 @@ Execute these phases in order. Do NOT skip phases.
 Read these files in this exact order. Absorb every detail:
 
 1. `docs/northstar.md` — Product and technical anchor
-2. `docs/plans/windows-multi-agent-recovery.md` — Current execution plan
+2. `docs/plans/current-status.md` — Current execution state
 3. `docs/architecture.md` — Architecture direction
 4. `docs/dev/CI/architecture.md` — CI source of truth
 5. `AGENTS.md` — Agent conventions and working rules

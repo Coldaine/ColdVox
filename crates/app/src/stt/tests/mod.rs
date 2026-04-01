@@ -17,11 +17,11 @@ mod stt_core_tests {
 
     #[test]
     fn test_transcription_config_default() {
-        std::env::remove_var("WHISPER_MODEL_PATH");
+        std::env::remove_var("STT_MODEL_PATH");
         let config = TranscriptionConfig::default();
         assert!(!config.enabled);
         let expected_path =
-            std::env::var("WHISPER_MODEL_PATH").unwrap_or_else(|_| "base.en".to_string());
+            std::env::var("STT_MODEL_PATH").unwrap_or_else(|_| "base.en".to_string());
         assert_eq!(config.model_path, expected_path);
         assert!(config.partial_results);
         assert_eq!(config.max_alternatives, 1);

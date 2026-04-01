@@ -22,7 +22,7 @@ mod tests {
         tracing::info!("Starting test_end_to_end_capture_pipewire");
     #[cfg(feature = "live-hardware-tests")]
     fn test_end_to_end_capture_pipewire() {
-        std::env::set_var("COLDVOX_STT_PREFERRED", "whisper"); // Force Faster-Whisper for integration
+        std::env::set_var("COLDVOX_STT_PREFERRED", "moonshine"); // Force Moonshine for integration
     
         let config = AudioConfig {
             sample_rate: 16000,

@@ -7,9 +7,9 @@ ColdVox is a Rust voice pipeline: microphone audio capture → VAD (voice activi
 Read every single one of these files carefully. Do not skim:
 
 1. `docs/northstar.md` — Product anchor: reliability first, CUDA-first STT, live overlay
-2. `docs/plans/windows-multi-agent-recovery.md` — Current execution plan
+2. `docs/plans/current-status.md` — Current execution state
 3. `docs/architecture.md` — Architecture direction
-4. `docs/plans/windows-multi-agent-recovery.md` — CRITICAL: what's broken, what works, what's misleading
+4. `docs/plans/current-status.md` — CRITICAL: what's broken, what works, what's misleading
 5. `AGENTS.md` — Agent conventions, working rules, commands, feature flags
 6. `CHANGELOG.md` — Recent changes
 7. `Cargo.toml` — Workspace structure, dependencies, feature flags
@@ -34,7 +34,7 @@ Read every single one of these files carefully. Do not skim:
 After reading everything, write a 500+ word internal assessment answering:
 - What works end-to-end right now? (mic → VAD → STT → injection)
 - What is broken, misleading, or stub code?
-- What are the P0 issues from `docs/plans/windows-multi-agent-recovery.md` and their current status?
+- What are the P0 issues from `docs/plans/current-status.md` and their current status?
 - Which crates need the most work?
 - What is the gap between current state and "it works reliably"?
 - What dead code, stub features, and misleading docs exist?
@@ -69,7 +69,7 @@ Strategy: 4 parallel workstreams via git worktrees
    - Delete: crates/coldvox-stt/src/plugins/whisper_plugin.rs
    - Delete: crates/coldvox-stt/src/plugins/whisper_cpp.rs
    - Remove: `whisper` feature from crates/app/Cargo.toml
-   - Remove: all whisper references from AGENTS.md, README.md, CLAUDE.md
+   - Remove: all whisper references from AGENTS.md, README.md
    - Acceptance: `grep -r "whisper" --include="*.rs" --include="*.toml" --include="*.md"` returns zero results (except CHANGELOG)
 
 1.2 Remove all stub features from Cargo.toml
@@ -96,7 +96,7 @@ Strategy: 4 parallel workstreams via git worktrees
 1.6 Update all docs to accurately reflect reality
    - AGENTS.md: remove whisper, mark parakeet as "planned not working"
    - README.md: update quick start to use moonshine only
-   - CLAUDE.md: update STT section
+   - AGENTS.md: update STT section
    - Acceptance: Every doc claim is verifiable against code
 
 ### Branch: worktree/ws1-p0-cleanup

@@ -31,7 +31,6 @@ The STT domain is responsible for converting processed audio frames into text. I
 
 - **Moonshine**: Current primary backend (Python-based, supports CPU and GPU).
 - **Parakeet**: Planned high-performance backend using NVIDIA's Parakeet models.
-- **Whisper**: Legacy/removed path (not recommended for active use).
 
 ## Documentation
 

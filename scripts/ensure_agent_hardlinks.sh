@@ -20,12 +20,10 @@ repo_root="$({
   cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd
 })"
 
-src="$repo_root/CLAUDE.md"
+src="$repo_root/.github/copilot-instructions.md"
 
-dst1="$repo_root/.github/copilot-instructions.md"
+dst1="$repo_root/AGENTS.md"
 dst2="$repo_root/.kilocode/rules/agents.md"
-dst3="$repo_root/AGENTS.md"
-dst4="$repo_root/GEMINI.md"
 
 if [[ ! -f "$src" ]]; then
   echo "error: missing $src" >&2
@@ -142,8 +140,6 @@ ensure_pair() {
 
 ensure_pair "$dst1"
 ensure_pair "$dst2"
-ensure_pair "$dst3"
-ensure_pair "$dst4"
 
 src_inode="$(inode_of "$src" 2>/dev/null || true)"
 src_links="$(link_count_of "$src" 2>/dev/null || true)"

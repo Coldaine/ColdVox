@@ -2,21 +2,21 @@
 
 > ⚠️ **Internal Alpha** - This project is in early development and not ready for production use.
 
-> **⚠️ CRITICAL**: Documentation and feature status changes quickly. See [`docs/plans/windows-multi-agent-recovery.md`](docs/plans/windows-multi-agent-recovery.md) for what currently works.
+> **⚠️ CRITICAL**: Documentation and feature status changes quickly. See [`docs/plans/current-status.md`](docs/plans/current-status.md) for what currently works.
 
-Minimal root README. Full developer & architecture guide: see [`CLAUDE.md`](CLAUDE.md). Assistants should read [`AGENTS.md`](AGENTS.md).
+Minimal root README. Assistants should read [`AGENTS.md`](AGENTS.md).
 
 ## North Star
 
 Current product and documentation direction is anchored in:
 
 - [`docs/northstar.md`](docs/northstar.md)
-- [`docs/plans/windows-multi-agent-recovery.md`](docs/plans/windows-multi-agent-recovery.md)
+- [`docs/plans/current-status.md`](docs/plans/current-status.md)
 - [`docs/architecture.md`](docs/architecture.md)
 
 ## Quick Start
 
-Status varies by STT backend and platform. For current “what works” details, see [`docs/plans/windows-multi-agent-recovery.md`](docs/plans/windows-multi-agent-recovery.md).
+Status varies by STT backend and platform. For current "what works" details, see [`docs/plans/current-status.md`](docs/plans/current-status.md).
 
 ```bash
 # Main app
@@ -56,6 +56,6 @@ mise run pre-commit
 
 ## Contributing
 
-- Review the [North Star](docs/northstar.md) and [current execution plan](docs/plans/windows-multi-agent-recovery.md).
+- Review the [North Star](docs/northstar.md) and [current status](docs/plans/current-status.md).
 - Follow the repository [Documentation Standards](docs/standards.md).
 - Coordinate work through the [Documentation Todo Backlog](docs/todo.md).
