@@ -122,6 +122,7 @@ impl OverlayModel {
     ) -> OverlaySnapshot {
         self.snapshot.partial_transcript = text.to_string();
         self.snapshot.status = OverlayStatus::Listening;
+        self.snapshot.paused = false;
         if let Some(detail) = status_detail {
             self.snapshot.status_detail = detail.to_string();
         } else {
@@ -143,6 +144,7 @@ impl OverlayModel {
         self.snapshot.partial_transcript.clear();
         self.snapshot.final_transcript = text.to_string();
         self.snapshot.status = OverlayStatus::Ready;
+        self.snapshot.paused = false;
         if let Some(detail) = status_detail {
             self.snapshot.status_detail = detail.to_string();
         } else {
@@ -158,6 +160,7 @@ impl OverlayModel {
     /// Transition to Processing state (STT pipeline is finalizing the utterance).
     pub fn apply_processing_state(&mut self, status_detail: Option<&str>) -> OverlaySnapshot {
         self.snapshot.status = OverlayStatus::Processing;
+        self.snapshot.paused = false;
         if let Some(detail) = status_detail {
             self.snapshot.status_detail = detail.to_string();
         } else {
@@ -173,6 +176,7 @@ impl OverlayModel {
         self.snapshot.status = OverlayStatus::Listening;
         self.snapshot.partial_transcript.clear();
         self.snapshot.final_transcript.clear();
+        self.snapshot.paused = false;
         if let Some(detail) = status_detail {
             self.snapshot.status_detail = detail.to_string();
         } else {
@@ -185,6 +189,7 @@ impl OverlayModel {
     /// Stop capture and return to Idle, clearing all transcript state.
     /// Unlike `stop()` which increments the demo token, this is used by the real pipeline.
     pub fn stop_capture(&mut self) -> OverlaySnapshot {
+        self.demo_token += 1;
         self.snapshot.status = OverlayStatus::Idle;
         self.snapshot.paused = false;
         self.snapshot.partial_transcript.clear();
@@ -304,5 +309,42 @@ mod tests {
         assert!(snap.partial_transcript.is_empty());
         assert!(snap.final_transcript.is_empty());
         assert!(snap.error_message.is_none());
+    }
+
+    #[test]
+    fn stop_capture_bumps_demo_token_and_stops_demo_driver() {
+        let mut model = OverlayModel::default();
+        let (token, _snap) = model.start_demo();
+        assert_eq!(model.current_demo_token(), token);
+
+        // stop_capture must bump the token so the demo driver exits its loop
+        model.stop_capture();
+        assert_eq!(model.current_demo_token(), token + 1);
+    }
+
+    #[test]
+    fn pipeline_transitions_reset_paused_flag() {
+        let mut model = OverlayModel::default();
+
+        // Simulate paused state from demo
+        model.start_demo();
+        model.toggle_pause(); // now paused
+        assert!(model.snapshot.paused);
+
+        // Any pipeline transition must clear paused so real capture is not stuck
+        let snap1 = model.apply_partial_transcript("hello", None);
+        assert!(!snap1.paused);
+
+        model.toggle_pause(); // paused again
+        let snap2 = model.apply_final_transcript("hello world", None);
+        assert!(!snap2.paused);
+
+        model.toggle_pause(); // paused again
+        let snap3 = model.apply_processing_state(None);
+        assert!(!snap3.paused);
+
+        model.toggle_pause(); // paused again
+        let snap4 = model.apply_listening_state(None);
+        assert!(!snap4.paused);
     }
 }

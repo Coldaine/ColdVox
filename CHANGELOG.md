@@ -11,6 +11,10 @@ All notable changes to this project are documented here.
 ### GUI
 - Replaced the old `crates/coldvox-gui` Qt/QML placeholder with a Tauri v2 + React overlay shell.
 - Added a demo-only typed command/event seam between the Rust host shell and the frontend to exercise collapsed/expanded states, transcript promotion, and visible `idle`/`listening`/`processing`/`ready`/`error` feedback without real STT integration.
+- Added 5 Tauri commands (`update_partial_transcript`, `update_final_transcript`, `set_overlay_processing`, `set_overlay_listening`, `stop_overlay_capture`) wiring the STT pipeline to the overlay shell, with corresponding `OverlayModel` state transitions.
+- Added 80ms debounced partial transcript queuing in `useOverlayShell` to reduce repaints during rapid STT output; pending partials are flushed and cancelled on state transitions.
+- Fixed `stop_capture` to increment `demo_token` so in-flight demo driver loops exit correctly.
+- Fixed pipeline state transitions to reset the `paused` flag so demo pause state does not leak into real capture sessions.
 - Added focused Rust and frontend tests for the overlay state contract and React hook/component behavior.
 
 ### Nuclear Pruning & Documentation Cleanup

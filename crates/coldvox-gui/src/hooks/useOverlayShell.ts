@@ -140,9 +140,21 @@ export function useOverlayShell() {
     // Pipeline wiring — for real STT integration.
     // queuePartialTranscript debounces rapid partials; flushPartial sends immediately.
     queuePartialTranscript,
-    updateFinalTranscript: (text: string) => runCommand(() => updateFinalTranscript(text)),
-    setOverlayProcessing: () => runCommand(setOverlayProcessing),
-    setOverlayListening: () => runCommand(setOverlayListening),
-    stopOverlayCapture: () => runCommand(stopOverlayCapture),
+    updateFinalTranscript: (text: string) => {
+      cancelPendingPartial();
+      return runCommand(() => updateFinalTranscript(text));
+    },
+    setOverlayProcessing: () => {
+      cancelPendingPartial();
+      return runCommand(setOverlayProcessing);
+    },
+    setOverlayListening: () => {
+      cancelPendingPartial();
+      return runCommand(setOverlayListening);
+    },
+    stopOverlayCapture: () => {
+      cancelPendingPartial();
+      return runCommand(stopOverlayCapture);
+    },
   };
 }
