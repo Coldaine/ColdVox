@@ -4,10 +4,8 @@
 
 // Gated at the module site in main.rs via `#[cfg(feature = "qt-ui")] mod bridge;`
 
-use cxx_qt_lib::QVariant;
-
-// The state of the core application logic, exposed to the GUI.
-// This is a Q_ENUM, so it can be used directly in QML.
+/// The state of the core application logic, exposed to the GUI.
+/// This is a Q_ENUM, so it can be used directly in QML.
 #[cxx_qt::qenum]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppState {
@@ -46,89 +44,216 @@ mod ffi {
         #[qproperty(bool, expanded)]
         #[qproperty(AppState, state)]
         #[qproperty(QString, last_error)]
+        // Live partial transcript — grey/italic in QML, updated rapidly
+        #[qproperty(QString, partial_transcript)]
+        // Finalized transcript lines — white/bold in QML, stable once emitted
+        #[qproperty(QString, final_transcript)]
         // Map the Qt-visible type to our Rust implementation struct
         // This separation allows us to keep Rust logic separate from Qt bindings
-        type GuiBridge = super::GuiBridgeRust;
+        type GuiBridge = super::super::GuiBridgeRust;
 
-        // These methods are invokable from QML. They form the command interface
-        // for the user to control the application.
+        // ── Signals ──────────────────────────────────────────────────────────
+        // Emitted when a partial transcript update arrives (high-frequency, debounced in QML)
+        #[qsignal]
+        fn transcript_partial(self: Pin<&mut Self>, text: QString);
 
-        /// Starts the STT engine. Transitions from Idle -> Active.
+        // Emitted when a final transcript line is confirmed (replaces partial)
+        #[qsignal]
+        fn transcript_final(self: Pin<&mut Self>, text: QString);
+
+        // ── Invokables (commands from QML) ─────────────────────────────────
+        /// Starts the STT engine. Transitions from Idle -> Activating -> Active.
         #[qinvokable]
-        fn cmd_start(self: Pin<&mut GuiBridge>);
+        fn cmd_start(self: Pin<&mut Self>);
 
         /// Stops the STT engine. Transitions from Active/Paused -> Idle.
         #[qinvokable]
-        fn cmd_stop(self: Pin<&mut GuiBridge>);
+        fn cmd_stop(self: Pin<&mut Self>);
 
         /// Pauses the STT engine. Transitions from Active -> Paused.
         #[qinvokable]
-        fn cmd_pause(self: Pin<&mut GuiBridge>);
+        fn cmd_pause(self: Pin<&mut Self>);
 
         /// Resumes the STT engine. Transitions from Paused -> Active.
         #[qinvokable]
-        fn cmd_resume(self: Pin<&mut GuiBridge>);
+        fn cmd_resume(self: Pin<&mut Self>);
 
         /// Clears any error state. Transitions from Error -> Idle.
         #[qinvokable]
-        fn cmd_clear_error(self: Pin<&mut GuiBridge>);
+        fn cmd_clear_error(self: Pin<&mut Self>);
+
+        /// Clears all transcript state (partial and final) and resets to Idle.
+        #[qinvokable]
+        fn cmd_clear(self: Pin<&mut Self>);
     }
 }
 
 // The actual Rust struct that backs the QObject
-// This must have fields matching the properties declared above
+// Fields must match the qproperties declared above
 #[derive(Default)]
 pub struct GuiBridgeRust {
     expanded: bool,
     state: AppState,
     last_error: String,
+    /// Accumulates the current in-progress partial transcript
+    partial_transcript: String,
+    /// All finalized transcript lines joined with newlines
+    final_transcript: String,
 }
 
 impl GuiBridge {
-    /// Starts the STT engine.
-    /// Valid transitions:
-    /// - Idle -> Active
+    /// Starts the ColdVox pipeline (audio capture -> VAD -> STT).
+    /// Valid transitions: Idle -> Activating -> Active
+    ///
+    /// The pipeline is spawned on a dedicated Tokio runtime thread so that
+    /// blocking async I/O (audio capture, model loading) does not block the Qt UI.
     pub fn cmd_start(self: Pin<&mut Self>) {
         let current_state = *self.as_ref().state();
-        if current_state == AppState::Idle {
-            self.set_state(AppState::Active);
-        } else {
-            // TODO: Log a warning about invalid state transition
+        if current_state != AppState::Idle {
+            tracing::warn!("cmd_start called in state {:?}, ignoring", current_state);
+            return;
         }
+
+        self.set_state(AppState::Activating);
+
+        // Spawn a background thread with a Tokio multi-thread runtime.
+        // Qt is not a Tokio context, so we cannot use block_in_place.
+        // A dedicated thread is the cleanest approach.
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .expect("failed to build Tokio runtime for ColdVox pipeline");
+
+            let _runtime_guard = rt.enter();
+            rt.block_on(async {
+                use coldvox_app::runtime::AppRuntimeOptions;
+
+                let opts = AppRuntimeOptions::default();
+                match coldvox_app::runtime::start(opts).await {
+                    Ok(app) => {
+                        let shared = std::sync::Arc::new(app);
+
+                        // Grab the STT event channel receiver.
+                        // Direct Qt property updates from this async context are not possible
+                        // (Qt objects are thread-bound to the Qt main thread), so we use
+                        // qt_thread().queue() with a Queued connection to safely emit
+                        // signals across the thread boundary.
+                        if let Some(mut stt_rx) = shared.stt_rx.take() {
+                            // Clone the Qt thread token so the background thread can
+                            // post updates back to the Qt event loop
+                            let qt_thread = Self::qt_thread(self);
+                            tokio::spawn(async move {
+                                while let Some(event) = stt_rx.recv().await {
+                                    use coldvox_app::stt::TranscriptionEvent;
+                                    match &event {
+                                        TranscriptionEvent::Partial { text, .. } => {
+                                            tracing::debug!("[STT partial] {}", text);
+                                            // Forward partial to QML via queued signal
+                                            let text_owned = text.to_string();
+                                            let text_q = QString::from(&text_owned);
+                                            qt_thread.queue(move |mut qGuiBridge| {
+                                                // Update the property so QML bindings see it
+                                                qGuiBridge
+                                                    .as_mut()
+                                                    .set_partial_transcript(text_q.clone());
+                                                // Emit the signal so QML Connections can react
+                                                qGuiBridge.as_mut().transcript_partial(text_q);
+                                            });
+                                        }
+                                        TranscriptionEvent::Final { text, .. } => {
+                                            tracing::info!("[STT final] {}", text);
+                                            // Final replaces partial — move to final_transcript
+                                            let text_owned = text.to_string();
+                                            let text_q = QString::from(&text_owned);
+                                            qt_thread.queue(move |mut qGuiBridge| {
+                                                let new_final = format!(
+                                                    "{}\n{}",
+                                                    qGuiBridge.as_ref().final_transcript(),
+                                                    text_owned
+                                                );
+                                                qGuiBridge.as_mut().set_final_transcript(
+                                                    QString::from(&new_final),
+                                                );
+                                                // Clear partial since it's now finalized
+                                                qGuiBridge
+                                                    .as_mut()
+                                                    .set_partial_transcript(QString::default());
+                                                qGuiBridge.as_mut().transcript_final(text_q);
+                                            });
+                                        }
+                                        TranscriptionEvent::Error { code, message } => {
+                                            tracing::error!("STT error ({}): {}", code, message);
+                                            let msg_owned = message.to_string();
+                                            let msg_q = QString::from(&msg_owned);
+                                            let code_owned = *code;
+                                            qt_thread.queue(move |mut qGuiBridge| {
+                                                qGuiBridge.as_mut().set_last_error(msg_q);
+                                                qGuiBridge.as_mut().set_state(AppState::Error);
+                                            });
+                                            let _ = code_owned;
+                                        }
+                                    }
+                                }
+                            });
+                        }
+
+                        tracing::info!("ColdVox pipeline started successfully");
+
+                        // Hold the pipeline open. The Arc is dropped when:
+                        // - The GUI process exits (normal shutdown)
+                        // - A future implementation calls shutdown explicitly
+                        let keep_alive = shared.clone();
+                        tokio::spawn(async move {
+                            std::future::pending::<()>().await;
+                            let _ = keep_alive;
+                        });
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to start ColdVox pipeline: {}", e);
+                    }
+                }
+            });
+        });
+
+        // Optimistically transition to Active; errors surface via structured logs.
+        self.set_state(AppState::Active);
     }
 
-    /// Stops the STT engine.
-    /// Valid transitions:
-    /// - Active -> Idle
-    /// - Paused -> Idle
+    /// Stops the ColdVox pipeline.
+    /// Valid transitions: Active -> Idle, Paused -> Idle
+    ///
+    /// Note: Full graceful shutdown of the pipeline thread requires holding the
+    /// AppHandle Arc. In this iteration the pipeline thread is spawned with no
+    /// handle returned to the bridge. Full stop support is tracked separately.
     pub fn cmd_stop(self: Pin<&mut Self>) {
         let current_state = *self.as_ref().state();
-        if matches!(current_state, AppState::Active | AppState::Paused) {
-            self.set_state(AppState::Idle);
-        } else {
-            // TODO: Log a warning
+        if !matches!(current_state, AppState::Active | AppState::Paused) {
+            tracing::warn!("cmd_stop called in state {:?}, ignoring", current_state);
+            return;
         }
+
+        self.set_state(AppState::Stopping);
+        self.set_state(AppState::Idle);
     }
 
-    /// Pauses the STT engine.
-    /// Valid transitions:
-    /// - Active -> Paused
+    /// Pauses the ColdVox pipeline.
+    /// Valid transitions: Active -> Paused
     pub fn cmd_pause(self: Pin<&mut Self>) {
         if *self.as_ref().state() == AppState::Active {
             self.set_state(AppState::Paused);
         } else {
-            // TODO: Log a warning
+            tracing::warn!("cmd_pause called in non-Active state");
         }
     }
 
-    /// Resumes the STT engine.
-    /// Valid transitions:
-    /// - Paused -> Active
+    /// Resumes the ColdVox pipeline.
+    /// Valid transitions: Paused -> Active
     pub fn cmd_resume(self: Pin<&mut Self>) {
         if *self.as_ref().state() == AppState::Paused {
             self.set_state(AppState::Active);
         } else {
-            // TODO: Log a warning
+            tracing::warn!("cmd_resume called in non-Paused state");
         }
     }
 
@@ -136,8 +261,20 @@ impl GuiBridge {
     pub fn cmd_clear_error(mut self: Pin<&mut Self>) {
         if *self.as_ref().state() == AppState::Error {
             self.as_mut().set_state(AppState::Idle);
-            self.as_mut().set_last_error("".to_string());
+            self.as_mut().set_last_error(QString::from(""));
         }
+    }
+
+    /// Clears all transcript state and resets to Idle.
+    pub fn cmd_clear(mut self: Pin<&mut Self>) {
+        self.as_mut().set_partial_transcript(QString::default());
+        self.as_mut().set_final_transcript(QString::default());
+        // Stop any active pipeline first
+        if matches!(*self.as_ref().state(), AppState::Active | AppState::Paused) {
+            self.as_mut().set_state(AppState::Stopping);
+        }
+        self.as_mut().set_state(AppState::Idle);
+        tracing::debug!("Transcript cleared");
     }
 }
 

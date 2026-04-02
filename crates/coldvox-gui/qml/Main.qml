@@ -22,7 +22,13 @@ Window {
   // state: 0=ready, 1=recording, 2=processing
   property int st: 0
   property int level: 0
-  property string transcript: ""
+
+  // Alias bridge transcript properties for direct QML binding.
+  // The bridge object is registered as "bridge" by CXX-Qt's QML engine.
+  // partial_transcript: live in-progress text (grey/italic in the UI)
+  // final_transcript: confirmed lines (white/bold, accumulated)
+  property string partial_transcript: typeof bridge !== 'undefined' ? bridge.partial_transcript : ""
+  property string final_transcript: typeof bridge !== 'undefined' ? bridge.final_transcript : ""
 
   // Persist window position, size, and state
   Settings {
@@ -205,16 +211,31 @@ Window {
           width: scroll.availableWidth
           spacing: 6
           padding: 20
+
+          // Finalized transcript lines — white/bold, stable once emitted
           Text {
-            id: transcriptText
+            id: finalTranscriptText
             width: parent.width
             wrapMode: Text.WordWrap
             color: "#F5F5F5"
             font.pixelSize: 16
+            font.bold: true
             lineHeight: 1.5
-            text: root.transcript
+            text: root.final_transcript
             Behavior on opacity { NumberAnimation { duration: 200 } }
-            onTextChanged: scroll.scrollToBottom()
+          }
+
+          // Live partial transcript — grey/italic, updated rapidly
+          Text {
+            id: partialTranscriptText
+            width: parent.width
+            wrapMode: Text.WordWrap
+            color: Qt.rgba(0.8, 0.8, 0.8, 0.9)
+            font.pixelSize: 16
+            font.italic: true
+            lineHeight: 1.5
+            text: root.partial_transcript
+            Behavior on opacity { NumberAnimation { duration: 150 } }
           }
         }
         function scrollToBottom() {
@@ -243,8 +264,8 @@ Window {
             st = (st === 1) ? 0 : 1
           }
         }
-        // Clear
-        ControlButton { label: "🗑"; onClicked: { transcript = ""; if (typeof bridge !== 'undefined' && bridge.cmd_clear) bridge.cmd_clear() } }
+        // Clear — resets transcript state via bridge cmd_clear, falls back to clearing local aliases
+        ControlButton { label: "🗑"; onClicked: { if (typeof bridge !== 'undefined' && bridge.cmd_clear) { bridge.cmd_clear() } else { root.partial_transcript = ""; root.final_transcript = "" } } }
 
         Item { Layout.fillWidth: true }
 
