@@ -416,20 +416,19 @@ checksum = "f93ebbf82d06013f4c41fe71303feb980cddd78496d904d06be627972de51a24"
 
 [[package]]
 name = "audioadapter"
-version = "2.0.1"
+version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "98e72b98fa467adcb7a88c5d1b8b686193185c81b9bf9c3fa3ac3524180cd55c"
+checksum = "91f87b70b051c5866680ad79f6743a42ccab264c009d1a71f4d33a3872ae60c8"
 dependencies = [
  "audio-core",
- "libm",
  "num-traits",
 ]
 
 [[package]]
 name = "audioadapter-buffers"
-version = "2.0.0"
+version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a6af89882334c4e501faa08992888593ada468f9e1ab211635c32f9ada7786e0"
+checksum = "9097d67933fb083d382ce980430afdb758aada60846010aee6be068c06cef0ca"
 dependencies = [
  "audioadapter",
  "audioadapter-sample",
@@ -438,9 +437,9 @@ dependencies = [
 
 [[package]]
 name = "audioadapter-sample"
-version = "2.0.0"
+version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e9a3d502fec0b21aa420febe0b110875cf8a7057c49e83a0cace1df6a73e03e"
+checksum = "34ab94f2bc04a14e1f49ee5f222f66460e8a1b51627bdfedf34eed394d747938"
 dependencies = [
  "audio-core",
  "num-traits",
@@ -1101,14 +1100,13 @@ dependencies = [
 
 [[package]]
 name = "console"
-version = "0.15.11"
+version = "0.16.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "054ccb5b10f9f2cbf51eb355ca1d05c2d279ce1804688d0db74b4733a5aeafd8"
+checksum = "d64e8af5551369d19cf50138de61f1c42074ab970f74e99be916646777f8fc87"
 dependencies = [
  "encode_unicode",
  "libc",
- "once_cell",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3368,9 +3366,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.183"
+version = "0.2.184"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5b646652bf6661599e1da8901b3b9522896f01e736bad5f723fe7a3a27f899d"
+checksum = "48f5d2a454e16a5ea0f4ced81bd44e4cfc7bd3a507b61887c99fd3538b28e4af"
 
 [[package]]
 name = "libloading"
@@ -5383,9 +5381,9 @@ checksum = "7204ed6420f698836b76d4d5c2ec5dec7585fd5c3a788fd1cde855d1de598239"
 
 [[package]]
 name = "rubato"
-version = "1.0.1"
+version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "90173154a8a14e6adb109ea641743bc95ec81c093d94e70c6763565f7108ebeb"
+checksum = "ce96ead1a91f7895704a9f08ea5947dfc8bd7c1f2936a22295b655ec67e5c6ef"
 dependencies = [
  "audioadapter",
  "audioadapter-buffers",
@@ -5865,9 +5863,9 @@ checksum = "e320a6c5ad31d271ad523dcf3ad13e2767ad8b1cb8f047f75a8aeaf8da139da2"
 
 [[package]]
 name = "similar"
-version = "2.7.0"
+version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
+checksum = "26d0b06eba54f0ca0770f970a3e89823e766ca638dd940f8469fa0fa50c75396"
 dependencies = [
  "bstr",
  "unicode-segmentation",
@@ -5875,9 +5873,9 @@ dependencies = [
 
 [[package]]
 name = "similar-asserts"
-version = "1.7.0"
+version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5b441962c817e33508847a22bd82f03a30cff43642dc2fae8b050566121eb9a"
+checksum = "997e6ca38e97437973fc9f7f50a50d1274cacd874341a4960fea90067291038c"
 dependencies = [
  "console",
  "similar",
