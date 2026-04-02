@@ -135,6 +135,77 @@ fn open_settings_placeholder(
     emit_and_resize(&app, &window, &snapshot, "settings-placeholder")
 }
 
+/// Feed a live partial transcript update from the STT pipeline.
+/// The overlay stays in Listening state and displays the provisional text.
+#[tauri::command]
+fn update_partial_transcript(
+    text: String,
+    runtime: State<'_, OverlayRuntime>,
+    window: WebviewWindow,
+    app: AppHandle,
+) -> CommandResult {
+    let snapshot =
+        runtime.with_model(|model| model.apply_partial_transcript(&text, None));
+    emit_and_resize(
+        &app,
+        &window,
+        &snapshot,
+        "stt-partial",
+    )
+}
+
+/// Feed a final transcript from the STT pipeline.
+/// Moves partial to final and transitions to Ready.
+#[tauri::command]
+fn update_final_transcript(
+    text: String,
+    runtime: State<'_, OverlayRuntime>,
+    window: WebviewWindow,
+    app: AppHandle,
+) -> CommandResult {
+    let snapshot =
+        runtime.with_model(|model| model.apply_final_transcript(&text, None));
+    emit_and_resize(
+        &app,
+        &window,
+        &snapshot,
+        "stt-final",
+    )
+}
+
+/// Transition the overlay to Processing state (STT is finalizing the utterance).
+#[tauri::command]
+fn set_overlay_processing(
+    runtime: State<'_, OverlayRuntime>,
+    window: WebviewWindow,
+    app: AppHandle,
+) -> CommandResult {
+    let snapshot = runtime.with_model(|model| model.apply_processing_state(None));
+    emit_and_resize(&app, &window, &snapshot, "stt-processing")
+}
+
+/// Transition the overlay to Listening state (new speech segment started).
+#[tauri::command]
+fn set_overlay_listening(
+    runtime: State<'_, OverlayRuntime>,
+    window: WebviewWindow,
+    app: AppHandle,
+) -> CommandResult {
+    let snapshot = runtime.with_model(|model| model.apply_listening_state(None));
+    emit_and_resize(&app, &window, &snapshot, "stt-listening")
+}
+
+/// Stop real capture and return to Idle, clearing transcript state.
+#[tauri::command]
+fn stop_overlay_capture(
+    runtime: State<'_, OverlayRuntime>,
+    window: WebviewWindow,
+    app: AppHandle,
+) -> CommandResult {
+    let snapshot = runtime.with_model(|model| model.stop_capture());
+    emit_and_resize(&app, &window, &snapshot, "capture-stopped")
+}
+
 fn spawn_demo_driver(shared: Arc<Mutex<OverlayModel>>, app: AppHandle, token: u64) {
     thread::spawn(move || {
         for step in demo_script() {
@@ -210,6 +281,11 @@ pub fn run() {
             stop_demo_driver,
             clear_overlay_transcript,
             open_settings_placeholder,
+            update_partial_transcript,
+            update_final_transcript,
+            set_overlay_processing,
+            set_overlay_listening,
+            stop_overlay_capture,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

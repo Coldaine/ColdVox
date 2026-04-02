@@ -44,6 +44,30 @@ const bridgeMocks = vi.hoisted(() => {
           listener = null;
         };
       }),
+    // Pipeline wiring — real STT integration
+    updatePartialTranscript: vi.fn<(text: string) => Promise<OverlaySnapshot>>().mockResolvedValue({
+      ...idleSnapshot,
+      expanded: true,
+      status: "listening",
+      partialTranscript: "partial text",
+    }),
+    updateFinalTranscript: vi.fn<(text: string) => Promise<OverlaySnapshot>>().mockResolvedValue({
+      ...idleSnapshot,
+      expanded: true,
+      status: "ready",
+      finalTranscript: "final text",
+    }),
+    setOverlayProcessing: vi.fn<() => Promise<OverlaySnapshot>>().mockResolvedValue({
+      ...idleSnapshot,
+      expanded: true,
+      status: "processing",
+    }),
+    setOverlayListening: vi.fn<() => Promise<OverlaySnapshot>>().mockResolvedValue({
+      ...idleSnapshot,
+      expanded: true,
+      status: "listening",
+    }),
+    stopOverlayCapture: vi.fn<() => Promise<OverlaySnapshot>>().mockResolvedValue(idleSnapshot),
     emit(event: OverlayEvent) {
       listener?.(event);
     },
@@ -59,6 +83,11 @@ vi.mock("../lib/overlayBridge", () => ({
   clearOverlayTranscript: bridgeMocks.clearOverlayTranscript,
   openSettingsPlaceholder: bridgeMocks.openSettingsPlaceholder,
   subscribeToOverlayEvents: bridgeMocks.subscribeToOverlayEvents,
+  updatePartialTranscript: bridgeMocks.updatePartialTranscript,
+  updateFinalTranscript: bridgeMocks.updateFinalTranscript,
+  setOverlayProcessing: bridgeMocks.setOverlayProcessing,
+  setOverlayListening: bridgeMocks.setOverlayListening,
+  stopOverlayCapture: bridgeMocks.stopOverlayCapture,
 }));
 
 function HookHarness() {

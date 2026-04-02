@@ -113,6 +113,88 @@ impl OverlayModel {
         self.snapshot()
     }
 
+    /// Apply a live partial transcript update from the STT pipeline.
+    /// Keeps the shell in Listening state and updates the provisional text.
+    pub fn apply_partial_transcript(
+        &mut self,
+        text: &str,
+        status_detail: Option<&str>,
+    ) -> OverlaySnapshot {
+        self.snapshot.partial_transcript = text.to_string();
+        self.snapshot.status = OverlayStatus::Listening;
+        if let Some(detail) = status_detail {
+            self.snapshot.status_detail = detail.to_string();
+        } else {
+            self.snapshot.status_detail =
+                "Streaming partial words from the STT pipeline.".to_string();
+        }
+        self.snapshot.error_message = None;
+        self.snapshot.expanded = true;
+        self.snapshot()
+    }
+
+    /// Promote the current partial transcript to final and transition to Ready.
+    /// Called when the STT pipeline commits an utterance.
+    pub fn apply_final_transcript(
+        &mut self,
+        text: &str,
+        status_detail: Option<&str>,
+    ) -> OverlaySnapshot {
+        self.snapshot.partial_transcript.clear();
+        self.snapshot.final_transcript = text.to_string();
+        self.snapshot.status = OverlayStatus::Ready;
+        if let Some(detail) = status_detail {
+            self.snapshot.status_detail = detail.to_string();
+        } else {
+            self.snapshot.status_detail =
+                "Final transcript staged. Real injection wiring lands in a later tranche."
+                    .to_string();
+        }
+        self.snapshot.error_message = None;
+        self.snapshot.expanded = true;
+        self.snapshot()
+    }
+
+    /// Transition to Processing state (STT pipeline is finalizing the utterance).
+    pub fn apply_processing_state(&mut self, status_detail: Option<&str>) -> OverlaySnapshot {
+        self.snapshot.status = OverlayStatus::Processing;
+        if let Some(detail) = status_detail {
+            self.snapshot.status_detail = detail.to_string();
+        } else {
+            self.snapshot.status_detail =
+                "Processing the utterance into a committed transcript.".to_string();
+        }
+        self.snapshot.expanded = true;
+        self.snapshot()
+    }
+
+    /// Transition to Listening state (new utterance started).
+    pub fn apply_listening_state(&mut self, status_detail: Option<&str>) -> OverlaySnapshot {
+        self.snapshot.status = OverlayStatus::Listening;
+        self.snapshot.partial_transcript.clear();
+        self.snapshot.final_transcript.clear();
+        if let Some(detail) = status_detail {
+            self.snapshot.status_detail = detail.to_string();
+        } else {
+            self.snapshot.status_detail = "Listening for speech.".to_string();
+        }
+        self.snapshot.expanded = true;
+        self.snapshot()
+    }
+
+    /// Stop capture and return to Idle, clearing all transcript state.
+    /// Unlike `stop()` which increments the demo token, this is used by the real pipeline.
+    pub fn stop_capture(&mut self) -> OverlaySnapshot {
+        self.snapshot.status = OverlayStatus::Idle;
+        self.snapshot.paused = false;
+        self.snapshot.partial_transcript.clear();
+        self.snapshot.final_transcript.clear();
+        self.snapshot.status_detail =
+            "Capture stopped. The seam is ready for the next session.".to_string();
+        self.snapshot.error_message = None;
+        self.snapshot()
+    }
+
     fn reject_command(&mut self, message: &str, detail: &str) -> OverlaySnapshot {
         self.demo_token += 1;
         self.snapshot.expanded = true;
@@ -182,5 +264,45 @@ mod tests {
         let resumed = model.toggle_pause();
         assert_eq!(resumed.status, OverlayStatus::Listening);
         assert!(!resumed.paused);
+    }
+
+    #[test]
+    fn apply_partial_transcript_updates_text_and_keeps_listening() {
+        let mut model = OverlayModel::default();
+        model.apply_listening_state(None);
+
+        let snap1 = model.apply_partial_transcript("hello", None);
+        assert_eq!(snap1.partial_transcript, "hello");
+        assert_eq!(snap1.status, OverlayStatus::Listening);
+        assert!(snap1.final_transcript.is_empty());
+
+        let snap2 = model.apply_partial_transcript("hello world", None);
+        assert_eq!(snap2.partial_transcript, "hello world");
+        assert_eq!(snap2.status, OverlayStatus::Listening);
+    }
+
+    #[test]
+    fn apply_final_transcript_moves_partial_to_final_and_transitions_to_ready() {
+        let mut model = OverlayModel::default();
+        model.apply_listening_state(None);
+        model.apply_partial_transcript("hello world", None);
+
+        let snap = model.apply_final_transcript("hello world", None);
+        assert!(snap.partial_transcript.is_empty());
+        assert_eq!(snap.final_transcript, "hello world");
+        assert_eq!(snap.status, OverlayStatus::Ready);
+    }
+
+    #[test]
+    fn stop_capture_clears_all_transcript_state() {
+        let mut model = OverlayModel::default();
+        model.apply_listening_state(None);
+        model.apply_partial_transcript("partial text", None);
+
+        let snap = model.stop_capture();
+        assert_eq!(snap.status, OverlayStatus::Idle);
+        assert!(snap.partial_transcript.is_empty());
+        assert!(snap.final_transcript.is_empty());
+        assert!(snap.error_message.is_none());
     }
 }
