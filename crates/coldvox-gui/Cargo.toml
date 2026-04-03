@@ -15,9 +15,12 @@ path = "src/main.rs"
 cxx = "1"
 cxx-qt = { version = "0.7", optional = true }
 cxx-qt-lib = { version = "0.7", features = ["qt_qml", "qt_gui"], optional = true }
-# Real pipeline bindings — only needed when Qt UI is enabled
-coldvox-app = { path = "../app", optional = true }
+# Real pipeline bindings — only needed when Qt UI is enabled.
+# coldvox-app needs `whisper` feature so that AppHandle::stt_rx exists (gated on
+# `#[cfg(feature = "whisper")]` in the app crate). STT will not function without it.
+coldvox-app = { path = "../app", optional = true, features = ["whisper"] }
 tokio = { version = "1", features = ["full"], optional = true }
+tracing = { version = "0.1", optional = true }
 
 [build-dependencies]
 cxx-qt-build = "0.7"
@@ -25,4 +28,4 @@ cxx-qt-build = "0.7"
 [features]
 default = []
 # Enable this feature to build the Qt/CXX-Qt UI scaffolding
-qt-ui = ["dep:cxx-qt", "dep:cxx-qt-lib", "dep:coldvox-app", "dep:tokio"]
+qt-ui = ["dep:cxx-qt", "dep:cxx-qt-lib", "dep:coldvox-app", "dep:tokio", "dep:tracing"]

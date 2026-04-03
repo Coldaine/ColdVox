@@ -24,6 +24,14 @@ All notable changes to this project are documented here.
   - Environment variables: `PARAKEET_MODEL_PATH`, `PARAKEET_VARIANT` (tdt/ctc), `PARAKEET_DEVICE` (cuda/tensorrt)
   - Pure Rust implementation - no Python dependencies
 
+- **Qt UI: Live Partial and Final Transcript Display** - The Qt overlay now surfaces live transcription in real time without text injection
+  - Partial transcripts shown in grey/italic, updated as speech is recognized
+  - Finalized transcripts shown in white/bold, accumulated across utterances
+  - Cross-thread delivery from async STT pipeline to Qt main thread via `Qt::QueuedConnection`
+  - Two new QSignal (`transcript_partial`, `transcript_final`) and two new QProperty (`partial_transcript`, `final_transcript`) on `GuiBridge`
+  - Added `cmd_clear()` to reset transcript state; `cmd_stop`/`cmd_clear` note the pipeline thread cannot be fully stopped without the `AppHandle` Arc
+  - `AppRuntimeOptions` now populated with explicit `PluginSelectionConfig` so STT is active in the Qt pipeline (previously defaulted to `None` and was inactive)
+
 ### Configuration
 - Canonicalize STT selection config to `config/plugins.json`. Legacy duplicates like `./plugins.json` and `crates/app/plugins.json` are deprecated and ignored at runtime; a startup warning is logged if detected. Documentation updated to reflect the single source of truth.
 

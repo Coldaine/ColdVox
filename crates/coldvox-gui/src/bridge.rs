@@ -116,6 +116,10 @@ impl GuiBridge {
 
         self.set_state(AppState::Activating);
 
+        // Extract only the data we need from self before moving into the thread.
+        // We cannot move Pin<&mut Self> into std::thread::spawn because Pin is not Send.
+        let qt_thread = Self::qt_thread(self);
+
         // Spawn a background thread with a Tokio multi-thread runtime.
         // Qt is not a Tokio context, so we cannot use block_in_place.
         // A dedicated thread is the cleanest approach.
@@ -125,45 +129,71 @@ impl GuiBridge {
                 .build()
                 .expect("failed to build Tokio runtime for ColdVox pipeline");
 
+            // Enter the runtime so we can spawn tasks from this thread.
             let _runtime_guard = rt.enter();
+
+            // Block on the async pipeline setup + a never-ending future that holds
+            // the runtime open. The runtime lives as long as block_on runs.
+            // Tasks spawned via tokio::spawn inside are attached to the runtime and
+            // are cancelled when block_on returns.
             rt.block_on(async {
                 use coldvox_app::runtime::AppRuntimeOptions;
+                use coldvox_stt::plugin::{FailoverConfig, GcPolicy, PluginSelectionConfig};
 
-                let opts = AppRuntimeOptions::default();
+                let opts = AppRuntimeOptions {
+                    // Provide an explicit STT plugin selection so the pipeline
+                    // initialises the STT plugin manager and emits transcription events.
+                    // Without this, stt_selection is None and no STT runs.
+                    stt_selection: Some(PluginSelectionConfig {
+                        preferred_plugin: Some("whisper".to_string()),
+                        fallback_plugins: vec![],
+                        require_local: true,
+                        max_memory_mb: None,
+                        required_language: None,
+                        failover: Some(FailoverConfig {
+                            failover_threshold: 3,
+                            failover_cooldown_secs: 1,
+                        }),
+                        gc_policy: Some(GcPolicy {
+                            model_ttl_secs: 30,
+                            enabled: false,
+                        }),
+                        metrics: None,
+                        auto_extract_model: true,
+                    }),
+                    ..Default::default()
+                };
+
                 match coldvox_app::runtime::start(opts).await {
                     Ok(app) => {
+                        // Take stt_rx from the mutable AppHandle before wrapping in Arc.
+                        // shared.stt_rx is Option<mpsc::Receiver<TranscriptionEvent>>;
+                        // we need &mut AppHandle to call .take(), which is why we do this
+                        // BEFORE wrapping in Arc.
+                        let mut stt_rx = app.stt_rx.take();
                         let shared = std::sync::Arc::new(app);
 
-                        // Grab the STT event channel receiver.
-                        // Direct Qt property updates from this async context are not possible
-                        // (Qt objects are thread-bound to the Qt main thread), so we use
-                        // qt_thread().queue() with a Queued connection to safely emit
-                        // signals across the thread boundary.
-                        if let Some(mut stt_rx) = shared.stt_rx.take() {
-                            // Clone the Qt thread token so the background thread can
-                            // post updates back to the Qt event loop
-                            let qt_thread = Self::qt_thread(self);
+                        if let Some(mut rx) = stt_rx.take() {
+                            // Spawn the STT event forwarder on the Tokio runtime.
+                            // This Task is attached to the runtime spawned above and is
+                            // cancelled when block_on returns (i.e., when the runtime is dropped).
                             tokio::spawn(async move {
-                                while let Some(event) = stt_rx.recv().await {
+                                while let Some(event) = rx.recv().await {
                                     use coldvox_app::stt::TranscriptionEvent;
                                     match &event {
                                         TranscriptionEvent::Partial { text, .. } => {
                                             tracing::debug!("[STT partial] {}", text);
-                                            // Forward partial to QML via queued signal
                                             let text_owned = text.to_string();
                                             let text_q = QString::from(&text_owned);
                                             qt_thread.queue(move |mut qGuiBridge| {
-                                                // Update the property so QML bindings see it
                                                 qGuiBridge
                                                     .as_mut()
                                                     .set_partial_transcript(text_q.clone());
-                                                // Emit the signal so QML Connections can react
                                                 qGuiBridge.as_mut().transcript_partial(text_q);
                                             });
                                         }
                                         TranscriptionEvent::Final { text, .. } => {
                                             tracing::info!("[STT final] {}", text);
-                                            // Final replaces partial — move to final_transcript
                                             let text_owned = text.to_string();
                                             let text_q = QString::from(&text_owned);
                                             qt_thread.queue(move |mut qGuiBridge| {
@@ -175,7 +205,6 @@ impl GuiBridge {
                                                 qGuiBridge.as_mut().set_final_transcript(
                                                     QString::from(&new_final),
                                                 );
-                                                // Clear partial since it's now finalized
                                                 qGuiBridge
                                                     .as_mut()
                                                     .set_partial_transcript(QString::default());
@@ -200,14 +229,12 @@ impl GuiBridge {
 
                         tracing::info!("ColdVox pipeline started successfully");
 
-                        // Hold the pipeline open. The Arc is dropped when:
-                        // - The GUI process exits (normal shutdown)
-                        // - A future implementation calls shutdown explicitly
+                        // Keep the runtime alive by awaiting a future that never completes.
+                        // The Arc is dropped when this process exits or when a future
+                        // implementation calls shutdown explicitly via the stored handle.
                         let keep_alive = shared.clone();
-                        tokio::spawn(async move {
-                            std::future::pending::<()>().await;
-                            let _ = keep_alive;
-                        });
+                        std::future::pending::<()>().await;
+                        let _ = keep_alive;
                     }
                     Err(e) => {
                         tracing::error!("Failed to start ColdVox pipeline: {}", e);
