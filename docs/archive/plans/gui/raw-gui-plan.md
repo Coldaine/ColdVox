@@ -188,7 +188,8 @@ fn main() {
 Run:
 
 ```bash
-cargo run -p coldvox-gui
+# Note: Qt GUI was removed. See current GUI plans in docs/plans/.
+cargo run -p coldvox-gui  # DEPRECATED: Qt GUI removed
 ```
 
 ### 6) Enable overlay traits for KDE (Wayland)

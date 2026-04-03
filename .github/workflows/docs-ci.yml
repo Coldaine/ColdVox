@@ -41,7 +41,7 @@ jobs:
           uv run scripts/docs_semantic_review.py "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}" --packet-out .artifacts/docs_semantic_review_packet.json --prompt-out .artifacts/docs_semantic_review_prompt.md
 
       - name: Upload semantic review artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: docs-semantic-review
           path: .artifacts/docs_semantic_review_*

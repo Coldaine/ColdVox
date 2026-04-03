@@ -23,7 +23,8 @@ This document tracks critical issues where documentation claims functionality th
 
 **Docs claim** (AGENTS.md, README.md, CLAUDE.md):
 ```bash
-cargo run --features whisper,text-injection  # With STT
+# DEPRECATED: 'whisper' feature removed. Use 'moonshine' instead.
+cargo run --bin coldvox --features moonshine,text-injection  # With STT
 ```
 
 **Reality**:

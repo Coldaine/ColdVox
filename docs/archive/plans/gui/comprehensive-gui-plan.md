@@ -277,7 +277,8 @@ fn main() {
 Run the application.
 
 ```bash
-cargo run -p coldvox-gui
+# Note: Qt GUI was removed. Current GUI work uses Tauri.
+cargo run -p coldvox-gui  # DEPRECATED: Qt GUI removed
 ```
 *You should see a window appear. The text should initially show "Status: ready". Clicking the "Ping" button should append ":ok" to the status string repeatedly.*
 

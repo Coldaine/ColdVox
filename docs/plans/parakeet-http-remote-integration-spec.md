@@ -1,11 +1,3 @@
----
-doc_type: plan
-subsystem: stt
-status: draft
-freshness: 2026-03-31
-summary: HTTP remote STT integration spec for Parakeet container validation and configuration alignment.
----
-
 # Parakeet HTTP Remote Integration Spec
 
 ## Status

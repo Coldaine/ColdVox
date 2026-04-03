@@ -807,11 +807,17 @@ mod tests {
         let expected = root_plugins_path
             .canonicalize()
             .expect("canonicalize repo-root plugin selection config path");
-        let deprecated = app_local_plugins_path
-            .canonicalize()
-            .expect("canonicalize deprecated app-local plugin selection config path");
 
         assert_eq!(resolved, expected);
-        assert_ne!(resolved, deprecated);
+
+        // The deprecated app-local path should either not exist (deleted) or not be used
+        if app_local_plugins_path.exists() {
+            let deprecated = app_local_plugins_path
+                .canonicalize()
+                .expect("canonicalize deprecated app-local plugin selection config path");
+            assert_ne!(resolved, deprecated);
+        }
+        // If the deprecated file doesn't exist, the test passes implicitly since
+        // the resolved path correctly points to the repo-root config
     }
 }
