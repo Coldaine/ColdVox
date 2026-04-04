@@ -38,6 +38,16 @@ compile_errors.txt
 pr_*.txt
 prs*.txt
 
+# CI agent working files (written by Gemini CLI during review jobs)
+_ci_evidence_instructions.md
+_ci_evidence_report.md
+_ci_northstar_instructions.md
+_ci_northstar_report.md
+_tmp_evidence_instructions.md
+_tmp_northstar_instructions.md
+_tmp_evidence_report.md
+_tmp_northstar_report.md
+
 # Temporary files
 tmp/
 temp/
