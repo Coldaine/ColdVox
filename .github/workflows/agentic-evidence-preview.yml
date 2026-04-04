@@ -134,8 +134,13 @@ jobs:
             exit 0
           fi
 
+          # Configure Gemini CLI to use API key auth (prevents OAuth browser prompt in headless CI).
+          mkdir -p ~/.gemini
+          echo '{"selectedAuthType":"gemini-api-key"}' > ~/.gemini/settings.json
+
           # Write instructions into the workspace so the agent can read them.
           # Gemini CLI restricts file access to within the workspace directory.
+          # NOTE: Do NOT gitignore these files — Gemini CLI refuses to read/write gitignored paths.
           cat .github/prompts/evidence-assessor.md > _ci_evidence_instructions.md
           printf "\n## PR Context:\n**Title:** %s\n**Body:** %s\n**Base Branch:** origin/%s\n" \
             "$PR_TITLE" "$PR_BODY" "$BASE_REF" >> _ci_evidence_instructions.md
@@ -208,7 +213,12 @@ jobs:
             exit 0
           fi
 
+          # Configure Gemini CLI to use API key auth (prevents OAuth browser prompt in headless CI).
+          mkdir -p ~/.gemini
+          echo '{"selectedAuthType":"gemini-api-key"}' > ~/.gemini/settings.json
+
           # Write instructions into the workspace so the agent can read them.
+          # NOTE: Do NOT gitignore these files — Gemini CLI refuses to read/write gitignored paths.
           cat .github/prompts/northstar-alignment-reviewer.md > _ci_northstar_instructions.md
           printf "\n## PR Context:\n**Title:** %s\n**Body:** %s\n**Base Branch:** origin/%s\n" \
             "$PR_TITLE" "$PR_BODY" "$BASE_REF" >> _ci_northstar_instructions.md
@@ -236,3 +246,4 @@ jobs:
             echo ""
             cat _ci_northstar_report.md 2>/dev/null || echo "_No report generated._"
           } >> "$GITHUB_STEP_SUMMARY"
+
