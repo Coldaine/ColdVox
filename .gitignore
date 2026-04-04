@@ -39,14 +39,11 @@ pr_*.txt
 prs*.txt
 
 # CI agent working files (written by Gemini CLI during review jobs)
-_ci_evidence_instructions.md
-_ci_evidence_report.md
-_ci_northstar_instructions.md
-_ci_northstar_report.md
-_tmp_evidence_instructions.md
-_tmp_northstar_instructions.md
-_tmp_evidence_report.md
-_tmp_northstar_report.md
+# NOTE: NOT gitignored — Gemini CLI respects .gitignore as a security boundary
+# and will refuse to read/write files that match gitignore patterns.
+# These files are auto-generated at runtime and never committed (CI doesn't commit).
+# They are excluded via .git/info/exclude or manual cleanup instead.
+_tmp_*.md
 
 # Temporary files
 tmp/
