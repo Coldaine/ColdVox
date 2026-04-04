@@ -13,16 +13,13 @@ This crate provides the foundational types and traits for speech-to-text functio
 - `EventBasedTranscriber`: Modern event-based interface for STT implementations
 - `SttProcessor`: Generic VAD-gated audio processor that works with any STT implementation
 
-## Supported Backends
+## Features
 
-| Backend | Status | Feature Flag | Description |
-|---------|--------|--------------|-------------|
-| **Moonshine** | ✅ Working | `moonshine` | Python-based, CPU/GPU via PyO3 |
-| **Parakeet** | 🚧 Planned | `parakeet` | Pure-Rust/ONNX (CUDA/DirectML) |
-| Mock | ✅ Test | - | Mock plugin for testing |
-| Noop | ✅ Test | - | No-op passthrough plugin |
-
-> **Note:** Whisper, Coqui, Leopard, and Silero-STT backends have been removed as part of the nuclear pruning initiative. Only Moonshine and Parakeet are supported.
+- **Event-Based Architecture**: Clean separation between transcription events and implementation details
+- **VAD Integration**: Built-in support for Voice Activity Detection gating
+- **Flexible Configuration**: Support for partial results, word timing, alternatives, etc.
+- **Backward Compatibility**: Legacy `Transcriber` trait still supported
+- **Engine Agnostic**: Works with any STT implementation (Whisper, etc.)
 
 ## Usage
 
@@ -38,8 +35,8 @@ let config = TranscriptionConfig {
     ..Default::default()
 };
 
-// Use with an implementation (e.g., MoonshineTranscriber)
-let mut transcriber = MoonshineTranscriber::new(config, 16000.0)?;
+// Use with any implementation (e.g., WhisperTranscriber from coldvox-stt-whisper)
+let mut transcriber = SomeTranscriber::new(config, 16000.0)?;
 
 // Process audio
 match transcriber.accept_frame(&audio_samples)? {
@@ -53,9 +50,10 @@ match transcriber.accept_frame(&audio_samples)? {
 ## Default Model Path
 
 The default model path can be configured via:
-1. `MOONSHINE_MODEL_PATH` environment variable
-2. Falls back to `models/moonshine/base`
+1. `WHISPER_MODEL_PATH` environment variable
+2. Falls back to `models/whisper-base.en`
 
 ## Related Crates
 
+- `coldvox-stt-whisper`: Whisper STT implementation (feature-gated)
 - `coldvox-app`: Main application using STT functionality

@@ -1,12 +1,10 @@
 ---
 doc_type: reference
 subsystem: text-injection
-status: draft
-freshness: stale
-preservation: preserve
-last_reviewed: 2025-11-06
-owners: Text Injection Maintainers
 version: 1.0.0
+status: draft
+owners: Text Injection Maintainers
+last_reviewed: 2025-11-06
 ---
 
 # Unified Clipboard Injector

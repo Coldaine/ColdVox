@@ -5,9 +5,7 @@
 //! while providing the new TextInjector trait interface.
 
 use crate::confirm::{create_confirmation_context, ConfirmationContext};
-#[cfg(feature = "atspi")]
 use crate::log_throttle::log_atspi_connection_failure;
-#[cfg(feature = "atspi")]
 use crate::logging::utils;
 use crate::types::{
     InjectionConfig, InjectionContext, InjectionMethod, InjectionMode, InjectionResult,
@@ -45,12 +43,7 @@ impl AtspiInjector {
     }
 
     /// Insert text directly using AT-SPI EditableText interface
-    pub async fn insert_text(
-        &self,
-        text: &str,
-        #[allow(unused)] context: &InjectionContext,
-    ) -> InjectionResult<()> {
-        #[allow(unused)]
+    pub async fn insert_text(&self, text: &str, context: &InjectionContext) -> InjectionResult<()> {
         let start_time = Instant::now();
 
         trace!("AT-SPI insert_text starting for {} chars", text.len());
@@ -253,12 +246,7 @@ impl AtspiInjector {
     }
 
     /// Paste text using AT-SPI clipboard operations
-    pub async fn paste_text(
-        &self,
-        text: &str,
-        #[allow(unused)] context: &InjectionContext,
-    ) -> InjectionResult<()> {
-        #[allow(unused)]
+    pub async fn paste_text(&self, text: &str, context: &InjectionContext) -> InjectionResult<()> {
         let start_time = Instant::now();
 
         trace!("AT-SPI paste_text starting for {} chars", text.len());

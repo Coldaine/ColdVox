@@ -21,7 +21,7 @@ fn push_unique(paths: &mut Vec<PathBuf>, candidate: PathBuf) {
     }
 }
 
-pub(crate) fn candidate_socket_paths() -> Vec<PathBuf> {
+fn candidate_socket_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
 
     if let Some(env_socket) = env::var_os("YDOTOOL_SOCKET") {
@@ -52,7 +52,7 @@ pub(crate) fn candidate_socket_paths() -> Vec<PathBuf> {
     paths
 }
 
-pub(crate) fn locate_existing_socket() -> Option<PathBuf> {
+fn locate_existing_socket() -> Option<PathBuf> {
     #[allow(clippy::manual_find)]
     for candidate in candidate_socket_paths() {
         if Path::new(&candidate).exists() {
@@ -196,14 +196,8 @@ impl YdotoolInjector {
     fn check_uinput_access() -> Result<(), InjectionError> {
         use std::fs::OpenOptions;
 
-        let uinput_path = if cfg!(test) {
-            env::var("UINPUT_PATH_OVERRIDE").unwrap_or_else(|_| "/dev/uinput".to_string())
-        } else {
-            "/dev/uinput".to_string()
-        };
-
         // Check if we can open /dev/uinput
-        match OpenOptions::new().write(true).open(uinput_path) {
+        match OpenOptions::new().write(true).open("/dev/uinput") {
             Ok(_) => Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
                 // Check if user is in input group

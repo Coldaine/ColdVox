@@ -1,13 +1,10 @@
 ---
 doc_type: playbook
 subsystem: testing
-status: draft
-freshness: stale
-preservation: preserve
-summary: LLM-assisted test debugging methodology
-last_reviewed: 2025-11-10
-owners: AI Strategy Team
 version: 1.0.0
+status: draft
+owners: AI Strategy Team
+last_reviewed: 2025-11-10
 ---
 
 # Playbook: Debugging Test Failures with LLMs

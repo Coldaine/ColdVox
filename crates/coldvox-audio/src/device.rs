@@ -122,8 +122,7 @@ impl DeviceManager {
         let inputs = with_stderr_suppressed(|| self.host.input_devices());
         if let Ok(inputs) = inputs {
             for device in inputs {
-                if let Ok(desc) = device.description() {
-                    let name = desc.to_string();
+                if let Ok(name) = device.name() {
                     let configs = self.get_supported_configs(&device);
                     if !configs.is_empty() {
                         devices.push(DeviceInfo {
@@ -139,8 +138,7 @@ impl DeviceManager {
         // Mark default - suppress ALSA stderr spam
         let default_device = with_stderr_suppressed(|| self.host.default_input_device());
         if let Some(default) = default_device {
-            if let Ok(desc) = default.description() {
-                let default_name = desc.to_string();
+            if let Ok(default_name) = default.name() {
                 for device in &mut devices {
                     if device.name == default_name {
                         device.is_default = true;
@@ -153,11 +151,7 @@ impl DeviceManager {
     }
 
     pub fn default_input_device_name(&self) -> Option<String> {
-        with_stderr_suppressed(|| {
-            self.host
-                .default_input_device()
-                .and_then(|d| d.description().ok().map(|desc| desc.to_string()))
-        })
+        with_stderr_suppressed(|| self.host.default_input_device().and_then(|d| d.name().ok()))
     }
 
     /// Return candidate device names in a priority order suitable for Linux ALSA/PipeWire setups.
@@ -212,10 +206,7 @@ impl DeviceManager {
                 tracing::warn!(
                     "Preferred device '{}' not found exactly; using closest match '{}",
                     preferred,
-                    device
-                        .description()
-                        .map(|d| d.to_string())
-                        .unwrap_or_default()
+                    device.name().unwrap_or_default()
                 );
                 self.current_device = Some(device.clone());
                 return Ok(device);
@@ -254,8 +245,8 @@ impl DeviceManager {
     fn find_device_by_name(&self, name: &str) -> Option<Device> {
         if let Ok(devices) = self.host.input_devices() {
             for device in devices {
-                if let Ok(desc) = device.description() {
-                    if desc.to_string() == name {
+                if let Ok(device_name) = device.name() {
+                    if device_name == name {
                         return Some(device);
                     }
                 }
@@ -270,8 +261,7 @@ impl DeviceManager {
     {
         if let Ok(devices) = self.host.input_devices() {
             for device in devices {
-                if let Ok(desc) = device.description() {
-                    let name = desc.to_string();
+                if let Ok(name) = device.name() {
                     if pred(&name) {
                         return Some(device);
                     }
@@ -288,8 +278,7 @@ impl DeviceManager {
             // Score devices: higher score = more preferred
             let mut best: Option<(i32, Device, String)> = None;
             for device in devices {
-                if let Ok(desc) = device.description() {
-                    let name = desc.to_string();
+                if let Ok(name) = device.name() {
                     let lname = name.to_lowercase();
                     if blacklist.iter().any(|b| lname == *b) {
                         continue;
@@ -325,8 +314,8 @@ impl DeviceManager {
             for config in supported {
                 // We prefer 16kHz, but will take anything
                 let sample_rate =
-                    if config.min_sample_rate() <= 16000 && config.max_sample_rate() >= 16000 {
-                        16000_u32
+                    if config.min_sample_rate().0 <= 16000 && config.max_sample_rate().0 >= 16000 {
+                        cpal::SampleRate(16000)
                     } else {
                         config.max_sample_rate()
                     };
@@ -609,23 +598,23 @@ mod tests {
         // Test open_device(None) uses priority: "default" if present, else OS default
         let mut manager = setup_test_manager();
         let device = manager.open_device(None).unwrap();
-        let device_name = device.description().map(|d| d.to_string()).unwrap();
+        let device_name = device.name().unwrap();
+        // On Linux, should be "default" or OS default (e.g., "alsa_input.default")
+        if device_name == "default" {
+            // Good
+        } else {
+            // Verify it's the OS default
+            if let Some(def) = manager.default_input_device_name() {
+                assert_eq!(
+                    device_name, def,
+                    "Should fall back to OS default if no 'default'"
+                );
+            }
+        }
         // Verify current_device set
         assert!(manager.current_device.is_some());
 
-        // On Linux/ALSA, the device name should be a valid known device or the OS default
         let known_devices = manager.enumerate_devices();
-        let is_known = known_devices.iter().any(|d| d.name == device_name);
-        let is_default = manager
-            .default_input_device_name()
-            .map(|def| def == device_name)
-            .unwrap_or(false);
-        assert!(
-            is_known || is_default,
-            "Opened device '{}' should be known or default",
-            device_name
-        );
-
         let validation_mode = live_validation_mode();
         if should_attempt_live_validation(validation_mode, &known_devices, &device_name) {
             eprintln!(
@@ -678,7 +667,7 @@ mod tests {
         let mut manager = setup_test_manager();
         let test_name = "default";
         let device = manager.open_device(Some(test_name)).unwrap();
-        let device_name = device.description().map(|d| d.to_string()).unwrap();
+        let device_name = device.name().unwrap();
         assert_eq!(device_name, test_name, "Exact match should be used");
         // Verify current_device set
         assert!(manager.current_device.is_some());
@@ -706,7 +695,7 @@ mod tests {
         let mut manager = setup_test_manager();
         // Temporarily set mock to simulate no candidates (hard, so test if hardware is preferred if present)
         let device = manager.open_device(None).unwrap();
-        let _name = device.description().map(|d| d.to_string()).unwrap();
+        let _name = device.name().unwrap();
         // If hardware like "front:" is present, it should be selected if no better
         // This is system-dependent, but assert no panic and current_device set
         assert!(manager.current_device.is_some());

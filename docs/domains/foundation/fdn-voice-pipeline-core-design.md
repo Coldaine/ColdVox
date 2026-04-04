@@ -1,13 +1,11 @@
 ---
 doc_type: architecture
 subsystem: foundation
-status: draft
-freshness: stale
-preservation: preserve
-last_reviewed: 2025-10-19
-owners: Documentation Working Group
-redirect: fdn-voice-pipeline-core-design.md
 version: 1.0.0
+status: draft
+owners: Documentation Working Group
+last_reviewed: 2025-10-19
+redirect: fdn-voice-pipeline-core-design.md
 ---
 
 # Moved: Voice Pipeline Core - Design
@@ -72,7 +70,7 @@ Please update any bookmarks or links.
 
 ### 3. Speech-to-Text Processing
 
-**Approach**: Plugin architecture, Parakeet (GPU) and Moonshine (CPU) as primary engines.
+**Approach**: Plugin architecture, Vosk primary offline engine.
 
 **Code paths**:
 - `SttPluginManager` handles plugin lifecycle, failover, and garbage collection
@@ -87,9 +85,7 @@ Please update any bookmarks or links.
 - Automatic model unloading after idle period (garbage collection)
 
 **Why this way**:
-- Plugins: Support multiple engines and future additions
-- Parakeet: High-quality transcription with GPU support
-- Moonshine: Efficient pure-Rust CPU alternative
+- Plugins: Future engines (Whisper, cloud)
 - Failover: Production reliability
 - GC: Prevent model memory bloat
 - Hotkey default: Reduce false activations
@@ -152,9 +148,9 @@ AudioChunker (resample to 16kHz mono, 512-sample frames)
 
 **Memory**:
 - Audio buffers: ~256KB
-- STT model: 40-500MB (model dependent: Moonshine ~40-100MB, Parakeet ~300-500MB)
+- Vosk model: 40-100MB
 - Silero VAD: ~8MB
-- **Baseline**: 60-520MB
+- **Baseline**: 60-120MB
 
 **CPU**:
 - Idle: <5%

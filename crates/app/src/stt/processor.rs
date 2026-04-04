@@ -53,7 +53,7 @@ const BUFFER_CEILING_SAMPLES: usize = 16000 * 30;
 /// The primary STT processor, designed to be unified and extensible.
 /// It uses the plugin manager to delegate STT work and handles different
 /// activation and processing strategies defined by `Settings`.
-#[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+#[cfg(feature = "whisper")]
 pub struct PluginSttProcessor {
     audio_rx: broadcast::Receiver<SharedAudioFrame>,
     session_event_rx: mpsc::Receiver<SessionEvent>,
@@ -66,14 +66,14 @@ pub struct PluginSttProcessor {
 }
 
 /// The internal, mutable state of the processor, protected by a Mutex.
-#[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+#[cfg(feature = "whisper")]
 struct State {
     pub state: UtteranceState,
     pub source: crate::stt::session::SessionSource,
     pub buffer: Vec<i16>,
 }
 
-#[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+#[cfg(feature = "whisper")]
 impl PluginSttProcessor {
     /// Creates a new instance of the unified STT processor.
     pub fn new(
@@ -313,11 +313,11 @@ impl PluginSttProcessor {
     }
 }
 
-/// A stub implementation of the processor for when no STT feature is enabled.
-#[cfg(not(any(feature = "moonshine", feature = "parakeet", feature = "http-remote")))]
+/// A stub implementation of the processor for when the `whisper` feature is disabled.
+#[cfg(not(feature = "whisper"))]
 pub struct PluginSttProcessor;
 
-#[cfg(not(any(feature = "moonshine", feature = "parakeet", feature = "http-remote")))]
+#[cfg(not(feature = "whisper"))]
 impl PluginSttProcessor {
     pub fn new(
         _audio_rx: broadcast::Receiver<SharedAudioFrame>,
@@ -330,6 +330,8 @@ impl PluginSttProcessor {
         Self
     }
     pub async fn run(self) {
-        tracing::info!("STT processor stub running - no actual processing (STT features disabled)");
+        tracing::info!(
+            "STT processor stub running - no actual processing (Whisper feature disabled)"
+        );
     }
 }

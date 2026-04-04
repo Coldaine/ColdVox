@@ -1,13 +1,10 @@
 ---
 doc_type: research
 subsystem: stt
-status: active
-freshness: current
-preservation: preserve
-summary: Implementation details for Moonshine STT backend
-last_reviewed: 2025-12-03
-owners: Coldaine
 version: 1.0.0
+status: active
+owners: Coldaine
+last_reviewed: 2025-12-03
 ---
 
 # Moonshine STT Plugin Implementation Status

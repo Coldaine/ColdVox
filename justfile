@@ -9,6 +9,8 @@ default:
 ci:
     ./scripts/local_ci.sh
 
+# Run local CI with Whisper enabled (uses venv + cargo features)
+
 # Run pre-commit hooks manually
 check:
     pre-commit run --all-files
@@ -16,12 +18,23 @@ check:
 # Quick development checks (format, clippy, check)
 lint:
     cargo fmt --all
-    cargo clippy --all-targets --locked -- -D warnings
+    cargo clippy --fix --all-targets --locked --allow-dirty --allow-staged -- -D warnings
     cargo check --workspace --all-targets --locked
+
+# Auto-fix linter issues where possible
+fix:
+    cargo fmt --all
+    cargo clippy --fix --all-targets --locked --allow-dirty --allow-staged
 
 # Run all tests
 test:
     cargo test --workspace --locked
+
+test-full:
+    cargo test --workspace --locked
+
+# Run tests with whisper feature and auto venv activation
+## Whisper-specific helpers removed pending new backend
 
 # Build all crates
 build:
@@ -43,6 +56,10 @@ fmt:
 docs:
     cargo doc --workspace --no-deps --locked --open
 
+# Validate documentation changes (requires uv and Python 3.12)
+docs-validate base="origin/main" head="HEAD":
+    uv run scripts/validate_docs.py {{base}} {{head}}
+
 # Install pre-commit hooks
 setup-hooks:
     pre-commit install
@@ -55,23 +72,13 @@ commit-fast *args:
 test-filter filter:
     cargo test --workspace --locked {{filter}}
 
-# Run main app with the canonical wave-1 HTTP remote profile
+# Run main app with default features
 run:
-    #!/usr/bin/env pwsh
-    if ($IsWindows) {
-        $base = uv run python -c "import sys; print(sys.base_prefix)"
-        $env:PATH = "$base;$env:PATH"
-    }
-    cargo run -p coldvox-app --bin coldvox --features http-remote,text-injection
+    cd crates/app && cargo run
 
-# Run TUI dashboard with the canonical wave-1 HTTP remote profile
+# Run TUI dashboard
 tui:
-    #!/usr/bin/env pwsh
-    if ($IsWindows) {
-        $base = uv run python -c "import sys; print(sys.base_prefix)"
-        $env:PATH = "$base;$env:PATH"
-    }
-    cargo run -p coldvox-app --bin tui_dashboard --features http-remote,text-injection
+    cd crates/app && cargo run --bin tui_dashboard
 
 # Run mic probe utility
 mic-probe duration="30":

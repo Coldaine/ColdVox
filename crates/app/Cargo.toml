@@ -3,7 +3,6 @@ name = "coldvox-app"
 version = "0.1.0"
 edition = "2021"
 publish = false
-autotests = false
 
 [lib]
 name = "coldvox_app"
@@ -16,48 +15,14 @@ path = "src/main.rs"
 [[bin]]
 name = "tui_dashboard"
 path = "src/bin/tui_dashboard.rs"
-test = false
-
-[[bin]]
-name = "tui_dashboard_manual"
-path = "src/bin/tui_dashboard_manual.rs"
-test = false
 
 [[bin]]
 name = "mic_probe"
 path = "src/bin/mic_probe.rs"
-test = false
-
-[[test]]
-name = "chunker_timing_tests"
-path = "tests/chunker_timing_tests.rs"
-
-[[test]]
-name = "golden_master"
-path = "tests/golden_master.rs"
-
-[[test]]
-name = "hardware_check"
-path = "tests/hardware_check.rs"
-
-[[test]]
-name = "pipeline_integration"
-path = "tests/pipeline_integration.rs"
-
-[[test]]
-name = "settings_test"
-path = "tests/settings_test.rs"
-
-[[test]]
-name = "tui_dashboard_manual_test"
-path = "tests/tui_dashboard_manual_test.rs"
-
-[[test]]
-name = "verify_mock_injection_fix"
-path = "tests/verify_mock_injection_fix.rs"
 
 
 [dependencies]
+zbus = { version = "5.12.0" }
 tokio = { version = "1", features = ["full"] }
 anyhow = "1.0"
 thiserror = "2.0"
@@ -67,18 +32,16 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
 async-trait = "0.1"
 hound = "3.5"
-rubato = "1.0"
-audioadapter = "2.0"
-audioadapter-buffers = "2.0"
+rubato = "0.16"
 crossbeam-channel = "0.5"
-once_cell = "1.21"
+once_cell = "1.19"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-toml = "1.0"
-clap = { version = "4.6", features = ["derive", "env"] }
+toml = "0.9"
+clap = { version = "4.5", features = ["derive", "env"] }
 env_logger = "0.11"
 chrono = { version = "0.4", features = ["serde"] }
-ratatui = "0.30"
+ratatui = "0.29"
 crossterm = "0.29"
 futures = "0.3"
 fastrand = "2.0"
@@ -89,30 +52,29 @@ coldvox-vad = { path = "../coldvox-vad" }
 coldvox-vad-silero = { path = "../coldvox-vad-silero", features = ["silero"] }
 coldvox-stt = { path = "../coldvox-stt" }
 csv = "1.3"
-cpal = "0.17.3"
+cpal = "0.16.0"
 config = { version = "0.15", features = ["toml"] }
 
 [dev-dependencies]
-tempfile = "3.27"
+tempfile = "3.23"
 mockall = "0.14"
 tokio-test = "0.4"
 ctrlc = "3.5"
-proptest = "1.11"
-rand = "0.10"
-serial_test = "3.4"
+proptest = "1.9"
+rand = "0.9"
+serial_test = "3.2"
 similar-asserts = "1.5"
 
 [features]
 default = ["silero", "text-injection"]
-# STT Backends (see docs/domains/stt/stt-overview.md)
-moonshine = ["coldvox-stt/moonshine"]      # ✅ Working: Python-based, CPU/GPU
-parakeet = ["coldvox-stt/parakeet"]        # ⚠️ Planned: Not currently functional
-http-remote = ["coldvox-stt/http-remote"]
-# Other features
-silero = ["coldvox-vad-silero/silero"]     # ✅ Default: Silero VAD
-text-injection = ["dep:coldvox-text-injection"]  # ✅ Default: Text injection backends
 live-hardware-tests = []
+parakeet = ["coldvox-stt/parakeet"]
+moonshine = ["coldvox-stt/moonshine"]
+whisper = [] # Temporarily stubbed; new pure-Rust backend will populate this
+no-stt = []
 examples = []
+text-injection = ["dep:coldvox-text-injection"]
+silero = ["coldvox-vad-silero/silero"]
 sleep-observer = []
 tui = []
 
@@ -126,7 +88,6 @@ text-injection-regex = ["text-injection", "coldvox-text-injection/regex"]
 
 # Platform-specific dependencies for Linux
 [target.'cfg(target_os = "linux")'.dependencies]
-zbus = { version = "5.12.0" }
 coldvox-text-injection = { path = "../coldvox-text-injection", features = ["atspi", "wl_clipboard", "ydotool"], optional = true }
 
 # Platform-specific dependencies for Windows

@@ -16,7 +16,6 @@ pub use chunker::{AudioChunker, AudioFrame, ChunkerConfig, ResamplerQuality};
 pub use device::{DeviceInfo, DeviceManager};
 pub use frame_reader::FrameReader;
 pub use monitor::DeviceMonitor;
-pub use resampler::StreamResampler;
 pub use ring_buffer::AudioRingBuffer;
 pub use watchdog::WatchdogTimer;
 

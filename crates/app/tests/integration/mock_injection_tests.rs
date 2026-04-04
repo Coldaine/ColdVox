@@ -1,6 +1,5 @@
 #[cfg(test)]
 mod mock_injection_tests {
-    use tracing_appender::rolling;
     use coldvox_text_injection::manager::StrategyManager;
     use coldvox_text_injection::types::{InjectionConfig, InjectionMetrics};
     use std::process::{Command, Stdio};
@@ -96,19 +95,7 @@ mod mock_injection_tests {
 
     #[tokio::test]
     async fn test_injection_with_focused_mock_app() {
-        tracing::info!("Starting test_injection_with_focused_mock_app");
-        // Initialize file logging for test
-        let _ = std::fs::create_dir_all("target/test_logs");
-        let file_appender = rolling::never("target/test_logs", "mock_injection.log");
-        let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
-        let _ = tracing_subscriber::registry()
-            .with(tracing_subscriber::EnvFilter::from_default_env())
-            .with(tracing_subscriber::fmt::layer().with_writer(non_blocking).with_ansi(false))
-            .with(tracing_subscriber::fmt::layer().with_test_writer())
-            .try_init();
-
         // Start mock application
-        let _ = tracing::span!(tracing::Level::INFO, "test_mock_app_start").entered();
         let mut mock_app = match MockTestApp::start().await {
             Ok(app) => app,
             Err(e) => {
@@ -277,7 +264,7 @@ mod mock_injection_tests {
         });
 
         println!("Available methods: {:?}", methods);
-        assert!(has_clipboard_paste, "Should include ClipboardPasteFallback method");
+    assert!(has_clipboard_paste, "Should include ClipboardPasteFallback method");
 
         // AT-SPI might not be available in test environment, but ydotool should be
         if has_atspi {
@@ -286,7 +273,7 @@ mod mock_injection_tests {
             println!("⚠️  AT-SPI not available (expected in headless environment)");
         }
 
-        assert!(has_clipboard_paste, "Should have ClipboardPasteFallback as fallback method");
+    assert!(has_clipboard_paste, "Should have ClipboardPasteFallback as fallback method");
     }
 
     #[tokio::test]

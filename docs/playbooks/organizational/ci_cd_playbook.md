@@ -1,53 +1,92 @@
 ---
 doc_type: playbook
 subsystem: general
+version: 1.0.0
 status: draft
-freshness: stale
-preservation: preserve
-last_reviewed: 2026-02-09
-last_reviewer: Documentation Working Group
 owners: Documentation Working Group
-review_due: 2026-05-10
-version: 2.0.0
+last_reviewed: 2025-12-03
 ---
 
 # CI/CD Playbook
 
-## Authority
+This playbook documents the continuous integration and delivery pipeline for ColdVox.
 
-`docs/dev/CI/architecture.md` is the canonical CI policy.
-If this playbook conflicts with that document, the architecture document wins.
+## Workflow Overview
 
-## Purpose
+The main CI workflow (`.github/workflows/ci.yml`) runs on:
+- Push to `main`, `release/*`, `feature/*`, `feat/*`, `fix/*` branches
+- Pull requests to `main`
+- Daily schedule (cron)
+- Manual dispatch
 
-This playbook provides day-to-day operational guidance for CI/CD decisions.
-Historical setup content has been intentionally removed to avoid policy drift.
+## CI Jobs
 
-## Current Operating Rules
+### 1. validate-workflows
 
-- Use GitHub-hosted runners for general CI (`fmt`, `clippy`, build, workspace tests, security checks).
-- Use the self-hosted Fedora/Nobara runner only for hardware-dependent tests.
-- Do not use Xvfb on self-hosted jobs.
-- Do not use `apt-get` for self-hosted runner setup.
-- Do not force `DISPLAY=:99` on self-hosted jobs.
-- Keep self-hosted jobs independent from hosted jobs unless a hard dependency exists.
+Validates workflow YAML files using the `gh` CLI. Optional (continue-on-error).
 
-## STT/Feature Reality Gate
+### 2. setup-whisper-dependencies
 
-- Current reliable STT path: Moonshine.
-- Parakeet is planned work, not current baseline.
-- CI examples and jobs should not assume Whisper as an active backend.
+Sets up Whisper model cache for STT tests.
 
-## Workflow Hygiene
+### 3. security_audit
 
-- Prefer crate-scoped commands for local verification before pushing.
-- Keep docs in sync when CI behavior or runner assumptions change.
-- Treat docs drift as a CI failure cause, not an afterthought.
+**Purpose**: Scans dependencies for security vulnerabilities and license compliance.
 
-## Change Process
+**Tools**:
+- `cargo audit` - Checks `Cargo.lock` against [RustSec Advisory Database](https://rustsec.org/)
+- `cargo deny` - Comprehensive dependency linting (licenses, bans, advisories, sources)
 
-When CI policy changes:
+**Configuration**: See `deny.toml` in repository root.
 
-1. Update `docs/dev/CI/architecture.md` first.
-2. Update this playbook to match.
-3. Update related agent docs (`AGENTS.md`, mirrors) if contributor workflow changes.
+**Failure handling**: Issues a warning but does not block the build. Check the job output for details on any vulnerabilities or license issues.
+
+**Local reproduction**:
+```bash
+cargo install cargo-audit cargo-deny
+cargo audit
+cargo deny check
+```
+
+### 4. build_and_check
+
+Main build job:
+- Formatting check (advisory)
+- Clippy linting
+- Type check
+- Build workspace
+- Build documentation
+- Run unit/integration tests
+- Qt 6 GUI check (if available)
+
+### 5. text_injection_tests
+
+Tests text injection functionality in a headless X11 environment:
+- Starts Xvfb + fluxbox
+- Sets up D-Bus session
+- Runs real-injection-tests with clipboard utilities
+- Runs Golden Master pipeline test
+
+### 6. ci_success
+
+Aggregates results from all jobs and generates a CI report artifact.
+
+## Adding New Security Advisories
+
+When cargo-audit or cargo-deny reports a new advisory:
+
+1. **Evaluate severity**: Is it a real security risk or informational?
+2. **Update dependency**: If possible, update the affected crate
+3. **Ignore if appropriate**: For unmaintained (not vulnerable) crates, add to `deny.toml`:
+   ```toml
+   [advisories]
+   ignore = [
+       { id = "RUSTSEC-XXXX-XXXX", reason = "No security impact, unmaintained but stable" },
+   ]
+   ```
+4. **Document**: Add to CHANGELOG.md under Security & Tooling
+
+## Related Documentation
+
+- [docs/dependencies.md](../../dependencies.md) - Dependency overview and tooling docs
+- [deny.toml](../../../deny.toml) - cargo-deny configuration

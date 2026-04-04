@@ -5,9 +5,8 @@ on:
     paths:
       - 'docs/**'
       - '.github/workflows/docs-ci.yml'
+      - 'scripts/validate_docs.py'
       - 'scripts/docs_revision_logger.py'
-      - 'scripts/build_docs_index.py'
-      - 'scripts/docs_semantic_review.py'
       - '**/*.md'
 
 jobs:
@@ -34,54 +33,11 @@ jobs:
       - name: Create virtual environment
         run: |
           uv venv .venv --python 3.12
-          uv sync
+          uv pip install -r requirements.txt
 
-      - name: Build semantic docs review packet (advisory)
+      - name: Validate documentation frontmatter and placement
         run: |
-          uv run scripts/docs_semantic_review.py "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}" --packet-out .artifacts/docs_semantic_review_packet.json --prompt-out .artifacts/docs_semantic_review_prompt.md
-
-      - name: Upload semantic review artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          name: docs-semantic-review
-          path: .artifacts/docs_semantic_review_*
-          if-no-files-found: warn
-
-      - name: Run semantic docs judge (OpenAI-compatible, advisory)
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
-          OPENAI_MODEL: ${{ vars.DOCS_REVIEW_MODEL }}
-        run: |
-          uv run scripts/docs_semantic_review.py "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}" \
-            --packet-out .artifacts/docs_semantic_review_packet.json \
-            --prompt-out .artifacts/docs_semantic_review_prompt.md \
-            --run-openai \
-            --allow-missing-openai-key \
-            --llm-output .artifacts/docs_semantic_review_result.json \
-            --fail-on none
-
-      - name: Regenerate docs index and enforce commit
-        run: |
-          uv run scripts/build_docs_index.py
-          if ! git diff --quiet -- docs/index.md; then
-            echo "::error::docs/index.md is stale. Run: python scripts/build_docs_index.py and commit the result."
-            git diff -- docs/index.md || true
-            exit 1
-          fi
-
-      - name: Validate agent instruction mirrors
-        run: |
-          if ! diff -u AGENTS.md .github/copilot-instructions.md; then
-            echo "::error::Agent instruction mirror drift: .github/copilot-instructions.md differs from AGENTS.md"
-            echo "hint: run ./scripts/ensure_agent_hardlinks.sh (or mise run prepare)" >&2
-            exit 1
-          fi
-          if ! diff -u AGENTS.md .kilocode/rules/agents.md; then
-            echo "::error::Agent instruction mirror drift: .kilocode/rules/agents.md differs from AGENTS.md"
-            echo "hint: run ./scripts/ensure_agent_hardlinks.sh (or mise run prepare)" >&2
-            exit 1
-          fi
+          uv run scripts/validate_docs.py "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}"
 
       - name: Append revision log entries
         run: |

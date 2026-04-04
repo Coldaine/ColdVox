@@ -379,17 +379,17 @@ impl AudioCapture {
         self.running.store(true, Ordering::SeqCst);
 
         let device = self.device_manager.open_device(device_name)?;
-        if let Ok(desc) = device.description() {
+        if let Ok(n) = device.name() {
             tracing::info!(
                 "Selected input device: {} (host: {:?})",
-                desc.to_string(),
+                n,
                 self.device_manager.host_id()
             );
         }
         let (config, sample_format) = self.negotiate_config(&device)?;
 
         let device_config = DeviceConfig {
-            sample_rate: config.sample_rate,
+            sample_rate: config.sample_rate.0,
             channels: config.channels,
         };
 
@@ -453,10 +453,25 @@ impl AudioCapture {
 
         // Build the CPAL input stream with proper conversion to i16
         // Use thread-local buffers to avoid allocations in the audio callback
-        // Each thread gets its own buffer; capacity is grown on first use
+        // Pre-allocate buffer BEFORE building callbacks to ensure zero-allocation in real-time path
         thread_local! {
             static CONVERT_BUFFER: std::cell::RefCell<Vec<i16>> = const { std::cell::RefCell::new(Vec::new()) };
         }
+
+        // Pre-allocate buffer capacity outside of audio callback (critical for real-time safety)
+        // 131072 samples = 8.192s at 16kHz, sufficient for any audio callback size
+        CONVERT_BUFFER.with(|buf| {
+            let mut v = buf.borrow_mut();
+            let current_cap = v.capacity();
+            if current_cap < 131072 {
+                v.reserve_exact(131072 - current_cap);
+            }
+            // Verify allocation succeeded
+            debug_assert!(
+                v.capacity() >= 131072,
+                "Failed to pre-allocate CONVERT_BUFFER to required capacity"
+            );
+        });
 
         let stream = match sample_format {
             SampleFormat::I16 => device.build_input_stream(
@@ -473,12 +488,13 @@ impl AudioCapture {
                     CONVERT_BUFFER.with(|buf| {
                         let mut converted = buf.borrow_mut();
                         converted.clear();
-                        // Ensure sufficient capacity (resize only on first call per thread)
-                        let needed = data.len();
-                        let cap = converted.capacity();
-                        if cap < needed {
-                            converted.reserve(needed - cap);
-                        }
+                        // Real-time safety: capacity must be pre-allocated, never allocate here
+                        debug_assert!(
+                            converted.capacity() >= data.len(),
+                            "CONVERT_BUFFER capacity {} insufficient for {} samples",
+                            converted.capacity(),
+                            data.len()
+                        );
                         for &s in data {
                             let clamped = s.clamp(-1.0, 1.0);
                             let v = (clamped * 32767.0).round() as i16;
@@ -496,12 +512,12 @@ impl AudioCapture {
                     CONVERT_BUFFER.with(|buf| {
                         let mut converted = buf.borrow_mut();
                         converted.clear();
-                        // Ensure sufficient capacity (resize only on first call per thread)
-                        let needed = data.len();
-                        let cap = converted.capacity();
-                        if cap < needed {
-                            converted.reserve(needed - cap);
-                        }
+                        debug_assert!(
+                            converted.capacity() >= data.len(),
+                            "CONVERT_BUFFER capacity {} insufficient for {} samples",
+                            converted.capacity(),
+                            data.len()
+                        );
                         for &s in data {
                             let v = (s as i32 - 32768) as i16;
                             converted.push(v);
@@ -518,12 +534,12 @@ impl AudioCapture {
                     CONVERT_BUFFER.with(|buf| {
                         let mut converted = buf.borrow_mut();
                         converted.clear();
-                        // Ensure sufficient capacity (resize only on first call per thread)
-                        let needed = data.len();
-                        let cap = converted.capacity();
-                        if cap < needed {
-                            converted.reserve(needed - cap);
-                        }
+                        debug_assert!(
+                            converted.capacity() >= data.len(),
+                            "CONVERT_BUFFER capacity {} insufficient for {} samples",
+                            converted.capacity(),
+                            data.len()
+                        );
                         for &s in data {
                             let centered = s as i64 - 2_147_483_648i64;
                             let v = (centered >> 16) as i16;
@@ -541,12 +557,12 @@ impl AudioCapture {
                     CONVERT_BUFFER.with(|buf| {
                         let mut converted = buf.borrow_mut();
                         converted.clear();
-                        // Ensure sufficient capacity (resize only on first call per thread)
-                        let needed = data.len();
-                        let cap = converted.capacity();
-                        if cap < needed {
-                            converted.reserve(needed - cap);
-                        }
+                        debug_assert!(
+                            converted.capacity() >= data.len(),
+                            "CONVERT_BUFFER capacity {} insufficient for {} samples",
+                            converted.capacity(),
+                            data.len()
+                        );
                         for &s in data {
                             let clamped = s.clamp(-1.0, 1.0);
                             let v = (clamped * 32767.0).round() as i16;

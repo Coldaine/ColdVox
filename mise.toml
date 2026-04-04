@@ -8,8 +8,7 @@ min_version = "2024.11.1"
 # --- Core Runtimes ---
 # Pinned to latest stable versions as of Nov 2025
 node        = "22"       # LTS
-# Python is managed by UV only - see .python-version and pyproject.toml
-# Do NOT add python here - mise python (3.13) conflicts with PyO3 (requires <=3.12)
+python      = "3.13"     # Stable (Performance Improvements)
 rust        = "stable"   # Latest Stable
 # go          = "1.23"   # Not currently used in ColdVox
 
@@ -34,19 +33,6 @@ description = "Universal Git Pre-commit Hook"
 # Avoids 'npx' to prevent registry lookup latency.
 run = "lint-staged"
 
-[tasks.prepare]
-description = "Repo bootstrap: hooks + agent hardlinks"
-run = """
-#!/usr/bin/env bash
-set -euo pipefail
-
-# Ensure pre-commit hooks are installed (idempotent).
-pre-commit install
-
-# Enable repo-tracked git hooks and ensure AGENTS mirrors are hardlinked.
-./scripts/install_git_hardlink_hooks.sh --quiet
-"""
-
 # --- TASK DELEGATION LAYER ---
 # lint-staged delegates logic here.
 
@@ -55,7 +41,8 @@ description = "Format & Lint Rust (Cargo)"
 run = """
 cargo fmt --
 # --allow-dirty is required because hooks run on dirty states by definition
-cargo clippy --fix --allow-dirty --allow-staged --all-targets --locked """
+cargo clippy --fix --allow-dirty --allow-staged --all-targets --locked -- -D warnings
+"""
 
 [tasks."check:lockfiles"]
 description = "Prevent Lockfile Drift"

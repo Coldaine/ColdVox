@@ -1,14 +1,10 @@
 ---
 doc_type: reference
 subsystem: text-injection
-status: draft
-freshness: stale
-preservation: preserve
-summary: Deep analysis of 6 race conditions in text injection
-signals: ['race-condition', 'lock-ordering', 'async-safety']
-last_reviewed: 2025-10-19
-owners: Documentation Working Group
 version: 1.0.0
+status: draft
+owners: Documentation Working Group
+last_reviewed: 2025-10-19
 ---
 
 # Async Safety Analysis: Text Injection System

@@ -2,7 +2,6 @@ use coldvox_app::Settings;
 use coldvox_foundation::skip_test_unless;
 use std::env;
 use std::path::PathBuf;
-use tempfile::NamedTempFile;
 
 fn get_test_config_path() -> PathBuf {
     // Try workspace root first (for integration tests)
@@ -21,15 +20,6 @@ fn get_test_config_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../config/default.toml")
 }
 
-fn write_temp_config(contents: &str) -> NamedTempFile {
-    let file = tempfile::Builder::new()
-        .suffix(".toml")
-        .tempfile()
-        .expect("create temp config file");
-    std::fs::write(file.path(), contents).expect("write temp config");
-    file
-}
-
 #[test]
 fn test_settings_new_default() {
     // Ensure we test pure defaults without loading repository config files
@@ -40,95 +30,7 @@ fn test_settings_new_default() {
     assert_eq!(settings.activation_mode.to_lowercase(), "vad");
     assert_eq!(settings.injection.max_total_latency_ms, 800);
     assert!(settings.stt.failover_threshold > 0);
-    assert_eq!(settings.stt.remote.base_url, "http://localhost:5092");
-    assert_eq!(settings.stt.remote.api_path, "/v1/audio/transcriptions");
-    assert_eq!(settings.stt.remote.health_path, "/health");
-    assert_eq!(settings.stt.remote.model_name, "parakeet-tdt-0.6b-v2");
-    assert_eq!(settings.stt.remote.timeout_ms, 15_000);
-    assert_eq!(settings.stt.remote.sample_rate, 16_000);
-    assert_eq!(settings.stt.remote.max_audio_bytes, 2_097_152);
-    assert_eq!(settings.stt.remote.max_audio_seconds, 30);
-    assert_eq!(settings.stt.remote.max_payload_bytes, 2_621_440);
-    assert!(settings.stt.remote.headers.is_empty());
-    assert!(settings.stt.remote.auth.bearer_token_env_var.is_none());
     std::env::remove_var("COLDVOX_SKIP_CONFIG_DISCOVERY");
-}
-
-#[test]
-fn test_settings_from_path_loads_canonical_remote_defaults() {
-    let settings = Settings::from_path(get_test_config_path()).expect("load default config");
-
-    assert_eq!(settings.stt.preferred.as_deref(), Some("http-remote"));
-    assert_eq!(settings.stt.remote.base_url, "http://localhost:5092");
-    assert_eq!(settings.stt.remote.api_path, "/v1/audio/transcriptions");
-    assert_eq!(settings.stt.remote.health_path, "/health");
-    assert_eq!(settings.stt.remote.model_name, "parakeet-tdt-0.6b-v2");
-    assert_eq!(settings.stt.remote.timeout_ms, 15_000);
-    assert_eq!(settings.stt.remote.sample_rate, 16_000);
-    assert_eq!(settings.stt.remote.max_audio_bytes, 2_097_152);
-    assert_eq!(settings.stt.remote.max_audio_seconds, 30);
-    assert_eq!(settings.stt.remote.max_payload_bytes, 2_621_440);
-    assert!(settings.stt.remote.headers.is_empty());
-    assert!(settings.stt.remote.auth.bearer_token_env_var.is_none());
-}
-
-#[test]
-fn test_settings_from_path_rejects_invalid_remote_values() {
-    let config_file = write_temp_config(
-        r#"
-            [stt.remote]
-            base_url = "https://localhost:5092"
-            api_path = "v1/audio/transcriptions"
-            health_path = "health"
-            model_name = ""
-            timeout_ms = 0
-            sample_rate = 0
-            max_audio_bytes = 4096
-            max_audio_seconds = 0
-            max_payload_bytes = 1024
-
-            [stt.remote.auth]
-            bearer_token_env_var = "   "
-        "#,
-    );
-
-    let err = Settings::from_path(config_file.path()).expect_err("reject invalid remote config");
-    assert!(
-        err.contains("base_url 'https://localhost:5092' must start with http://"),
-        "unexpected error: {err}"
-    );
-    assert!(
-        err.contains("api_path 'v1/audio/transcriptions' must start with '/'"),
-        "unexpected error: {err}"
-    );
-    assert!(
-        err.contains("health_path 'health' must start with '/'"),
-        "unexpected error: {err}"
-    );
-    assert!(
-        err.contains("model_name must not be empty"),
-        "unexpected error: {err}"
-    );
-    assert!(
-        err.contains("timeout_ms must be >0"),
-        "unexpected error: {err}"
-    );
-    assert!(
-        err.contains("sample_rate must be >0"),
-        "unexpected error: {err}"
-    );
-    assert!(
-        err.contains("max_audio_seconds must be >0"),
-        "unexpected error: {err}"
-    );
-    assert!(
-        err.contains("max_payload_bytes (1024) must be >= max_audio_bytes (4096)"),
-        "unexpected error: {err}"
-    );
-    assert!(
-        err.contains("auth.bearer_token_env_var must not be blank"),
-        "unexpected error: {err}"
-    );
 }
 
 #[test]

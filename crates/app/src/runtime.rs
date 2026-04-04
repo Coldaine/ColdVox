@@ -1,8 +1,6 @@
 use coldvox_audio::ring_buffer::AudioProducer;
 use coldvox_audio::SharedAudioFrame;
 use std::sync::Arc;
-#[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
-use std::time::Instant;
 
 use parking_lot::Mutex;
 use tokio::signal;
@@ -14,8 +12,6 @@ use coldvox_audio::{
     AudioCaptureThread, AudioChunker, AudioRingBuffer, ChunkerConfig, FrameReader, ResamplerQuality,
 };
 use coldvox_foundation::AudioConfig;
-#[cfg(feature = "http-remote")]
-use coldvox_stt::plugins::http_remote::HttpRemoteConfig;
 use coldvox_stt::TranscriptionEvent;
 use coldvox_telemetry::PipelineMetrics;
 use coldvox_vad::config::SileroConfig;
@@ -23,12 +19,11 @@ use coldvox_vad::{UnifiedVadConfig, VadEvent, VadMode, FRAME_SIZE_SAMPLES, SAMPL
 
 use crate::hotkey::spawn_hotkey_listener;
 use crate::stt::plugin_manager::SttPluginManager;
-
-#[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+#[cfg(feature = "whisper")]
 use crate::stt::processor::PluginSttProcessor;
-#[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
-use crate::stt::session::{SessionEvent, SessionSource, Settings};
-#[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+#[cfg(feature = "whisper")]
+use crate::stt::session::Settings;
+#[cfg(feature = "whisper")]
 use coldvox_stt::TranscriptionConfig;
 
 /// Activation strategy for push-to-talk vs voice activation
@@ -63,8 +58,6 @@ pub struct AppRuntimeOptions {
     pub vad_config: Option<coldvox_vad::config::UnifiedVadConfig>,
     /// STT plugin selection configuration
     pub stt_selection: Option<coldvox_stt::plugin::PluginSelectionConfig>,
-    #[cfg(feature = "http-remote")]
-    pub stt_remote_config: Option<HttpRemoteConfig>,
     #[cfg(feature = "text-injection")]
     pub injection: Option<InjectionOptions>,
     /// Whether to poll for device hotplug events (ALSA/CPAL enumeration)
@@ -79,15 +72,11 @@ pub struct AppRuntimeOptions {
 
 impl std::fmt::Debug for AppRuntimeOptions {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut debug = f.debug_struct("AppRuntimeOptions");
-        debug
+        f.debug_struct("AppRuntimeOptions")
             .field("device", &self.device)
             .field("resampler_quality", &self.resampler_quality)
             .field("activation_mode", &self.activation_mode)
-            .field("stt_selection", &self.stt_selection);
-        #[cfg(feature = "http-remote")]
-        debug.field("stt_remote_config", &self.stt_remote_config);
-        debug
+            .field("stt_selection", &self.stt_selection)
             .field("injection", &self.injection)
             .field("enable_device_monitor", &self.enable_device_monitor)
             .field("capture_buffer_samples", &self.capture_buffer_samples)
@@ -110,8 +99,6 @@ impl Default for AppRuntimeOptions {
             activation_mode: ActivationMode::Vad,
             vad_config: None, // Use VAD defaults
             stt_selection: None,
-            #[cfg(feature = "http-remote")]
-            stt_remote_config: None,
             #[cfg(feature = "text-injection")]
             injection: None,
             enable_device_monitor: false,
@@ -131,9 +118,9 @@ pub struct AppHandle {
     raw_vad_tx: mpsc::Sender<VadEvent>,
     audio_tx: broadcast::Sender<SharedAudioFrame>,
     current_mode: std::sync::Arc<RwLock<ActivationMode>>,
-    #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+    #[cfg(feature = "whisper")]
     pub stt_rx: Option<mpsc::Receiver<TranscriptionEvent>>,
-    #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+    #[cfg(feature = "whisper")]
     pub plugin_manager: Option<Arc<tokio::sync::RwLock<SttPluginManager>>>,
 
     audio_capture: AudioCaptureThread,
@@ -141,9 +128,9 @@ pub struct AppHandle {
     chunker_handle: JoinHandle<()>,
     trigger_handle: Arc<Mutex<JoinHandle<()>>>,
     vad_fanout_handle: JoinHandle<()>,
-    #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+    #[cfg(feature = "whisper")]
     stt_handle: Option<JoinHandle<()>>,
-    #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+    #[cfg(feature = "whisper")]
     stt_forward_handle: Option<JoinHandle<()>>,
     #[cfg(feature = "text-injection")]
     injection_handle: Option<JoinHandle<()>>,
@@ -186,11 +173,11 @@ impl AppHandle {
             trigger_guard.abort();
         }
         this.vad_fanout_handle.abort();
-        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+        #[cfg(feature = "whisper")]
         if let Some(h) = &this.stt_handle {
             h.abort();
         }
-        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+        #[cfg(feature = "whisper")]
         if let Some(h) = &this.stt_forward_handle {
             h.abort();
         }
@@ -200,16 +187,12 @@ impl AppHandle {
         }
 
         // Stop plugin manager tasks
-        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+        #[cfg(feature = "whisper")]
         if let Some(pm) = &this.plugin_manager {
             // Unload all plugins before stopping tasks
-            // Hold a single read lock for all operations to avoid deadlock
-            let pm_guard = pm.read().await;
-            if let Err(e) = pm_guard.unload_all_plugins().await {
-                tracing::warn!("Failed to unload plugins during shutdown: {}", e);
-            }
-            pm_guard.stop_gc_task().await;
-            pm_guard.stop_metrics_task().await;
+            let _ = pm.read().await.unload_all_plugins().await;
+            let _ = pm.read().await.stop_gc_task().await;
+            let _ = pm.read().await.stop_metrics_task().await;
         }
 
         // Await tasks to ensure clean termination
@@ -219,7 +202,7 @@ impl AppHandle {
             .into_inner();
         let _ = trigger_handle.await;
         let _ = this.vad_fanout_handle.await;
-        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+        #[cfg(feature = "whisper")]
         if let Some(h) = this.stt_handle {
             let _ = h.await;
         }
@@ -257,7 +240,7 @@ impl AppHandle {
         info!("Switching activation mode from {:?} to {:?}", *old, mode);
 
         // Unload STT plugins before switching modes to ensure clean state
-        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+        #[cfg(feature = "whisper")]
         if let Some(ref pm) = self.plugin_manager {
             info!("Unloading STT plugins before activation mode switch");
             let _ = pm.read().await.unload_all_plugins().await;
@@ -499,15 +482,8 @@ pub async fn start(
         if opts.stt_selection.is_some() {
             let metrics_clone = metrics.clone();
             let mut manager = SttPluginManager::new().with_metrics_sink(metrics_clone);
-            #[cfg(feature = "http-remote")]
-            if let Some(remote_config) = opts.stt_remote_config.clone() {
-                manager.configure_http_remote_factory(remote_config).await;
-            }
             if let Some(config) = opts.stt_selection.clone() {
-                if let Err(e) = manager.set_selection_config(config).await {
-                    error!("Rejected STT plugin selection configuration: {}", e);
-                    return Err(Box::new(e));
-                }
+                manager.set_selection_config(config).await;
             }
             // Initialize the plugin manager; enforce fail-fast semantics when no STT plugin is available
             match manager.initialize().await {
@@ -529,9 +505,9 @@ pub async fn start(
         };
 
     // Create transcription event channels
-    #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+    #[cfg(feature = "whisper")]
     let (stt_tx, stt_rx) = mpsc::channel::<TranscriptionEvent>(100);
-    #[cfg(not(any(feature = "moonshine", feature = "parakeet", feature = "http-remote")))]
+    #[cfg(not(feature = "whisper"))]
     let (_stt_tx, _stt_rx) = mpsc::channel::<TranscriptionEvent>(100);
 
     // Text injection channel
@@ -541,19 +517,19 @@ pub async fn start(
     let (_text_injection_tx, _text_injection_rx) = mpsc::channel::<TranscriptionEvent>(100);
 
     // 6) STT Processor and Fanout - Unified Path
-    #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+    #[cfg(feature = "whisper")]
     let mut stt_forward_handle: Option<JoinHandle<()>> = None;
     #[allow(unused_variables)]
     let (stt_handle, vad_fanout_handle) = if let Some(pm) = plugin_manager.clone() {
         // This is the single, unified path for STT processing.
-        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+        #[cfg(feature = "whisper")]
         let (session_tx, session_rx) = mpsc::channel::<SessionEvent>(100);
         let stt_audio_rx = audio_tx.subscribe();
 
-        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+        #[cfg(feature = "whisper")]
         let (stt_pipeline_tx, stt_pipeline_rx) = mpsc::channel::<TranscriptionEvent>(100);
 
-        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+        #[cfg(feature = "whisper")]
         let stt_config = opts
             .transcription_config
             .clone()
@@ -564,7 +540,7 @@ pub async fn start(
                 ..Default::default()
             });
 
-        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+        #[cfg(feature = "whisper")]
         let processor = PluginSttProcessor::new(
             stt_audio_rx,
             session_rx,
@@ -584,8 +560,8 @@ pub async fn start(
                 // Forward the raw VAD event for UI purposes
                 let _ = vad_bcast_tx_clone.send(ev);
 
-                // Translate to SessionEvent for the STT processor (only when STT enabled)
-                #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+                // Translate to SessionEvent for the STT processor (only in whisper builds)
+                #[cfg(feature = "whisper")]
                 {
                     let session_event = match ev {
                         VadEvent::SpeechStart { .. } => {
@@ -615,14 +591,14 @@ pub async fn start(
             }
         });
 
-        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+        #[cfg(feature = "whisper")]
         let stt_handle = Some(tokio::spawn(async move {
             processor.run().await;
         }));
-        #[cfg(not(any(feature = "moonshine", feature = "parakeet", feature = "http-remote")))]
+        #[cfg(not(feature = "whisper"))]
         let stt_handle: Option<JoinHandle<()>> = None;
 
-        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+        #[cfg(feature = "whisper")]
         {
             let mut pipeline_rx = stt_pipeline_rx;
             let stt_tx_forward = stt_tx.clone();
@@ -698,9 +674,9 @@ pub async fn start(
             }
         });
 
-        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+        #[cfg(feature = "whisper")]
         let stt_handle = None;
-        #[cfg(not(any(feature = "moonshine", feature = "parakeet", feature = "http-remote")))]
+        #[cfg(not(feature = "whisper"))]
         let stt_handle: Option<JoinHandle<()>> = None;
 
         (stt_handle, vad_fanout_handle)
@@ -773,20 +749,298 @@ pub async fn start(
         raw_vad_tx,
         audio_tx,
         current_mode: std::sync::Arc::new(RwLock::new(opts.activation_mode)),
-        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+        #[cfg(feature = "whisper")]
         stt_rx: Some(stt_rx),
-        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+        #[cfg(feature = "whisper")]
         plugin_manager,
         audio_capture,
         audio_producer,
         chunker_handle,
         trigger_handle: Arc::new(Mutex::new(trigger_handle)),
         vad_fanout_handle,
-        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+        #[cfg(feature = "whisper")]
         stt_handle,
-        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+        #[cfg(feature = "whisper")]
         stt_forward_handle,
         #[cfg(feature = "text-injection")]
         injection_handle,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(feature = "whisper")]
+    use super::*;
+
+    #[cfg(feature = "whisper")]
+    use coldvox_stt::plugin::{FailoverConfig, GcPolicy, PluginSelectionConfig};
+    #[cfg(feature = "whisper")]
+    use coldvox_stt::TranscriptionEvent;
+
+    /// Helper to create default runtime options for testing.
+    #[cfg(feature = "whisper")]
+    fn test_opts(activation_mode: ActivationMode) -> AppRuntimeOptions {
+        AppRuntimeOptions {
+            device: None,
+            resampler_quality: ResamplerQuality::Balanced,
+            activation_mode,
+            vad_config: None,
+            stt_selection: Some(PluginSelectionConfig {
+                preferred_plugin: Some("whisper".to_string()),
+                // Do not allow fallback to NoOp in tests; fail loudly if whisper unavailable
+                fallback_plugins: vec![],
+                require_local: true,
+                max_memory_mb: None,
+                required_language: None,
+                failover: Some(FailoverConfig {
+                    failover_threshold: 3,
+                    failover_cooldown_secs: 1,
+                }),
+                gc_policy: Some(GcPolicy {
+                    model_ttl_secs: 30,
+                    enabled: false, // Disable GC for test
+                }),
+                metrics: None,
+                auto_extract_model: true,
+            }),
+            #[cfg(feature = "text-injection")]
+            injection: None,
+            enable_device_monitor: false,
+            capture_buffer_samples: 65_536,
+            test_device_config: None,
+            test_capture_to_dummy: true,
+            test_injection_sink: None,
+            transcription_config: None,
+        }
+    }
+
+    #[cfg(feature = "whisper")]
+    fn summarize_event(event: &TranscriptionEvent) -> String {
+        match event {
+            TranscriptionEvent::Partial { text, .. } => {
+                format!("Partial(len={}, preview={:?})", text.len(), preview(text))
+            }
+            TranscriptionEvent::Final { text, .. } => {
+                format!("Final(len={}, preview={:?})", text.len(), preview(text))
+            }
+            TranscriptionEvent::Error { code, message } => {
+                format!("Error(code={code}, message={:?})", preview(message))
+            }
+        }
+    }
+
+    #[cfg(feature = "whisper")]
+    fn preview(text: &str) -> String {
+        const MAX_PREVIEW: usize = 48;
+        if text.len() <= MAX_PREVIEW {
+            text.to_string()
+        } else {
+            format!("{}…", &text[..MAX_PREVIEW])
+        }
+    }
+
+    #[cfg(feature = "whisper")]
+    #[tokio::test]
+    async fn test_unified_stt_pipeline_vad_mode() {
+        // Ensure tqdm is enabled to avoid buggy 'disabled_tqdm' stub in some Python envs
+        std::env::set_var("TQDM_DISABLE", "0");
+        // Accelerate playback to shorten test duration
+        std::env::set_var("COLDVOX_PLAYBACK_MODE", "accelerated");
+        std::env::set_var("COLDVOX_PLAYBACK_SPEED_MULTIPLIER", "2.0");
+
+        // Prepare WAV and configure device override before starting
+        let mut wav_loader = WavFileLoader::new("test_data/test_11.wav").unwrap();
+        let mut opts = test_opts(ActivationMode::Vad);
+        opts.test_device_config = Some(DeviceConfig {
+            sample_rate: wav_loader.sample_rate(),
+            channels: wav_loader.channels(),
+        });
+        let mut app = start(opts).await.expect("Failed to start app");
+        let mut stt_rx = app.stt_rx.take().expect("STT receiver should be available");
+
+        // Give tasks time to start
+        tokio::time::sleep(Duration::from_millis(150)).await;
+
+        // Stream WAV into ring buffer
+        let audio_producer = app.audio_producer.clone();
+        tokio::spawn(async move {
+            wav_loader
+                .stream_to_ring_buffer_locked(audio_producer)
+                .await
+                .unwrap();
+        });
+
+        // Simulate VAD start/end to drive session lifecycle deterministically
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        app.raw_vad_tx
+            .send(VadEvent::SpeechStart {
+                timestamp_ms: 0,
+                energy_db: -18.0,
+            })
+            .await
+            .expect("Failed to send VAD SpeechStart");
+
+        tokio::time::sleep(Duration::from_millis(1200)).await;
+        app.raw_vad_tx
+            .send(VadEvent::SpeechEnd {
+                timestamp_ms: 1500,
+                duration_ms: 1200,
+                energy_db: -22.0,
+            })
+            .await
+            .expect("Failed to send VAD SpeechEnd");
+
+        // Wait for transcription events (expecting partial and final)
+        let mut received_events = Vec::new();
+        let timeout = Duration::from_secs(20);
+        let wait_started = Instant::now();
+        let mut final_received = false;
+
+        while !final_received {
+            match tokio::time::timeout(timeout, stt_rx.recv()).await {
+                Ok(Some(event)) => {
+                    if matches!(&event, TranscriptionEvent::Final { .. }) {
+                        final_received = true;
+                    }
+                    received_events.push(event);
+                }
+                Ok(None) | Err(_) => {
+                    let summaries: Vec<String> =
+                        received_events.iter().map(summarize_event).collect();
+                    panic!(
+                        "Timed out after {:?} waiting for transcription events in VAD mode. Received {} events: {:?}",
+                        wait_started.elapsed(),
+                        summaries.len(),
+                        summaries
+                    );
+                }
+            }
+        }
+
+        assert!(!received_events.is_empty(), "Should receive events");
+        // Partial events are optional depending on plugin behavior; require at least a final
+        let has_partial = received_events
+            .iter()
+            .any(|e| matches!(e, TranscriptionEvent::Partial { .. }));
+        if !has_partial {
+            tracing::warn!(
+                "No partial events observed; continuing as long as a final was produced"
+            );
+        }
+        assert!(
+            received_events
+                .iter()
+                .any(|e| matches!(e, TranscriptionEvent::Final { .. })),
+            "Should receive a final event"
+        );
+
+        // Clean shutdown
+        Arc::new(app).shutdown().await;
+    }
+
+    #[cfg(feature = "whisper")]
+    #[tokio::test]
+    async fn test_unified_stt_pipeline_hotkey_mode() {
+        // Allow opting into this end-to-end test explicitly to avoid environment-specific Python/tqdm issues
+        if std::env::var("COLDVOX_RUN_HOTKEY_E2E").ok().as_deref() != Some("1") {
+            eprintln!("Skipping hotkey E2E test (set COLDVOX_RUN_HOTKEY_E2E=1 to run)");
+            return;
+        }
+        // Skip in CI/headless environments to avoid brittle dependency on Python/tqdm in non-dev setups
+        let is_ci = std::env::var("CI").is_ok() || std::env::var("GITHUB_ACTIONS").is_ok();
+        let headless = std::env::var("DISPLAY").is_err();
+        if is_ci || headless {
+            eprintln!(
+                "Skipping hotkey end-to-end STT test (is_ci={}, headless={}). This test is intended for dev machines.",
+                is_ci, headless
+            );
+            return;
+        }
+        // Accelerate playback to shorten test duration
+        std::env::set_var("COLDVOX_PLAYBACK_MODE", "accelerated");
+        std::env::set_var("COLDVOX_PLAYBACK_SPEED_MULTIPLIER", "2.0");
+
+        // Prepare WAV and configure device override before starting
+        let mut wav_loader = WavFileLoader::new("test_data/test_11.wav").unwrap();
+        let mut opts = test_opts(ActivationMode::Hotkey);
+        opts.test_device_config = Some(DeviceConfig {
+            sample_rate: wav_loader.sample_rate(),
+            channels: wav_loader.channels(),
+        });
+        let mut app = start(opts).await.expect("Failed to start app");
+        let mut stt_rx = app.stt_rx.take().expect("STT receiver should be available");
+
+        // Give tasks time to start
+        tokio::time::sleep(Duration::from_millis(150)).await;
+
+        // Stream WAV into ring buffer
+        let audio_producer = app.audio_producer.clone();
+        tokio::spawn(async move {
+            wav_loader
+                .stream_to_ring_buffer_locked(audio_producer)
+                .await
+                .unwrap();
+        });
+
+        // Allow some audio to flow before simulating hotkey start
+        tokio::time::sleep(Duration::from_millis(300)).await;
+
+        // Simulate Hotkey Press (emits SpeechStart)
+        app.raw_vad_tx
+            .send(VadEvent::SpeechStart {
+                timestamp_ms: 1000,
+                energy_db: -20.0,
+            })
+            .await
+            .expect("Failed to send Hotkey press event");
+
+        // Let the system process some audio incrementally before ending
+        tokio::time::sleep(Duration::from_millis(800)).await;
+
+        // Simulate Hotkey Release (emits SpeechEnd)
+        app.raw_vad_tx
+            .send(VadEvent::SpeechEnd {
+                timestamp_ms: 2000,
+                duration_ms: 1000,
+                energy_db: -20.0,
+            })
+            .await
+            .expect("Failed to send Hotkey release event");
+
+        // Wait for a final transcription event
+        let timeout = Duration::from_secs(20);
+        let wait_started = Instant::now();
+        let mut received_events = Vec::new();
+        let mut received_final = false;
+        loop {
+            match tokio::time::timeout(timeout, stt_rx.recv()).await {
+                Ok(Some(event)) => {
+                    if matches!(&event, TranscriptionEvent::Final { .. }) {
+                        received_final = true;
+                        break;
+                    }
+                    received_events.push(event);
+                }
+                Ok(None) => break,
+                Err(_) => {
+                    let summaries: Vec<String> =
+                        received_events.iter().map(summarize_event).collect();
+                    panic!(
+                        "Timed out after {:?} waiting for transcription events in hotkey mode. Received {} events: {:?}",
+                        wait_started.elapsed(),
+                        summaries.len(),
+                        summaries
+                    );
+                }
+            }
+        }
+
+        assert!(
+            received_final,
+            "Should receive a final event in hotkey mode"
+        );
+
+        // Clean shutdown
+        Arc::new(app).shutdown().await;
+    }
 }

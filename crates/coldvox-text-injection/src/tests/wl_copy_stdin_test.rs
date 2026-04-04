@@ -93,7 +93,6 @@ fn test_wl_copy_stdin_piping() {
 
 /// Test clipboard backup and restore functionality
 /// This ensures the complete injection workflow works
-#[cfg(unix)]
 #[tokio::test]
 #[ignore] // Requires Wayland environment
 async fn test_wl_copy_clipboard_backup_restore() {
@@ -140,7 +139,6 @@ async fn test_wl_copy_clipboard_backup_restore() {
 }
 
 /// Test timeout handling for wl-copy operations
-#[cfg(unix)]
 #[tokio::test]
 #[ignore] // Requires Wayland environment
 async fn test_wl_copy_timeout_handling() {
@@ -184,7 +182,6 @@ async fn test_wl_copy_timeout_handling() {
 }
 
 /// Test error handling when wl-copy fails
-#[cfg(unix)]
 #[tokio::test]
 #[ignore] // Requires Wayland environment
 async fn test_wl_copy_error_handling() {
@@ -214,7 +211,6 @@ async fn test_wl_copy_error_handling() {
 }
 
 /// Test that the fix handles edge cases correctly
-#[cfg(unix)]
 #[tokio::test]
 #[ignore] // Requires Wayland environment
 async fn test_wl_copy_edge_cases() {
