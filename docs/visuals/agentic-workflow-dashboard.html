@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ColdVox Multi-Agent Workflow Dashboard</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: #111831;
+      --panel-2: #0f1730;
+      --text: #e8edf7;
+      --muted: #9fb0d0;
+      --accent: #7dd3fc;
+      --accent-2: #c4b5fd;
+      --good: #34d399;
+      --warn: #fbbf24;
+      --bad: #fb7185;
+      --line: rgba(148, 163, 184, 0.2);
+      --shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+      --radius: 20px;
+      --mono: "Cascadia Code", "Consolas", "SFMono-Regular", monospace;
+      --sans: Inter, "Segoe UI", Roboto, Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--sans);
+      background:
+        radial-gradient(circle at top left, rgba(125, 211, 252, 0.11), transparent 24%),
+        radial-gradient(circle at top right, rgba(196, 181, 253, 0.10), transparent 18%),
+        linear-gradient(180deg, #050816 0%, #0b1020 100%);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    .wrap {
+      max-width: 1380px;
+      margin: 0 auto;
+      padding: 28px 24px 56px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 18px;
+      align-items: stretch;
+      margin-bottom: 20px;
+    }
+
+    .panel {
+      background: linear-gradient(180deg, rgba(17, 24, 49, 0.94), rgba(10, 16, 35, 0.96));
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+
+    .hero-card {
+      padding: 26px;
+    }
+
+    h1, h2, h3 {
+      margin: 0;
+      line-height: 1.1;
+    }
+
+    h1 {
+      font-size: clamp(2rem, 4vw, 3.4rem);
+      letter-spacing: -0.04em;
+      margin-bottom: 10px;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      max-width: 76ch;
+      font-size: 1.02rem;
+      line-height: 1.65;
+    }
+
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 12px;
+      border-radius: 999px;
+      background: rgba(148, 163, 184, 0.10);
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      color: var(--text);
+      font-size: 0.9rem;
+    }
+
+    .pill strong { color: white; }
+
+    .side-stack {
+      display: grid;
+      gap: 18px;
+    }
+
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      padding: 18px;
+    }
+
+    .stat {
+      padding: 16px;
+      border-radius: 16px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.05);
+    }
+
+    .stat .label { color: var(--muted); font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.08em; }
+    .stat .value { font-size: 1.25rem; margin-top: 6px; font-weight: 700; }
+    .stat .note { color: var(--muted); font-size: 0.88rem; margin-top: 6px; line-height: 1.45; }
+
+    .nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 18px 0 26px;
+    }
+
+    .nav button {
+      border: 1px solid rgba(148,163,184,0.22);
+      background: rgba(255,255,255,0.04);
+      color: var(--text);
+      padding: 10px 14px;
+      border-radius: 999px;
+      cursor: pointer;
+      transition: transform .15s ease, background .15s ease, border-color .15s ease;
+      font-weight: 600;
+    }
+
+    .nav button:hover { transform: translateY(-1px); background: rgba(255,255,255,0.07); }
+    .nav button.active { background: linear-gradient(135deg, rgba(125,211,252,0.18), rgba(196,181,253,0.18)); border-color: rgba(125,211,252,0.45); }
+
+    .section {
+      display: none;
+      padding: 22px;
+    }
+    .section.active { display: block; }
+
+    .section-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      align-items: baseline;
+      margin-bottom: 14px;
+      flex-wrap: wrap;
+    }
+    .section-header p { margin: 0; color: var(--muted); line-height: 1.55; max-width: 86ch; }
+
+    .timeline {
+      position: relative;
+      padding-left: 26px;
+      margin: 12px 0 0;
+    }
+    .timeline::before {
+      content: "";
+      position: absolute;
+      left: 9px;
+      top: 4px;
+      bottom: 4px;
+      width: 2px;
+      background: linear-gradient(180deg, rgba(125,211,252,0.9), rgba(196,181,253,0.75));
+    }
+    .event {
+      position: relative;
+      padding: 0 0 22px 22px;
+    }
+    .event::before {
+      content: "";
+      position: absolute;
+      left: -1px;
+      top: 6px;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #0ea5e9;
+      border: 3px solid #0b1020;
+      box-shadow: 0 0 0 5px rgba(14,165,233,0.16);
+    }
+    .event .when { font-family: var(--mono); color: var(--accent); font-size: 0.88rem; }
+    .event .what { font-size: 1.05rem; font-weight: 700; margin: 4px 0 6px; }
+    .event .why { color: var(--muted); line-height: 1.55; margin: 0; }
+    .tag {
+      display: inline-block;
+      font-size: 0.76rem;
+      padding: 5px 9px;
+      margin-left: 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(148,163,184,0.22);
+      color: #dbeafe;
+      background: rgba(59,130,246,0.12);
+      vertical-align: middle;
+    }
+
+    .flow-grid {
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 18px;
+      align-items: start;
+    }
+
+    .flow-diagram {
+      padding: 18px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 18px;
+    }
+
+    .node-row {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin-bottom: 12px;
+    }
+    .node {
+      padding: 16px;
+      border-radius: 16px;
+      background: linear-gradient(180deg, rgba(15,23,42,0.96), rgba(8,12,28,0.96));
+      border: 1px solid rgba(148,163,184,0.18);
+      min-height: 120px;
+    }
+    .node .title { font-weight: 700; margin-bottom: 6px; }
+    .node .desc { color: var(--muted); font-size: 0.92rem; line-height: 1.45; }
+    .arrow {
+      grid-column: 1 / -1;
+      display: flex;
+      justify-content: center;
+      color: var(--accent);
+      font-size: 1.3rem;
+      margin: 2px 0 10px;
+      opacity: 0.9;
+    }
+
+    .matrix {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 14px;
+    }
+    .tile {
+      border-radius: 18px;
+      padding: 18px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.03);
+    }
+    .tile.good { box-shadow: inset 0 0 0 1px rgba(52,211,153,0.20); }
+    .tile.warn { box-shadow: inset 0 0 0 1px rgba(251,191,36,0.18); }
+    .tile.bad { box-shadow: inset 0 0 0 1px rgba(251,113,133,0.18); }
+    .tile h3 { margin-bottom: 8px; }
+    .tile p { margin: 0; color: var(--muted); line-height: 1.55; }
+
+    .prompt-grid {
+      display: grid;
+      grid-template-columns: 1.05fr 0.95fr;
+      gap: 18px;
+    }
+    .prompt-box, .notes-box {
+      border-radius: 18px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.06);
+      padding: 18px;
+    }
+    .prompt-box pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      margin: 0;
+      padding: 16px;
+      border-radius: 16px;
+      background: #070c19;
+      border: 1px solid rgba(148,163,184,0.18);
+      font-family: var(--mono);
+      font-size: 0.84rem;
+      line-height: 1.55;
+      color: #dce7ff;
+      max-height: 680px;
+      overflow: auto;
+    }
+    .explain-list {
+      display: grid;
+      gap: 12px;
+    }
+    .explain-item {
+      padding: 14px;
+      border-radius: 16px;
+      background: rgba(15,23,42,0.84);
+      border: 1px solid rgba(148,163,184,0.16);
+    }
+    .explain-item .headline { font-weight: 700; margin-bottom: 6px; }
+    .explain-item .headline .range { font-family: var(--mono); color: var(--accent); font-size: 0.85rem; }
+    .explain-item .body { color: var(--muted); line-height: 1.55; margin: 0; }
+
+    .mini-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 14px;
+    }
+    .mini {
+      padding: 16px;
+      border-radius: 16px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.08);
+      min-height: 130px;
+    }
+    .mini .top { font-size: 0.8rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    .mini .score { font-size: 2rem; font-weight: 800; margin: 6px 0 8px; }
+    .mini .detail { color: var(--muted); line-height: 1.5; }
+
+    .footer-note {
+      margin-top: 18px;
+      color: var(--muted);
+      font-size: 0.92rem;
+      line-height: 1.55;
+    }
+
+    code, .mono {
+      font-family: var(--mono);
+      font-size: 0.95em;
+    }
+
+    @media (max-width: 980px) {
+      .hero, .flow-grid, .prompt-grid, .node-row, .mini-grid, .matrix {
+        grid-template-columns: 1fr;
+      }
+      .stat-grid { grid-template-columns: 1fr 1fr; }
+    }
+
+    @media (max-width: 720px) {
+      .wrap { padding: 18px 14px 36px; }
+      .stat-grid { grid-template-columns: 1fr; }
+      .nav button { width: 100%; justify-content: center; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="hero">
+      <div class="panel hero-card">
+        <h1>ColdVox multi-agent experiment</h1>
+        <div class="subtitle">
+          This dashboard separates three things that were getting blurred together in the repo: the manual <strong>project-driver</strong> orchestration prompts, the <strong>evidence assessor</strong> that actually runs in GitHub Actions, and the broader <strong>agent instructions</strong> that are documentation-only unless a human or CI job invokes them.
+        </div>
+        <div class="pill-row">
+          <span class="pill"><strong>Auto-runs:</strong> GitHub Actions workflow</span>
+          <span class="pill"><strong>Manual:</strong> project-driver + subagents</span>
+          <span class="pill"><strong>Shadow mode:</strong> advisory only</span>
+          <span class="pill"><strong>Risk:</strong> Gemini w/ secrets + yolo mode</span>
+        </div>
+      </div>
+
+      <div class="panel side-stack">
+        <div class="stat-grid">
+          <div class="stat">
+            <div class="label">Provenance commits</div>
+            <div class="value">3 key points</div>
+            <div class="note"><code>dd6a9aa</code>, <code>5675030</code>, <code>631c8eb</code></div>
+          </div>
+          <div class="stat">
+            <div class="label">Automatic hooks</div>
+            <div class="value">1 CI path</div>
+            <div class="note"><code>.github/workflows/agentic-evidence-preview.yml</code></div>
+          </div>
+          <div class="stat">
+            <div class="label">Manual agent roles</div>
+            <div class="value">4 specs</div>
+            <div class="note">Researcher, Implementer, Tester, project-driver</div>
+          </div>
+          <div class="stat">
+            <div class="label">Shadow mode?</div>
+            <div class="value">Yes</div>
+            <div class="note">Writes a report, does not gate merge</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="nav" role="tablist" aria-label="Visualization sections">
+      <button class="active" data-target="timeline">1. Provenance timeline</button>
+      <button data-target="wiring">2. Runtime wiring map</button>
+      <button data-target="prompt">3. Prompt anatomy</button>
+      <button data-target="risk">4. Applicability & CI risk</button>
+    </div>
+
+    <section id="timeline" class="panel section active">
+      <div class="section-header">
+        <div>
+          <h2>Provenance timeline</h2>
+          <p>Where the broader multi-agent experiment came from, based on repo history and the visible docs.</p>
+        </div>
+        <p class="mono">Manual agent roles → evidence-docs → shadow CI assessor</p>
+      </div>
+
+      <div class="timeline">
+        <div class="event">
+          <div class="when">2026-02-28 · <code>dd6a9aa</code> <span class="tag">origin point</span></div>
+          <div class="what">GitHub Copilot agent definitions added</div>
+          <p class="why">This commit introduced <code>.github/agents/project-driver.agent.md</code>, <code>researcher.agent.md</code>, <code>implementer.agent.md</code>, <code>tester.agent.md</code>, and <code>.github/prompts/drive-project.prompt.md</code>. It is the source of the repo’s manual multi-agent orchestration experiment.</p>
+        </div>
+        <div class="event">
+          <div class="when">2026-03-31 · <code>5675030</code> <span class="tag">shadow assessor</span></div>
+          <div class="what">Evidence assessor introduced in shadow mode</div>
+          <p class="why">This commit created the initial CI-driven Gemini reviewer plus the evidence-standard docs. The assessor was advisory only: PRs still merged by human judgment.</p>
+        </div>
+        <div class="event">
+          <div class="when">2026-04-01 · <code>631c8eb</code> <span class="tag">autonomous rewrite</span></div>
+          <div class="what">Assessor rewritten to autonomous agent mode</div>
+          <p class="why">The workflow stopped trying to pre-compose prompts in shell and instead handed Gemini a direct instruction file plus <code>--approval-mode=yolo</code>. That makes the agent more autonomous, but also more powerful inside the runner.</p>
+        </div>
+        <div class="event">
+          <div class="when">Now</div>
+          <div class="what">Two parallel ideas coexist</div>
+          <p class="why">One idea is a prompt-level multi-agent workflow for a human to invoke. The other is a CI shadow reviewer that runs on PRs. They are related, but only the CI reviewer is actually wired to execute automatically.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="wiring" class="panel section">
+      <div class="section-header">
+        <div>
+          <h2>Runtime wiring map</h2>
+          <p>This shows what actually runs automatically versus what is only documentation or a manual agent prompt. The important distinction: the repo has lots of agent language, but very little of it is auto-executed.</p>
+        </div>
+        <p class="mono">Hooked ≠ documented ≠ executed</p>
+      </div>
+
+      <div class="flow-grid">
+        <div class="flow-diagram">
+          <div class="node-row">
+            <div class="node">
+              <div class="title">Pull request event</div>
+              <div class="desc"><code>pull_request</code> with <code>opened</code>, <code>synchronize</code>, <code>ready_for_review</code>.</div>
+            </div>
+            <div class="node">
+              <div class="title">Shadow Gemini assessor</div>
+              <div class="desc">Reads prompt + repo context, then writes a report to <code>$GITHUB_STEP_SUMMARY</code>.</div>
+            </div>
+            <div class="node">
+              <div class="title">Human review</div>
+              <div class="desc">Final merge decision still belongs to people. The workflow is advisory only.</div>
+            </div>
+            <div class="arrow">↓</div>
+          </div>
+
+          <div class="node-row">
+            <div class="node">
+              <div class="title">Manual project-driver prompt</div>
+              <div class="desc"><code>.github/prompts/drive-project.prompt.md</code> tells an agent how to orchestrate Researcher, Implementer, and Tester. Nothing auto-triggers it.</div>
+            </div>
+            <div class="node">
+              <div class="title">Subagent specs</div>
+              <div class="desc"><code>.github/agents/*.agent.md</code> define role-specific behavior, but they are prompt files, not CI jobs.</div>
+            </div>
+            <div class="node">
+              <div class="title">Other repo workflows</div>
+              <div class="desc"><code>claude.yml</code> and <code>claude-code-review.yml</code> are also real, but they are separate from the Gemini evidence assessor.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel" style="padding:18px;">
+          <h3>Execution truth table</h3>
+          <div class="matrix">
+            <div class="tile good">
+              <h3>Actually executed</h3>
+              <p><code>.github/workflows/agentic-evidence-preview.yml</code> runs automatically in CI. It is the only piece of the new evidence-standard stack with a real trigger path.</p>
+            </div>
+            <div class="tile warn">
+              <h3>Executed only when called</h3>
+              <p><code>project-driver</code>, <code>Researcher</code>, <code>Implementer</code>, and <code>Tester</code> depend on human or agent invocation. They are useful, but not autonomous infrastructure.</p>
+            </div>
+            <div class="tile bad">
+              <h3>Spec-only enforcement</h3>
+              <p>The future merge-gating / spec-enforcer idea is not wired. The docs describe it, but there is no check-status gate yet.</p>
+            </div>
+            <div class="tile">
+              <h3>Shadow-mode stance</h3>
+              <p>The assessor reports evidence quality and semantic drift, but it does not block merges. That makes it a reviewer aid, not a policy engine.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="prompt" class="panel section">
+      <div class="section-header">
+        <div>
+          <h2>Prompt anatomy and why it is “enough”</h2>
+          <p>This panel explains why the evidence-assessor prompt is sufficient for a shadow reviewer: it defines role, context, evidence tiers, workflow, constraints, and exact output shape. The workflow now supplies the actual PR metadata and repo context.</p>
+        </div>
+        <p class="mono">Prompt strength comes from structure, not vibes</p>
+      </div>
+
+      <div class="prompt-grid">
+        <div class="prompt-box">
+          <pre>1. Role &amp; mission
+   - “Senior DevOps Engineer” + “autonomous AI agent”
+   - establishes scope and tone
+
+2. Repo context
+   - ColdVox voice pipeline
+   - anchor docs: northstar, AGENTS, current-status
+   - ground truths: Moonshine fragile, Parakeet not ready,
+     dead stub flags stay dead until the PR changes that
+
+3. Evidence tiers
+   - Tier 1: runtime logs
+   - Tier 2: integration tests
+   - Tier 3: unit tests hitting real path
+   - Tier 4: structural code proof
+   - Tier 5: docs only
+
+4. Workflow protocol
+   - extract claims
+   - inspect diff and repo
+   - detect semantic drift
+   - write a fixed Markdown report
+
+5. Critical constraints
+   - do not hallucinate
+   - do not speculate
+   - do not comment on style or architecture
+   - do not output anything except the report
+
+6. Input context placeholders
+   - PR title
+   - PR body
+   - git diff
+   - docs index
+   - northstar excerpt</pre>
+        </div>
+
+        <div class="notes-box">
+          <div class="explain-list">
+            <div class="explain-item">
+              <div class="headline">Identity + mission <span class="range">lines 1–10-ish</span></div>
+              <p class="body">This is enough to keep the model in reviewer mode instead of “agent that writes code.” It frames the job as audit, not implementation, which matters because CI should not drift into autonomous mutation unless that is explicitly intended.</p>
+            </div>
+            <div class="explain-item">
+              <div class="headline">Ground truths <span class="range">repository facts</span></div>
+              <p class="body">These lines anchor the model to what ColdVox currently believes is true. They prevent the assessor from “discovering” that a backend is working just because a doc sounds optimistic.</p>
+            </div>
+            <div class="explain-item">
+              <div class="headline">Evidence tiers <span class="range">review rubric</span></div>
+              <p class="body">The tiers make the output legible to humans. The important bit is that docs-only evidence is weak, because docs are cheap to change and easy to get wrong.</p>
+            </div>
+            <div class="explain-item">
+              <div class="headline">Critical constraints <span class="range">anti-hallucination guardrails</span></div>
+              <p class="body">These lines are the real safety rail. They keep the model from inventing tests, inventing logs, or “assuming” that Rust type safety makes a claim true.</p>
+            </div>
+            <div class="explain-item">
+              <div class="headline">Why the prompt is sufficient <span class="range">for shadow mode</span></div>
+              <p class="body">Because the workflow also supplies the PR metadata and repo context, the prompt does not need to be clever. It needs to be constrained. That is enough for an advisory reviewer, but not enough to justify unsupervised mutation on its own.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="footer-note">
+        <strong>Important nuance:</strong> in the current branch, the assessor is not merely a static prompt. The workflow gives Gemini direct access to the repository workspace and uses <code>--approval-mode=yolo</code>. That makes the prompt “enough” to instruct the model, but it also raises the runner risk profile because the agent can now explore and act inside CI rather than just reasoning over a pre-digested diff.
+      </div>
+    </section>
+
+    <section id="risk" class="panel section">
+      <div class="section-header">
+        <div>
+          <h2>Applicability and CI risk</h2>
+          <p>What this evidence standard is good at, where it helps ColdVox, and where it is too blunt to be the primary mechanism.</p>
+        </div>
+        <p class="mono">Useful in the review lane; risky in the execution lane</p>
+      </div>
+
+      <div class="mini-grid">
+        <div class="mini">
+          <div class="top">Useful for</div>
+          <div class="score" style="color: var(--good);">PR claims</div>
+          <div class="detail">“This fixes Moonshine on Windows,” “this adds streaming transcription,” “this updates CI behavior.”</div>
+        </div>
+        <div class="mini">
+          <div class="top">Weak for</div>
+          <div class="score" style="color: var(--warn);">Cosmetic diffs</div>
+          <div class="detail">Formatting, refactors, doc-only edits, and other changes where evidence auditing adds little value.</div>
+        </div>
+        <div class="mini">
+          <div class="top">High risk if</div>
+          <div class="score" style="color: var(--bad);">Secrets + yolo</div>
+          <div class="detail">A fully autonomous agent in CI has access to repo contents, logs, and secrets. That is powerful and easy to misuse.</div>
+        </div>
+        <div class="mini">
+          <div class="top">Best posture</div>
+          <div class="score" style="color: var(--accent);">Shadow first</div>
+          <div class="detail">Use it as an advisory reviewer, not as a gate, until the false-positive and false-negative rate is understood.</div>
+        </div>
+      </div>
+
+      <div class="matrix" style="margin-top: 18px;">
+        <div class="tile good">
+          <h3>Where it is a good fit</h3>
+          <p>ColdVox has a long-running problem of docs and code drifting apart, especially around STT backends, feature flags, and “what works today.” A reviewer that checks material claims against actual evidence is genuinely useful here.</p>
+        </div>
+        <div class="tile warn">
+          <h3>Where it is not the main tool</h3>
+          <p>It should not replace live validation for microphone/STT/injection paths. The repo’s real reliability questions still need runtime tests and hardware-aware verification.</p>
+        </div>
+        <div class="tile bad">
+          <h3>Why CI runner autonomy is dangerous</h3>
+          <p>Research on autonomous agents in GitHub Actions points to secret exposure, prompt injection, egress leaks, and destructive commands as real threats. The current setup is shadow-mode, but <code>--approval-mode=yolo</code> increases the blast radius if the prompt or inputs are poisoned.</p>
+        </div>
+        <div class="tile">
+          <h3>Practical takeaway</h3>
+          <p>Use the evidence assessor as a reviewer assistant. Keep the actual product reliability work in Rust tests, runtime checks, and platform-specific integration validation.</p>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const buttons = Array.from(document.querySelectorAll('.nav button'));
+    const sections = Array.from(document.querySelectorAll('.section'));
+    buttons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        buttons.forEach(b => b.classList.remove('active'));
+        sections.forEach(s => s.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById(btn.dataset.target).classList.add('active');
+        document.getElementById(btn.dataset.target).scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    });
+  </script>
+</body>
+</html>
