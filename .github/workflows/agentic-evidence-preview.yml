@@ -95,7 +95,7 @@ jobs:
   # ────────────────────────────────────────────────────────────────────────────
   # JOB 2: Evidence Assessor — Gemini Flash (always runs)
   # Asks: "Is this PR honest? Do its claims match what was actually changed?"
-  # Uses gemini-2.5-flash for cost and speed efficiency.
+  # Uses gemini-3-flash-preview for cost and speed efficiency.
   # ────────────────────────────────────────────────────────────────────────────
   evidence-assessor:
     name: "Evidence Assessor — Flash (shadow, always)"
@@ -141,7 +141,7 @@ jobs:
             "$PR_TITLE" "$PR_BODY" "$BASE_REF" >> _ci_evidence_instructions.md
 
           npx --yes @google/gemini-cli \
-            --model gemini-2.5-flash \
+            --model gemini-3-flash-preview \
             --approval-mode=yolo \
             -p "You are the Agentic Evidence Assessor. Read your instructions from _ci_evidence_instructions.md. Investigate the workspace. Run git diff against origin/${BASE_REF}. Write your Markdown report to _ci_evidence_report.md. Stop when the report is written." \
           || echo "**⚠️ Evidence Assessor:** Gemini CLI exited with error — see job log." > _ci_evidence_report.md
@@ -157,7 +157,7 @@ jobs:
             echo "## 🔍 Evidence Assessor — Gemini Flash (Shadow Mode)"
             echo ""
             echo "> **Shadow Mode** · Non-blocking · Advisory only · Does not gate merges"
-            echo "> Model: \`gemini-2.5-flash\` · Runs on: all PRs"
+            echo "> Model: \`gemini-3-flash-preview\` · Runs on: all PRs"
             echo ""
             echo "---"
             echo ""
@@ -167,7 +167,7 @@ jobs:
   # ────────────────────────────────────────────────────────────────────────────
   # JOB 3: Northstar Alignment Reviewer — Gemini Pro (complex PRs only)
   # Asks: "Does this PR move us closer to our product goals?"
-  # Uses gemini-2.5-pro for deeper reasoning on complex feature work.
+  # Uses gemini-3.1-pro-preview-customtools for deeper reasoning on complex feature work.
   # Skipped automatically on simple/moderate PRs (docs, small fixes).
   # ────────────────────────────────────────────────────────────────────────────
   northstar-reviewer:
@@ -214,7 +214,7 @@ jobs:
             "$PR_TITLE" "$PR_BODY" "$BASE_REF" >> _ci_northstar_instructions.md
 
           npx --yes @google/gemini-cli \
-            --model gemini-2.5-pro \
+            --model gemini-3.1-pro-preview-customtools \
             --approval-mode=yolo \
             -p "You are the Northstar Alignment Reviewer. Read your instructions from _ci_northstar_instructions.md. Investigate the workspace. Run git diff against origin/${BASE_REF}. Read docs/northstar.md and docs/plans/current-status.md. Write your Markdown report to _ci_northstar_report.md. Stop when the report is written." \
           || echo "**⚠️ Northstar Reviewer:** Gemini CLI exited with error — see job log." > _ci_northstar_report.md
@@ -230,7 +230,7 @@ jobs:
             echo "## 🧭 Northstar Alignment Reviewer — Gemini Pro (Shadow Mode)"
             echo ""
             echo "> **Shadow Mode** · Non-blocking · Advisory only · Does not gate merges"
-            echo "> Model: \`gemini-2.5-pro\` · Runs on: complex PRs only (>10 Rust source files changed)"
+            echo "> Model: \`gemini-3.1-pro-preview-customtools\` · Runs on: complex PRs only (>10 Rust source files changed)"
             echo ""
             echo "---"
             echo ""
