@@ -37,6 +37,20 @@ env:
   MAX_LOAD_AVERAGE: 5
 
 jobs:
+  repo-integrity:
+    name: Repo Integrity Checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.0
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: stable
+      - name: Setup ColdVox
+        uses: ./.github/actions/setup-coldvox
+      - name: Run repo integrity checks
+        run: python3 scripts/lint_repo_integrity.py
+
   validate-workflows:
     name: Validate Workflow Definitions
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
@@ -306,6 +320,7 @@ jobs:
     name: CI Success Summary
     runs-on: [self-hosted, Linux, X64, fedora, nobara]
     needs:
+      - repo-integrity
       - validate-workflows
       - setup-whisper-dependencies
       - build_and_check
@@ -316,10 +331,12 @@ jobs:
       - name: Generate CI Report
         run: |
           echo "## CI Report" > report.md
+          echo "- repo-integrity:                ${{ needs.repo-integrity.result }}" >> report.md
           echo "- validate-workflows:            ${{ needs.validate-workflows.result }}" >> report.md
           echo "- setup-whisper-dependencies:    ${{ needs.setup-whisper-dependencies.result }}" >> report.md
           echo "- build_and_check:               ${{ needs.build_and_check.result }}" >> report.md
           echo "- text_injection_tests:          ${{ needs.text_injection_tests.result }}" >> report.md
+          if [[ "${{ needs.repo-integrity.result }}" != "success" ]]; then echo "::error::Repo integrity checks failed."; exit 1; fi
           if [[ "${{ needs.setup-whisper-dependencies.result }}" != "success" ]]; then echo "::error::Setup Whisper dependencies failed."; exit 1; fi
           if [[ "${{ needs.build_and_check.result }}" != "success" ]]; then echo "::error::Build and check failed."; exit 1; fi
           if [[ "${{ needs.text_injection_tests.result }}" != "success" ]]; then echo "::error::Text injection tests failed."; exit 1; fi
