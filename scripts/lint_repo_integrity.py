@@ -549,11 +549,11 @@ def check_test_skip_audit(fix_baseline: bool = False) -> CheckResult:
             except json.JSONDecodeError:
                 pass
 
-        # Fallback: parse text output
+        # Fallback: parse text output - sum across all test binaries
         if "test result:" in line:
             match = re.search(r'(\d+)\s+ignored', line)
             if match:
-                skipped_count = int(match.group(1))
+                skipped_count += int(match.group(1))
 
     # Read baseline
     baseline_count = None
@@ -665,8 +665,11 @@ def main() -> int:
     total_count = len(results)
 
     if failed:
+        failed_count = total_count - passed_count
+        print(f"RESULT: FAIL ({failed_count} check(s) failed)")
         return 1
     else:
+        print(f"RESULT: PASS ({passed_count}/{total_count} checks passed)")
         return 0
 
 
