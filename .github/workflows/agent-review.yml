@@ -1,0 +1,165 @@
+name: Agent Review
+
+on:
+  pull_request:
+    branches: [tauri-base]
+    types: [opened, synchronize, ready_for_review, reopened]
+
+concurrency:
+  group: agent-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  agent-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Ensure agent review labels exist
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const labels = [
+              {
+                name: 'agent-approved',
+                color: '2da44e',
+                description: 'Automated agent review passed.',
+              },
+              {
+                name: 'agent-blocked',
+                color: 'd1242f',
+                description: 'Automated agent review found blocking issues.',
+              },
+            ];
+
+            for (const label of labels) {
+              try {
+                await github.rest.issues.createLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ...label,
+                });
+              } catch (error) {
+                if (error.status !== 422) {
+                  throw error;
+                }
+              }
+            }
+
+      - name: Run CodeRabbit review
+        id: coderabbit
+        uses: coderabbitai/coderabbit-action@v1
+        continue-on-error: true
+        with:
+          review_mode: full
+          apply_labels: true
+
+      - name: Apply agent review labels
+        uses: actions/github-script@v7
+        env:
+          REVIEW_STEP_OUTCOME: ${{ steps.coderabbit.outcome }}
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = context.payload.pull_request.number;
+            const labelsToManage = ['agent-approved', 'agent-blocked'];
+            const agentLogins = new Set(['coderabbitai[bot]', 'coderabbitai']);
+            const approvedPatterns = [
+              /\[triage\]:\s*approved/i,
+              /\bapproved\b/i,
+              /\blgtm\b/i,
+              /no significant issues/i,
+            ];
+            const blockedPatterns = [
+              /\[triage\]:\s*needs_review/i,
+              /\bchanges requested\b/i,
+              /\bcritical\b/i,
+              /\bblocker\b/i,
+              /\bhigh severity\b/i,
+              /\bneeds review\b/i,
+              /\bsecurity issue\b/i,
+            ];
+
+            const reviews = await github.paginate(github.rest.pulls.listReviews, {
+              owner,
+              repo,
+              pull_number: issue_number,
+              per_page: 100,
+            });
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number,
+              per_page: 100,
+            });
+
+            const agentReviews = reviews.filter((review) =>
+              agentLogins.has(review.user?.login || ''),
+            );
+            const agentComments = comments.filter((comment) =>
+              agentLogins.has(comment.user?.login || ''),
+            );
+
+            const latestAgentReview = agentReviews[agentReviews.length - 1];
+            const reviewText = agentReviews.map((review) => review.body || '');
+            const commentText = agentComments.map((comment) => comment.body || '');
+            const combinedText = [...reviewText, ...commentText].join('\n');
+
+            const hasBlockedSignal =
+              process.env.REVIEW_STEP_OUTCOME !== 'success' ||
+              latestAgentReview?.state === 'CHANGES_REQUESTED' ||
+              blockedPatterns.some((pattern) => pattern.test(combinedText));
+
+            const hasApprovedSignal =
+              !hasBlockedSignal &&
+              (latestAgentReview?.state === 'APPROVED' ||
+                approvedPatterns.some((pattern) => pattern.test(combinedText)));
+
+            for (const name of labelsToManage) {
+              try {
+                await github.rest.issues.removeLabel({
+                  owner,
+                  repo,
+                  issue_number,
+                  name,
+                });
+              } catch (error) {
+                if (error.status !== 404) {
+                  throw error;
+                }
+              }
+            }
+
+            if (hasBlockedSignal) {
+              await github.rest.issues.addLabels({
+                owner,
+                repo,
+                issue_number,
+                labels: ['agent-blocked'],
+              });
+              core.info('Applied agent-blocked label.');
+              return;
+            }
+
+            if (hasApprovedSignal) {
+              await github.rest.issues.addLabels({
+                owner,
+                repo,
+                issue_number,
+                labels: ['agent-approved'],
+              });
+              core.info('Applied agent-approved label.');
+              return;
+            }
+
+            core.info('No explicit agent review outcome detected; no label applied.');
