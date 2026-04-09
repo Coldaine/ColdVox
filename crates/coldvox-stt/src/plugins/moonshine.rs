@@ -18,7 +18,6 @@ use tracing::{debug, info, warn};
 
 #[cfg(feature = "moonshine")]
 use pyo3::{
-    ffi::c_str,
     types::{PyAnyMethods, PyDict, PyDictMethods, PyModule},
     Py, PyAny, Python,
 };
@@ -65,6 +64,8 @@ pub struct MoonshinePlugin {
     initialized: bool,
     #[cfg(feature = "moonshine")]
     audio_buffer: Vec<i16>,
+    #[cfg(feature = "moonshine")]
+    active_config: Option<TranscriptionConfig>,
     /// Cached Python model (loaded once in initialize, reused across transcriptions)
     ///
     /// SAFETY: `Py<PyAny>` is `Send` but requires the Python GIL for all access.
@@ -99,6 +100,8 @@ impl MoonshinePlugin {
             #[cfg(feature = "moonshine")]
             audio_buffer: Vec::new(),
             #[cfg(feature = "moonshine")]
+            active_config: None,
+            #[cfg(feature = "moonshine")]
             cached_model: None,
             #[cfg(feature = "moonshine")]
             cached_processor: None,
@@ -131,20 +134,20 @@ impl MoonshinePlugin {
 
     #[cfg(feature = "moonshine")]
     fn verify_python_environment() -> Result<(), ColdVoxError> {
-        Python::attach(|py| {
-            PyModule::import(py, "transformers").map_err(|_| {
+        Python::with_gil(|py| {
+            PyModule::import_bound(py, "transformers").map_err(|_| {
                 SttError::LoadFailed(
                     "transformers not installed. Run: pip install transformers>=4.35.0".to_string(),
                 )
             })?;
 
-            PyModule::import(py, "torch").map_err(|_| {
+            PyModule::import_bound(py, "torch").map_err(|_| {
                 SttError::LoadFailed(
                     "torch not installed. Run: pip install torch>=2.0.0".to_string(),
                 )
             })?;
 
-            PyModule::import(py, "librosa").map_err(|_| {
+            PyModule::import_bound(py, "librosa").map_err(|_| {
                 SttError::LoadFailed(
                     "librosa not installed. Run: pip install librosa>=0.10.0".to_string(),
                 )
@@ -167,17 +170,15 @@ impl MoonshinePlugin {
             .and_then(|p| p.to_str())
             .unwrap_or_else(|| self.model_size.model_identifier());
 
-        Python::attach(|py| {
-            let locals = PyDict::new(py);
+        Python::with_gil(|py| {
+            let locals = PyDict::new_bound(py);
             locals
                 .set_item("model_id", model_id)
                 .map_err(|e| SttError::LoadFailed(format!("Failed to set model_id: {}", e)))?;
 
             // Load model and processor using safe variable passing
-            // NOTE: Must use run (not eval) because this contains statements
-            py.run(
-                c_str!(
-                    r#"
+            // NOTE: Must use run_bound (not eval_bound) because this contains statements
+            let load_code = r#"
 import torch
 from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor
 
@@ -193,12 +194,10 @@ _model.to(device)
 _model.eval()  # Set to evaluation mode for inference
 
 _processor = AutoProcessor.from_pretrained(model_id)
-"#
-                ),
-                None,
-                Some(&locals),
-            )
-            .map_err(|e| SttError::LoadFailed(format!("Failed to load model: {}", e)))?;
+"#;
+
+            py.run_bound(load_code, None, Some(&locals))
+                .map_err(|e| SttError::LoadFailed(format!("Failed to load model: {}", e)))?;
 
             // Extract model and processor from locals dict
             let model = locals
@@ -238,8 +237,8 @@ _processor = AutoProcessor.from_pretrained(model_id)
             .as_ref()
             .ok_or_else(|| SttError::TranscriptionFailed("Processor not loaded".to_string()))?;
 
-        Python::attach(|py| {
-            let locals = PyDict::new(py);
+        Python::with_gil(|py| {
+            let locals = PyDict::new_bound(py);
 
             // SECURITY: Pass variables via locals dict, not string interpolation
             // This prevents code injection via malicious file paths
@@ -258,10 +257,8 @@ _processor = AutoProcessor.from_pretrained(model_id)
                 SttError::TranscriptionFailed(format!("Failed to set audio_path: {}", e))
             })?;
 
-            // NOTE: Must use run (not eval) because this contains statements
-            py.run(
-                c_str!(
-                    r#"
+            // NOTE: Must use run_bound (not eval_bound) because this contains statements
+            let transcribe_code = r#"
 import torch
 import librosa
 
@@ -276,12 +273,10 @@ with torch.no_grad():
     generated_ids = model.generate(**inputs)
 
 _transcription = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
-"#
-                ),
-                None,
-                Some(&locals),
-            )
-            .map_err(|e| SttError::TranscriptionFailed(format!("Python error: {}", e)))?;
+"#;
+
+            py.run_bound(transcribe_code, None, Some(&locals))
+                .map_err(|e| SttError::TranscriptionFailed(format!("Python error: {}", e)))?;
 
             let result = locals
                 .get_item("_transcription")
@@ -391,8 +386,8 @@ impl SttPlugin for MoonshinePlugin {
             self.load_model_and_processor()?;
 
             self.audio_buffer.clear();
+            self.active_config = Some(config);
             self.initialized = true;
-            let _ = config; // Config used during load_model_and_processor if needed
 
             info!(target: "coldvox::stt::moonshine", "Moonshine CPU initialized successfully");
             Ok(())
@@ -611,10 +606,10 @@ impl SttPluginFactory for MoonshinePluginFactory {
 
 #[cfg(feature = "moonshine")]
 fn check_moonshine_available() -> bool {
-    Python::attach(|py| {
-        PyModule::import(py, "transformers").is_ok()
-            && PyModule::import(py, "torch").is_ok()
-            && PyModule::import(py, "librosa").is_ok()
+    Python::with_gil(|py| {
+        PyModule::import_bound(py, "transformers").is_ok()
+            && PyModule::import_bound(py, "torch").is_ok()
+            && PyModule::import_bound(py, "librosa").is_ok()
     })
 }
 

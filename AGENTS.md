@@ -1,110 +1,159 @@
 # AGENTS.md
 
-Canonical AI agent instructions for ColdVox. This file is the source of truth for all agent tools.
-
-## Anchor
-
-- Product and technical anchor: `docs/northstar.md`
-- Current execution plan: `docs/plans/windows-multi-agent-recovery.md`
-- Architecture direction: `docs/architecture.md`
-- CI source of truth: `docs/dev/CI/architecture.md`
-
-If guidance conflicts, use this precedence:
-1. `docs/northstar.md`
-2. `docs/plans/windows-multi-agent-recovery.md`
-3. `docs/dev/CI/architecture.md`
-
-## Current Product Direction & Reality
-
-- **Target OS:** Windows 11 priority.
-- **Python Environment:** Exclusively managed by `uv`. Do NOT use `mise` or raw `pip` for Python packages. Ensure `.python-version` is respected.
-- **STT Backend:**
-  - **Moonshine:** The current working backend, but considered a fragile dependency due to PyO3.
-  - **Parakeet:** The designated successor for a pure-Rust/Windows-native STT pipeline (CUDA/DirectML). It *does* compile; focus on runtime validation.
-  - **Vaporware:** The `whisper`, `coqui`, `leopard`, and `silero-stt` feature flags are dead stubs. Do not attempt to use them.
+> Canonical AI agent instructions for ColdVox. All tools (Claude Code, Copilot, Cursor, Kilo Code, etc.) should read this file.
 
 ## Project Overview
 
-ColdVox is a Rust voice pipeline: audio capture -> VAD -> STT -> text injection.
-Multi-crate Cargo workspace under `crates/`.
+ColdVox is a Rust-based voice AI pipeline: audio capture → VAD → STT → text injection. Multi-crate Cargo workspace under `crates/`.
 
-Key crates to know:
-- `coldvox-app` (Main execution and binaries)
-- `coldvox-audio` (Capture and resampling via rubato)
-- `coldvox-stt` (STT Plugin logic)
-- `coldvox-text-injection` (Output injection logic)
+**Key crates**: `coldvox-app` (main), `coldvox-audio`, `coldvox-vad`, `coldvox-vad-silero`, `coldvox-stt`, `coldvox-text-injection`, `coldvox-telemetry`, `coldvox-foundation`, `coldvox-gui`
 
-## Working Rules
+## Worktrees
 
-**DO:**
-- Use `cargo {cmd} -p {crate}` for iteration speed, but finish with `cargo check --workspace --all-targets`.
-- Only use live testing (real microphone/`.wav` files) to test VAD and STT. Do not mock audio buffers.
-- Treat `docs/plans/windows-multi-agent-recovery.md` as the absolute truth for what is currently broken or needing work.
+Use git worktrees for parallel agent work. This allows multiple agents to work on independent tasks simultaneously.
 
-**DO NOT:**
-- Claim Whisper or Parakeet are currently production-ready.
-- Modify Python dependencies without using `uv`.
-- Auto-run commands that destroy data or commit unverified changes.
+```bash
+# Create worktree for a new task
+git worktree add ../.trees/coldvox-{task} -b {task}
+cd ../.trees/coldvox-{task}
+
+# List all worktrees
+git worktree list
+
+# Remove when done (after merge)
+git worktree remove ../.trees/coldvox-{task}
+```
+
+**Convention**: Worktrees live in `../.trees/coldvox-{branch-name}` to keep them adjacent but separate.
 
 ## Commands
 
-File-scoped (preferred):
+### File-Scoped (Preferred)
+
+Always prefer file/crate-scoped commands over full workspace commands for faster feedback:
+
 ```bash
+# Type check single crate
 cargo check -p coldvox-stt
-cargo clippy -p coldvox-audio
+
+# Clippy single crate
+cargo clippy -p coldvox-audio -- -D warnings
+
+# Test single crate
 cargo test -p coldvox-text-injection
+
+# Format check (always full, it's fast)
 cargo fmt --all -- --check
 ```
 
-Workspace (when needed):
+### Full Workspace (When Needed)
+
 ```bash
-./scripts/local_ci.sh
-cargo clippy --workspace --all-targets --locked
-cargo test --workspace --locked
-cargo build --workspace --locked
+just lint          # fmt + clippy + check (pre-push)
+just test          # cargo test --workspace --locked
+just build         # cargo build --workspace --locked
+just ci            # Full CI mirror via ./scripts/local_ci.sh
 ```
 
-Run:
+### Running
+
 ```bash
-cargo run -p coldvox-app --bin coldvox
-cargo run -p coldvox-app --bin tui_dashboard
-cargo run --features text-injection,moonshine
+just run           # Main app
+just tui           # TUI dashboard
+cargo run --features whisper,text-injection  # With STT
+```
+
+## Do
+
+- Use `just lint` before every push
+- Prefer crate-scoped commands for faster iteration
+- Use feature flags: `whisper`, `parakeet`, `text-injection`, `silero`
+- Follow Conventional Commits: `feat:`, `fix:`, `docs:`, `refactor:`, `test:`
+- Run `cargo fmt --all` before committing
+- Add tests for new functionality
+- Update `CHANGELOG.md` for user-visible changes (see `docs/standards.md`)
+
+## Don't
+
+- Don't run full workspace builds when crate-scoped works
+- Don't commit secrets or `.env` files
+- Don't edit generated code under `target/`
+- Don't add heavy dependencies without discussion
+- Don't skip `just lint` before pushing
+- Don't create `docs/agents.md` - agent config lives at repo root
+
+## Project Structure
+
+```
+crates/
+  app/                    # Main application, binaries, integration
+  coldvox-audio/          # Audio capture, ring buffer, resampling
+  coldvox-vad/            # VAD traits and config
+  coldvox-vad-silero/     # Silero V5 ONNX VAD implementation
+  coldvox-stt/            # STT abstractions and plugins (Whisper, Parakeet)
+  coldvox-text-injection/ # Platform-specific text injection backends
+  coldvox-telemetry/      # Pipeline metrics
+  coldvox-foundation/     # Core types, error handling, shutdown
+  coldvox-gui/            # GUI components
+
+config/                   # Runtime configuration
+docs/                     # Documentation (see MasterDocumentationPlaybook.md)
+scripts/                  # Automation scripts
 ```
 
 ## Feature Flags
 
-- `silero`: Silero VAD
-- `text-injection`: text injection backends
-- `moonshine`: Current working STT backend (Python-based, CPU/GPU)
-- `parakeet`: planned backend work; not current reliable path
-- `examples`: example binaries
-- `live-hardware-tests`: hardware test suites
+Default: `silero`, `text-injection`
 
-## CI Environment
+- `whisper` - Faster-Whisper STT (Python-based, CPU/GPU)
+- `parakeet` - NVIDIA Parakeet STT (GPU-only, pure Rust)
+- `text-injection` - Platform-aware text injection
+- `silero` - Silero V5 ONNX VAD (default)
+- `examples` - Example binaries
+- `live-hardware-tests` - Hardware test suites
 
-Canonical CI policy is `docs/dev/CI/architecture.md`.
+## Safety & Permissions
 
-Principle:
-- GitHub-hosted runners handle fast general CI work.
-- Self-hosted Fedora/Nobara runner handles hardware-dependent tests.
+**Allowed without prompt:**
+- Read files, list files, search code
+- Crate-scoped: check, clippy, test, fmt
+- Git status, diff, log
 
-Do not use:
-- Xvfb on self-hosted runner
-- `apt-get` on Fedora runner
-- `DISPLAY=:99` in self-hosted jobs
+**Ask first:**
+- Package/dependency changes
+- Git push, force operations
+- Deleting files
+- Full workspace builds (prefer crate-scoped)
+- Database migrations
+- Running with hardware features
+
+## When Stuck
+
+- Ask a clarifying question
+- Propose a short plan before large changes
+- Open a draft PR with notes
+- Don't push large speculative changes without confirmation
 
 ## Key Files
 
-- Main entry: `crates/app/src/main.rs`
-- Audio capture: `crates/coldvox-audio/src/capture.rs`
-- VAD engine: `crates/coldvox-vad-silero/src/silero_wrapper.rs`
-- STT plugins: `crates/coldvox-stt/src/plugins/`
-- Text injection manager: `crates/coldvox-text-injection/src/manager.rs`
-- Build detection: `crates/app/build.rs`
+- **Main entry**: `crates/app/src/main.rs`
+- **Audio pipeline**: `crates/coldvox-audio/src/capture.rs`
+- **VAD engine**: `crates/coldvox-vad-silero/src/silero_wrapper.rs`
+- **STT plugins**: `crates/coldvox-stt/src/plugins/`
+- **Text injection**: `crates/coldvox-text-injection/src/manager.rs`
+- **Build detection**: `crates/app/build.rs` (platform detection)
+
+## Documentation
+
+- `docs/MasterDocumentationPlaybook.md` - Documentation standards
+- `docs/standards.md` - Changelog rubric, metadata requirements
+- `docs/architecture.md` - System design and future vision
+- `docs/domains/` - Domain-specific technical docs
 
 ## PR Checklist
 
-- `./scripts/local_ci.sh` passes (or equivalent crate-scoped checks)
-- Docs updated for behavior/direction changes
-- `CHANGELOG.md` updated for user-visible changes
-- No secrets committed
+- [ ] `just lint` passes
+- [ ] `just test` passes (or crate-scoped tests)
+- [ ] Changelog updated if user-visible
+- [ ] Commit messages follow Conventional Commits
+- [ ] No secrets or sensitive data
