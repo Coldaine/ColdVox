@@ -43,3 +43,28 @@ export function subscribeToOverlayEvents(
     onEvent(event.payload);
   });
 }
+
+/// Feed a live partial transcript update from the STT pipeline.
+export function updatePartialTranscript(text: string): Promise<OverlaySnapshot> {
+  return invoke<OverlaySnapshot>("update_partial_transcript", { text });
+}
+
+/// Feed a final transcript from the STT pipeline.
+export function updateFinalTranscript(text: string): Promise<OverlaySnapshot> {
+  return invoke<OverlaySnapshot>("update_final_transcript", { text });
+}
+
+/// Transition the overlay to Processing state.
+export function setOverlayProcessing(): Promise<OverlaySnapshot> {
+  return invoke<OverlaySnapshot>("set_overlay_processing");
+}
+
+/// Transition the overlay to Listening state.
+export function setOverlayListening(): Promise<OverlaySnapshot> {
+  return invoke<OverlaySnapshot>("set_overlay_listening");
+}
+
+/// Stop real capture and return to Idle.
+export function stopOverlayCapture(): Promise<OverlaySnapshot> {
+  return invoke<OverlaySnapshot>("stop_overlay_capture");
+}

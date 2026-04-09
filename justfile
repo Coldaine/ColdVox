@@ -23,19 +23,6 @@ lint:
 test:
     cargo test --workspace --locked
 
-# Run tests with Whisper model if available
-test-full:
-    #!/usr/bin/env bash
-    if [[ -d "models/whisper-base.en" ]]; then
-        export WHISPER_MODEL_PATH="models/whisper-base.en"
-        cargo test --workspace --locked
-    else
-        echo "Whisper model not found, running without E2E tests"
-        cargo test --workspace --locked -- \
-            --skip test_end_to_end_wav_pipeline \
-            --skip test_short_phrase_pipeline
-    fi
-
 # Build all crates
 build:
     cargo build --workspace --locked
@@ -56,10 +43,6 @@ fmt:
 docs:
     cargo doc --workspace --no-deps --locked --open
 
-# Validate documentation changes (requires uv and Python 3.12)
-docs-validate base="origin/main" head="HEAD":
-    uv run scripts/validate_docs.py {{base}} {{head}}
-
 # Install pre-commit hooks
 setup-hooks:
     pre-commit install
@@ -79,7 +62,7 @@ run:
         $base = uv run python -c "import sys; print(sys.base_prefix)"
         $env:PATH = "$base;$env:PATH"
     }
-    cargo run -p coldvox-app --features http-remote,text-injection
+    cargo run -p coldvox-app --bin coldvox --features http-remote,text-injection
 
 # Run TUI dashboard with the canonical wave-1 HTTP remote profile
 tui:

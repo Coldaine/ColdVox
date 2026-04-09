@@ -95,7 +95,9 @@ mod mock_injection_tests {
     }
 
     #[tokio::test]
+    async fn test_injection_with_focused_mock_app() {
         tracing::info!("Starting test_injection_with_focused_mock_app");
+        // Initialize file logging for test
         let _ = std::fs::create_dir_all("target/test_logs");
         let file_appender = rolling::never("target/test_logs", "mock_injection.log");
         let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
@@ -104,30 +106,15 @@ mod mock_injection_tests {
             .with(tracing_subscriber::fmt::layer().with_writer(non_blocking).with_ansi(false))
             .with(tracing_subscriber::fmt::layer().with_test_writer())
             .try_init();
-        // Initialize file logging for test
-        let _ = std::fs::create_dir_all");
-        let("target/test_logs file_appender = rolling::never("target/test_logs", "mock_injection.log");
-        let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
-        let _ = tracing_subscriber::registry()
-            .with(tracing_subscriber::EnvFilter::from_default_env())
-            .with(tracing_subscriber::fmt::layer().with_writer(non_blocking).with_ansi(false))
-            .with(tracing_subscriber::fmt::layer().with_test_writer())
-            .try_init();
-    async fn test_injection_with_focused_mock_app() {
-        tracing::info!("Starting test_injection_with_focused_mock_app");
+
         // Start mock application
         let _ = tracing::span!(tracing::Level::INFO, "test_mock_app_start").entered();
         let mut mock_app = match MockTestApp::start().await {
             Ok(app) => app,
-        tracing::info!("Starting test_injection_with_focused_mock_app");
             Err(e) => {
-        tracing::info!("Starting test_injection_with_focused_mock_app");
                 println!("Skipping test: Could not start mock application: {}", e);
-        tracing::info!("Starting test_injection_with_focused_mock_app");
                 return;
-        tracing::info!("Starting test_injection_with_focused_mock_app");
             }
-        tracing::info!("Starting test_injection_with_focused_mock_app");
         };
 
         // Focus the application
@@ -146,10 +133,11 @@ mod mock_injection_tests {
             cooldown_initial_ms: 100,
             ..Default::default()
         };
-        tracing::info!("Starting text injection test");
-        let test_text = "Mock injection test";
-        let _ = tracing::span!(tracing::Level::INFO, "test_injection").entered();
-        let result = timeout(
+
+        // Create shared metrics
+        let metrics = Arc::new(Mutex::new(InjectionMetrics::default()));
+
+        // Create strategy manager
         let mut manager = StrategyManager::new(config, metrics.clone()).await;
 
         // Test injection
@@ -289,7 +277,7 @@ mod mock_injection_tests {
         });
 
         println!("Available methods: {:?}", methods);
-    assert!(has_clipboard_paste, "Should include ClipboardPasteFallback method");
+        assert!(has_clipboard_paste, "Should include ClipboardPasteFallback method");
 
         // AT-SPI might not be available in test environment, but ydotool should be
         if has_atspi {
@@ -298,7 +286,7 @@ mod mock_injection_tests {
             println!("⚠️  AT-SPI not available (expected in headless environment)");
         }
 
-    assert!(has_clipboard_paste, "Should have ClipboardPasteFallback as fallback method");
+        assert!(has_clipboard_paste, "Should have ClipboardPasteFallback as fallback method");
     }
 
     #[tokio::test]

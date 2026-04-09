@@ -69,7 +69,7 @@ Universal practices, not project-specific knowledge.
 
 **Issue 1: `whisper` Feature Is A Lie**
 
-AGENTS.md says: `cargo run --features whisper,text-injection  # With STT`
+AGENTS.md says: `cargo run --bin coldvox --features moonshine,text-injection  # With STT`
 
 Reality:
 - `whisper = []` is an empty stub in Cargo.toml

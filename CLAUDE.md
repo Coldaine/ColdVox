@@ -1,5 +1,6 @@
 # CLAUDE.md
 
+<<<<<<< HEAD
 This file provides guidance to Claude Code (claude.ai/code) when working with this repository.
 
 **@import AGENTS.md** - Read `AGENTS.md` for canonical project instructions (structure, commands, do/don't rules, worktrees).
@@ -177,3 +178,19 @@ See `docs/standards.md` for the detailed rubric on when to update and format gui
 ### Future Vision
 
 See [`docs/architecture.md`](docs/architecture.md#coldvox-future-vision) for the always-on intelligent listening plan, decoupled threading model, and tiered STT memory strategy under active research.
+=======
+Canonical AI agent instructions for ColdVox.
+
+## Anchor Precedence
+
+If guidance conflicts, use this order:
+1. `docs/northstar.md` - Product vision
+2. `docs/plans/current-status.md` - Current execution state
+3. `docs/architecture.md` - Technical architecture  
+4. `docs/dev/CI/policy.md` - CI standards
+
+## Quick Reference
+
+- Build commands: See `docs/dev/commands.md`
+- Working standards: See `docs/standards/agent-rules.md`
+>>>>>>> origin/main
