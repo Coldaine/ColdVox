@@ -4,9 +4,12 @@ on:
   pull_request:
     branches: [tauri-base]
     types: [opened, synchronize, ready_for_review, reopened]
+  pull_request_review:
+    branches: [tauri-base]
+    types: [submitted, dismissed]
 
 concurrency:
-  group: agent-review-${{ github.event.pull_request.number }}
+  group: agent-review-${{ github.event.pull_request.number || github.event.review.pull_request_url || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -54,23 +57,21 @@ jobs:
               }
             }
 
-      - name: Run CodeRabbit review
-        id: coderabbit
-        uses: coderabbitai/coderabbit-action@v1
-        continue-on-error: true
-        with:
-          review_mode: full
-          apply_labels: true
-
       - name: Apply agent review labels
         uses: actions/github-script@v7
-        env:
-          REVIEW_STEP_OUTCOME: ${{ steps.coderabbit.outcome }}
         with:
           script: |
             const owner = context.repo.owner;
             const repo = context.repo.repo;
-            const issue_number = context.payload.pull_request.number;
+            const issue_number =
+              context.payload.pull_request?.number ||
+              context.payload.review?.pull_request_url?.split('/').pop();
+
+            if (!issue_number) {
+              core.info('No pull request number found on this event; skipping.');
+              return;
+            }
+
             const labelsToManage = ['agent-approved', 'agent-blocked'];
             const agentLogins = new Set(['coderabbitai[bot]', 'coderabbitai']);
             const approvedPatterns = [
@@ -116,7 +117,6 @@ jobs:
             const combinedText = [...reviewText, ...commentText].join('\n');
 
             const hasBlockedSignal =
-              process.env.REVIEW_STEP_OUTCOME !== 'success' ||
               latestAgentReview?.state === 'CHANGES_REQUESTED' ||
               blockedPatterns.some((pattern) => pattern.test(combinedText));
 
