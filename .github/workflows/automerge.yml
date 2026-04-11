@@ -1,197 +1,23 @@
-name: PR Automerge
+name: Auto-merge (tauri-base)
 
 on:
   pull_request:
     branches: [tauri-base]
-    types: [labeled, synchronize, ready_for_review]
-  check_suite:
-    types: [completed]
+    types: [opened, reopened, ready_for_review]
 
 concurrency:
-  group: automerge-${{ github.event.pull_request.number || github.event.check_suite.head_sha || github.run_id }}
+  group: automerge-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
-  automerge:
+  enable-automerge:
+    if: "!github.event.pull_request.draft"
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
-    env:
-      GH_TOKEN: ${{ github.token }}
-      GITHUB_TOKEN: ${{ github.token }}
-      REPOSITORY: ${{ github.repository }}
-      EVENT_NAME: ${{ github.event_name }}
-      PR_URL_FROM_EVENT: ${{ github.event.pull_request.html_url || '' }}
-      EVENT_ACTION: ${{ github.event.action || '' }}
-      CHECK_SUITE_SHA: ${{ github.event.check_suite.head_sha || '' }}
-      CHECK_SUITE_PULL_REQUESTS: ${{ toJson(github.event.check_suite.pull_requests || fromJson('[]')) }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 1
-
-      - name: Resolve eligible pull request
-        id: resolve-pr
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if [[ "$EVENT_NAME" == "pull_request" ]]; then
-            if [[ -z "$PR_URL_FROM_EVENT" ]]; then
-              echo "No pull request URL on event payload."
-              exit 0
-            fi
-
-            echo "pr_url=$PR_URL_FROM_EVENT" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [[ "$EVENT_NAME" != "check_suite" ]]; then
-            echo "Unsupported event: $EVENT_NAME"
-            exit 0
-          fi
-
-          if [[ "$EVENT_ACTION" != "completed" ]]; then
-            echo "Ignoring check_suite action: $EVENT_ACTION"
-            exit 0
-          fi
-
-          if [[ -z "$CHECK_SUITE_SHA" ]]; then
-            echo "No check_suite SHA available."
-            exit 0
-          fi
-
-          pr_url="$(python3 - <<'PY'
-          import json
-          import os
-
-          prs = json.loads(os.environ.get("CHECK_SUITE_PULL_REQUESTS", "[]"))
-          for pr in prs:
-              base = (pr.get("base") or {}).get("ref")
-              url = pr.get("html_url") or pr.get("url")
-              if base == "tauri-base" and url:
-                  print(url)
-                  break
-          PY
-          )"
-
-          if [[ -z "$pr_url" ]]; then
-            pr_url="$(gh api "repos/$REPOSITORY/commits/$CHECK_SUITE_SHA/pulls" --jq 'map(select(.base.ref == "tauri-base"))[0].html_url // empty')"
-          fi
-
-          if [[ -z "$pr_url" ]]; then
-            echo "No tauri-base PR is associated with commit $CHECK_SUITE_SHA."
-            exit 0
-          fi
-
-          echo "pr_url=$pr_url" >> "$GITHUB_OUTPUT"
-
-      - name: Evaluate merge requirements
-        id: evaluate
-        if: steps.resolve-pr.outputs.pr_url != ''
-        shell: bash
-        env:
-          PR_URL: ${{ steps.resolve-pr.outputs.pr_url }}
-        run: |
-          set -euo pipefail
-
-          pr_json="$(gh pr view "$PR_URL" --json url,number,isDraft,baseRefName,headRefOid,labels)"
-          required_json="$(gh api "repos/$REPOSITORY/branches/tauri-base/protection/required_status_checks")"
-          head_sha="$(jq -r '.headRefOid' <<<"$pr_json")"
-          statuses_json="$(gh api "repos/$REPOSITORY/commits/$head_sha/status")"
-          check_runs_json="$(gh api "repos/$REPOSITORY/commits/$head_sha/check-runs")"
-
-          PR_JSON="$pr_json" \
-          REQUIRED_JSON="$required_json" \
-          STATUSES_JSON="$statuses_json" \
-          CHECK_RUNS_JSON="$check_runs_json" \
-          python3 - <<'PY'
-          import json
-          import os
-          import sys
-
-          pr = json.loads(os.environ["PR_JSON"])
-          required = json.loads(os.environ["REQUIRED_JSON"])
-          statuses = json.loads(os.environ["STATUSES_JSON"])
-          check_runs = json.loads(os.environ["CHECK_RUNS_JSON"])
-
-          labels = {label["name"] for label in pr.get("labels", [])}
-          if pr.get("baseRefName") != "tauri-base":
-              print("PR base branch is not tauri-base.")
-              sys.exit(0)
-
-          if pr.get("isDraft"):
-              print("PR is still a draft.")
-              sys.exit(0)
-
-          if "agent-approved" not in labels:
-              print("PR is missing agent-approved label.")
-              sys.exit(0)
-
-          if "agent-blocked" in labels:
-              print("PR has agent-blocked label.")
-              sys.exit(0)
-
-          required_names = []
-          for check in required.get("checks") or []:
-              context = check.get("context")
-              if context:
-                  required_names.append(context)
-          for context in required.get("contexts") or []:
-              if context not in required_names:
-                  required_names.append(context)
-
-          if not required_names:
-              print("No required status checks configured on tauri-base.")
-              sys.exit(0)
-
-          status_states = {}
-          for status in statuses.get("statuses") or []:
-              context = status.get("context")
-              if context:
-                  status_states[context] = status.get("state")
-
-          check_states = {}
-          for run in check_runs.get("check_runs") or []:
-              name = run.get("name")
-              if name:
-                  check_states[name] = run.get("conclusion")
-
-          allowed_check_conclusions = {"success", "neutral", "skipped"}
-          missing = []
-          failing = []
-
-          for name in required_names:
-              if name in status_states:
-                  if status_states[name] != "success":
-                      failing.append(f"{name}={status_states[name]}")
-                  continue
-
-              if name in check_states:
-                  if check_states[name] not in allowed_check_conclusions:
-                      failing.append(f"{name}={check_states[name]}")
-                  continue
-
-              missing.append(name)
-
-          if missing:
-              print(f"Required checks missing results: {', '.join(missing)}")
-              sys.exit(0)
-
-          if failing:
-              print(f"Required checks not passing: {', '.join(failing)}")
-              sys.exit(0)
-
-          github_output = os.environ["GITHUB_OUTPUT"]
-          with open(github_output, "a", encoding="utf-8") as fh:
-              fh.write("should_merge=true\n")
-          print("All automerge requirements satisfied.")
-          PY
-
       - name: Enable auto-merge
-        if: steps.resolve-pr.outputs.pr_url != '' && steps.evaluate.outputs.should_merge == 'true'
         env:
-          PR_URL: ${{ steps.resolve-pr.outputs.pr_url }}
-        run: gh pr merge --auto --merge "$PR_URL"
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr merge --auto --merge "${{ github.event.pull_request.html_url }}"

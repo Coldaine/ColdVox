@@ -1,0 +1,15 @@
+name: Gate main branch
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  check-source-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify PR comes from tauri-base
+        if: github.head_ref != 'tauri-base'
+        run: |
+          echo "::error::PRs to main must come from tauri-base, not '${{ github.head_ref }}'"
+          exit 1

@@ -4,13 +4,66 @@ subsystem: general
 status: active
 freshness: current
 preservation: reference
-summary: Rationale for self-hosted vs GitHub-hosted CI split
-last_reviewed: 2026-02-09
+summary: Branching strategy, automerge policy, and self-hosted vs GitHub-hosted CI split
+last_reviewed: 2026-04-10
 owners: Documentation Working Group
-version: 1.1.0
+version: 2.0.0
 ---
 
 # CI Architecture
+
+---
+
+## Branching Strategy — Two Trunk Branches
+
+> **ColdVox has two long-lived trunk branches. Not one. Two.**
+
+| Branch | Purpose | PR target for |
+|--------|---------|---------------|
+| **`main`** | Stable trunk. CLI-only codebase, proven features. | Bug fixes, new crates, CLI features, dependency bumps |
+| **`tauri-base`** | GUI integration trunk. Tauri v2 + React overlay shell. | GUI work, frontend tooling, Tauri-specific wiring |
+
+Both branches have **branch protection rules** and **required status checks**. Both are permanent. Neither is a feature branch.
+
+### Why two trunks?
+
+The Tauri GUI integration is a large, ongoing effort that touches build tooling, dependencies, and project structure in ways that would destabilize `main`. Rather than a long-lived feature branch that drifts, `tauri-base` is a first-class trunk with its own CI gates and merge policy. Work flows **one direction**: `main` → `tauri-base` (periodic merges to keep GUI work current), never the reverse until the GUI is production-ready.
+
+### Automerge (tauri-base only)
+
+PRs into `tauri-base` use fully autonomous AI-gated automerge. No human in the loop.
+
+**The two gates:**
+
+| Gate | Purpose | What catches |
+|------|---------|-------------|
+| **CI checks** (5 required) | Mechanical correctness | Compilation failures, test regressions, lint violations |
+| **AI reviewer** (CodeRabbit) | Semantic correctness | Nonsensical code, architectural violations, logic errors |
+
+CI alone is not sufficient — an AI agent can produce code that compiles and passes tests but is wrong. The AI review is the quality gate. Both must pass.
+
+**The pipeline:**
+
+1. AI agent opens a PR targeting `tauri-base`
+2. `.github/workflows/automerge.yml` enables `gh pr merge --auto` on the PR
+3. CodeRabbit reviews the diff (`request_changes_workflow: true`, `profile: assertive`)
+4. CI checks run in parallel
+5. If CodeRabbit approves AND CI passes → GitHub auto-merges the PR
+6. If CodeRabbit requests changes → PR blocks until issues are resolved
+
+CodeRabbit's configuration is **global** (managed in the CodeRabbit web dashboard, not repo-level YAML). There is no `.coderabbit.yaml` in the repo.
+
+**`main` has no automerge.** All merges to `main` are manual and must originate from `tauri-base`. This is enforced by `.github/workflows/gate-main.yml`, which fails any PR to `main` whose source branch is not `tauri-base`.
+
+### Rules for agents and contributors
+
+- **Always check which trunk you're targeting.** A PR that touches GUI code goes to `tauri-base`. Everything else goes to `main`.
+- **Never merge `tauri-base` back into `main`** unless explicitly instructed. The reverse merge (`main` → `tauri-base`) is routine.
+- **Both branches run CI.** Don't assume one is "less important" — both have required checks that must pass.
+
+---
+
+## Runner Architecture
 
 > **Principle**: The laptop only does what only the laptop can do.
 
@@ -28,6 +81,18 @@ ColdVox CI splits workloads between GitHub-hosted and self-hosted runners based 
 | No | `cargo build` | GitHub-hosted |
 | No | `cargo test --workspace` (unit tests) | GitHub-hosted |
 | **Yes** | Hardware tests (display, audio, clipboard) | Self-hosted |
+
+### Windows CI (Planned)
+
+ColdVox targets Windows via Tauri GUI. Linux-only CI is insufficient — Windows compilation, platform-specific behavior, and GUI integration must be tested on a real Windows runner.
+
+| Runner | Purpose | Minute cost |
+|--------|---------|-------------|
+| GitHub-hosted Linux (`ubuntu-latest`) | Repo integrity, docs, lightweight checks | 1x |
+| Self-hosted Linux (Nobara laptop) | Cargo build/test/lint, hardware tests | 0 (free) |
+| **Self-hosted Windows (planned)** | **Windows build, Tauri GUI tests, platform checks** | **0 (free)** |
+
+**Status**: Self-hosted Windows runner setup is pending. See TODO in project tracking.
 
 ---
 
@@ -343,6 +408,7 @@ hardware:
 
 | Date | Change | Reason |
 |------|--------|--------|
+| 2026-04-11 | Add two-trunk branching, AI-gated automerge, gate-main, Windows CI (planned) | Autonomous AI merge pipeline for tauri-base |
 | 2025-12-24 | Remove Xvfb, add mold, remove waiting | PR #310 broke CI with apt-get on Fedora |
 | 2025-09-19 | Initial self-hosted runner setup | Enable hardware testing |
 
