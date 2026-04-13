@@ -3,8 +3,10 @@
 //! This test verifies the GUI works with live microphone capture.
 //! Since the TUI is interactive, we use a non-interactive test approach.
 
+#[cfg(windows)]
 use std::process::Command;
 
+#[cfg(windows)]
 fn get_binary_path() -> String {
     // Find the binary in target directory relative to workspace root
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
