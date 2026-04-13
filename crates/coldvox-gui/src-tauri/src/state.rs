@@ -3,7 +3,6 @@ use crate::demo::DemoStep;
 
 #[derive(Debug, Default)]
 pub struct OverlayModel {
-    demo_token: u64,
     snapshot: OverlaySnapshot,
 }
 
@@ -12,8 +11,10 @@ impl OverlayModel {
         self.snapshot.clone()
     }
 
-    pub fn current_demo_token(&self) -> u64 {
-        self.demo_token
+    pub fn set_status(&mut self, status: OverlayStatus, detail: String) -> OverlaySnapshot {
+        self.snapshot.status = status;
+        self.snapshot.status_detail = detail;
+        self.snapshot()
     }
 
     pub fn is_paused(&self) -> bool {
@@ -31,25 +32,26 @@ impl OverlayModel {
         self.snapshot()
     }
 
-    pub fn start_demo(&mut self) -> (u64, OverlaySnapshot) {
-        self.demo_token += 1;
-        self.snapshot = OverlaySnapshot {
-            expanded: true,
-            status: OverlayStatus::Listening,
-            paused: false,
-            partial_transcript: String::new(),
-            final_transcript: String::new(),
-            status_detail: "Listening for provisional words from the demo driver.".to_string(),
-            error_message: None,
-        };
-
-        (self.demo_token, self.snapshot())
+    pub fn update_partial(&mut self, text: String) -> OverlaySnapshot {
+        self.snapshot.status = OverlayStatus::Listening;
+        self.snapshot.partial_transcript = text;
+        self.snapshot.status_detail = "Live transcription...".to_string();
+        self.snapshot()
     }
 
-    pub fn apply_demo_step(&mut self, step: &DemoStep) -> OverlaySnapshot {
-        self.snapshot = step.snapshot.clone();
-        self.snapshot.expanded = true;
-        self.snapshot.paused = false;
+    pub fn update_final(&mut self, text: String) -> OverlaySnapshot {
+        self.snapshot.status = OverlayStatus::Ready;
+        self.snapshot.partial_transcript.clear();
+        self.snapshot.final_transcript = text;
+        self.snapshot.status_detail = "Transcription complete.".to_string();
+        self.snapshot()
+    }
+
+    pub fn reset_to_idle(&mut self, detail: String) -> OverlaySnapshot {
+        self.snapshot.status = OverlayStatus::Idle;
+        self.snapshot.status_detail = detail;
+        self.snapshot.partial_transcript.clear();
+        self.snapshot.error_message = None;
         self.snapshot()
     }
 
