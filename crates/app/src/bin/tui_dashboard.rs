@@ -301,6 +301,7 @@ impl DashboardState {
         match mode {
             ActivationMode::Vad => "Always-on (VAD)",
             ActivationMode::Hotkey => "Push-to-talk (preview inject)",
+            ActivationMode::AlwaysOnPushToTranscribe => "Always-on (push-to-transcribe)",
         }
     }
 
@@ -340,7 +341,8 @@ impl DashboardState {
     fn toggle_activation_mode(&mut self) {
         self.activation_mode = match self.activation_mode {
             ActivationMode::Vad => ActivationMode::Hotkey,
-            ActivationMode::Hotkey => ActivationMode::Vad,
+            ActivationMode::Hotkey => ActivationMode::AlwaysOnPushToTranscribe,
+            ActivationMode::AlwaysOnPushToTranscribe => ActivationMode::Vad,
         };
         self.log(
             LogLevel::Info,

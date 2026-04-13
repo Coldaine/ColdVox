@@ -27,6 +27,8 @@ pub enum ActivationMode {
     Hotkey,
     /// Ambient voice activity detection.
     Vad,
+    /// Keep audio rolling in memory and transcribe pre-roll + speech upon hotkey press.
+    AlwaysOnPushToTranscribe,
 }
 
 /// Defines how a hotkey press is treated.

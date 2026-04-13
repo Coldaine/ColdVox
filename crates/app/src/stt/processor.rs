@@ -71,6 +71,7 @@ struct State {
     pub state: UtteranceState,
     pub source: crate::stt::session::SessionSource,
     pub buffer: Vec<i16>,
+    pub rolling_buffer: std::collections::VecDeque<i16>,
 }
 
 #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
@@ -88,6 +89,7 @@ impl PluginSttProcessor {
             state: UtteranceState::Idle,
             source: crate::stt::session::SessionSource::Vad, // Default
             buffer: Vec::with_capacity(16000 * 10),
+            rolling_buffer: std::collections::VecDeque::with_capacity(32_000), // ~2 seconds at 16kHz
         };
 
         Self {
@@ -149,10 +151,27 @@ impl PluginSttProcessor {
                     state.source = source;
                     state.state = UtteranceState::SpeechActive;
                     state.buffer.clear();
+                    
+                    // Flush the rolling buffer into the main pipeline if we have pre-roll data
+                    let pre_roll: Vec<i16> = state.rolling_buffer.drain(..).collect();
+                    if !pre_roll.is_empty() {
+                        tracing::debug!(target: "stt_debug", "Flushing {} samples of pre-roll audio", pre_roll.len());
+                        if self.settings.hotkey_behavior != crate::stt::session::HotkeyBehavior::Incremental {
+                            state.buffer.extend_from_slice(&pre_roll);
+                        }
+                    }
+
                     let pm = self.plugin_manager.clone();
+                    let incremental = self.settings.hotkey_behavior == crate::stt::session::HotkeyBehavior::Incremental;
                     tokio::spawn(async move {
                         if let Err(e) = pm.write().await.begin_utterance().await {
                             tracing::error!(target: "stt", "Plugin begin_utterance failed: {}", e);
+                            return;
+                        }
+                        if incremental && !pre_roll.is_empty() {
+                            if let Err(e) = pm.write().await.process_audio(&pre_roll).await {
+                                tracing::error!(target: "stt", "Plugin process_audio failed on pre-roll: {}", e);
+                            }
                         }
                     });
                 }
@@ -256,13 +275,6 @@ impl PluginSttProcessor {
                     self.handle_session_end(state.source, false, &mut state);
                 }
             }
-        } else {
-            // Incremental mode: check state, then await without holding lock.
-            let should_process = {
-                let state = self.state.lock();
-                state.state == UtteranceState::SpeechActive
-            };
-
             if should_process {
                 tracing::trace!(target: "stt_debug", "Dispatching {} samples to plugin.process_audio()", samples_slice.len());
                 match self
@@ -286,8 +298,18 @@ impl PluginSttProcessor {
                         Self::send_event_static(&self.event_tx, &self.metrics, err_event).await;
                     }
                 }
+            } else if self.settings.activation_mode == crate::stt::session::ActivationMode::AlwaysOnPushToTranscribe {
+                let mut state = self.state.lock();
+                if state.state == UtteranceState::Idle {
+                    state.rolling_buffer.extend(samples_slice.iter().copied());
+                    // Keep roughly 2 seconds (32,000 samples at 16kHz mono)
+                    let max_samples = 32_000;
+                    if state.rolling_buffer.len() > max_samples {
+                        let excess = state.rolling_buffer.len() - max_samples;
+                        state.rolling_buffer.drain(0..excess);
+                    }
+                }
             }
-        }
     }
 
     /// A static helper to send transcription events and update metrics, callable
