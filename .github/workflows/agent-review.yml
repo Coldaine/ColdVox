@@ -5,7 +5,6 @@ on:
     branches: [tauri-base]
     types: [opened, synchronize, ready_for_review, reopened]
   pull_request_review:
-    branches: [tauri-base]
     types: [submitted, dismissed]
 
 concurrency:
@@ -15,7 +14,7 @@ concurrency:
 jobs:
   agent-review:
     runs-on: ubuntu-latest
-    if: github.event.pull_request.base.ref == 'tauri-base' || (github.event.review && contains(github.event.review.pull_request_url, '/pull/'))
+    if: github.event.pull_request.base.ref == 'tauri-base'
     permissions:
       contents: read
       pull-requests: write

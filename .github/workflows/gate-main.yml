@@ -10,6 +10,8 @@ jobs:
     steps:
       - name: Verify PR comes from tauri-base
         if: github.head_ref != 'tauri-base'
+        env:
+          HEAD_REF: ${{ github.head_ref }}
         run: |
-          echo "::error::PRs to main must come from tauri-base, not '${{ github.head_ref }}'"
+          echo "::error::PRs to main must come from tauri-base, not '$HEAD_REF'"
           exit 1
