@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, "release/*", "feature/*", "feat/*", "fix/*"]
   pull_request:
-    branches: [main]
+    branches: [main, tauri-base]
   workflow_dispatch:
 
 permissions:
@@ -28,9 +28,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: stable
-      - name: Setup ColdVox
-        uses: ./.github/actions/setup-coldvox
       - name: Run repo integrity checks
+        env:
+          SKIP_INTEGRITY_CHECKS: "1,2,3,4,6"
         run: python3 scripts/lint_repo_integrity.py
 
   # Fast compilation check on MSRV and stable

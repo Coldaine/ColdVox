@@ -928,8 +928,10 @@ impl SttPluginManager {
                     }
                 }
                 Err(e) => {
-                    warn!("Failed to unload previous plugin {} during switch: {:?}",
-                        old_id, e);
+                    warn!(
+                        "Failed to unload previous plugin {} during switch: {:?}",
+                        old_id, e
+                    );
 
                     // Update error metrics if available
                     if let Some(ref metrics) = self.metrics_sink {
@@ -1534,7 +1536,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_preferred_plugin_unavailable_falls_back_to_best_available_plugin_for_noncanonical_profiles() {
+    async fn test_preferred_plugin_unavailable_falls_back_to_best_available_plugin_for_noncanonical_profiles(
+    ) {
         let mut manager = create_isolated_manager();
         manager.selection_config.preferred_plugin = Some("non-existent".to_string());
         manager.selection_config.fallback_plugins = vec!["mock".to_string()];
@@ -1589,9 +1592,15 @@ mod tests {
             .await
             .unwrap();
 
-        let plugin_id = manager.initialize().await.expect("initialize canonical http-remote");
+        let plugin_id = manager
+            .initialize()
+            .await
+            .expect("initialize canonical http-remote");
         assert_eq!(plugin_id, "http-remote");
-        assert_eq!(manager.current_plugin().await.as_deref(), Some("http-remote"));
+        assert_eq!(
+            manager.current_plugin().await.as_deref(),
+            Some("http-remote")
+        );
     }
 
     #[cfg(feature = "http-remote")]
@@ -1614,7 +1623,10 @@ mod tests {
             .await
             .unwrap();
 
-        let plugin_id = manager.initialize().await.expect("initialize gpu http-remote profile");
+        let plugin_id = manager
+            .initialize()
+            .await
+            .expect("initialize gpu http-remote profile");
         assert_eq!(plugin_id, "http-remote-parakeet-gpu");
         assert_eq!(
             manager.current_plugin().await.as_deref(),

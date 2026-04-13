@@ -20,7 +20,7 @@ mod mock_injection_tests {
         async fn start() -> Result<Self, Box<dyn std::error::Error>> {
             // Start xterm with a simple command that keeps it running
             let child = Command::new("xterm")
-                .args(&["-hold", "-e", "echo 'Mock test application ready for injection'; cat"])
+                .args(["-hold", "-e", "echo 'Mock test application ready for injection'; cat"])
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
@@ -41,7 +41,7 @@ mod mock_injection_tests {
         /// Get the window ID of the mock application
         async fn get_window_id() -> Result<String, Box<dyn std::error::Error>> {
             let output = Command::new("xdotool")
-                .args(&["search", "--name", "Mock test application"])
+                .args(["search", "--name", "Mock test application"])
                 .output()?;
 
             if output.status.success() {
@@ -66,7 +66,7 @@ mod mock_injection_tests {
         async fn focus(&self) -> Result<(), Box<dyn std::error::Error>> {
             if let Some(window_id) = &self.window_id {
                 let status = Command::new("xdotool")
-                    .args(&["windowfocus", window_id])
+                    .args(["windowfocus", window_id])
                     .status()?;
 
                 if status.success() {
