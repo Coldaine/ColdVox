@@ -264,8 +264,8 @@ Window {
             st = (st === 1) ? 0 : 1
           }
         }
-        // Clear — resets transcript state via bridge cmd_clear, falls back to clearing local aliases
-        ControlButton { label: "🗑"; onClicked: { if (typeof bridge !== 'undefined' && bridge.cmd_clear) { bridge.cmd_clear() } else { root.partial_transcript = ""; root.final_transcript = "" } } }
+        // Clear — resets transcript state via bridge cmd_clear
+        ControlButton { label: "🗑"; onClicked: { if (typeof bridge !== 'undefined' && bridge.cmd_clear) bridge.cmd_clear() } }
 
         Item { Layout.fillWidth: true }
 
