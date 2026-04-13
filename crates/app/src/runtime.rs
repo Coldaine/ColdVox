@@ -102,7 +102,7 @@ impl Default for AppRuntimeOptions {
             activation_mode: ActivationMode::Vad,
             vad_config: None, // Use VAD defaults
             stt_selection: None,
-        
+
             injection: None,
             enable_device_monitor: false,
             capture_buffer_samples: 65_536,
@@ -178,7 +178,7 @@ impl AppHandle {
         if let Some(h) = &this.stt_forward_handle {
             h.abort();
         }
-    
+
         if let Some(h) = &this.injection_handle {
             h.abort();
         }
@@ -201,7 +201,7 @@ impl AppHandle {
         if let Some(h) = this.stt_handle {
             let _ = h.await;
         }
-    
+
         if let Some(h) = this.injection_handle {
             let _ = h.await;
         }
@@ -506,7 +506,6 @@ pub async fn start(
     // Text injection channel
 
     let (_text_injection_tx, text_injection_rx) = mpsc::channel::<TranscriptionEvent>(100);
-
 
     // 6) STT Processor and Fanout - Unified Path
     #[allow(unused_mut)]

@@ -601,8 +601,7 @@ impl Settings {
         if let Some(env_var) = &self.stt.remote.auth.bearer_token_env_var {
             if env_var.trim().is_empty() {
                 errors.push(
-                    "STT remote auth.bearer_token_env_var must not be blank when set"
-                        .to_string(),
+                    "STT remote auth.bearer_token_env_var must not be blank when set".to_string(),
                 );
             }
         }
