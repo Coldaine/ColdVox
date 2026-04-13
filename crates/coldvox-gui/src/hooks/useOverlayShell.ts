@@ -8,8 +8,8 @@ import {
   getOverlaySnapshot,
   openSettingsPlaceholder,
   setOverlayExpanded,
-  startDemoDriver,
-  stopDemoDriver,
+  startPipeline,
+  stopPipeline,
   subscribeToOverlayEvents,
   togglePauseState,
   updatePartialTranscript,
@@ -132,9 +132,9 @@ export function useOverlayShell() {
   return {
     snapshot,
     setExpanded: (expanded: boolean) => runCommand(() => setOverlayExpanded(expanded)),
-    startDemo: () => runCommand(startDemoDriver),
+    startPipeline: () => runCommand(startPipeline),
     togglePause: () => runCommand(togglePauseState),
-    stopDemo: () => runCommand(stopDemoDriver),
+    stopPipeline: () => runCommand(stopPipeline),
     clearTranscript: () => runCommand(clearOverlayTranscript),
     openSettings: () => runCommand(openSettingsPlaceholder),
     // Pipeline wiring — for real STT integration.

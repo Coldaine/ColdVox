@@ -952,10 +952,13 @@ dependencies = [
 name = "coldvox-gui"
 version = "0.1.0"
 dependencies = [
+ "coldvox-app",
+ "parking_lot",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
+ "tokio",
 ]
 
 [[package]]
