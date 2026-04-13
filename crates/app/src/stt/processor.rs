@@ -265,6 +265,11 @@ impl PluginSttProcessor {
         // Use i16 samples directly from SharedAudioFrame
         let samples_slice: &[i16] = &frame.samples;
 
+        let should_process = {
+            let state = self.state.lock();
+            state.state == UtteranceState::SpeechActive
+        };
+
         if behavior != HotkeyBehavior::Incremental {
             // Batch mode: lock, buffer, and return.
             let mut state = self.state.lock();
