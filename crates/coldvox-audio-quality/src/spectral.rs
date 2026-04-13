@@ -253,7 +253,7 @@ mod tests {
         // Generate 1kHz sine wave (mid frequency)
         let samples = generate_sine_wave(1000.0, 16000, 1024);
 
-        let is_off_axis = analyzer.detect_off_axis(&samples);
+        let _is_off_axis = analyzer.detect_off_axis(&samples);
 
         // Pure mid-freq signal might look off-axis
         // (no energy in high freqs)
