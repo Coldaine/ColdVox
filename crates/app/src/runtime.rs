@@ -477,7 +477,7 @@ pub async fn start(
             let metrics_clone = metrics.clone();
             let mut manager = SttPluginManager::new().with_metrics_sink(metrics_clone);
             if let Some(config) = opts.stt_selection.clone() {
-                let _ = manager.set_selection_config(config).await;
+                manager.set_selection_config(config).await?;
             }
             // Initialize the plugin manager; enforce fail-fast semantics when no STT plugin is available
             match manager.initialize().await {

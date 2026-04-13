@@ -105,15 +105,20 @@ jobs:
             );
 
             const latestAgentReview = agentReviews[agentReviews.length - 1];
-            const reviewText = agentReviews.map((review) => review.body || '');
-            const commentText = agentComments.map((comment) => comment.body || '');
-            const combinedText = [...reviewText, ...commentText].join('\n');
+            const latestAgentComment = agentComments[agentComments.length - 1];
+
+            // Only evaluate the most recent agent artifact to avoid false
+            // positives from accumulated historical text.
+            const latestAgentText =
+              latestAgentReview?.body ||
+              latestAgentComment?.body ||
+              '';
 
             const hasBlockedSignal = (() => {
               if (latestAgentReview?.state === 'CHANGES_REQUESTED') return true;
               if (latestAgentReview?.state === 'APPROVED') return false;
               if (!latestAgentReview || latestAgentReview.state === 'COMMENTED') {
-                return blockedPatterns.some((pattern) => pattern.test(combinedText));
+                return blockedPatterns.some((pattern) => pattern.test(latestAgentText));
               }
               return false;
             })();
@@ -121,7 +126,7 @@ jobs:
             const hasApprovedSignal =
               !hasBlockedSignal &&
               (latestAgentReview?.state === 'APPROVED' ||
-                approvedPatterns.some((pattern) => pattern.test(combinedText)));
+                approvedPatterns.some((pattern) => pattern.test(latestAgentText)));
 
             for (const name of labelsToManage) {
               try {

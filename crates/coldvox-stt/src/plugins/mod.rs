@@ -11,6 +11,9 @@ pub mod parakeet;
 #[cfg(feature = "moonshine")]
 pub mod moonshine;
 
+#[cfg(feature = "http-remote")]
+pub mod http_remote;
+
 // Re-export commonly used plugins
 pub use mock::MockPlugin;
 pub use noop::NoOpPlugin;
