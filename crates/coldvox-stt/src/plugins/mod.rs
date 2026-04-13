@@ -11,18 +11,6 @@ pub mod parakeet;
 #[cfg(feature = "moonshine")]
 pub mod moonshine;
 
-#[cfg(feature = "whisper")]
-pub mod whisper_cpp;
-
-#[cfg(feature = "coqui")]
-pub mod coqui;
-
-#[cfg(feature = "leopard")]
-pub mod leopard;
-
-#[cfg(feature = "silero-stt")]
-pub mod silero_stt;
-
 // Re-export commonly used plugins
 pub use mock::MockPlugin;
 pub use noop::NoOpPlugin;
