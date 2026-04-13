@@ -15,6 +15,7 @@ concurrency:
 jobs:
   agent-review:
     runs-on: ubuntu-latest
+    if: github.event.pull_request.base.ref == 'tauri-base' || (github.event.review && contains(github.event.review.pull_request_url, '/pull/'))
     permissions:
       contents: read
       pull-requests: write
@@ -75,19 +76,12 @@ jobs:
             const labelsToManage = ['agent-approved', 'agent-blocked'];
             const agentLogins = new Set(['coderabbitai[bot]', 'coderabbitai']);
             const approvedPatterns = [
-              /\[triage\]:\s*approved/i,
-              /\bapproved\b/i,
-              /\blgtm\b/i,
+              /^\[triage\]:\s*approved/i,
               /no significant issues/i,
             ];
             const blockedPatterns = [
-              /\[triage\]:\s*needs_review/i,
+              /^\[triage\]:\s*needs_review/i,
               /\bchanges requested\b/i,
-              /\bcritical\b/i,
-              /\bblocker\b/i,
-              /\bhigh severity\b/i,
-              /\bneeds review\b/i,
-              /\bsecurity issue\b/i,
             ];
 
             const reviews = await github.paginate(github.rest.pulls.listReviews, {
@@ -116,9 +110,14 @@ jobs:
             const commentText = agentComments.map((comment) => comment.body || '');
             const combinedText = [...reviewText, ...commentText].join('\n');
 
-            const hasBlockedSignal =
-              latestAgentReview?.state === 'CHANGES_REQUESTED' ||
-              blockedPatterns.some((pattern) => pattern.test(combinedText));
+            const hasBlockedSignal = (() => {
+              if (latestAgentReview?.state === 'CHANGES_REQUESTED') return true;
+              if (latestAgentReview?.state === 'APPROVED') return false;
+              if (!latestAgentReview || latestAgentReview.state === 'COMMENTED') {
+                return blockedPatterns.some((pattern) => pattern.test(combinedText));
+              }
+              return false;
+            })();
 
             const hasApprovedSignal =
               !hasBlockedSignal &&

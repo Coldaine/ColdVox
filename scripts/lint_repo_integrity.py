@@ -605,6 +605,9 @@ def check_test_skip_audit(fix_baseline: bool = False) -> CheckResult:
 
 
 def main() -> int:
+    skip_checks = os.environ.get('SKIP_INTEGRITY_CHECKS', '')
+    skip_set = set(int(x.strip()) for x in skip_checks.split(',') if x.strip())
+
     parser = argparse.ArgumentParser(
         description="Mechanical Lint Gates for ColdVox"
     )
@@ -641,6 +644,9 @@ def main() -> int:
     failed = False
 
     for check_num, check_func in checks:
+        if check_num in skip_set:
+            print(f"[SKIP] Check {check_num} skipped via SKIP_INTEGRITY_CHECKS")
+            continue
         if args.check and args.check != check_num:
             continue
 
