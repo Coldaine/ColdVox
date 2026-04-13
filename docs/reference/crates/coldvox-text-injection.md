@@ -1,10 +1,12 @@
 ---
 doc_type: index
 subsystem: text-injection
-version: 1.0.0
 status: draft
-owners: Documentation Working Group
+freshness: stale
+preservation: preserve
 last_reviewed: 2025-10-19
+owners: Documentation Working Group
+version: 1.0.0
 ---
 
 # crate: coldvox-text-injection (Index)

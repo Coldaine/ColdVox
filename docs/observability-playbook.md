@@ -1,11 +1,13 @@
 ---
-title: Organizational Observability Playbook
-service.name: coldvox
-service.namespace: realtime-audio
-instrumentation.version: 0.1.0
+doc_type: playbook
+subsystem: telemetry
+status: active
+freshness: stale
+preservation: preserve
+summary: "OTel span naming, metrics taxonomy, and sampling strategy"
+signals: "['otel', 'metrics', 'tracing']"
+owners: Documentation Working Group
 last_reviewed: 2025-11-12
-owner: observability-steward
-stability: experimental
 ---
 
 # Organizational Observability Playbook

@@ -70,7 +70,7 @@ async fn test_with_seed_restore_wrapper() {
     with_test_timeout!(async {
         let mut config = InjectionConfig::default();
         config.per_method_timeout_ms = 500; // Short timeout to fail fast
-        
+
         let result = with_seed_restore(payload, mime_type, None, || async { Ok(()) }).await;
         assert!(result.is_ok() || result.is_err());
     })

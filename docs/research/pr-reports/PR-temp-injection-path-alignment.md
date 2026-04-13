@@ -11,8 +11,8 @@ Retention: Ephemeral. Delete after 2025-11-02 unless promoted to domains/playboo
 
 # Injection Path Alignment - Pre-PR Checklist
 
-**Date**: 2025-10-09  
-**Branch**: `injection-orchestrator-lean`  
+**Date**: 2025-10-09
+**Branch**: `injection-orchestrator-lean`
 **Status**: ✅ **READY FOR PR**
 
 ## Verification Checklist
@@ -164,7 +164,7 @@ Aligns the text injection system to use a unified `InjectionContext` throughout 
 - **Fixed** context flow through orchestrator
 
 ## Testing
-- ✅ 55 unit tests in `coldvox-text-injection` 
+- ✅ 55 unit tests in `coldvox-text-injection`
 - ✅ 32 app tests including real injection verification
 - ✅ No regressions in existing behavior
 

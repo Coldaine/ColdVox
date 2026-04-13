@@ -1,0 +1,6 @@
+warning: The `tool.uv.dev-dependencies` field (used in `pyproject.toml`) is deprecated and will be removed in a future release; use `dependency-groups.dev` instead
+::error ::Frontmatter error in docs/adr/0001-vosk-model-distribution.md: file missing or empty
+::error ::Frontmatter error in docs/history/2025-11-06_04-33Z-reviewing-implementation-of-golden-test-branch.md: missing keys: last_reviewed, owners, version
+::error ::Frontmatter error in docs/history/2025-11-06_05-33Z-git-history-inquiry-for-compat-rs-file.md: missing keys: last_reviewed, owners, version
+::error ::Frontmatter error in docs/observability-playbook.md: missing keys: version
+::error ::Frontmatter error in docs/stt-parakeet-integration-plan.md: file missing or empty

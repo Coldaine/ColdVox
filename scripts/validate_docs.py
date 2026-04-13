@@ -43,7 +43,7 @@ APPROVED_PATTERNS = [
 def git_diff_files(base: str, head: str) -> List[str]:
     """Get list of added or modified files (not deleted ones)."""
     result = subprocess.run(
-        ["git", "diff", "--name-status", "--diff-filter=AM", base, head],
+        ["git", "diff", "--name-status", "--diff-filter=AM", "--no-renames", base, head],
         capture_output=True,
         text=True,
         check=True,
