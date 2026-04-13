@@ -1,5 +1,6 @@
 use coldvox_audio_quality::{AudioQualityMonitor, LevelMonitor, QualityConfig, SpectralAnalyzer};
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use std::hint::black_box;
 
 /// Generate test signal at specific amplitude
 fn generate_signal(samples: usize, amplitude: f32) -> Vec<i16> {

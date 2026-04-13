@@ -524,7 +524,7 @@ impl UnifiedClipboardInjector {
 
         // Use qdbus to clear Klipper history
         let output = Command::new("qdbus")
-            .args(&[
+            .args([
                 "org.kde.klipper",
                 "/klipper",
                 "org.kde.klipper.klipper",

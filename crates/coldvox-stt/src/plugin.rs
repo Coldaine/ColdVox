@@ -135,7 +135,8 @@ impl SttPluginRegistry {
     /// Register a new plugin factory, replacing any existing factory with the same plugin id.
     pub fn register_or_replace(&mut self, factory: Box<dyn SttPluginFactory>) {
         let plugin_id = factory.plugin_info().id;
-        self.factories.retain(|existing| existing.plugin_info().id != plugin_id);
+        self.factories
+            .retain(|existing| existing.plugin_info().id != plugin_id);
         self.factories.push(factory);
     }
 

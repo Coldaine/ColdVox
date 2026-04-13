@@ -144,14 +144,8 @@ fn update_partial_transcript(
     window: WebviewWindow,
     app: AppHandle,
 ) -> CommandResult {
-    let snapshot =
-        runtime.with_model(|model| model.apply_partial_transcript(&text, None));
-    emit_and_resize(
-        &app,
-        &window,
-        &snapshot,
-        "stt-partial",
-    )
+    let snapshot = runtime.with_model(|model| model.apply_partial_transcript(&text, None));
+    emit_and_resize(&app, &window, &snapshot, "stt-partial")
 }
 
 /// Feed a final transcript from the STT pipeline.
@@ -163,14 +157,8 @@ fn update_final_transcript(
     window: WebviewWindow,
     app: AppHandle,
 ) -> CommandResult {
-    let snapshot =
-        runtime.with_model(|model| model.apply_final_transcript(&text, None));
-    emit_and_resize(
-        &app,
-        &window,
-        &snapshot,
-        "stt-final",
-    )
+    let snapshot = runtime.with_model(|model| model.apply_final_transcript(&text, None));
+    emit_and_resize(&app, &window, &snapshot, "stt-final")
 }
 
 /// Transition the overlay to Processing state (STT is finalizing the utterance).

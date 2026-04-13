@@ -1,0 +1,61 @@
+name: Gate main branch
+
+# This workflow enforces that PRs to main can only originate from tauri-base.
+# It is configured as a required status check on the main branch.
+#
+# Security model:
+#   - github.head_ref: the source branch name (can be spoofed by fork users
+#     who name their branch 'tauri-base')
+#   - github.event.pull_request.head.repo.full_name: the source repo (catches
+#     fork PRs from any user, even those naming their branch 'tauri-base')
+#   - Both checks are required: branch must be named 'tauri-base' AND must
+#     come from the canonical Coldaine/ColdVox repo (not a fork).
+#
+# Limitation: Direct pushes to main bypass this workflow entirely.
+# Branch protection's "Restrict who can push" handles that case.
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  check-source-branch:
+    name: check-source-branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify PR comes from tauri-base on canonical repo
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
+        run: |
+          echo "PR source branch : $HEAD_REF"
+          echo "PR source repo   : $HEAD_REPO"
+          echo "Target repo      : $BASE_REPO"
+          echo ""
+
+          FAILED=0
+
+          # Check 1: branch name must be tauri-base
+          if [ "$HEAD_REF" != "tauri-base" ]; then
+            echo "::error::Branch check FAILED — source branch is '$HEAD_REF', expected 'tauri-base'."
+            echo "::error::Only the tauri-base branch may merge into main."
+            FAILED=1
+          fi
+
+          # Check 2: PR must come from the canonical repo (not a fork)
+          # This prevents fork users from bypassing the gate by naming their
+          # branch 'tauri-base'.
+          if [ "$HEAD_REPO" != "$BASE_REPO" ]; then
+            echo "::error::Fork check FAILED — PR is from fork '$HEAD_REPO', not '$BASE_REPO'."
+            echo "::error::Fork PRs are not permitted to merge directly into main."
+            FAILED=1
+          fi
+
+          if [ "$FAILED" -eq 1 ]; then
+            echo ""
+            echo "::error::Gate FAILED. PRs to main must come from the tauri-base branch of $BASE_REPO."
+            exit 1
+          fi
+
+          echo "Gate PASSED — source branch is 'tauri-base' from canonical repo '$HEAD_REPO'."

@@ -2,6 +2,7 @@
 //! Unit tests for ydotool_injector.rs
 use crate::types::InjectionConfig;
 use crate::ydotool_injector::{candidate_socket_paths, locate_existing_socket, YdotoolInjector};
+use crate::TextInjector;
 use anyhow::Result;
 use serial_test::serial;
 use std::env;
