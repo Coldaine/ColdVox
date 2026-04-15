@@ -6,7 +6,7 @@ description = "Speech-to-text abstraction layer for ColdVox"
 publish = false
 
 [dependencies]
-tokio = { version = "1.49", features = ["sync", "macros", "time"] }
+tokio = { version = "1.52", features = ["sync", "macros", "time"] }
 tracing = "0.1"
 parking_lot = "0.12"
 async-trait = "0.1"
@@ -37,7 +37,7 @@ parakeet-cuda = ["parakeet", "parakeet-rs/cuda"]
 parakeet-tensorrt = ["parakeet-cuda", "parakeet-rs/tensorrt"]
 
 [dev-dependencies]
-tokio = { version = "1.49", features = ["rt-multi-thread", "macros", "io-util", "net", "time"] }
+tokio = { version = "1.52", features = ["rt-multi-thread", "macros", "io-util", "net", "time"] }
 serial_test = "3.4"
 hound = "3.5"
 
