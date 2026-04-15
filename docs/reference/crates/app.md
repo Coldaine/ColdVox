@@ -1,12 +1,10 @@
 ---
 doc_type: index
 subsystem: foundation
-status: draft
-freshness: stale
-preservation: preserve
-last_reviewed: 2025-10-19
-owners: Documentation Working Group
 version: 1.0.0
+status: draft
+owners: Documentation Working Group
+last_reviewed: 2025-10-19
 ---
 
 # crate: app (Index)

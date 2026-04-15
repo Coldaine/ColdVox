@@ -1,12 +1,9 @@
 ---
 doc_type: playbook
 subsystem: telemetry
-status: active
-freshness: stale
-preservation: preserve
-summary: "OTel span naming, metrics taxonomy, and sampling strategy"
-signals: "['otel', 'metrics', 'tracing']"
-owners: Documentation Working Group
+version: 0.1.0
+status: experimental
+owners: observability-steward
 last_reviewed: 2025-11-12
 ---
 
@@ -228,7 +225,7 @@ Phase success metrics & abort guards summarized (see section 6 & 9).
 - Cross-repo end-to-end SLO dashboard
 - GPU telemetry integration (if needed)
 - Prompt quality scoring metrics (LangSmith + Grafana)
-- Rust macro DSL for boilerplate reduction
+- Rust xmacro DSL for boilerplate reduction
 - Privacy scrubbing processor
 - AI anomaly detection on trace structures
 

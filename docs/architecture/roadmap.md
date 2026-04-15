@@ -1,12 +1,10 @@
 ---
 doc_type: architecture
 subsystem: general
-status: draft
-freshness: stale
-preservation: preserve
-last_reviewed: 2025-10-19
-owners: Documentation Working Group
 version: 1.0.0
+status: draft
+owners: Documentation Working Group
+last_reviewed: 2025-10-19
 ---
 
 # ColdVox Roadmap
@@ -55,7 +53,7 @@ This roadmap outlines the anticipated progression of major transformational init
 
 ## Next Actions (Short-Term)
 
-1. Finalize `docs/standards.md`, `AGENTS.md`, and playbook skeletons.
+1. Finalize `docs/standards.md`, `docs/agents.md`, and playbook skeletons.
 2. Land GitHub governance automation plans in `docs/playbooks/organizational/github_governance.md`.
 3. Prototype docs watcher tooling and integrate logs into CI for visibility.
 4. Draft the always-on listening proof-of-concept design notes and spike tickets for v1.0 foundation work.

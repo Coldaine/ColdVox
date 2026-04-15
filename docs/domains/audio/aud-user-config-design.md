@@ -1,13 +1,11 @@
 ---
 doc_type: architecture
 subsystem: audio
-status: draft
-freshness: stale
-preservation: preserve
-domain_code: aud
-last_reviewed: 2025-10-19
-owners: Documentation Working Group
 version: 1.0.0
+status: draft
+owners: Documentation Working Group
+last_reviewed: 2025-10-19
+domain_code: aud
 ---
 
 # User Configuration Design
@@ -67,21 +65,15 @@ All environment variables follow the `COLDVOX_*` prefix convention:
 ### Plugin Management
 ```bash
 # CLI
---stt-preferred moonshine
---stt-fallbacks parakeet,mock
+--stt-preferred vosk
+--stt-fallbacks whisper,mock
 --stt-require-local
 
 # Environment
-COLDVOX_STT_PREFERRED=moonshine
-COLDVOX_STT_FALLBACKS=parakeet,mock
+COLDVOX_STT_PREFERRED=vosk
+COLDVOX_STT_FALLBACKS=whisper,mock
 COLDVOX_STT_REQUIRE_LOCAL=true
 ```
-
-**Available STT Plugins:**
-- **Moonshine**: CPU-efficient model, recommended for most users
-- **Parakeet**: GPU-accelerated model, high-quality transcription
-- **Mock**: Test/debug plugin, always returns mock transcript
-- **NoOp**: Placeholder plugin that returns empty transcript
 
 ### Resource Management
 ```bash
@@ -165,7 +157,7 @@ COLDVOX_INJECTION_COOLDOWN_MS=100
 
 ### Storage Options
 ```bash
-# CLI
+# CLI (requires 'vosk' feature)
 --save-transcriptions
 --save-audio
 --output-dir /path/to/transcriptions
@@ -195,8 +187,7 @@ COLDVOX_INJECTION_COOLDOWN_MS=100
 ## Configuration Validation
 
 ### Required Dependencies
-- **Moonshine STT**: Pure Rust implementation, CPU-efficient
-- **Parakeet STT**: ONNX-based model, requires GPU for optimal performance
+- **Vosk STT**: Requires `libvosk` system library and model files
 - **Text Injection**: Platform-specific dependencies (ydotool, kdotool, etc.)
 - **Audio Hardware**: Input device availability checked at startup
 
@@ -233,15 +224,15 @@ RUST_LOG=info,stt=debug,coldvox_audio=trace
 
 ### Basic Voice Dictation
 ```bash
-cargo run --features moonshine,text-injection -- \
+cargo run --features vosk,text-injection -- \
 	--device "USB Microphone" \
 	--activation-mode vad \
 	--enable-text-injection
 ```
 
-### High-Quality GPU-Accelerated Setup
+### High-Quality Recording Setup
 ```bash
-cargo run --features parakeet,text-injection -- \
+cargo run --features vosk,text-injection -- \
 	--device "HyperX QuadCast" \
 	--resampler-quality quality \
 	--save-transcriptions \
@@ -259,11 +250,11 @@ cargo run -- --tui --activation-mode hotkey
 
 ### Production Environment
 ```bash
-COLDVOX_STT_PREFERRED=moonshine \
+COLDVOX_STT_PREFERRED=vosk \
 COLDVOX_STT_REQUIRE_LOCAL=true \
 COLDVOX_ENABLE_TEXT_INJECTION=true \
 COLDVOX_RESTORE_CLIPBOARD=true \
-cargo run --features moonshine,text-injection --release
+cargo run --features vosk,text-injection --release
 ```
 
 ## Migration and Compatibility
@@ -283,7 +274,7 @@ cargo run --features moonshine,text-injection --release
 ### Common Configuration Issues
 
 1. **No Audio Device**: Check `--list-devices` output and permissions
-2. **STT Not Working**: Verify STT plugin installation and correct plugin selected
+2. **STT Not Working**: Verify Vosk model installation and `VOSK_MODEL_PATH`
 3. **Text Injection Fails**: Review backend permissions and `--allow-*` flags
 4. **Performance Issues**: Adjust `--resampler-quality` and memory limits
 

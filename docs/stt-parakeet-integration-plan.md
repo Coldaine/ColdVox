@@ -1,18 +1,3 @@
----
-doc_type: reference
-subsystem: stt
-version: 1.0.0
-status: draft
-freshness: stale
-preservation: preserve
-owners: STT Team
-last_reviewed: 2026-02-12
-last_reviewer: Jules
-review_due: 2026-08-12
-summary: API contract analysis and gap analysis for Parakeet
-signals: ['stt-api', 'parakeet']
----
-
 # Parakeet STT Integration Plan - COMPREHENSIVE
 
 ## Executive Summary

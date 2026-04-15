@@ -1,0 +1,17 @@
+HEAD detached at origin/worker/coldvox/w-2b39-gui-pipeline-integration
+Changes to be committed:
+  (use "git restore --staged <file>..." to unstage)
+	modified:   crates/coldvox-gui/Cargo.toml
+	modified:   crates/coldvox-gui/src/bridge.rs
+	new file:   diff_status.txt
+	new file:   diff_status_docs.txt
+	renamed:    docs/adr/0001-vosk-model-distribution.md -> docs/architecture/adr-0001.md
+	deleted:    docs/history/2025-11-06_04-16Z-branch-status-and-work-in-progress-overview.md
+	deleted:    docs/history/2025-11-06_04-33Z-reviewing-implementation-of-golden-test-branch.md
+	deleted:    docs/history/2025-11-06_05-33Z-git-history-inquiry-for-compat-rs-file.md
+	renamed:    docs/observability-playbook.md -> docs/playbooks/telemetry/tele-observability-playbook.md
+	new file:   validation_output.txt
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	git_status_output.txt

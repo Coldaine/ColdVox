@@ -1,40 +1,35 @@
 ---
 doc_type: reference
 subsystem: foundation
-status: draft
-freshness: stale
-preservation: preserve
-domain_code: fdn
-last_reviewed: 2025-10-19
-owners: Documentation Working Group
 version: 1.0.0
+status: draft
+owners: Documentation Working Group
+last_reviewed: 2025-10-19
+domain_code: fdn
 ---
 
 # Testing Guide
 
 ## Overview
 
-ColdVox has a comprehensive test suite that tests real STT functionality using modern speech recognition models and actual hardware. Tests are designed to work with actual speech recognition and real audio devices rather than mocks to ensure functional correctness. This guide explains how to run tests and set up the required dependencies.
+ColdVox has a comprehensive test suite that tests real STT functionality using Vosk models and actual hardware. Tests are designed to work with actual speech recognition and real audio devices rather than mocks to ensure functional correctness. This guide explains how to run tests and set up the required dependencies.
 
 ## Test Categories
 
 ### Core Tests
-**All tests use real STT models and hardware for functional validation**
+**All tests use real Vosk models and hardware for functional validation**
 
-- ✅ **Test actual STT functionality** (use real Moonshine or Parakeet models)
+- ✅ **Test actual STT functionality** (use real Vosk models)
 - ✅ **Validate end-to-end pipeline behavior**
 - ✅ **Test with real audio hardware** (microphones, speakers)
-- ✅ **Require STT model setup** (see setup section below)
+- ✅ **Require Vosk model setup** (see setup section below)
 
 ```bash
-# Run tests with Moonshine (CPU-efficient)
-cargo test
+# Run tests with Vosk model (all environments)
+VOSK_MODEL_PATH="$(pwd)/models/vosk-model-small-en-us-0.15" cargo test
 
 # Run tests for specific crate
-cargo test -p coldvox-app
-
-# Run with Parakeet (GPU-accelerated)
-cargo test --features parakeet
+VOSK_MODEL_PATH="$(pwd)/models/vosk-model-small-en-us-0.15" cargo test -p coldvox-app
 ```
 
 ### Integration Tests (Full Hardware & Models)
@@ -61,30 +56,26 @@ cargo test test_candidate_order_default_first
 ### Hardware Requirements
 **All environments must have real hardware available**
 
-All tests use real STT models and actual audio hardware to validate functionality. This includes development environments and self-hosted CI runners.
+All tests use real Vosk models and actual audio hardware to validate functionality. This includes development environments and self-hosted CI runners.
 
 ### Required Setup
 
-#### 1. STT Model Setup
-Tests support multiple STT backends. Choose based on your environment:
+#### 1. Vosk Model Setup
+All tests require a real Vosk model for STT functionality:
 
-**Option A: Moonshine (CPU-efficient, recommended for most users)**
 ```bash
-# Moonshine models are auto-downloaded on first use
-# No manual setup required - the plugin handles model initialization
-cargo test
-```
+# Option A: Use the automated setup script
+./scripts/ci/setup-vosk-cache.sh
 
-**Option B: Parakeet (GPU-accelerated)**
-```bash
-# Requires CUDA/GPU support
-cargo test --features parakeet
-```
+# Option B: Manual setup
+# 1. Download a Vosk model
+wget https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip
+unzip vosk-model-small-en-us-0.15.zip
+mkdir -p models/
+mv vosk-model-small-en-us-0.15 models/
 
-**Option C: Mock (testing/development)**
-```bash
-# For testing without actual models
-cargo test --features mock
+# 2. Set environment variable
+export VOSK_MODEL_PATH="$(pwd)/models/vosk-model-small-en-us-0.15"
 ```
 
 #### 2. Audio Hardware Setup
@@ -117,7 +108,7 @@ sudo usermod -a -G input $USER
 | Crate | Unit Tests | Integration Tests | Notes |
 |-------|------------|-------------------|-------|
 | `coldvox-audio` | Device enumeration, resampling | Real hardware detection | All tests run with real devices |
-| `coldvox-app` | Plugin management, STT logic | End-to-end WAV processing | STT model required for all tests |
+| `coldvox-app` | Plugin management, STT logic | End-to-end WAV processing | Vosk model required for all tests |
 | `coldvox-vad` | VAD algorithms | Real audio processing | Silero ONNX models tested |
 | `coldvox-stt` | Plugin interfaces | Model loading/inference | Real hardware and models used |
 
@@ -127,7 +118,7 @@ sudo usermod -a -G input $USER
 # Audio tests (with real hardware)
 cargo test -p coldvox-audio
 
-# STT tests (with available models)
+# STT tests (with real Vosk models)
 cargo test -p coldvox-app stt --lib
 
 # Text injection tests (with real injection)
@@ -136,38 +127,32 @@ cargo test -p coldvox-app --features text-injection injection
 # VAD tests (with real audio processing)
 cargo test -p coldvox-vad
 
-# Full pipeline with Moonshine (CPU)
-cargo test -p coldvox-app test_end_to_end_wav
-
-# Full pipeline with Parakeet (GPU)
-cargo test -p coldvox-app test_end_to_end_wav --features parakeet
+# Full pipeline with real models and hardware
+cargo test -p coldvox-app test_end_to_end_wav --features vosk
 ```
 
 ## Key Testing Principles
 
 ### Real Hardware Testing
-- **Use real hardware**: All tests run against actual audio devices and STT models
+- **Use real hardware**: All tests run against actual audio devices and Vosk models
 - **No mock-only paths**: If mocks are used for unit testing, full real tests must be included in the same test run
 - **Comprehensive**: Test actual functionality end-to-end with real hardware and models
 - **Reliable**: Target hardware is consistently available across environments
 
 ### Test Design
 - **No ignored tests**: All tests run by default in standard test execution
-- **Real dependencies**: Use actual STT models and audio hardware for validation
+- **Real dependencies**: Use actual Vosk models and audio hardware for validation
 - **Full validation**: Test complete pipeline from audio capture to text injection
 - **Mock + Real requirement**: Any test suite using mocks must also include corresponding real tests
 
 ## Common Issues & Solutions
 
-### "Failed to initialize STT plugin" Errors
+### "Failed to locate Vosk model" Errors
 ```bash
-# Moonshine: Models auto-download on first use (may take a moment)
-# Parakeet: Requires GPU/CUDA support available
-# Mock: Use --features mock for testing without models
-
-# Verify your setup
-cargo run --bin mic_probe
-cargo test -p coldvox-audio  # Test audio independently first
+# Fix: Set up Vosk model
+export VOSK_MODEL_PATH="/path/to/vosk-model-small-en-us-0.15"
+# OR
+./scripts/ci/setup-vosk-cache.sh
 ```
 
 ### Audio Device Tests
@@ -182,7 +167,7 @@ cargo test
 ### Test Execution
 All tests are designed to run with real hardware and models:
 
-1. Ensure STT models are available (Moonshine auto-downloads, or select appropriate feature)
+1. Ensure Vosk model is available at `VOSK_MODEL_PATH`
 2. Verify audio hardware is accessible via `mic_probe`
 3. All tests run by default - no tests should be ignored
 
@@ -201,13 +186,13 @@ cargo test                                    # All tests including integration
 cargo check --all-targets                    # Quick compile check
 cargo test --workspace                       # All crates with real hardware
 
-# STT-specific tests
-cargo test                                   # Default: Moonshine
-cargo test --features parakeet               # GPU: Parakeet
-cargo test --features mock                   # Testing: Mock plugin
+# Environment setup
+./scripts/ci/setup-vosk-cache.sh            # Setup models for all tests
+export VOSK_MODEL_PATH="$(pwd)/models/vosk-model-small-en-us-0.15"
 
 # Specific test patterns
 cargo test plugin_manager                    # Plugin management tests
+cargo test --features vosk test_vosk         # Vosk-specific tests
 cargo test audio_device                      # Audio hardware tests (real devices)
 
 # Debug failing tests
@@ -226,13 +211,4 @@ RUST_LOG=debug cargo test test_name          # Enable debug logging
 **Local development:**
 - Run `cargo test` for complete validation (includes all tests)
 - All tests use real hardware and models
-- Models are automatically downloaded when needed (Moonshine)
-
-## STT Plugin Selection
-
-| Plugin | Use Case | Requirements |
-|--------|----------|--------------|
-| **Moonshine** | Production, CPU | Pure Rust, auto-downloads models |
-| **Parakeet** | High-quality, GPU | CUDA/GPU support required |
-| **Mock** | Testing, CI | No external dependencies |
-| **NoOp** | Debug, validation | Returns empty transcripts |
+- Use `scripts/ci/setup-vosk-cache.sh` for model setup

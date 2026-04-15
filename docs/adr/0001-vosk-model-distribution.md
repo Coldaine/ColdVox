@@ -1,12 +1,3 @@
----
-doc_type: architecture
-subsystem: stt
-version: 1.0.0
-status: approved
-owners: STT Team
-last_reviewed: 2025-09-09
----
-
 # ADR 0001: Vosk Model Distribution Strategy
 
 Date: 2025-09-09

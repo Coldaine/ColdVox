@@ -7,9 +7,6 @@ owners: observability-steward
 last_reviewed: 2025-11-12
 ---
 
-last_reviewed: 2025-11-12
----
-
 # Organizational Observability Playbook
 
 ## 1. Purpose
@@ -170,7 +167,7 @@ Layers:
 2. Tail Sampling: capture spans with: error=true; latency_ms > p95*1.25; cost spikes; premium provider.
 3. Destination Differentiation: internal Tempo keeps broad set; Grafana Cloud minimal tail + thin head slice; LangSmith all LLM spans; Logfire logs only.
 
-Adaptive Adjustment Inputs: error rate delta, cost spike, latency skew.
+Adaptive Adjustment Inputs: error rate delta, cost spike, latency xkew.
 Feedback Loop: weekly job analyzes metrics and writes new sampling config (versioned).
 SpanMetrics: derives RED automatically from operation names.
 
