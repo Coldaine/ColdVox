@@ -5,8 +5,7 @@
 //! while providing the new TextInjector trait interface.
 
 use crate::confirm::{create_confirmation_context, ConfirmationContext};
-use crate::log_throttle::log_atspi_connection_failure;
-use crate::logging::utils;
+
 use crate::types::{
     InjectionConfig, InjectionContext, InjectionMethod, InjectionMode, InjectionResult,
 };
@@ -43,8 +42,12 @@ impl AtspiInjector {
     }
 
     /// Insert text directly using AT-SPI EditableText interface
-    pub async fn insert_text(&self, text: &str, context: &InjectionContext) -> InjectionResult<()> {
-        let start_time = Instant::now();
+    pub async fn insert_text(
+        &self,
+        text: &str,
+        _context: &InjectionContext,
+    ) -> InjectionResult<()> {
+        let _start_time = Instant::now();
 
         trace!("AT-SPI insert_text starting for {} chars", text.len());
         // Fast-path: nothing to do for empty text. This keeps tests simple and
@@ -246,8 +249,8 @@ impl AtspiInjector {
     }
 
     /// Paste text using AT-SPI clipboard operations
-    pub async fn paste_text(&self, text: &str, context: &InjectionContext) -> InjectionResult<()> {
-        let start_time = Instant::now();
+    pub async fn paste_text(&self, text: &str, _context: &InjectionContext) -> InjectionResult<()> {
+        let _start_time = Instant::now();
 
         trace!("AT-SPI paste_text starting for {} chars", text.len());
         // Fast-path: nothing to do for empty text. Matches insert_text behavior.
@@ -527,7 +530,7 @@ impl AtspiInjector {
 
     /// Main injection method that delegates to insert_text or paste_text
     /// Respects mode_override in context if present
-    pub async fn inject(&self, text: &str, context: &InjectionContext) -> InjectionResult<()> {
+    pub async fn inject(&self, text: &str, _context: &InjectionContext) -> InjectionResult<()> {
         if text.is_empty() {
             return Ok(());
         }

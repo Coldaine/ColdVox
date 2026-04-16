@@ -9,11 +9,12 @@ use crate::types::{InjectionConfig, InjectionMethod, InjectionResult};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, RwLock};
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, info, warn};
 
 /// TTL for cached pre-warmed data (3 seconds)
 const CACHE_TTL: Duration = Duration::from_secs(3);
 /// Tiny timeout for individual pre-warming steps (50ms)
+#[allow(dead_code)]
 const STEP_TIMEOUT: Duration = Duration::from_millis(50);
 
 /// Pre-warmed data with TTL caching
@@ -161,7 +162,7 @@ impl PrewarmController {
 
     /// Pre-warm AT-SPI connection and snapshot focused element
     async fn prewarm_atspi(&self) -> Result<AtspiData, String> {
-        let start_time = Instant::now();
+        let _start_time = Instant::now();
         debug!("Starting AT-SPI pre-warming");
 
         #[cfg(feature = "atspi")]
@@ -246,7 +247,7 @@ impl PrewarmController {
 
     /// Arm the event listener for text change confirmation
     async fn arm_event_listener(&self) -> Result<bool, String> {
-        let start_time = Instant::now();
+        let _start_time = Instant::now();
         debug!("Arming event listener for text change confirmation");
 
         #[cfg(feature = "atspi")]
@@ -280,7 +281,7 @@ impl PrewarmController {
 
     /// Snapshot the current clipboard content
     async fn snapshot_clipboard(&self) -> Result<ClipboardData, String> {
-        let start_time = Instant::now();
+        let _start_time = Instant::now();
         debug!("Snapshotting clipboard content");
 
         #[cfg(feature = "wl_clipboard")]
@@ -337,7 +338,7 @@ impl PrewarmController {
 
     /// Prepare portal session for remote desktop access
     async fn prepare_portal_session(&self) -> Result<PortalData, String> {
-        let start_time = Instant::now();
+        let _start_time = Instant::now();
         debug!("Preparing portal session");
 
         // Check if xdg-desktop-portal is available
@@ -376,7 +377,7 @@ impl PrewarmController {
 
     /// Connect to virtual keyboard (Hyprland only)
     async fn connect_virtual_keyboard(&self) -> Result<VirtualKeyboardData, String> {
-        let start_time = Instant::now();
+        let _start_time = Instant::now();
         debug!("Connecting to virtual keyboard");
 
         // Check if we're running on Hyprland
@@ -411,7 +412,7 @@ impl PrewarmController {
 
     /// Execute all pre-warming steps in parallel
     async fn execute_all_prewarming(&self) {
-        let start_time = Instant::now();
+        let _start_time = Instant::now();
         info!("Starting pre-warming of all injection components");
 
         // Execute all pre-warming steps in parallel

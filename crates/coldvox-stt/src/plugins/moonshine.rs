@@ -198,7 +198,7 @@ _processor = AutoProcessor.from_pretrained(model_id)
                 None,
                 Some(&locals),
             )
-                .map_err(|e| SttError::LoadFailed(format!("Failed to load model: {}", e)))?;
+            .map_err(|e| SttError::LoadFailed(format!("Failed to load model: {}", e)))?;
 
             // Extract model and processor from locals dict
             let model = locals
@@ -281,7 +281,7 @@ _transcription = processor.batch_decode(generated_ids, skip_special_tokens=True)
                 None,
                 Some(&locals),
             )
-                .map_err(|e| SttError::TranscriptionFailed(format!("Python error: {}", e)))?;
+            .map_err(|e| SttError::TranscriptionFailed(format!("Python error: {}", e)))?;
 
             let result = locals
                 .get_item("_transcription")

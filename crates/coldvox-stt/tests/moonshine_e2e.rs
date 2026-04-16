@@ -281,7 +281,10 @@ async fn test_buffer_overflow_protection() {
     // Reset clears the buffer - if we got here without panic, the limit worked
     plugin.reset().await.expect("Reset failed");
 
-    println!("Buffer overflow protection verified (limit: {} samples)", MAX_SAMPLES);
+    println!(
+        "Buffer overflow protection verified (limit: {} samples)",
+        MAX_SAMPLES
+    );
 }
 
 /// Test that common::load_test_audio validates audio format correctly
