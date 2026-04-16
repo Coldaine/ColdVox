@@ -39,9 +39,9 @@ pub enum ActivationMode {
     AlwaysOnPushToTranscribe,
 }
 
-impl Into<crate::stt::session::ActivationMode> for ActivationMode {
-    fn into(self) -> crate::stt::session::ActivationMode {
-        match self {
+impl From<ActivationMode> for crate::stt::session::ActivationMode {
+    fn from(val: ActivationMode) -> Self {
+        match val {
             ActivationMode::Vad => crate::stt::session::ActivationMode::Vad,
             ActivationMode::Hotkey => crate::stt::session::ActivationMode::Hotkey,
             ActivationMode::AlwaysOnPushToTranscribe => crate::stt::session::ActivationMode::AlwaysOnPushToTranscribe,

@@ -704,9 +704,11 @@ mod tests {
 
     #[test]
     fn build_runtime_plugin_selection_prefers_canonical_plugin_owner() {
-        let mut stt = SttSettings::default();
-        stt.preferred = Some("mock".to_string());
-        stt.fallbacks = vec!["mock".to_string()];
+        let stt = SttSettings {
+            preferred: Some("mock".to_string()),
+            fallbacks: vec!["mock".to_string()],
+            ..Default::default()
+        };
 
         let selection = Settings::build_runtime_plugin_selection_with_overrides(
             &stt,
