@@ -7,8 +7,8 @@ function App() {
     clearTranscript,
     openSettings,
     setExpanded,
-    startDemo,
-    stopDemo,
+    startPipeline,
+    stopPipeline,
     togglePause,
   } = useOverlayShell();
 
@@ -17,9 +17,9 @@ function App() {
       <OverlayShell
         snapshot={snapshot}
         onSetExpanded={setExpanded}
-        onStartDemo={startDemo}
+        onStartDemo={startPipeline}
         onTogglePause={togglePause}
-        onStop={stopDemo}
+        onStop={stopPipeline}
         onClear={clearTranscript}
         onSettings={openSettings}
       />

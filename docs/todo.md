@@ -12,13 +12,13 @@ version: 1.0.0
 # Documentation Todo Backlog
 
 ## Epic: Test OS Scoping (High Priority)
-- [ ] Scope text-injection integration tests to fix `cargo test` failures on Windows. ([plan](./plans/windows-multi-agent-recovery.md))
+- [ ] Scope text-injection integration tests to fix `cargo test` failures on Windows. ([plan](./plans/current-status.md))
 
 ## Epic: Documentation Migration
 
 - [x] Establish canonical directory skeleton and enforcement tooling (Phase 1).
 - [ ] Migrate existing Markdown into canonical structure (Phase 2–3).
-  - [ ] Align GUI documentation with the Windows-first ColdVox_Mini carryover path ([plan](./plans/windows-multi-agent-recovery.md)).
+  - [ ] Align GUI documentation with the Windows-first ColdVox_Mini carryover path ([plan](./plans/current-status.md)).
   - [ ] Document CI runner readiness requirements ([spec](./tasks/ci-runner-readiness-proposal.md)).
 - [ ] Normalize content metadata and retention banners (Phase 3 follow-up).
 - [ ] Cross-link tasks and specs per playbook policy (Phase 4).

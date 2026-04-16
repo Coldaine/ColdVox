@@ -5,13 +5,13 @@ Canonical AI agent instructions for ColdVox. This file is the source of truth fo
 ## Anchor
 
 - Product and technical anchor: `docs/northstar.md`
-- Current execution plan: `docs/plans/windows-multi-agent-recovery.md`
+- Current execution state: `docs/plans/current-status.md`
 - Architecture direction: `docs/architecture.md`
 - CI source of truth: `docs/dev/CI/architecture.md`
 
 If guidance conflicts, use this precedence:
 1. `docs/northstar.md`
-2. `docs/plans/windows-multi-agent-recovery.md`
+2. `docs/plans/current-status.md`
 3. `docs/dev/CI/architecture.md`
 
 ## Current Product Direction & Reality
@@ -39,7 +39,7 @@ Key crates to know:
 **DO:**
 - Use `cargo {cmd} -p {crate}` for iteration speed, but finish with `cargo check --workspace --all-targets`.
 - Only use live testing (real microphone/`.wav` files) to test VAD and STT. Do not mock audio buffers.
-- Treat `docs/plans/windows-multi-agent-recovery.md` as the absolute truth for what is currently broken or needing work.
+- Check `docs/plans/current-status.md` for what currently works and what's broken.
 
 **DO NOT:**
 - Claim Whisper or Parakeet are currently production-ready.

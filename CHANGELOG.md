@@ -4,6 +4,9 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Added
+- AI-gated automerge pipeline on `tauri-base`: `agent-review.yml` reads CodeRabbit reviews and applies `agent-approved`/`agent-blocked` labels; `automerge.yml` enables `gh pr merge --auto` on non-draft PRs; `gate-main.yml` enforces that only PRs from `tauri-base` on the canonical repo may target `main` (blocks forks and off-branch merges).
+
 ### STT
 - Hardened the canonical Parakeet CPU HTTP-remote profile so `http-remote` now resolves to the configured `5092` `/health` + `/v1/audio/transcriptions` contract, honors remote request/guardrail settings, and ships with a repo-owned CPU compose profile under `ops/parakeet/`.
 - Added an optional containerized Parakeet GPU HTTP comparison profile (`http-remote-parakeet-gpu`) with a repo-owned compose service on `8200`, using the live `/healthz` + `/audio/transcriptions` contract while preserving the CPU profile as the wave-1 default.
@@ -20,11 +23,11 @@ All notable changes to this project are documented here.
 ### Nuclear Pruning & Documentation Cleanup
 - Removed vaporware STT backends (whisper, coqui, leopard, silero-stt) and legacy feature flags.
 - Archived outdated plans, PR reports, and reference docs to `docs/archive/`.
-- Updated all agent anchors (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `README.md`) to the current documentation chain centered on `docs/plans/windows-multi-agent-recovery.md`.
+- Updated all agent anchors (`AGENTS.md`, `README.md`) to the current documentation chain centered on `docs/plans/current-status.md`.
 - Added `.omc/` (AI tool state) to `.gitignore`.
 - Synced `plugins.json` configs to prefer `moonshine` (removed whisper references).
 - Fixed broken links and references post-restructure.
-- Updated `docs/plans/windows-multi-agent-recovery.md` with current verified status and paths.
+- Updated `docs/plans/current-status.md` with current verified status and paths.
 
 ### Added
 - **Moonshine STT Plugin** - CPU-optimized speech recognition using UsefulSensors' Moonshine model via PyO3/HuggingFace Transformers

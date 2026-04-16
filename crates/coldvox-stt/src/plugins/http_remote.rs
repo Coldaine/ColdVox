@@ -351,7 +351,8 @@ impl HttpRemotePlugin {
         if wav_data.len() as u64 > self.config.max_audio_bytes {
             return Err(SttError::TranscriptionFailed(format!(
                 "Encoded WAV size {} exceeds configured max_audio_bytes {}",
-                wav_data.len(), self.config.max_audio_bytes
+                wav_data.len(),
+                self.config.max_audio_bytes
             ))
             .into());
         }
@@ -1165,7 +1166,9 @@ mod tests {
         std::env::set_var(token_var, "secret-token");
 
         let mut config = test_config(base_url);
-        config.headers.insert("x-test-header".into(), "enabled".into());
+        config
+            .headers
+            .insert("x-test-header".into(), "enabled".into());
         config.bearer_token_env_var = Some(token_var.into());
         let mut plugin = HttpRemotePlugin::new(config);
 

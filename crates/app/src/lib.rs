@@ -71,17 +71,9 @@ impl Default for InjectionSettings {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct SttRemoteAuthSettings {
     pub bearer_token_env_var: Option<String>,
-}
-
-impl Default for SttRemoteAuthSettings {
-    fn default() -> Self {
-        Self {
-            bearer_token_env_var: None,
-        }
-    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -601,8 +593,7 @@ impl Settings {
         if let Some(env_var) = &self.stt.remote.auth.bearer_token_env_var {
             if env_var.trim().is_empty() {
                 errors.push(
-                    "STT remote auth.bearer_token_env_var must not be blank when set"
-                        .to_string(),
+                    "STT remote auth.bearer_token_env_var must not be blank when set".to_string(),
                 );
             }
         }
@@ -697,7 +688,6 @@ pub mod runtime;
 pub mod sleep_instrumentation;
 pub mod stt;
 pub mod telemetry;
-#[cfg(feature = "text-injection")]
 pub mod text_injection;
 #[cfg(feature = "tui")]
 pub mod tui;
@@ -712,9 +702,11 @@ mod tests {
 
     #[test]
     fn build_runtime_plugin_selection_prefers_canonical_plugin_owner() {
-        let mut stt = SttSettings::default();
-        stt.preferred = Some("mock".to_string());
-        stt.fallbacks = vec!["mock".to_string()];
+        let stt = SttSettings {
+            preferred: Some("mock".to_string()),
+            fallbacks: vec!["mock".to_string()],
+            ..Default::default()
+        };
 
         let selection = Settings::build_runtime_plugin_selection_with_overrides(
             &stt,

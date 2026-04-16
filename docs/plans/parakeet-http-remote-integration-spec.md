@@ -34,7 +34,7 @@ These values are the current source-of-truth contract in repo docs/config:
 
 ### Active plan and runtime defaults
 
-- `docs/plans/windows-multi-agent-recovery.md`
+- `docs/plans/current-status.md`
 - `docs/reference/stt-docker-containers.md`
 - `config/default.toml`
 - `config/plugins.json`

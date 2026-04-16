@@ -301,6 +301,7 @@ impl DashboardState {
         match mode {
             ActivationMode::Vad => "Always-on (VAD)",
             ActivationMode::Hotkey => "Push-to-talk (preview inject)",
+            ActivationMode::AlwaysOnPushToTranscribe => "Always-on (push-to-transcribe)",
         }
     }
 
@@ -340,7 +341,8 @@ impl DashboardState {
     fn toggle_activation_mode(&mut self) {
         self.activation_mode = match self.activation_mode {
             ActivationMode::Vad => ActivationMode::Hotkey,
-            ActivationMode::Hotkey => ActivationMode::Vad,
+            ActivationMode::Hotkey => ActivationMode::AlwaysOnPushToTranscribe,
+            ActivationMode::AlwaysOnPushToTranscribe => ActivationMode::Vad,
         };
         self.log(
             LogLevel::Info,
@@ -436,7 +438,6 @@ async fn run_app(
                             if !state.is_running {
                                 state.log(LogLevel::Info, "Starting audio pipeline...".to_string());
                                 // Build runtime options
-                                #[cfg(feature = "text-injection")]
                                 let mut opts = app_runtime::AppRuntimeOptions {
                                     device: if state.selected_device == "default" || state.selected_device.is_empty() { None } else { Some(state.selected_device.clone()) },
                                     activation_mode: state.activation_mode,
@@ -447,21 +448,7 @@ async fn run_app(
                                     ..Default::default()
                                 };
 
-                                #[cfg(not(feature = "text-injection"))]
-                                let opts = app_runtime::AppRuntimeOptions {
-                                    device: if state.selected_device == "default" || state.selected_device.is_empty() { None } else { Some(state.selected_device.clone()) },
-                                    activation_mode: state.activation_mode,
-                                    resampler_quality: state.resampler_quality,
-                                    stt_selection: Some(coldvox_stt::plugin::PluginSelectionConfig::default()),
-                                    enable_device_monitor: false,
-                                    capture_buffer_samples: 65_536,
-                                    ..Default::default()
-                                };
-
-                                #[cfg(feature = "text-injection")]
-                                {
-                                    opts.injection = None;
-                                }
+                                opts.injection = None;
 
                                 let ui_tx = tx.clone();
                                 // Start runtime synchronously and then wire up event forwarders

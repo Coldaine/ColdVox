@@ -1,22 +1,25 @@
-mod contract;
-mod demo;
 mod state;
 mod window;
+mod contract;
 
 use std::{
-    sync::{Arc, Mutex},
-    thread,
+    sync::Arc,
     time::Duration,
 };
 
-use contract::{OverlayEvent, OverlaySnapshot, OVERLAY_EVENT_NAME};
-use demo::demo_script;
+use contract::{OverlayEvent, OverlaySnapshot, OVERLAY_EVENT_NAME, OverlayStatus};
 use state::OverlayModel;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
+use coldvox_app::runtime::{self as app_runtime, AppHandle as ColdVoxHandle, AppRuntimeOptions, ActivationMode};
+use coldvox_app::stt::TranscriptionEvent;
+use coldvox_audio::ResamplerQuality;
+use coldvox_stt::plugin::PluginSelectionConfig;
+use tokio::sync::Mutex as AsyncMutex;
 
-#[derive(Clone, Default)]
+#[derive(Default)]
 struct OverlayRuntime {
-    inner: Arc<Mutex<OverlayModel>>,
+    model: Arc<parking_lot::Mutex<OverlayModel>>,
+    app_handle: Arc<AsyncMutex<Option<ColdVoxHandle>>>,
 }
 
 impl OverlayRuntime {
@@ -25,12 +28,8 @@ impl OverlayRuntime {
     }
 
     fn with_model<R>(&self, update: impl FnOnce(&mut OverlayModel) -> R) -> R {
-        let mut model = self.inner.lock().expect("overlay model poisoned");
+        let mut model = self.model.lock();
         update(&mut model)
-    }
-
-    fn shared(&self) -> Arc<Mutex<OverlayModel>> {
-        Arc::clone(&self.inner)
     }
 }
 
@@ -84,15 +83,76 @@ fn set_overlay_expanded(
 }
 
 #[tauri::command]
-fn start_demo_driver(
+async fn start_pipeline(
     runtime: State<'_, OverlayRuntime>,
     window: WebviewWindow,
     app: AppHandle,
 ) -> CommandResult {
-    let (token, snapshot) = runtime.with_model(|model| model.start_demo());
-    let shared = runtime.shared();
-    spawn_demo_driver(shared, app.clone(), token);
-    emit_and_resize(&app, &window, &snapshot, "demo-started")
+    let mut handle_guard = runtime.app_handle.lock().await;
+    if handle_guard.is_some() {
+        return Err("Pipeline already running".to_string());
+    }
+
+    let opts = AppRuntimeOptions {
+        activation_mode: ActivationMode::AlwaysOnPushToTranscribe,
+        resampler_quality: coldvox_audio::ResamplerQuality::Balanced,
+        stt_selection: Some(coldvox_stt::plugin::PluginSelectionConfig::default()),
+        enable_device_monitor: true,
+        ..Default::default()
+    };
+
+    let mut coldvox_app = app_runtime::start(opts).await
+        .map_err(|e| format!("Failed to start ColdVox runner: {}", e))?;
+
+    let mut stt_rx = coldvox_app.stt_rx.take()
+        .ok_or_else(|| "STT channel not available".to_string())?;
+
+    let model_clone = runtime.model.clone();
+    let app_clone = app.clone();
+    let window_clone = window.clone();
+
+    // Spawn STT event listener
+    tokio::spawn(async move {
+        while let Some(event) = stt_rx.recv().await {
+            let snapshot = {
+                let mut model = model_clone.lock();
+                match event {
+                    TranscriptionEvent::Partial { text, .. } => model.update_partial(text),
+                    TranscriptionEvent::Final { text, .. } => model.update_final(text),
+                    TranscriptionEvent::Error { message, .. } => {
+                        model.set_status(OverlayStatus::Error, message)
+                    }
+                }
+            };
+            let _ = emit_and_resize(&app_clone, &window_clone, &snapshot, "stt-update");
+        }
+    });
+
+    *handle_guard = Some(coldvox_app);
+
+    let snapshot = runtime.with_model(|model| {
+        model.set_status(OverlayStatus::Listening, "Pipeline started (Always-On Mode)".to_string())
+    });
+
+    emit_and_resize(&app, &window, &snapshot, "pipeline-started")
+}
+
+#[tauri::command]
+async fn stop_pipeline(
+    runtime: State<'_, OverlayRuntime>,
+    window: WebviewWindow,
+    app: AppHandle,
+) -> CommandResult {
+    let mut handle_guard = runtime.app_handle.lock().await;
+    if let Some(handle) = handle_guard.take() {
+        Arc::new(handle).shutdown().await;
+        let snapshot = runtime.with_model(|model| {
+            model.reset_to_idle("Pipeline stopped.".to_string())
+        });
+        emit_and_resize(&app, &window, &snapshot, "pipeline-stopped")
+    } else {
+        Err("Pipeline not running".to_string())
+    }
 }
 
 #[tauri::command]
@@ -103,16 +163,6 @@ fn toggle_pause_state(
 ) -> CommandResult {
     let snapshot = runtime.with_model(|model| model.toggle_pause());
     emit_and_resize(&app, &window, &snapshot, "pause-toggled")
-}
-
-#[tauri::command]
-fn stop_demo_driver(
-    runtime: State<'_, OverlayRuntime>,
-    window: WebviewWindow,
-    app: AppHandle,
-) -> CommandResult {
-    let snapshot = runtime.with_model(|model| model.stop());
-    emit_and_resize(&app, &window, &snapshot, "demo-stopped")
 }
 
 #[tauri::command]
@@ -135,124 +185,7 @@ fn open_settings_placeholder(
     emit_and_resize(&app, &window, &snapshot, "settings-placeholder")
 }
 
-/// Feed a live partial transcript update from the STT pipeline.
-/// The overlay stays in Listening state and displays the provisional text.
-#[tauri::command]
-fn update_partial_transcript(
-    text: String,
-    runtime: State<'_, OverlayRuntime>,
-    window: WebviewWindow,
-    app: AppHandle,
-) -> CommandResult {
-    let snapshot =
-        runtime.with_model(|model| model.apply_partial_transcript(&text, None));
-    emit_and_resize(
-        &app,
-        &window,
-        &snapshot,
-        "stt-partial",
-    )
-}
-
-/// Feed a final transcript from the STT pipeline.
-/// Moves partial to final and transitions to Ready.
-#[tauri::command]
-fn update_final_transcript(
-    text: String,
-    runtime: State<'_, OverlayRuntime>,
-    window: WebviewWindow,
-    app: AppHandle,
-) -> CommandResult {
-    let snapshot =
-        runtime.with_model(|model| model.apply_final_transcript(&text, None));
-    emit_and_resize(
-        &app,
-        &window,
-        &snapshot,
-        "stt-final",
-    )
-}
-
-/// Transition the overlay to Processing state (STT is finalizing the utterance).
-#[tauri::command]
-fn set_overlay_processing(
-    runtime: State<'_, OverlayRuntime>,
-    window: WebviewWindow,
-    app: AppHandle,
-) -> CommandResult {
-    let snapshot = runtime.with_model(|model| model.apply_processing_state(None));
-    emit_and_resize(&app, &window, &snapshot, "stt-processing")
-}
-
-/// Transition the overlay to Listening state (new speech segment started).
-#[tauri::command]
-fn set_overlay_listening(
-    runtime: State<'_, OverlayRuntime>,
-    window: WebviewWindow,
-    app: AppHandle,
-) -> CommandResult {
-    let snapshot = runtime.with_model(|model| model.apply_listening_state(None));
-    emit_and_resize(&app, &window, &snapshot, "stt-listening")
-}
-
-/// Stop real capture and return to Idle, clearing transcript state.
-#[tauri::command]
-fn stop_overlay_capture(
-    runtime: State<'_, OverlayRuntime>,
-    window: WebviewWindow,
-    app: AppHandle,
-) -> CommandResult {
-    let snapshot = runtime.with_model(|model| model.stop_capture());
-    emit_and_resize(&app, &window, &snapshot, "capture-stopped")
-}
-
-fn spawn_demo_driver(shared: Arc<Mutex<OverlayModel>>, app: AppHandle, token: u64) {
-    thread::spawn(move || {
-        for step in demo_script() {
-            if !wait_for_turn(&shared, token, step.delay_ms) {
-                return;
-            }
-
-            let snapshot = {
-                let mut model = shared.lock().expect("overlay model poisoned");
-                if model.current_demo_token() != token {
-                    return;
-                }
-                model.apply_demo_step(&step)
-            };
-
-            if let Err(error) = emit_snapshot(&app, &snapshot, step.reason) {
-                eprintln!("coldvox-gui demo emit failed: {error}");
-                return;
-            }
-        }
-    });
-}
-
-fn wait_for_turn(shared: &Arc<Mutex<OverlayModel>>, token: u64, delay_ms: u64) -> bool {
-    let mut remaining_ms = delay_ms;
-
-    while remaining_ms > 0 {
-        thread::sleep(Duration::from_millis(120));
-
-        let (current_token, paused) = {
-            let model = shared.lock().expect("overlay model poisoned");
-            (model.current_demo_token(), model.is_paused())
-        };
-
-        if current_token != token {
-            return false;
-        }
-
-        if paused {
-            continue;
-        }
-
-        remaining_ms = remaining_ms.saturating_sub(120);
-    }
-
-    true
-}
+// Utility removed - replaced by real events
 
 pub fn run() {
     tauri::Builder::default()
@@ -276,9 +209,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_overlay_snapshot,
             set_overlay_expanded,
-            start_demo_driver,
+            start_pipeline,
+            stop_pipeline,
             toggle_pause_state,
-            stop_demo_driver,
             clear_overlay_transcript,
             open_settings_placeholder,
             update_partial_transcript,

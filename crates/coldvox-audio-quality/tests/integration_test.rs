@@ -70,7 +70,7 @@ fn test_committed_sample_baseline() {
     );
 
     // Verify analysis completes without panicking for all frames
-    assert_eq!(total_frames, (samples.len() + 511) / 512);
+    assert_eq!(total_frames, samples.len().div_ceil(512));
 }
 
 #[test]
@@ -183,7 +183,7 @@ fn test_librispeech_baseline() {
     let flac_files: Vec<_> = walkdir::WalkDir::new(&librispeech_dir)
         .into_iter()
         .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().map_or(false, |ext| ext == "flac"))
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "flac"))
         .take(3)
         .collect();
 

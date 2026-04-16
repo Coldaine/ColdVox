@@ -53,7 +53,8 @@ For long-range architectural intent (always-on intelligent listening, tiered STT
 
 ### 5. Activation & Control Modes
 
-- The system shall offer both VAD-driven activation (continuous listening) and hotkey-driven activation (push-to-talk), configurable at runtime.
+- The system shall offer VAD-driven activation (continuous listening), traditional hotkey-driven activation (push-to-talk), and **always-on push-to-transcribe** activation.
+- The **always-on push-to-transcribe** mode shall keep the microphone active and continuously buffering audio (non-blocking) in a rolling ring buffer. When the hotkey is pressed, the system shall submit the buffered context to the transcription engine, ensuring no audio is cut off during the mechanical delay of pressing the key.
 - The system shall register global hotkeys across supported desktop environments and use KGlobalAccel on KDE platforms.
 - The system shall provide visible or logged feedback when the voice pipeline is activated or deactivated via hotkey.
 - The system shall apply activation-mode changes without requiring application restart.
@@ -82,7 +83,7 @@ For long-range architectural intent (always-on intelligent listening, tiered STT
 
 These statements outline the aspirational direction that informs ongoing design. They supplement the core requirements above and may evolve as research continues.
 
-- The system shall evolve toward an always-on intelligent listening mode with a dedicated listening thread that operates independently of STT processing threads.
+- The system shall manage STT memory usage dynamically, unloading large models during extended idle periods while keeping lightweight engines ready for fast activation.
 - The system shall manage STT memory usage dynamically, unloading large models during extended idle periods while keeping lightweight engines ready for fast activation.
 - The system shall support a tiered STT architecture (primary/secondary/tertiary engines) with context-aware engine selection and graceful degradation.
 - The system shall expose privacy safeguards and user controls (e.g., opt-in consent, status indicators) whenever continuous listening capabilities are enabled.

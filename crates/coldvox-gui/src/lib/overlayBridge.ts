@@ -16,16 +16,16 @@ export function setOverlayExpanded(
   return invoke<OverlaySnapshot>("set_overlay_expanded", { expanded });
 }
 
-export function startDemoDriver(): Promise<OverlaySnapshot> {
-  return invoke<OverlaySnapshot>("start_demo_driver");
+export function startPipeline(): Promise<OverlaySnapshot> {
+  return invoke<OverlaySnapshot>("start_pipeline");
 }
 
 export function togglePauseState(): Promise<OverlaySnapshot> {
   return invoke<OverlaySnapshot>("toggle_pause_state");
 }
 
-export function stopDemoDriver(): Promise<OverlaySnapshot> {
-  return invoke<OverlaySnapshot>("stop_demo_driver");
+export function stopPipeline(): Promise<OverlaySnapshot> {
+  return invoke<OverlaySnapshot>("stop_pipeline");
 }
 
 export function clearOverlayTranscript(): Promise<OverlaySnapshot> {
