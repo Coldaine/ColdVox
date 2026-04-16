@@ -9,9 +9,9 @@ pub enum AccuracyLevel {
     Low,
     /// ~85% accuracy - Acceptable for non-critical use (e.g., Parakeet, Silero)
     Medium,
-    /// ~95% accuracy - Good for most applications (e.g., Whisper, Coqui)
+    /// ~95% accuracy - Good for most applications (e.g., Moonshine, Parakeet)
     High,
-    /// ~98%+ accuracy - Professional grade (e.g., Whisper, Cloud services)
+    /// ~98%+ accuracy - Professional grade (e.g., Cloud services)
     VeryHigh,
 }
 

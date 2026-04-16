@@ -1,7 +1,7 @@
 //! STT Plugin Architecture
 //!
 //! This module defines the plugin interface for Speech-to-Text engines.
-//! Any STT backend (Whisper, Cloud APIs, etc.) implements these traits.
+//! Any STT backend (Moonshine, Parakeet, etc.) implements these traits.
 
 use async_trait::async_trait;
 use std::fmt::Debug;
@@ -13,7 +13,7 @@ use coldvox_foundation::error::{ColdVoxError, ConfigError, SttError};
 /// Metadata about an STT plugin
 #[derive(Debug, Clone)]
 pub struct PluginInfo {
-    /// Unique identifier for the plugin (e.g., "whisper", "mock", "gcloud")
+    /// Unique identifier for the plugin (e.g., "moonshine", "parakeet", "http-remote")
     pub id: String,
 
     /// Human-readable name

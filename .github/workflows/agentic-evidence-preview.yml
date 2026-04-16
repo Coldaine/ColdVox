@@ -1,0 +1,238 @@
+---
+name: "Agentic PR Reviewers (Shadow Mode)"
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+    branches:
+      - main
+
+# Shadow mode: all jobs are advisory only. They never block a PR.
+# All merge decisions remain with human reviewers.
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: agentic-reviewers-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────────────
+  # JOB 1: Complexity Scorer (pure bash, no API calls)
+  # Counts changed Rust source files to determine the PR tier.
+  # Outputs:
+  #   tier        → "simple" | "moderate" | "complex"
+  #   rust_files  → number of changed files under crates/
+  #   total_files → total changed files
+  #
+  # Thresholds:
+  #   complex  → >10 Rust files (feature work, major refactor)
+  #   moderate → 1–10 Rust files OR any CI workflow change
+  #   simple   → docs/CI/config only
+  #
+  # Northstar Reviewer (Job 3) runs only on "complex".
+  # Evidence Assessor (Job 2) runs on all tiers.
+  # ────────────────────────────────────────────────────────────────────────────
+  complexity-score:
+    name: "Complexity Scorer"
+    runs-on: ubuntu-latest
+
+    outputs:
+      tier: ${{ steps.score.outputs.tier }}
+      rust_files: ${{ steps.score.outputs.rust_files }}
+      total_files: ${{ steps.score.outputs.total_files }}
+
+    steps:
+      - name: Checkout repository (full history)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v5.0.0
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Ensure base branch is fetched
+        run: |
+          git fetch origin "${{ github.event.pull_request.base.ref }}" --depth=0 2>/dev/null || \
+          git fetch origin "${{ github.event.pull_request.base.ref }}" || true
+
+      - name: Score complexity
+        id: score
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+
+          CHANGED=$(git diff --name-only "origin/${BASE_REF}...HEAD")
+
+          RUST_FILES=$(echo "$CHANGED" | grep "^crates/" | wc -l | tr -d '[:space:]')
+          CI_WORKFLOW_FILES=$(echo "$CHANGED" | grep "^\.github/workflows/" | wc -l | tr -d '[:space:]')
+          TOTAL_FILES=$(echo "$CHANGED" | wc -l | tr -d '[:space:]')
+
+          if [ "$RUST_FILES" -gt 10 ]; then
+            TIER="complex"
+          elif [ "$RUST_FILES" -gt 0 ] || [ "$CI_WORKFLOW_FILES" -gt 0 ]; then
+            TIER="moderate"
+          else
+            TIER="simple"
+          fi
+
+          echo "tier=$TIER"            >> "$GITHUB_OUTPUT"
+          echo "rust_files=$RUST_FILES"   >> "$GITHUB_OUTPUT"
+          echo "total_files=$TOTAL_FILES" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## 📊 PR Complexity Score"
+            echo ""
+            echo "| Metric | Value |"
+            echo "|--------|-------|"
+            echo "| Tier | **${TIER}** |"
+            echo "| Rust source files changed | ${RUST_FILES} |"
+            echo "| Total files changed | ${TOTAL_FILES} |"
+            echo "| Northstar Reviewer will run | $([ "$TIER" = "complex" ] && echo "✅ YES" || echo "⬜ NO (tier: ${TIER})") |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # JOB 2: Evidence Assessor — Gemini Flash (always runs)
+  # Asks: "Is this PR honest? Do its claims match what was actually changed?"
+  # Uses gemini-3-flash-preview for cost and speed efficiency.
+  # ────────────────────────────────────────────────────────────────────────────
+  evidence-assessor:
+    name: "Evidence Assessor — Flash (shadow, always)"
+    needs: complexity-score
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - name: Checkout repository (full history)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v5.0.0
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Ensure base branch is fetched
+        run: |
+          git fetch origin "${{ github.event.pull_request.base.ref }}" --depth=0 2>/dev/null || \
+          git fetch origin "${{ github.event.pull_request.base.ref }}" || true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Run Evidence Assessor (Gemini Flash)
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${GEMINI_API_KEY:-}" ]; then
+            echo "**⚠️ Evidence Assessor skipped:** \`GEMINI_API_KEY\` secret not configured." > _ci_evidence_report.md
+            exit 0
+          fi
+
+          # Write instructions into the workspace so the agent can read them.
+          # Gemini CLI restricts file access to within the workspace directory.
+          cat .github/prompts/evidence-assessor.md > _ci_evidence_instructions.md
+          printf "\n## PR Context:\n**Title:** %s\n**Body:** %s\n**Base Branch:** origin/%s\n" \
+            "$PR_TITLE" "$PR_BODY" "$BASE_REF" >> _ci_evidence_instructions.md
+
+          npx --yes @google/gemini-cli \
+            --model gemini-3-flash-preview \
+            --approval-mode=yolo \
+            -p "You are the Agentic Evidence Assessor. Read your instructions from _ci_evidence_instructions.md. Investigate the workspace. Run git diff against origin/${BASE_REF}. Write your Markdown report to _ci_evidence_report.md. Stop when the report is written." \
+          || echo "**⚠️ Evidence Assessor:** Gemini CLI exited with error — see job log." > _ci_evidence_report.md
+
+          if [ ! -f _ci_evidence_report.md ]; then
+            echo "**⚠️ Evidence Assessor error:** Agent did not write a report." > _ci_evidence_report.md
+          fi
+
+      - name: Write report to Step Summary
+        if: always()
+        run: |
+          {
+            echo "## 🔍 Evidence Assessor — Gemini Flash (Shadow Mode)"
+            echo ""
+            echo "> **Shadow Mode** · Non-blocking · Advisory only · Does not gate merges"
+            echo "> Model: \`gemini-3-flash-preview\` · Runs on: all PRs"
+            echo ""
+            echo "---"
+            echo ""
+            cat _ci_evidence_report.md 2>/dev/null || echo "_No report generated._"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # JOB 3: Northstar Alignment Reviewer — Gemini Pro (complex PRs only)
+  # Asks: "Does this PR move us closer to our product goals?"
+  # Uses gemini-3.1-pro-preview-customtools for deeper reasoning on complex feature work.
+  # Skipped automatically on simple/moderate PRs (docs, small fixes).
+  # ────────────────────────────────────────────────────────────────────────────
+  northstar-reviewer:
+    name: "Northstar Reviewer — Pro (shadow, complex only)"
+    needs: complexity-score
+    if: needs.complexity-score.outputs.tier == 'complex'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - name: Checkout repository (full history)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v5.0.0
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Ensure base branch is fetched
+        run: |
+          git fetch origin "${{ github.event.pull_request.base.ref }}" --depth=0 2>/dev/null || \
+          git fetch origin "${{ github.event.pull_request.base.ref }}" || true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Run Northstar Alignment Reviewer (Gemini Pro)
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${GEMINI_API_KEY:-}" ]; then
+            echo "**⚠️ Northstar Reviewer skipped:** \`GEMINI_API_KEY\` secret not configured." > _ci_northstar_report.md
+            exit 0
+          fi
+
+          # Write instructions into the workspace so the agent can read them.
+          cat .github/prompts/northstar-alignment-reviewer.md > _ci_northstar_instructions.md
+          printf "\n## PR Context:\n**Title:** %s\n**Body:** %s\n**Base Branch:** origin/%s\n" \
+            "$PR_TITLE" "$PR_BODY" "$BASE_REF" >> _ci_northstar_instructions.md
+
+          npx --yes @google/gemini-cli \
+            --model gemini-3.1-pro-preview-customtools \
+            --approval-mode=yolo \
+            -p "You are the Northstar Alignment Reviewer. Read your instructions from _ci_northstar_instructions.md. Investigate the workspace. Run git diff against origin/${BASE_REF}. Read docs/northstar.md and docs/plans/current-status.md. Write your Markdown report to _ci_northstar_report.md. Stop when the report is written." \
+          || echo "**⚠️ Northstar Reviewer:** Gemini CLI exited with error — see job log." > _ci_northstar_report.md
+
+          if [ ! -f _ci_northstar_report.md ]; then
+            echo "**⚠️ Northstar Reviewer error:** Agent did not write a report." > _ci_northstar_report.md
+          fi
+
+      - name: Write report to Step Summary
+        if: always()
+        run: |
+          {
+            echo "## 🧭 Northstar Alignment Reviewer — Gemini Pro (Shadow Mode)"
+            echo ""
+            echo "> **Shadow Mode** · Non-blocking · Advisory only · Does not gate merges"
+            echo "> Model: \`gemini-3.1-pro-preview-customtools\` · Runs on: complex PRs only (>10 Rust source files changed)"
+            echo ""
+            echo "---"
+            echo ""
+            cat _ci_northstar_report.md 2>/dev/null || echo "_No report generated._"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -128,7 +128,7 @@
    ```
    Verify that no new vulnerabilities appear and that all version deltas are resolved.
 7. **Document DLL requirements** – Create `docs/system/Windows-dll-requirements.md` with a table of all required DLLs and their source (e.g., CUDA, Visual C++).
-8. **Update documentation** – Add a section in `docs/plans/windows-multi-agent-recovery.md` describing the new CI steps and the upgrade sequencing.
+8. **Update documentation** – Add a section in `docs/plans/current-status.md` describing the new CI steps and the upgrade sequencing.
 
 ---
 

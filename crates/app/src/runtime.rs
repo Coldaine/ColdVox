@@ -34,6 +34,17 @@ use std::time::Instant;
 pub enum ActivationMode {
     Vad,
     Hotkey,
+    AlwaysOnPushToTranscribe,
+}
+
+impl From<ActivationMode> for crate::stt::session::ActivationMode {
+    fn from(val: ActivationMode) -> Self {
+        match val {
+            ActivationMode::Vad => crate::stt::session::ActivationMode::Vad,
+            ActivationMode::Hotkey => crate::stt::session::ActivationMode::Hotkey,
+            ActivationMode::AlwaysOnPushToTranscribe => crate::stt::session::ActivationMode::AlwaysOnPushToTranscribe,
+        }
+    }
 }
 
 /// Text-injection options (only when the feature is enabled)
@@ -289,7 +300,7 @@ impl AppHandle {
                     Some(self.metrics.clone()),
                 )?
             }
-            ActivationMode::Hotkey => crate::hotkey::spawn_hotkey_listener(self.raw_vad_tx.clone()),
+            ActivationMode::Hotkey | ActivationMode::AlwaysOnPushToTranscribe => crate::hotkey::spawn_hotkey_listener(self.raw_vad_tx.clone()),
         };
         {
             let mut trigger_guard = self.trigger_handle.lock();
@@ -460,7 +471,7 @@ pub async fn start(
             })?;
             vad_handle
         }
-        ActivationMode::Hotkey => spawn_hotkey_listener(raw_vad_tx.clone()),
+        ActivationMode::Hotkey | ActivationMode::AlwaysOnPushToTranscribe => spawn_hotkey_listener(raw_vad_tx.clone()),
     };
 
     // Log successful VAD processor spawn
@@ -532,13 +543,20 @@ pub async fn start(
             });
 
         #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+        let mut processor_settings = Settings::default();
+        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+        {
+            processor_settings.activation_mode = opts.activation_mode.into();
+        }
+
+        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
         let processor = PluginSttProcessor::new(
             stt_audio_rx,
             session_rx,
             stt_pipeline_tx.clone(),
             _pm,
             stt_config,
-            Settings::default(),
+            processor_settings,
         );
 
         let vad_bcast_tx_clone = vad_bcast_tx.clone();
@@ -559,14 +577,14 @@ pub async fn start(
                         VadEvent::SpeechStart { .. } => {
                             let source = match activation_mode {
                                 ActivationMode::Vad => SessionSource::Vad,
-                                ActivationMode::Hotkey => SessionSource::Hotkey,
+                                ActivationMode::Hotkey | ActivationMode::AlwaysOnPushToTranscribe => SessionSource::Hotkey,
                             };
                             Some(SessionEvent::Start(source, Instant::now()))
                         }
                         VadEvent::SpeechEnd { .. } => {
                             let source = match activation_mode {
                                 ActivationMode::Vad => SessionSource::Vad,
-                                ActivationMode::Hotkey => SessionSource::Hotkey,
+                                ActivationMode::Hotkey | ActivationMode::AlwaysOnPushToTranscribe => SessionSource::Hotkey,
                             };
                             Some(SessionEvent::End(source, Instant::now()))
                         }

@@ -14,7 +14,7 @@ version: 1.1.0
 
 This document keeps the reusable GUI ideas from earlier ColdVox overlay work without treating any prior toolkit choice or prototype state as current implementation truth.
 
-For current execution priorities, use [`../../plans/windows-multi-agent-recovery.md`](../../plans/windows-multi-agent-recovery.md).
+For current execution priorities, use [`../../plans/current-status.md`](../../plans/current-status.md).
 
 ## What This Document Is
 

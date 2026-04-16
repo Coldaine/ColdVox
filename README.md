@@ -1,5 +1,39 @@
 # ColdVox
 > ⚠️ **Internal Alpha** - This project is in early development and not ready for production use.
+
+> **⚠️ CRITICAL**: Documentation and feature status changes quickly. See [`docs/plans/current-status.md`](docs/plans/current-status.md) for what currently works.
+
+Minimal root README. Assistants should read [`AGENTS.md`](AGENTS.md).
+
+## North Star
+
+Current product and documentation direction is anchored in:
+
+- [`docs/northstar.md`](docs/northstar.md)
+- [`docs/plans/current-status.md`](docs/plans/current-status.md)
+- [`docs/architecture.md`](docs/architecture.md)
+
+## Quick Start
+
+Status varies by STT backend and platform. For current "what works" details, see [`docs/plans/current-status.md`](docs/plans/current-status.md).
+
+```bash
+# Main app
+cargo run -p coldvox-app --bin coldvox
+
+# TUI dashboard
+cargo run -p coldvox-app --bin tui_dashboard
+```
+
+Common Rust commands:
+
+```bash
+# Fast local feedback
+cargo check -p coldvox-app
+
+# Format check
+cargo fmt --all -- --check
+```
 ## Development
  - Install Rust (stable) and required system dependencies for your platform.
  - Use the provided scripts in `scripts/` to help with local environment setup.
@@ -118,7 +152,7 @@ Dual-licensed under MIT or Apache-2.0. See `LICENSE-MIT` and `LICENSE-APACHE` if
 
 ## Contributing
 
-- Review the [Master Documentation Playbook](docs/MasterDocumentationPlaybook.md).
+- Review the [North Star](docs/northstar.md) and [current status](docs/plans/current-status.md).
 - Follow the repository [Documentation Standards](docs/standards.md).
 - Coordinate work through the [Documentation Todo Backlog](docs/todo.md).
 - Assistants should read the [Assistant Interaction Index](docs/agents.md).
