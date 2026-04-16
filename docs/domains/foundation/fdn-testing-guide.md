@@ -81,6 +81,8 @@ cargo test
 cargo test --features parakeet
 ```
 
+> **Note:** Parakeet tests require a working parakeet-rs installation (not yet validated). Use `--features moonshine` for current working STT tests.
+
 **Option C: Mock (testing/development)**
 ```bash
 # For testing without actual models

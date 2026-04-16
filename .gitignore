@@ -38,6 +38,13 @@ compile_errors.txt
 pr_*.txt
 prs*.txt
 
+# CI agent working files (written by Gemini CLI during review jobs)
+# NOTE: NOT gitignored — Gemini CLI respects .gitignore as a security boundary
+# and will refuse to read/write files that match gitignore patterns.
+# These files are auto-generated at runtime and never committed (CI doesn't commit).
+# They are excluded via .git/info/exclude or manual cleanup instead.
+_tmp_*.md
+
 # Temporary files
 tmp/
 temp/

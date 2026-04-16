@@ -8,7 +8,7 @@ from pathlib import Path
 APPROVED_EXCEPTIONS = {
     Path("README.md"),
     Path("CHANGELOG.md"),
-    Path("CLAUDE.md"),
+    Path("AGENTS.md"),
     Path(".github/pull_request_template.md"),
 }
 

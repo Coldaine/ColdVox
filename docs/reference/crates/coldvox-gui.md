@@ -11,7 +11,7 @@ version: 1.0.0
 
 # crate: coldvox-gui (Index)
 
-Current GUI direction lives in [`docs/plans/windows-multi-agent-recovery.md`](../../plans/windows-multi-agent-recovery.md).
+Current GUI direction lives in [`docs/plans/current-status.md`](../../plans/current-status.md).
 
 The crate-level status note lives in [`crates/coldvox-gui/README.md`](../../../crates/coldvox-gui/README.md).
 
