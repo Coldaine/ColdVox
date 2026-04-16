@@ -18,7 +18,7 @@ mod tests {
             .try_init();
     #[tokio::test]
     async fn test_text_injection_end_to_end() {
-        std::env::set_var("COLDVOX_STT_PREFERRED", "whisper"); // Force Faster-Whisper for integration
+        std::env::set_var("COLDVOX_STT_PREFERRED", "moonshine"); // Force Moonshine for integration
     
         // Create configuration
         let config = InjectionConfig::default();

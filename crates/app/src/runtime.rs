@@ -1,6 +1,8 @@
 use coldvox_audio::ring_buffer::AudioProducer;
 use coldvox_audio::SharedAudioFrame;
 use std::sync::Arc;
+#[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+use std::time::Instant;
 
 use parking_lot::Mutex;
 use tokio::signal;
@@ -12,6 +14,8 @@ use coldvox_audio::{
     AudioCaptureThread, AudioChunker, AudioRingBuffer, ChunkerConfig, FrameReader, ResamplerQuality,
 };
 use coldvox_foundation::AudioConfig;
+#[cfg(feature = "http-remote")]
+use coldvox_stt::plugins::http_remote::HttpRemoteConfig;
 use coldvox_stt::TranscriptionEvent;
 use coldvox_telemetry::PipelineMetrics;
 use coldvox_vad::config::SileroConfig;
@@ -26,18 +30,27 @@ use crate::stt::processor::PluginSttProcessor;
 use crate::stt::session::{SessionEvent, SessionSource, Settings};
 #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
 use coldvox_stt::TranscriptionConfig;
-#[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
-use std::time::Instant;
 
 /// Activation strategy for push-to-talk vs voice activation
 #[derive(PartialEq, Copy, Clone, Debug)]
 pub enum ActivationMode {
     Vad,
     Hotkey,
+    AlwaysOnPushToTranscribe,
+}
+
+impl From<ActivationMode> for crate::stt::session::ActivationMode {
+    fn from(val: ActivationMode) -> Self {
+        match val {
+            ActivationMode::Vad => crate::stt::session::ActivationMode::Vad,
+            ActivationMode::Hotkey => crate::stt::session::ActivationMode::Hotkey,
+            ActivationMode::AlwaysOnPushToTranscribe => crate::stt::session::ActivationMode::AlwaysOnPushToTranscribe,
+        }
+    }
 }
 
 /// Text-injection options (only when the feature is enabled)
-
+#[cfg(feature = "text-injection")]
 #[derive(Clone, Debug, Default)]
 pub struct InjectionOptions {
     pub enable: bool,
@@ -61,7 +74,9 @@ pub struct AppRuntimeOptions {
     pub vad_config: Option<coldvox_vad::config::UnifiedVadConfig>,
     /// STT plugin selection configuration
     pub stt_selection: Option<coldvox_stt::plugin::PluginSelectionConfig>,
-
+    #[cfg(feature = "http-remote")]
+    pub stt_remote_config: Option<HttpRemoteConfig>,
+    #[cfg(feature = "text-injection")]
     pub injection: Option<InjectionOptions>,
     /// Whether to poll for device hotplug events (ALSA/CPAL enumeration)
     pub enable_device_monitor: bool,
@@ -75,11 +90,15 @@ pub struct AppRuntimeOptions {
 
 impl std::fmt::Debug for AppRuntimeOptions {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AppRuntimeOptions")
+        let mut debug = f.debug_struct("AppRuntimeOptions");
+        debug
             .field("device", &self.device)
             .field("resampler_quality", &self.resampler_quality)
             .field("activation_mode", &self.activation_mode)
-            .field("stt_selection", &self.stt_selection)
+            .field("stt_selection", &self.stt_selection);
+        #[cfg(feature = "http-remote")]
+        debug.field("stt_remote_config", &self.stt_remote_config);
+        debug
             .field("injection", &self.injection)
             .field("enable_device_monitor", &self.enable_device_monitor)
             .field("capture_buffer_samples", &self.capture_buffer_samples)
@@ -102,7 +121,9 @@ impl Default for AppRuntimeOptions {
             activation_mode: ActivationMode::Vad,
             vad_config: None, // Use VAD defaults
             stt_selection: None,
-
+            #[cfg(feature = "http-remote")]
+            stt_remote_config: None,
+            #[cfg(feature = "text-injection")]
             injection: None,
             enable_device_monitor: false,
             capture_buffer_samples: 65_536,
@@ -121,7 +142,9 @@ pub struct AppHandle {
     raw_vad_tx: mpsc::Sender<VadEvent>,
     audio_tx: broadcast::Sender<SharedAudioFrame>,
     current_mode: std::sync::Arc<RwLock<ActivationMode>>,
+    #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
     pub stt_rx: Option<mpsc::Receiver<TranscriptionEvent>>,
+    #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
     pub plugin_manager: Option<Arc<tokio::sync::RwLock<SttPluginManager>>>,
 
     audio_capture: AudioCaptureThread,
@@ -129,9 +152,11 @@ pub struct AppHandle {
     chunker_handle: JoinHandle<()>,
     trigger_handle: Arc<Mutex<JoinHandle<()>>>,
     vad_fanout_handle: JoinHandle<()>,
+    #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
     stt_handle: Option<JoinHandle<()>>,
+    #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
     stt_forward_handle: Option<JoinHandle<()>>,
-
+    #[cfg(feature = "text-injection")]
     injection_handle: Option<JoinHandle<()>>,
 }
 
@@ -172,23 +197,30 @@ impl AppHandle {
             trigger_guard.abort();
         }
         this.vad_fanout_handle.abort();
+        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
         if let Some(h) = &this.stt_handle {
             h.abort();
         }
+        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
         if let Some(h) = &this.stt_forward_handle {
             h.abort();
         }
-
+        #[cfg(feature = "text-injection")]
         if let Some(h) = &this.injection_handle {
             h.abort();
         }
 
         // Stop plugin manager tasks
+        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
         if let Some(pm) = &this.plugin_manager {
             // Unload all plugins before stopping tasks
-            let _ = pm.read().await.unload_all_plugins().await;
-            let _ = pm.read().await.stop_gc_task().await;
-            let _ = pm.read().await.stop_metrics_task().await;
+            // Hold a single read lock for all operations to avoid deadlock
+            let pm_guard = pm.read().await;
+            if let Err(e) = pm_guard.unload_all_plugins().await {
+                tracing::warn!("Failed to unload plugins during shutdown: {}", e);
+            }
+            pm_guard.stop_gc_task().await;
+            pm_guard.stop_metrics_task().await;
         }
 
         // Await tasks to ensure clean termination
@@ -198,10 +230,11 @@ impl AppHandle {
             .into_inner();
         let _ = trigger_handle.await;
         let _ = this.vad_fanout_handle.await;
+        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
         if let Some(h) = this.stt_handle {
             let _ = h.await;
         }
-
+        #[cfg(feature = "text-injection")]
         if let Some(h) = this.injection_handle {
             let _ = h.await;
         }
@@ -235,6 +268,7 @@ impl AppHandle {
         info!("Switching activation mode from {:?} to {:?}", *old, mode);
 
         // Unload STT plugins before switching modes to ensure clean state
+        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
         if let Some(ref pm) = self.plugin_manager {
             info!("Unloading STT plugins before activation mode switch");
             let _ = pm.read().await.unload_all_plugins().await;
@@ -289,7 +323,7 @@ impl AppHandle {
                     Some(self.metrics.clone()),
                 )?
             }
-            ActivationMode::Hotkey => crate::hotkey::spawn_hotkey_listener(self.raw_vad_tx.clone()),
+            ActivationMode::Hotkey | ActivationMode::AlwaysOnPushToTranscribe => crate::hotkey::spawn_hotkey_listener(self.raw_vad_tx.clone()),
         };
         {
             let mut trigger_guard = self.trigger_handle.lock();
@@ -460,7 +494,7 @@ pub async fn start(
             })?;
             vad_handle
         }
-        ActivationMode::Hotkey => spawn_hotkey_listener(raw_vad_tx.clone()),
+        ActivationMode::Hotkey | ActivationMode::AlwaysOnPushToTranscribe => spawn_hotkey_listener(raw_vad_tx.clone()),
     };
 
     // Log successful VAD processor spawn
@@ -476,8 +510,15 @@ pub async fn start(
         if opts.stt_selection.is_some() {
             let metrics_clone = metrics.clone();
             let mut manager = SttPluginManager::new().with_metrics_sink(metrics_clone);
+            #[cfg(feature = "http-remote")]
+            if let Some(remote_config) = opts.stt_remote_config.clone() {
+                manager.configure_http_remote_factory(remote_config).await;
+            }
             if let Some(config) = opts.stt_selection.clone() {
-                manager.set_selection_config(config).await?;
+                if let Err(e) = manager.set_selection_config(config).await {
+                    error!("Rejected STT plugin selection configuration: {}", e);
+                    return Err(Box::new(e));
+                }
             }
             // Initialize the plugin manager; enforce fail-fast semantics when no STT plugin is available
             match manager.initialize().await {
@@ -499,23 +540,25 @@ pub async fn start(
         };
 
     // Create transcription event channels
+    #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
     let (stt_tx, stt_rx) = mpsc::channel::<TranscriptionEvent>(100);
     #[cfg(not(any(feature = "moonshine", feature = "parakeet", feature = "http-remote")))]
-    let _ = &stt_tx; // suppress unused warning when no active STT backend
+    let (_stt_tx, _stt_rx) = mpsc::channel::<TranscriptionEvent>(100);
 
     // Text injection channel
-
+    #[cfg(feature = "text-injection")]
     let (_text_injection_tx, text_injection_rx) = mpsc::channel::<TranscriptionEvent>(100);
+    #[cfg(not(feature = "text-injection"))]
+    let (_text_injection_tx, _text_injection_rx) = mpsc::channel::<TranscriptionEvent>(100);
 
     // 6) STT Processor and Fanout - Unified Path
-    #[allow(unused_mut)]
+    #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
     let mut stt_forward_handle: Option<JoinHandle<()>> = None;
-    let (stt_handle, vad_fanout_handle) = if let Some(_pm) = plugin_manager.clone() {
+    #[allow(unused_variables)]
+    let (stt_handle, vad_fanout_handle) = if let Some(pm) = plugin_manager.clone() {
         // This is the single, unified path for STT processing.
         #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
         let (session_tx, session_rx) = mpsc::channel::<SessionEvent>(100);
-
-        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
         let stt_audio_rx = audio_tx.subscribe();
 
         #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
@@ -526,23 +569,30 @@ pub async fn start(
             .transcription_config
             .clone()
             .unwrap_or_else(|| TranscriptionConfig {
+                // This `streaming` flag is now legacy. Behavior is controlled by `Settings`.
                 enabled: true,
                 streaming: true,
                 ..Default::default()
             });
 
         #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+        let mut processor_settings = Settings::default();
+        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+        {
+            processor_settings.activation_mode = opts.activation_mode.into();
+        }
+
+        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
         let processor = PluginSttProcessor::new(
             stt_audio_rx,
             session_rx,
             stt_pipeline_tx.clone(),
-            _pm,
+            pm,
             stt_config,
-            Settings::default(),
+            processor_settings,
         );
 
         let vad_bcast_tx_clone = vad_bcast_tx.clone();
-        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
         let activation_mode = opts.activation_mode;
 
         // This task is the new "translator" from VAD/Hotkey events to generic SessionEvents.
@@ -552,21 +602,21 @@ pub async fn start(
                 // Forward the raw VAD event for UI purposes
                 let _ = vad_bcast_tx_clone.send(ev);
 
-                // Translate to SessionEvent for the STT processor
+                // Translate to SessionEvent for the STT processor (only when STT enabled)
                 #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
                 {
                     let session_event = match ev {
                         VadEvent::SpeechStart { .. } => {
                             let source = match activation_mode {
                                 ActivationMode::Vad => SessionSource::Vad,
-                                ActivationMode::Hotkey => SessionSource::Hotkey,
+                                ActivationMode::Hotkey | ActivationMode::AlwaysOnPushToTranscribe => SessionSource::Hotkey,
                             };
                             Some(SessionEvent::Start(source, Instant::now()))
                         }
                         VadEvent::SpeechEnd { .. } => {
                             let source = match activation_mode {
                                 ActivationMode::Vad => SessionSource::Vad,
-                                ActivationMode::Hotkey => SessionSource::Hotkey,
+                                ActivationMode::Hotkey | ActivationMode::AlwaysOnPushToTranscribe => SessionSource::Hotkey,
                             };
                             Some(SessionEvent::End(source, Instant::now()))
                         }
@@ -594,9 +644,9 @@ pub async fn start(
         {
             let mut pipeline_rx = stt_pipeline_rx;
             let stt_tx_forward = stt_tx.clone();
-
+            #[cfg(feature = "text-injection")]
             let mut text_injection_tx_forwarder = _text_injection_tx.clone();
-
+            #[cfg(feature = "text-injection")]
             let mut injection_active = true;
 
             // Test-only: If a mock sink is provided, spawn a task to drain events to it.
@@ -617,8 +667,10 @@ pub async fn start(
 
             stt_forward_handle = Some(tokio::spawn(async move {
                 while let Some(event) = pipeline_rx.recv().await {
+                    #[cfg(feature = "text-injection")]
                     let mut injection_closed_this_event = false;
 
+                    #[cfg(feature = "text-injection")]
                     {
                         if injection_active
                             && text_injection_tx_forwarder
@@ -636,7 +688,7 @@ pub async fn start(
 
                     if stt_tx_forward.send(event).await.is_err() {
                         tracing::debug!("STT receiver dropped; continuing without UI consumer");
-
+                        #[cfg(feature = "text-injection")]
                         {
                             if !injection_active {
                                 break;
@@ -645,6 +697,7 @@ pub async fn start(
                         continue;
                     }
 
+                    #[cfg(feature = "text-injection")]
                     if injection_closed_this_event {
                         tracing::debug!("Text injection receiver unavailable; UI forward only");
                     }
@@ -663,13 +716,16 @@ pub async fn start(
             }
         });
 
+        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
+        let stt_handle = None;
+        #[cfg(not(any(feature = "moonshine", feature = "parakeet", feature = "http-remote")))]
         let stt_handle: Option<JoinHandle<()>> = None;
 
         (stt_handle, vad_fanout_handle)
     };
 
     // Optional text-injection
-
+    #[cfg(feature = "text-injection")]
     let injection_handle = {
         let inj_opts = opts.injection.clone();
         if let Some(inj) = inj_opts {
@@ -735,18 +791,20 @@ pub async fn start(
         raw_vad_tx,
         audio_tx,
         current_mode: std::sync::Arc::new(RwLock::new(opts.activation_mode)),
+        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
         stt_rx: Some(stt_rx),
+        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
         plugin_manager,
         audio_capture,
         audio_producer,
         chunker_handle,
         trigger_handle: Arc::new(Mutex::new(trigger_handle)),
         vad_fanout_handle,
+        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
         stt_handle,
+        #[cfg(any(feature = "moonshine", feature = "parakeet", feature = "http-remote"))]
         stt_forward_handle,
+        #[cfg(feature = "text-injection")]
         injection_handle,
     })
 }
-
-// Integration tests for the STT pipeline live in tests/.
-// Whisper-specific unit tests were removed with the dead whisper feature stubs.

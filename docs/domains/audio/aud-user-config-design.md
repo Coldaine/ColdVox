@@ -78,8 +78,8 @@ COLDVOX_STT_REQUIRE_LOCAL=true
 ```
 
 **Available STT Plugins:**
-- **Moonshine**: CPU-efficient model, recommended for most users
-- **Parakeet**: GPU-accelerated model, high-quality transcription
+- **Moonshine**: Python-based STT via PyO3, CPU-optimized (fragile on Windows due to Python dependency)
+- **Parakeet**: GPU-accelerated model, high-quality transcription (not yet validated for production)
 - **Mock**: Test/debug plugin, always returns mock transcript
 - **NoOp**: Placeholder plugin that returns empty transcript
 
