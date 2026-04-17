@@ -15,7 +15,9 @@ review_due: 2026-08-12
 
 ## Overview
 
-ColdVox uses the `tracing` crate for structured logging with configurable verbosity levels. Logs are written to both stderr (console) and a daily-rotated file in `logs/coldvox.log`.
+ColdVox uses `tracing` for structured logging. Runtime logs go to stderr and the rotating file at `logs/coldvox.log`.
+
+For the Windows validation flow, the wrapper also writes per-run artifacts under `logs/windows-validation/<timestamp>-<mode>/`, including captured stdout/stderr, a copied `coldvox.log`, and a short summary file.
 
 ## Log Levels
 
@@ -111,14 +113,14 @@ RUST_LOG=info,coldvox_audio::detector=debug cargo run
 
 Logs are written to:
 - Console: stderr
-- File: `logs/coldvox.log` (current day)
-- Rotated: `logs/coldvox.log.YYYY-MM-DD` (previous days)
+- File: `logs/coldvox.log`
+- Windows validation artifacts: `logs/windows-validation/<timestamp>-<mode>/`
 
 ### Rotation
 
-- Logs rotate daily at midnight
-- Old logs are automatically pruned after 7 days (configurable)
-- File logs have ANSI codes disabled for clean analysis
+- `logs/coldvox.log` rotates daily
+- Old runtime logs are pruned according to the app's retention settings
+- Validation artifacts are per-run snapshots and are kept until you remove them
 
 ### Viewing Logs
 
@@ -175,16 +177,8 @@ RUST_LOG=info,stt_debug=trace cargo run
 
 For production use, keep logging at INFO or WARN level.
 
-## Recent Changes
+## Windows Validation Notes
 
-As of this commit:
-
-1. **Default level changed from DEBUG to INFO** to reduce verbosity
-2. **High-frequency logs downgraded**:
-   - Silence detector: INFO → DEBUG
-   - Audio chunk dispatch: INFO → TRACE
-   - Plugin process calls: DEBUG → TRACE
-   - Plugin process results: DEBUG → TRACE (success) / WARN (errors)
-3. **Documentation improved** with examples for common use cases
-
-These changes significantly reduce log noise while maintaining useful operational feedback. Users who need detailed debugging can still enable it via `RUST_LOG=debug` or `RUST_LOG=trace`.
+- `just windows-run-preflight` verifies the live prerequisites and emits artifacts even before the full runtime starts.
+- `just windows-smoke` captures the CLI and GUI stub smoke outputs in the same artifact structure.
+- `just windows-live` captures runtime stdout/stderr plus a copy and tail of `logs/coldvox.log`.
