@@ -1,0 +1,16 @@
+# Windows live override for the supported local GPU path.
+# Use via `COLDVOX_CONFIG_PATH=config/windows-parakeet.toml`.
+#
+# The normal startup path still discovers `config/default.toml`.
+# `config/plugins.json` remains plugin-manager persistence and does not replace
+# this file when launching `coldvox` directly.
+
+[injection]
+allow_enigo = true
+
+[stt]
+preferred = "parakeet"
+fallbacks = []
+require_local = true
+language = "en"
+

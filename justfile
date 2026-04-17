@@ -1,13 +1,15 @@
 # ColdVox Development Commands
 # Install just: https://github.com/casey/just
 
+set shell := ["C:/Program Files/PowerShell/7/pwsh.exe", "-NoLogo", "-NoProfile", "-Command"]
+
 # Default recipe lists all available commands
 default:
     @just --list
 
 # Run local CI checks (mirrors GitHub Actions exactly)
 ci:
-    ./scripts/local_ci.sh
+    bash ./scripts/local_ci.sh
 
 # Run pre-commit hooks manually
 check:
@@ -54,6 +56,16 @@ commit-fast *args:
 # Run specific test by name
 test-filter filter:
     cargo test --workspace --locked {{filter}}
+
+# Windows entrypoints for local run validation
+windows-run-preflight:
+    pwsh -NoProfile -File scripts/windows_live_validate.ps1 -Mode Preflight
+
+windows-smoke:
+    pwsh -NoProfile -File scripts/windows_live_validate.ps1 -Mode Smoke
+
+windows-live:
+    pwsh -NoProfile -File scripts/windows_live_validate.ps1 -Mode Live
 
 # Run main app with the canonical wave-1 HTTP remote profile
 run:

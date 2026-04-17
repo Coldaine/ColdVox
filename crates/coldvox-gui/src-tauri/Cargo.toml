@@ -2,17 +2,10 @@
 name = "coldvox-gui"
 version = "0.1.0"
 edition = "2021"
-description = "Windows-first ColdVox overlay shell"
+description = "Windows GUI stub smoke for ColdVox"
 publish = false
-build = "build.rs"
-
-[build-dependencies]
-tauri-build = { version = "2.5.6", features = [] }
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2.10.3", features = [] }
-coldvox-app = { path = "../../app", features = ["moonshine", "parakeet", "http-remote", "text-injection"] }
-tokio = { version = "1.50.0", features = ["full"] }
-parking_lot = "0.12"

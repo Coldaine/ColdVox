@@ -272,12 +272,14 @@ impl PluginSttProcessor {
 
         if behavior != HotkeyBehavior::Incremental {
             // Batch mode: lock, buffer, and return.
-            let mut state = self.state.lock();
-            if state.state == UtteranceState::SpeechActive {
-                state.buffer.extend_from_slice(samples_slice);
-                if state.buffer.len() > BUFFER_CEILING_SAMPLES {
-                    tracing::warn!(target: "stt", "Audio buffer ceiling reached. Defensively finalizing.");
-                    self.handle_session_end(state.source, false, &mut state);
+            {
+                let mut state = self.state.lock();
+                if state.state == UtteranceState::SpeechActive {
+                    state.buffer.extend_from_slice(samples_slice);
+                    if state.buffer.len() > BUFFER_CEILING_SAMPLES {
+                        tracing::warn!(target: "stt", "Audio buffer ceiling reached. Defensively finalizing.");
+                        self.handle_session_end(state.source, false, &mut state);
+                    }
                 }
             }
             if should_process {
@@ -315,6 +317,7 @@ impl PluginSttProcessor {
                     }
                 }
             }
+        }
     }
 
     /// A static helper to send transcription events and update metrics, callable
