@@ -1,7 +1,7 @@
 # ColdVox Development Commands
 # Install just: https://github.com/casey/just
 
-set shell := ["C:/Program Files/PowerShell/7/pwsh.exe", "-NoLogo", "-NoProfile", "-Command"]
+set windows-powershell := true
 
 # Default recipe lists all available commands
 default:
@@ -51,7 +51,7 @@ setup-hooks:
 
 # Skip Rust checks in pre-commit (useful for quick commits)
 commit-fast *args:
-    SKIP_RUST_CHECKS=1 git commit {{args}}
+    {{ if os_family() == "windows" { "cmd /c \"set SKIP_RUST_CHECKS=1&& git commit " + args + "\"" } else { "SKIP_RUST_CHECKS=1 git commit " + args } }}
 
 # Run specific test by name
 test-filter filter:
