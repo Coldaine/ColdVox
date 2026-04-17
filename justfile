@@ -23,7 +23,7 @@ lint:
 
 # Run all tests
 test:
-    if ($IsWindows) { just windows-test } else { cargo test --workspace --locked }
+    {{ if os_family() == "windows" { "just windows-test" } else { "cargo test --workspace --locked" } }}
 
 # Build all crates
 build:
