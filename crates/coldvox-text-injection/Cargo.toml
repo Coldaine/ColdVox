@@ -44,7 +44,7 @@ tracing-appender = "0.2"
 serial_test = "3.4"
 
 [features]
-default = ["desktop"]
+default = []
 
 # Backend features
 atspi = ["dep:atspi"]

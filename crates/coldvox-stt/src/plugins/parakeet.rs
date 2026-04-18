@@ -55,7 +55,6 @@ impl ParakeetModelVariant {
         // Approximate: 1.1B * 4 bytes (fp32) ≈ 4.4GB + overhead
         5000 // 5GB to be safe
     }
-
 }
 
 impl Default for ParakeetModelVariant {
@@ -89,31 +88,16 @@ impl GpuProvider {
     #[cfg(feature = "parakeet")]
     fn to_execution_provider(&self) -> ExecutionProvider {
         match self {
-            Self::Cuda => {
-                #[cfg(feature = "parakeet-cuda")]
-                {
-                    ExecutionProvider::Cuda
-                }
-
-                #[cfg(not(feature = "parakeet-cuda"))]
-                {
-                    ExecutionProvider::Cpu
-                }
-            }
+            Self::Cuda => ExecutionProvider::Cuda,
             Self::TensorRt => {
                 #[cfg(feature = "parakeet-tensorrt")]
                 {
                     ExecutionProvider::TensorRT
                 }
 
-                #[cfg(all(feature = "parakeet-cuda", not(feature = "parakeet-tensorrt")))]
+                #[cfg(not(feature = "parakeet-tensorrt"))]
                 {
                     ExecutionProvider::Cuda
-                }
-
-                #[cfg(not(any(feature = "parakeet-cuda", feature = "parakeet-tensorrt")))]
-                {
-                    ExecutionProvider::Cpu
                 }
             }
         }
@@ -168,18 +152,18 @@ impl ParakeetPlugin {
     #[cfg(feature = "parakeet")]
     fn resolve_model_path(&self, config: &TranscriptionConfig) -> Result<PathBuf, ColdVoxError> {
         let mut candidates = Vec::new();
+        if let Ok(path) = env::var("PARAKEET_MODEL_PATH") {
+            candidates.push(PathBuf::from(path));
+        }
         if !config.model_path.is_empty() && config.model_path != "base.en" {
             candidates.push(PathBuf::from(&config.model_path));
         }
         if let Some(path) = self.model_path.clone() {
             candidates.push(path);
         }
-        if let Ok(path) = env::var("PARAKEET_MODEL_PATH") {
-            candidates.push(PathBuf::from(path));
-        }
 
         for path in candidates {
-            if path.exists() {
+            if path.is_dir() || path.is_file() {
                 return Ok(path);
             }
 
@@ -191,7 +175,9 @@ impl ParakeetPlugin {
         }
 
         if let Some(cache_dir) = dirs::cache_dir() {
-            let cached_model = cache_dir.join("parakeet").join(self.variant.model_identifier());
+            let cached_model = cache_dir
+                .join("parakeet")
+                .join(self.variant.model_identifier());
             if cached_model.exists() {
                 return Ok(cached_model);
             }
@@ -284,7 +270,7 @@ impl SttPlugin for ParakeetPlugin {
             streaming: false, // Batch processing only for now
             batch: true,
             word_timestamps: true, // parakeet-rs provides token-level timestamps
-            confidence_scores: true,
+            confidence_scores: false,
             speaker_diarization: false, // Can be added later via pyannote
             auto_punctuation: true,     // Both variants support punctuation
             custom_vocabulary: false,
@@ -316,8 +302,8 @@ impl SttPlugin for ParakeetPlugin {
                 ..Default::default()
             };
 
-            let model = Parakeet::from_pretrained(&model_path, Some(exec_config)).map_err(
-                |err| {
+            let model =
+                Parakeet::from_pretrained(&model_path, Some(exec_config)).map_err(|err| {
                     error!(
                         target: "coldvox::stt::parakeet",
                         error = %err,
@@ -327,8 +313,7 @@ impl SttPlugin for ParakeetPlugin {
                         "Failed to load Parakeet model: {}. Ensure CUDA GPU is available.",
                         err
                     ))
-                },
-            )?;
+                })?;
 
             self.model = Some(model);
             self.audio_buffer.clear();
@@ -460,6 +445,7 @@ impl SttPlugin for ParakeetPlugin {
                         .map(|token| WordInfo {
                             start: token.start,
                             end: token.end,
+                            // parakeet-rs does not expose per-token confidence.
                             conf: 1.0,
                             text: token.text.clone(),
                         })
@@ -639,7 +625,7 @@ impl SttPluginFactory for ParakeetPluginFactory {
                 warn!(
                     target: "coldvox::stt::parakeet",
                     path = %path.display(),
-                    "Model path does not exist; will auto-download on first use"
+                    "Model path does not exist; initialization will fail until a valid model path is configured"
                 );
             }
         }
