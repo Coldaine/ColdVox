@@ -17,7 +17,7 @@ Prerequisites:
 
 - Windows 11
 - NVIDIA GPU with working CUDA support
-- A downloaded Parakeet model directory exposed through `PARAKEET_MODEL_PATH`
+- A downloaded Parakeet model directory that is either exposed through `PARAKEET_MODEL_PATH` or available in the normal shared/local discovery roots
 
 Commands:
 
