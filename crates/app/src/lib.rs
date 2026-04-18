@@ -328,10 +328,18 @@ impl Settings {
         Ok(config)
     }
 
+    /// Resolve the startup config path.
+    ///
+    /// `COLDVOX_CONFIG_PATH` wins first so live profiles can override the
+    /// checked-in default without changing `config/default.toml`.
     fn discover_config_path() -> Option<PathBuf> {
         if let Ok(custom) = env::var("COLDVOX_CONFIG_PATH") {
             let path = PathBuf::from(custom);
             if path.exists() {
+                tracing::info!(
+                    "Using startup config from COLDVOX_CONFIG_PATH: {}",
+                    path.display()
+                );
                 return Some(path);
             }
         }
@@ -611,6 +619,13 @@ impl Settings {
 }
 
 pub(crate) fn discover_plugin_selection_config_path() -> Option<PathBuf> {
+    if let Ok(custom) = env::var("COLDVOX_PLUGIN_CONFIG_PATH") {
+        let path = PathBuf::from(custom);
+        if path.exists() {
+            return Some(path);
+        }
+    }
+
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").ok().map(PathBuf::from);
     let cwd = env::current_dir().ok();
     discover_plugin_selection_config_path_with(manifest_dir.as_deref(), cwd.as_deref())

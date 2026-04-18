@@ -6,30 +6,34 @@ status: active
 
 # Current Product Direction & Reality
 
-*Audited April 2026. This is the source of truth for repository structure and branch strategy.*
+Audited April 17, 2026.
 
-## Branch Strategy & Mainlines
+## Branch Strategy
 
-- **`main`**: The legacy Qt-based path. Currently stable but deprecated.
-- **`tauri-base`**: The **integration branch and future mainline**. This branch accumulates the Tauri v2 GUI migration, dead code removal, HTTP-remote STT plugin, and lint gates. Agent PRs and feature branches should target `tauri-base` moving forward until it is promoted to `main`.
+- `main` is the branch to build on.
+- The older Qt remediation line from closed PR `#389` is not a valid base for new work.
+- New stacked work should start from `origin/main` or from the latest intentional stack tip built on `main`.
 
-## Target Environment
+## Windows Runtime Reality
 
-- **OS:** Windows 11 priority.
-- **Python Environment:** Exclusively managed by `uv`. Do NOT use `mise` or raw `pip` for Python packages. Ensure `.python-version` is respected.
+- The checked-in default startup config remains deterministic: `config/default.toml` uses `mock`.
+- The supported Windows live path is `parakeet` on NVIDIA/CUDA hardware via `config/windows-parakeet.toml`.
+- Live Windows runs must supply a local Parakeet model directory through `PARAKEET_MODEL_PATH`.
+- `config/plugins.json` is persistence for plugin selection state, not the primary operator-facing startup config.
 
-## STT Backend Reality
+## Validation Reality
 
-- **Current Working (Legacy):** **Moonshine** is the current working backend but is a fragile dependency due to PyO3/Python 3.13 instabilities. It is being phased out.
-- **Forward Path (Tauri-base):** **HTTP-Remote Parakeet**. A pure-Rust HTTP plugin (`HttpRemotePlugin`) is code-complete and designed to speak to a local, containerized Parakeet STT service optimized for NVIDIA CUDA/DirectML.
-- **Vaporware:** The `whisper`, `coqui`, `leopard`, and `silero-stt` feature flags are dead stubs. They have been purged in `tauri-base` / PR #384.
+- The authoritative gate for this wave is local Windows validation, not CI.
+- `just windows-run-preflight` checks GPU/CUDA prerequisites and the local Parakeet model requirement.
+- `just windows-smoke` validates CLI help, device enumeration, and the GUI stub smoke path.
+- `just test` runs the Windows-safe required matrix on Windows and keeps the live runtime behind `COLDVOX_RUN_WINDOWS_LIVE=1`.
+- Validation artifacts are written under `logs/windows-validation/<timestamp>-<mode>/`.
 
 ## GUI Reality
 
-- **Tauri v2 Shell:** ~80% complete on a UI contract level (React + Rust state machine). It is currently a demo/mock driver.
-- **Missing Integration:** The last mile—wiring the real audio/STT pipeline (HTTP-remote Parakeet) and Text Injection into the Tauri shell—is at 0% and is the highest priority next step to make `tauri-base` functional.
+- `coldvox-gui` is not the shipped Windows path for this wave.
+- `cargo run -p coldvox-gui` is kept only as a stub smoke check.
 
-## Known Blockers & Bugs
+## Known Live Blocker
 
-- **Memory Leaks:** PyO3/Moonshine unloading does not fully release memory on Windows 11.
-- **Integration Gaps:** Text-injection can report false-positive "green" status when backends are skipped. True containerized validation for Parakeet has not been conducted.
+- A Windows machine without a downloaded local Parakeet model directory will fail `just windows-run-preflight` and `just windows-live` until `PARAKEET_MODEL_PATH` is set or the model is placed in the expected local cache path.

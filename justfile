@@ -1,13 +1,15 @@
 # ColdVox Development Commands
 # Install just: https://github.com/casey/just
 
+set windows-powershell := true
+
 # Default recipe lists all available commands
 default:
     @just --list
 
 # Run local CI checks (mirrors GitHub Actions exactly)
 ci:
-    ./scripts/local_ci.sh
+    bash ./scripts/local_ci.sh
 
 # Run pre-commit hooks manually
 check:
@@ -21,7 +23,7 @@ lint:
 
 # Run all tests
 test:
-    cargo test --workspace --locked
+    {{ if os_family() == "windows" { "just windows-test" } else { "cargo test --workspace --locked" } }}
 
 # Build all crates
 build:
@@ -49,11 +51,39 @@ setup-hooks:
 
 # Skip Rust checks in pre-commit (useful for quick commits)
 commit-fast *args:
-    SKIP_RUST_CHECKS=1 git commit {{args}}
+    {{ if os_family() == "windows" { "cmd /c \"set SKIP_RUST_CHECKS=1&& git commit " + args + "\"" } else { "SKIP_RUST_CHECKS=1 git commit " + args } }}
 
 # Run specific test by name
 test-filter filter:
     cargo test --workspace --locked {{filter}}
+
+# Windows entrypoints for local run validation
+windows-run-preflight:
+    pwsh -NoProfile -File scripts/windows_live_validate.ps1 -Mode Preflight
+
+windows-smoke:
+    pwsh -NoProfile -File scripts/windows_live_validate.ps1 -Mode Smoke
+
+windows-live:
+    pwsh -NoProfile -File scripts/windows_live_validate.ps1 -Mode Live
+
+# Windows-local test gate. Keep the required matrix package-scoped so it stays
+# meaningful on Windows even while the wider workspace still includes
+# non-Windows members.
+windows-test:
+    cargo test -p coldvox-foundation --lib --locked
+    cargo test -p coldvox-audio --lib --locked
+    cargo test -p coldvox-vad --lib --locked
+    cargo test -p coldvox-telemetry --lib --locked
+    cargo test -p coldvox-stt --lib --no-default-features --features parakeet --locked
+    cargo test -p coldvox-gui --lib --locked
+    cargo test -p coldvox-text-injection --lib --no-default-features --features enigo --locked
+    cargo test -p coldvox-text-injection --example test_enigo_live --no-run --no-default-features --features enigo --locked
+    cargo test -p coldvox-app --test settings_test --locked
+    cargo test -p coldvox-app --test verify_mock_injection_fix --locked
+    cargo test -p coldvox-app --test golden_master --locked
+    just windows-smoke
+    if ($env:COLDVOX_RUN_WINDOWS_LIVE -eq '1') { just windows-live } else { Write-Host 'Skipping just windows-live; set COLDVOX_RUN_WINDOWS_LIVE=1 to opt in.' -ForegroundColor Yellow }
 
 # Run main app with the canonical wave-1 HTTP remote profile
 run:

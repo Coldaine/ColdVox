@@ -18,7 +18,7 @@
 //! - **CTC**: nvidia/parakeet-ctc-1.1b - English-only, faster inference
 //!
 //! Environment variables:
-//! - `PARAKEET_MODEL_PATH`: Override model path (default: auto-download)
+//! - `PARAKEET_MODEL_PATH`: Override model path
 //! - `PARAKEET_VARIANT`: "tdt" or "ctc" (default: "tdt")
 //! - `PARAKEET_DEVICE`: Must be "cuda" or "tensorrt" (CPU not supported)
 
@@ -31,7 +31,7 @@ use std::path::{Path, PathBuf};
 use tracing::{debug, error, info, warn};
 
 #[cfg(feature = "parakeet")]
-use parakeet_rs::{ExecutionProvider, Parakeet, ParakeetConfig, ParakeetVariant};
+use parakeet_rs::{ExecutionConfig, ExecutionProvider, Parakeet, TimestampMode, Transcriber};
 
 /// Parakeet model variant
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,19 +56,23 @@ impl ParakeetModelVariant {
         5000 // 5GB to be safe
     }
 
-    #[cfg(feature = "parakeet")]
-    fn to_parakeet_variant(&self) -> ParakeetVariant {
-        match self {
-            Self::Tdt => ParakeetVariant::Tdt,
-            Self::Ctc => ParakeetVariant::Ctc,
-        }
-    }
 }
 
 impl Default for ParakeetModelVariant {
     fn default() -> Self {
         // Default to TDT for multilingual support
         Self::Tdt
+    }
+}
+
+impl std::fmt::Debug for ParakeetPlugin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ParakeetPlugin")
+            .field("variant", &self.variant)
+            .field("model_path", &self.model_path)
+            .field("gpu_provider", &self.gpu_provider)
+            .field("initialized", &self.initialized)
+            .finish()
     }
 }
 
@@ -85,14 +89,38 @@ impl GpuProvider {
     #[cfg(feature = "parakeet")]
     fn to_execution_provider(&self) -> ExecutionProvider {
         match self {
-            Self::Cuda => ExecutionProvider::Cuda,
-            Self::TensorRt => ExecutionProvider::TensorRt,
+            Self::Cuda => {
+                #[cfg(feature = "parakeet-cuda")]
+                {
+                    ExecutionProvider::Cuda
+                }
+
+                #[cfg(not(feature = "parakeet-cuda"))]
+                {
+                    ExecutionProvider::Cpu
+                }
+            }
+            Self::TensorRt => {
+                #[cfg(feature = "parakeet-tensorrt")]
+                {
+                    ExecutionProvider::TensorRT
+                }
+
+                #[cfg(all(feature = "parakeet-cuda", not(feature = "parakeet-tensorrt")))]
+                {
+                    ExecutionProvider::Cuda
+                }
+
+                #[cfg(not(any(feature = "parakeet-cuda", feature = "parakeet-tensorrt")))]
+                {
+                    ExecutionProvider::Cpu
+                }
+            }
         }
     }
 }
 
 /// Parakeet-based STT plugin backed by parakeet-rs
-#[derive(Debug)]
 pub struct ParakeetPlugin {
     variant: ParakeetModelVariant,
     model_path: Option<PathBuf>,
@@ -139,19 +167,18 @@ impl ParakeetPlugin {
 
     #[cfg(feature = "parakeet")]
     fn resolve_model_path(&self, config: &TranscriptionConfig) -> Result<PathBuf, ColdVoxError> {
-        // Priority:
-        // 1. Config model_path (if set and exists)
-        // 2. Plugin model_path (if set and exists)
-        // 3. PARAKEET_MODEL_PATH env var (if set and exists)
-        // 4. Auto-download to cache (parakeet-rs handles this)
+        let mut candidates = Vec::new();
+        if !config.model_path.is_empty() && config.model_path != "base.en" {
+            candidates.push(PathBuf::from(&config.model_path));
+        }
+        if let Some(path) = self.model_path.clone() {
+            candidates.push(path);
+        }
+        if let Ok(path) = env::var("PARAKEET_MODEL_PATH") {
+            candidates.push(PathBuf::from(path));
+        }
 
-        let path_candidate = if !config.model_path.is_empty() {
-            Some(PathBuf::from(&config.model_path))
-        } else {
-            self.model_path.clone()
-        };
-
-        if let Some(path) = path_candidate {
+        for path in candidates {
             if path.exists() {
                 return Ok(path);
             }
@@ -159,19 +186,22 @@ impl ParakeetPlugin {
             warn!(
                 target: "coldvox::stt::parakeet",
                 candidate = %path.display(),
-                "Configured Parakeet model path does not exist; will auto-download"
+                "Configured Parakeet model path does not exist"
             );
         }
 
-        // Return cache directory - parakeet-rs will download to ~/.cache/parakeet/
-        let cache_dir = dirs::cache_dir()
-            .ok_or_else(|| SttError::LoadFailed("Cannot determine cache directory".to_string()))?
-            .join("parakeet");
+        if let Some(cache_dir) = dirs::cache_dir() {
+            let cached_model = cache_dir.join("parakeet").join(self.variant.model_identifier());
+            if cached_model.exists() {
+                return Ok(cached_model);
+            }
+        }
 
-        std::fs::create_dir_all(&cache_dir)
-            .map_err(|e| SttError::LoadFailed(format!("Failed to create cache dir: {}", e)))?;
-
-        Ok(cache_dir.join(self.variant.model_identifier()))
+        Err(SttError::LoadFailed(
+            "Parakeet model not found. Set PARAKEET_MODEL_PATH or provide a valid model_path."
+                .to_string(),
+        )
+        .into())
     }
 
     /// Verify GPU is available (CUDA required)
@@ -281,18 +311,13 @@ impl SttPlugin for ParakeetPlugin {
                 "Initializing Parakeet model (GPU-only)"
             );
 
-            // Build parakeet-rs configuration
-            let parakeet_config = ParakeetConfig {
-                variant: self.variant.to_parakeet_variant(),
+            let exec_config = ExecutionConfig {
                 execution_provider: self.gpu_provider.to_execution_provider(),
-                // Auto-download from HuggingFace if not in cache
-                model_path: Some(model_path.to_string_lossy().to_string()),
+                ..Default::default()
             };
 
-            // Initialize the model
-            let model =
-                Parakeet::from_pretrained(self.variant.model_identifier(), Some(parakeet_config))
-                    .map_err(|err| {
+            let model = Parakeet::from_pretrained(&model_path, Some(exec_config)).map_err(
+                |err| {
                     error!(
                         target: "coldvox::stt::parakeet",
                         error = %err,
@@ -302,7 +327,8 @@ impl SttPlugin for ParakeetPlugin {
                         "Failed to load Parakeet model: {}. Ensure CUDA GPU is available.",
                         err
                     ))
-                })?;
+                },
+            )?;
 
             self.model = Some(model);
             self.audio_buffer.clear();
@@ -384,14 +410,29 @@ impl SttPlugin for ParakeetPlugin {
                 .map(|&s| s as f32 / 32768.0)
                 .collect();
 
-            // Transcribe using parakeet-rs
+            let include_words = self
+                .active_config
+                .as_ref()
+                .map(|cfg| cfg.include_words)
+                .unwrap_or(false);
+            let timestamp_mode = if include_words {
+                Some(TimestampMode::Words)
+            } else {
+                None
+            };
+
             let result = self
                 .model
-                .as_ref()
+                .as_mut()
                 .ok_or_else(|| {
                     SttError::TranscriptionFailed("Parakeet model not loaded".to_string())
                 })?
-                .transcribe_samples(&samples_f32, crate::constants::SAMPLE_RATE_HZ)
+                .transcribe_samples(
+                    samples_f32,
+                    crate::constants::SAMPLE_RATE_HZ,
+                    1,
+                    timestamp_mode,
+                )
                 .map_err(|err| {
                     error!(
                         target: "coldvox::stt::parakeet",
@@ -410,13 +451,6 @@ impl SttPlugin for ParakeetPlugin {
                 "Parakeet transcription complete"
             );
 
-            // Extract word-level information from tokens if requested
-            let include_words = self
-                .active_config
-                .as_ref()
-                .map(|cfg| cfg.include_words)
-                .unwrap_or(false);
-
             let words = if include_words && !result.tokens.is_empty() {
                 Some(
                     result
@@ -426,7 +460,7 @@ impl SttPlugin for ParakeetPlugin {
                         .map(|token| WordInfo {
                             start: token.start,
                             end: token.end,
-                            conf: token.confidence.unwrap_or(1.0), // Default to high confidence if not provided
+                            conf: 1.0,
                             text: token.text.clone(),
                         })
                         .collect(),

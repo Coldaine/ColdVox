@@ -19,11 +19,15 @@ See `Cargo.toml` in each crate for Rust dependencies. Key runtime dependencies:
 
 - **Audio**: `cpal` (cross-platform audio), `rtrb` (ring buffer)
 - **VAD**: `voice_activity_detector` (Silero ONNX VAD)
-- **STT**: `parakeet-rs` (NVIDIA Parakeet), `pyo3` (Python bindings for Moonshine)
+- **STT**: `parakeet-rs` is the supported Windows live path for this wave and expects a local Parakeet model directory on NVIDIA/CUDA hardware. `pyo3` remains in the tree for older Moonshine-related paths, but it is not the primary Windows validation path.
 - **Text Injection**: `enigo`, `atspi`, `wl-clipboard` bindings
 - **TUI**: `ratatui`, `crossterm`
 
+For day-to-day local validation, the checked-in default path remains `mock`; live Windows runs opt into `parakeet` through `config/windows-parakeet.toml`.
+
 ## Tooling
+
+The tooling and CI sections below remain useful background, but they are not the release gate for the current Windows validation wave. Local Windows validation is the active gate for this pass.
 
 ### Security Scanning
 

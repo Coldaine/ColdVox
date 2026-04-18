@@ -107,7 +107,7 @@ similar-asserts = "2.0"
 default = ["silero", "text-injection"]
 # STT Backends (see docs/domains/stt/stt-overview.md)
 moonshine = ["coldvox-stt/moonshine"]      # ✅ Working: Python-based, CPU/GPU
-parakeet = ["coldvox-stt/parakeet"]        # ⚠️ Planned: Not currently functional
+parakeet = ["coldvox-stt/parakeet"]        # CUDA-backed local Parakeet path
 http-remote = ["coldvox-stt/http-remote"]
 # Other features
 silero = ["coldvox-vad-silero/silero"]     # ✅ Default: Silero VAD
@@ -132,7 +132,7 @@ coldvox-text-injection = { path = "../coldvox-text-injection", features = ["atsp
 
 # Platform-specific dependencies for Windows
 [target.'cfg(target_os = "windows")'.dependencies]
-coldvox-text-injection = { path = "../coldvox-text-injection", features = ["enigo"], optional = true }
+coldvox-text-injection = { path = "../coldvox-text-injection", default-features = false, features = ["enigo"], optional = true }
 
 # Platform-specific dependencies for macOS
 [target.'cfg(target_os = "macos")'.dependencies]
