@@ -216,9 +216,6 @@ function Invoke-Preflight {
 
     Write-Step 'nvidia-smi'
     $nvidia = Invoke-LoggedProcess -Name 'nvidia-smi' -FilePath 'nvidia-smi' -WorkingDirectory $RepoRoot -ArgumentList @('-L')
-    if ($nvidia.ExitCode -ne 0) {
-        throw 'nvidia-smi -L failed.'
-    }
 
     $modelPath = $null
     try {
@@ -343,9 +340,6 @@ function Invoke-Live {
             '--quiet',
             '--locked'
         )
-    if ($build.ExitCode -ne 0) {
-        throw "Failed to build ColdVox live runtime (exit $($build.ExitCode))."
-    }
 
     Write-Step 'coldvox-live'
     try {

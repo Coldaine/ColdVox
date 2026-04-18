@@ -45,11 +45,7 @@ impl AtspiInjector {
     }
 
     /// Insert text directly using AT-SPI EditableText interface
-    pub async fn insert_text(
-        &self,
-        text: &str,
-        _context: &InjectionContext,
-    ) -> InjectionResult<()> {
+    pub async fn insert_text(&self, text: &str, context: &InjectionContext) -> InjectionResult<()> {
         #[allow(unused_variables)]
         let start_time = Instant::now();
 
@@ -245,6 +241,7 @@ impl AtspiInjector {
 
         #[cfg(not(feature = "atspi"))]
         {
+            let _ = context;
             warn!("AT-SPI injector compiled without 'atspi' feature");
             Err(InjectionError::Other(
                 "AT-SPI feature is disabled at compile time".to_string(),
@@ -253,7 +250,7 @@ impl AtspiInjector {
     }
 
     /// Paste text using AT-SPI clipboard operations
-    pub async fn paste_text(&self, text: &str, _context: &InjectionContext) -> InjectionResult<()> {
+    pub async fn paste_text(&self, text: &str, context: &InjectionContext) -> InjectionResult<()> {
         #[allow(unused_variables)]
         let start_time = Instant::now();
 
@@ -436,6 +433,7 @@ impl AtspiInjector {
 
         #[cfg(not(feature = "atspi"))]
         {
+            let _ = context;
             warn!("AT-SPI injector compiled without 'atspi' feature");
             Err(InjectionError::Other(
                 "AT-SPI feature is disabled at compile time".to_string(),
