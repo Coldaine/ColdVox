@@ -190,12 +190,17 @@ impl Settings {
         plugin_overrides: Option<&PluginSelectionConfig>,
     ) -> PluginSelectionConfig {
         PluginSelectionConfig {
-            preferred_plugin: plugin_overrides
-                .and_then(|cfg| cfg.preferred_plugin.clone())
-                .or_else(|| stt.preferred.clone()),
-            fallback_plugins: plugin_overrides
-                .map(|cfg| cfg.fallback_plugins.clone())
-                .unwrap_or_else(|| stt.fallbacks.clone()),
+            preferred_plugin: stt
+                .preferred
+                .clone()
+                .or_else(|| plugin_overrides.and_then(|cfg| cfg.preferred_plugin.clone())),
+            fallback_plugins: if stt.fallbacks.is_empty() {
+                plugin_overrides
+                    .map(|cfg| cfg.fallback_plugins.clone())
+                    .unwrap_or_default()
+            } else {
+                stt.fallbacks.clone()
+            },
             require_local: stt.require_local,
             max_memory_mb: stt.max_mem_mb,
             required_language: stt.language.clone(),
@@ -622,8 +627,16 @@ pub(crate) fn discover_plugin_selection_config_path() -> Option<PathBuf> {
     if let Ok(custom) = env::var("COLDVOX_PLUGIN_CONFIG_PATH") {
         let path = PathBuf::from(custom);
         if path.exists() {
+            tracing::info!(
+                "Using plugin config from COLDVOX_PLUGIN_CONFIG_PATH: {}",
+                path.display()
+            );
             return Some(path);
         }
+    }
+
+    if env::var_os("COLDVOX_CONFIG_PATH").is_some() {
+        return None;
     }
 
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").ok().map(PathBuf::from);
@@ -716,7 +729,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn build_runtime_plugin_selection_prefers_canonical_plugin_owner() {
+    fn build_runtime_plugin_selection_prefers_settings_config() {
         let stt = SttSettings {
             preferred: Some("mock".to_string()),
             fallbacks: vec!["mock".to_string()],
@@ -738,8 +751,8 @@ mod tests {
             }),
         );
 
-        assert_eq!(selection.preferred_plugin.as_deref(), Some("http-remote"));
-        assert!(selection.fallback_plugins.is_empty());
+        assert_eq!(selection.preferred_plugin.as_deref(), Some("mock"));
+        assert_eq!(selection.fallback_plugins, vec!["mock"]);
     }
 
     #[cfg(feature = "http-remote")]
@@ -826,5 +839,43 @@ mod tests {
         }
         // If the deprecated file doesn't exist, the test passes implicitly since
         // the resolved path correctly points to the repo-root config
+    }
+
+    #[test]
+    fn explicit_startup_config_disables_implicit_plugin_overrides() {
+        let temp = tempfile::tempdir().expect("create tempdir");
+        let repo_root = temp.path();
+        let root_config_dir = repo_root.join("config");
+        let app_dir = repo_root.join("crates/app");
+        fs::create_dir_all(&root_config_dir).expect("create root config dir");
+        fs::create_dir_all(&app_dir).expect("create app dir");
+        fs::write(root_config_dir.join("plugins.json"), "{}").expect("write root plugin config");
+
+        let original_cwd = env::current_dir().expect("capture cwd");
+        let original_config = env::var_os("COLDVOX_CONFIG_PATH");
+        let original_plugin = env::var_os("COLDVOX_PLUGIN_CONFIG_PATH");
+
+        env::set_current_dir(&app_dir).expect("set cwd");
+        env::set_var(
+            "COLDVOX_CONFIG_PATH",
+            repo_root.join("config/windows-parakeet.toml"),
+        );
+        env::remove_var("COLDVOX_PLUGIN_CONFIG_PATH");
+
+        let resolved = discover_plugin_selection_config_path();
+
+        if let Some(value) = original_config {
+            env::set_var("COLDVOX_CONFIG_PATH", value);
+        } else {
+            env::remove_var("COLDVOX_CONFIG_PATH");
+        }
+        if let Some(value) = original_plugin {
+            env::set_var("COLDVOX_PLUGIN_CONFIG_PATH", value);
+        } else {
+            env::remove_var("COLDVOX_PLUGIN_CONFIG_PATH");
+        }
+        env::set_current_dir(original_cwd).expect("restore cwd");
+
+        assert!(resolved.is_none());
     }
 }

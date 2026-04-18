@@ -151,18 +151,21 @@ impl PluginSttProcessor {
                     state.source = source;
                     state.state = UtteranceState::SpeechActive;
                     state.buffer.clear();
-                    
+
                     // Flush the rolling buffer into the main pipeline if we have pre-roll data
                     let pre_roll: Vec<i16> = state.rolling_buffer.drain(..).collect();
                     if !pre_roll.is_empty() {
                         tracing::debug!(target: "stt_debug", "Flushing {} samples of pre-roll audio", pre_roll.len());
-                        if self.settings.hotkey_behavior != crate::stt::session::HotkeyBehavior::Incremental {
+                        if self.settings.hotkey_behavior
+                            != crate::stt::session::HotkeyBehavior::Incremental
+                        {
                             state.buffer.extend_from_slice(&pre_roll);
                         }
                     }
 
                     let pm = self.plugin_manager.clone();
-                    let incremental = self.settings.hotkey_behavior == crate::stt::session::HotkeyBehavior::Incremental;
+                    let incremental = self.settings.hotkey_behavior
+                        == crate::stt::session::HotkeyBehavior::Incremental;
                     tokio::spawn(async move {
                         if let Err(e) = pm.write().await.begin_utterance().await {
                             tracing::error!(target: "stt", "Plugin begin_utterance failed: {}", e);
@@ -305,7 +308,9 @@ impl PluginSttProcessor {
                         Self::send_event_static(&self.event_tx, &self.metrics, err_event).await;
                     }
                 }
-            } else if self.settings.activation_mode == crate::stt::session::ActivationMode::AlwaysOnPushToTranscribe {
+            } else if self.settings.activation_mode
+                == crate::stt::session::ActivationMode::AlwaysOnPushToTranscribe
+            {
                 let mut state = self.state.lock();
                 if state.state == UtteranceState::Idle {
                     state.rolling_buffer.extend(samples_slice.iter().copied());

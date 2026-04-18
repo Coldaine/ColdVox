@@ -77,13 +77,13 @@ windows-test:
     cargo test -p coldvox-telemetry --lib --locked
     cargo test -p coldvox-stt --lib --no-default-features --features parakeet --locked
     cargo test -p coldvox-gui --lib --locked
-    cargo test -p coldvox-text-injection --lib --no-default-features --features enigo --locked
+    cargo test -p coldvox-text-injection --lib --locked
     cargo test -p coldvox-text-injection --example test_enigo_live --no-run --no-default-features --features enigo --locked
     cargo test -p coldvox-app --test settings_test --locked
     cargo test -p coldvox-app --test verify_mock_injection_fix --locked
-    cargo test -p coldvox-app --test golden_master --locked
+    cargo test -p coldvox-app --test golden_master --no-run --no-default-features --features parakeet,silero,text-injection-enigo --locked
     just windows-smoke
-    if ($env:COLDVOX_RUN_WINDOWS_LIVE -eq '1') { just windows-live } else { Write-Host 'Skipping just windows-live; set COLDVOX_RUN_WINDOWS_LIVE=1 to opt in.' -ForegroundColor Yellow }
+    if ($env:COLDVOX_RUN_WINDOWS_LIVE -eq '1') { cargo run -p coldvox-text-injection --example test_enigo_live --no-default-features --features enigo --locked; just windows-live } else { Write-Host 'Skipping live Windows validation; set COLDVOX_RUN_WINDOWS_LIVE=1 to run the Enigo example and just windows-live.' -ForegroundColor Yellow }
 
 # Run main app with the canonical wave-1 HTTP remote profile
 run:

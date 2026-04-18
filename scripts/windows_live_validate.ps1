@@ -58,8 +58,8 @@ function Resolve-ParakeetModelPath {
 
     $variant = if ($env:PARAKEET_VARIANT) { $env:PARAKEET_VARIANT.ToLowerInvariant() } else { 'tdt' }
     $modelName = switch ($variant) {
-        'ctc' { 'nvidia\parakeet-ctc-1.1b' }
-        default { 'nvidia\parakeet-tdt-1.1b' }
+        'ctc' { 'nvidia/parakeet-ctc-1.1b' }
+        default { 'nvidia/parakeet-tdt-1.1b' }
     }
     $cacheRoot = Join-Path $env:LOCALAPPDATA 'parakeet'
     $cachedModelPath = Join-Path $cacheRoot $modelName
@@ -171,7 +171,10 @@ function Invoke-LoggedProcess {
 
 function Copy-RuntimeLog {
     if (-not (Test-Path $LogPath)) {
-        throw "Expected runtime log at $LogPath."
+        Write-Warning "Runtime log not found at $LogPath."
+        Set-Content (Join-Path $ArtifactRoot 'coldvox.log') -Value '' -Encoding UTF8
+        Set-Content (Join-Path $ArtifactRoot 'coldvox.log.tail') -Value '' -Encoding UTF8
+        return
     }
 
     Copy-Item $LogPath (Join-Path $ArtifactRoot 'coldvox.log') -Force
@@ -207,12 +210,14 @@ function Invoke-Preflight {
         throw 'No NVIDIA/CUDA indicator found. This validation expects an NVIDIA GPU or nvidia-smi on PATH.'
     }
 
+    if (-not $hasNvidiaSmi) {
+        throw 'nvidia-smi is not available on PATH. This validation requires NVIDIA driver tooling with nvidia-smi accessible so Parakeet GPU initialization can be validated.'
+    }
+
     Write-Step 'nvidia-smi'
-    if ($hasNvidiaSmi) {
-        $nvidia = Invoke-LoggedProcess -Name 'nvidia-smi' -FilePath 'nvidia-smi' -WorkingDirectory $RepoRoot -ArgumentList @('-L')
-        if ($nvidia.ExitCode -ne 0) {
-            throw 'nvidia-smi -L failed.'
-        }
+    $nvidia = Invoke-LoggedProcess -Name 'nvidia-smi' -FilePath 'nvidia-smi' -WorkingDirectory $RepoRoot -ArgumentList @('-L')
+    if ($nvidia.ExitCode -ne 0) {
+        throw 'nvidia-smi -L failed.'
     }
 
     $modelPath = $null
@@ -324,26 +329,51 @@ function Invoke-Live {
     $env:PARAKEET_DEVICE = $ParakeetDevice
     $env:PARAKEET_MODEL_PATH = $modelPath
 
-    Write-Step 'coldvox-live'
-    $live = Invoke-LoggedProcess `
-        -Name 'coldvox-live' `
+    Write-Step 'coldvox-build'
+    $build = Invoke-LoggedProcess `
+        -Name 'coldvox-build' `
         -FilePath 'cargo' `
         -WorkingDirectory $RepoRoot `
         -ArgumentList @(
-            'run',
+            'build',
             '-p', 'coldvox-app',
             '--bin', 'coldvox',
             '--no-default-features',
             '--features', $LiveFeatureList,
-            '--quiet'
-        ) `
-        -TimeoutSeconds $RuntimeSeconds
+            '--quiet',
+            '--locked'
+        )
+    if ($build.ExitCode -ne 0) {
+        throw "Failed to build ColdVox live runtime (exit $($build.ExitCode))."
+    }
+
+    Write-Step 'coldvox-live'
+    try {
+        $live = Invoke-LoggedProcess `
+            -Name 'coldvox-live' `
+            -FilePath 'cargo' `
+            -WorkingDirectory $RepoRoot `
+            -ArgumentList @(
+                'run',
+                '-p', 'coldvox-app',
+                '--bin', 'coldvox',
+                '--no-default-features',
+                '--features', $LiveFeatureList,
+                '--quiet',
+                '--locked'
+            ) `
+            -TimeoutSeconds $RuntimeSeconds
+    } finally {
+        Copy-RuntimeLog
+    }
 
     if (-not $live.TimedOut -and $live.ExitCode -ne 0) {
         throw "Live runtime exited early with code $($live.ExitCode)."
     }
 
-    Copy-RuntimeLog
+    if (-not (Test-Path $LogPath)) {
+        throw 'Live runtime did not produce a runtime log.'
+    }
 
     @(
         "ColdVox Windows live validation"
