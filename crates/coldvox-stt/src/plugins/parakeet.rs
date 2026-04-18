@@ -153,14 +153,15 @@ impl ParakeetPlugin {
     fn resolve_model_path(&self, config: &TranscriptionConfig) -> Result<PathBuf, ColdVoxError> {
         let mut candidates = Vec::new();
         if let Ok(path) = env::var("PARAKEET_MODEL_PATH") {
-            candidates.push(PathBuf::from(path));
+            push_unique_path(&mut candidates, PathBuf::from(path));
         }
         if !config.model_path.is_empty() && config.model_path != "base.en" {
-            candidates.push(PathBuf::from(&config.model_path));
+            push_unique_path(&mut candidates, PathBuf::from(&config.model_path));
         }
         if let Some(path) = self.model_path.clone() {
-            candidates.push(path);
+            push_unique_path(&mut candidates, path);
         }
+        self.push_discovered_model_candidates(&mut candidates);
 
         for path in candidates {
             if path.is_dir() || path.is_file() {
@@ -184,10 +185,41 @@ impl ParakeetPlugin {
         }
 
         Err(SttError::LoadFailed(
-            "Parakeet model not found. Set PARAKEET_MODEL_PATH or provide a valid model_path."
+            "Parakeet model not found. Checked PARAKEET_MODEL_PATH, config model_path, local cache, and Windows shared model roots. Set PARAKEET_MODEL_PATH or provide a valid model_path."
                 .to_string(),
         )
         .into())
+    }
+
+    #[cfg(feature = "parakeet")]
+    fn push_discovered_model_candidates(&self, candidates: &mut Vec<PathBuf>) {
+        if let Some(cache_dir) = dirs::cache_dir() {
+            push_unique_path(
+                candidates,
+                cache_dir
+                    .join("parakeet")
+                    .join(self.variant.model_identifier()),
+            );
+        }
+
+        #[cfg(windows)]
+        {
+            let model_id = self.variant.model_identifier();
+
+            for root in [
+                Path::new(r"D:\AIModels\speech\stt"),
+                Path::new(r"D:\AIModels\speech"),
+            ] {
+                push_repo_layout_candidates(candidates, root, model_id);
+            }
+
+            for hub_root in [
+                Path::new(r"D:\AIModels\hf\.cache\hub"),
+                Path::new(r"D:\AIModels\hf\.hf_home\hub"),
+            ] {
+                push_huggingface_snapshot_candidates(candidates, hub_root, model_id);
+            }
+        }
     }
 
     /// Verify GPU is available (CUDA required)
@@ -222,6 +254,55 @@ impl ParakeetPlugin {
 impl Default for ParakeetPlugin {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(feature = "parakeet")]
+fn push_unique_path(candidates: &mut Vec<PathBuf>, path: PathBuf) {
+    if !candidates.iter().any(|candidate| candidate == &path) {
+        candidates.push(path);
+    }
+}
+
+#[cfg(feature = "parakeet")]
+fn push_repo_layout_candidates(candidates: &mut Vec<PathBuf>, root: &Path, model_id: &str) {
+    let mut nested = root.to_path_buf();
+    let mut leaf = None;
+    for segment in model_id.split('/') {
+        nested.push(segment);
+        leaf = Some(segment);
+    }
+    push_unique_path(candidates, nested);
+
+    if let Some(leaf) = leaf {
+        push_unique_path(candidates, root.join(leaf));
+    }
+}
+
+#[cfg(feature = "parakeet")]
+fn push_huggingface_snapshot_candidates(
+    candidates: &mut Vec<PathBuf>,
+    hub_root: &Path,
+    model_id: &str,
+) {
+    let snapshots_dir = hub_root
+        .join(format!("models--{}", model_id.replace('/', "--")))
+        .join("snapshots");
+
+    let Ok(entries) = std::fs::read_dir(&snapshots_dir) else {
+        return;
+    };
+
+    let mut snapshots: Vec<PathBuf> = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        .collect();
+    snapshots.sort();
+    snapshots.reverse();
+
+    for snapshot in snapshots {
+        push_unique_path(candidates, snapshot);
     }
 }
 
@@ -696,5 +777,30 @@ mod tests {
 
         env::remove_var("PARAKEET_VARIANT");
         env::remove_var("PARAKEET_DEVICE");
+    }
+
+    #[cfg(feature = "parakeet")]
+    #[test]
+    fn huggingface_snapshot_candidates_use_snapshot_dirs() {
+        let temp = std::env::temp_dir().join(format!(
+            "coldvox-parakeet-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time before unix epoch")
+                .as_nanos()
+        ));
+        let snapshots_dir = temp
+            .join("models--nvidia--parakeet-tdt-1.1b")
+            .join("snapshots");
+        let older = snapshots_dir.join("0001");
+        let newer = snapshots_dir.join("0002");
+        std::fs::create_dir_all(&older).expect("create older snapshot");
+        std::fs::create_dir_all(&newer).expect("create newer snapshot");
+
+        let mut candidates = Vec::new();
+        push_huggingface_snapshot_candidates(&mut candidates, &temp, "nvidia/parakeet-tdt-1.1b");
+
+        assert_eq!(candidates, vec![newer, older]);
+        std::fs::remove_dir_all(&temp).expect("clean temp dir");
     }
 }

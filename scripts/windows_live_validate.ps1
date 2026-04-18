@@ -47,6 +47,68 @@ function Assert-Command {
     }
 }
 
+function Add-UniqueCandidate {
+    param(
+        [System.Collections.Generic.List[string]]$Candidates,
+        [string]$Path
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($Path) -and -not $Candidates.Contains($Path)) {
+        $Candidates.Add($Path)
+    }
+}
+
+function Resolve-HuggingFaceSnapshotDirs {
+    param(
+        [string]$HubRoot,
+        [string]$ModelName
+    )
+
+    $repoDir = Join-Path $HubRoot ("models--" + ($ModelName -replace '/', '--'))
+    $snapshotsDir = Join-Path $repoDir 'snapshots'
+
+    if (-not (Test-Path $snapshotsDir)) {
+        return @()
+    }
+
+    return Get-ChildItem $snapshotsDir -Directory |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -ExpandProperty FullName
+}
+
+function Get-ParakeetModelCandidates {
+    $variant = if ($env:PARAKEET_VARIANT) { $env:PARAKEET_VARIANT.ToLowerInvariant() } else { 'tdt' }
+    $modelName = switch ($variant) {
+        'ctc' { 'nvidia/parakeet-ctc-1.1b' }
+        default { 'nvidia/parakeet-tdt-1.1b' }
+    }
+
+    $candidates = New-Object 'System.Collections.Generic.List[string]'
+
+    Add-UniqueCandidate $candidates $env:PARAKEET_MODEL_PATH
+    Add-UniqueCandidate $candidates (Join-Path (Join-Path $env:LOCALAPPDATA 'parakeet') $modelName)
+
+    $leafName = Split-Path $modelName -Leaf
+    foreach ($root in @(
+        'D:\AIModels\speech\stt',
+        'D:\AIModels\speech'
+    )) {
+        Add-UniqueCandidate $candidates (Join-Path $root ($modelName -replace '/', '\'))
+        Add-UniqueCandidate $candidates (Join-Path $root $leafName)
+    }
+
+    foreach ($hubRoot in @(
+        'D:\AIModels\hf\.cache\hub',
+        'D:\AIModels\hf\.hf_home\hub'
+    )) {
+        foreach ($snapshotDir in Resolve-HuggingFaceSnapshotDirs -HubRoot $hubRoot -ModelName $modelName) {
+            Add-UniqueCandidate $candidates $snapshotDir
+        }
+    }
+
+    return $candidates
+}
+
 function Resolve-ParakeetModelPath {
     if ($env:PARAKEET_MODEL_PATH) {
         if (-not (Test-Path $env:PARAKEET_MODEL_PATH)) {
@@ -56,20 +118,14 @@ function Resolve-ParakeetModelPath {
         return $env:PARAKEET_MODEL_PATH
     }
 
-    $variant = if ($env:PARAKEET_VARIANT) { $env:PARAKEET_VARIANT.ToLowerInvariant() } else { 'tdt' }
-    $modelName = switch ($variant) {
-        'ctc' { 'nvidia/parakeet-ctc-1.1b' }
-        default { 'nvidia/parakeet-tdt-1.1b' }
-    }
-    $cacheRoot = Join-Path $env:LOCALAPPDATA 'parakeet'
-    $cachedModelPath = Join-Path $cacheRoot $modelName
-
-    if (Test-Path $cachedModelPath) {
-        $env:PARAKEET_MODEL_PATH = $cachedModelPath
-        return $cachedModelPath
+    foreach ($candidate in Get-ParakeetModelCandidates) {
+        if (Test-Path $candidate) {
+            $env:PARAKEET_MODEL_PATH = $candidate
+            return $candidate
+        }
     }
 
-    throw "Parakeet model not found. Set PARAKEET_MODEL_PATH to a downloaded model directory or place the model under $cachedModelPath."
+    throw 'Parakeet model not found. Checked PARAKEET_MODEL_PATH, the local parakeet cache, D:\AIModels shared speech roots, and HuggingFace caches. Set PARAKEET_MODEL_PATH explicitly if your model lives elsewhere.'
 }
 
 function New-ArtifactDirectories {
