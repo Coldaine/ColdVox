@@ -445,8 +445,9 @@ impl SttPlugin for ParakeetPlugin {
                         .map(|token| WordInfo {
                             start: token.start,
                             end: token.end,
-                            // parakeet-rs does not expose per-token confidence.
-                            conf: 1.0,
+                            // parakeet-rs does not expose per-token confidence; use a neutral
+                            // sentinel because this plugin does not provide confidence scores.
+                            conf: 0.0,
                             text: token.text.clone(),
                         })
                         .collect(),
