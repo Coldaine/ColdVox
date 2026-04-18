@@ -7,7 +7,20 @@ This runbook is the operator path for the current Windows validation wave.
 - Windows 11
 - NVIDIA GPU with working CUDA support
 - A downloaded local Parakeet model directory
-- `PARAKEET_MODEL_PATH` pointing at that model directory
+- Either:
+  - `PARAKEET_MODEL_PATH` pointing at that directory, or
+  - the model living in one of the shared/local discovery roots that the validator checks first
+
+## Model Discovery
+
+`just windows-run-preflight` and `just windows-live` search for Parakeet in this order:
+
+1. `PARAKEET_MODEL_PATH`
+2. The local Parakeet cache
+3. Shared `D:\AIModels\speech\...` roots
+4. Standard Hugging Face cache roots such as `HF_HUB_CACHE`, `HF_HOME\hub`, and the user's local Hugging Face cache
+
+Use `PARAKEET_MODEL_PATH` only when the model lives somewhere outside those normal roots.
 
 ## Commands
 

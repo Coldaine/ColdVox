@@ -76,6 +76,44 @@ function Resolve-HuggingFaceSnapshotDirs {
         Select-Object -ExpandProperty FullName
 }
 
+function Get-HuggingFaceHubRoots {
+    $roots = New-Object 'System.Collections.Generic.List[string]'
+
+    foreach ($path in @(
+        $env:HF_HUB_CACHE,
+        $env:HUGGINGFACE_HUB_CACHE
+    )) {
+        Add-UniqueCandidate $roots $path
+    }
+
+    if ($env:HF_HOME) {
+        Add-UniqueCandidate $roots (Join-Path $env:HF_HOME 'hub')
+    }
+
+    if ($env:XDG_CACHE_HOME) {
+        Add-UniqueCandidate $roots (Join-Path $env:XDG_CACHE_HOME 'huggingface\hub')
+    }
+
+    foreach ($homeRoot in @($HOME, $env:USERPROFILE)) {
+        if (-not [string]::IsNullOrWhiteSpace($homeRoot)) {
+            Add-UniqueCandidate $roots (Join-Path $homeRoot '.cache\huggingface\hub')
+        }
+    }
+
+    if ($env:LOCALAPPDATA) {
+        Add-UniqueCandidate $roots (Join-Path $env:LOCALAPPDATA 'huggingface\hub')
+    }
+
+    foreach ($sharedRoot in @(
+        'D:\AIModels\hf\.cache\hub',
+        'D:\AIModels\hf\.hf_home\hub'
+    )) {
+        Add-UniqueCandidate $roots $sharedRoot
+    }
+
+    return $roots
+}
+
 function Get-ParakeetModelCandidates {
     $variant = if ($env:PARAKEET_VARIANT) { $env:PARAKEET_VARIANT.ToLowerInvariant() } else { 'tdt' }
     $modelName = switch ($variant) {
@@ -97,10 +135,7 @@ function Get-ParakeetModelCandidates {
         Add-UniqueCandidate $candidates (Join-Path $root $leafName)
     }
 
-    foreach ($hubRoot in @(
-        'D:\AIModels\hf\.cache\hub',
-        'D:\AIModels\hf\.hf_home\hub'
-    )) {
+    foreach ($hubRoot in Get-HuggingFaceHubRoots) {
         foreach ($snapshotDir in Resolve-HuggingFaceSnapshotDirs -HubRoot $hubRoot -ModelName $modelName) {
             Add-UniqueCandidate $candidates $snapshotDir
         }
@@ -125,7 +160,7 @@ function Resolve-ParakeetModelPath {
         }
     }
 
-    throw 'Parakeet model not found. Checked PARAKEET_MODEL_PATH, the local parakeet cache, D:\AIModels shared speech roots, and HuggingFace caches. Set PARAKEET_MODEL_PATH explicitly if your model lives elsewhere.'
+    throw 'Parakeet model not found. Checked PARAKEET_MODEL_PATH, the local parakeet cache, D:\AIModels shared speech roots, and standard Hugging Face caches. Set PARAKEET_MODEL_PATH explicitly if your model lives elsewhere.'
 }
 
 function New-ArtifactDirectories {

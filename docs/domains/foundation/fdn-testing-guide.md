@@ -60,7 +60,7 @@ just windows-live
 
 - Windows 11
 - NVIDIA GPU with working CUDA support
-- A downloaded local Parakeet model directory exposed through `PARAKEET_MODEL_PATH`
+- A downloaded local Parakeet model directory available through either the standard discovery roots or `PARAKEET_MODEL_PATH`
 
 If the Parakeet model is missing, `just windows-run-preflight` and `just windows-live` fail early with a prerequisite error instead of failing later during plugin startup.
 
