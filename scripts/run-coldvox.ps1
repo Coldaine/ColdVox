@@ -7,10 +7,15 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 $ComposeFile = Join-Path $RepoRoot 'ops/parakeet/docker-compose.yml'
 $ConfigPath = Join-Path $RepoRoot 'config/windows-parakeet.toml'
 $HealthUrl = 'http://localhost:5092/health'
+$DefaultParakeetHealthTimeoutSeconds = if ($env:COLDVOX_PARAKEET_HEALTH_TIMEOUT_SECONDS) {
+    [int]$env:COLDVOX_PARAKEET_HEALTH_TIMEOUT_SECONDS
+} else {
+    180
+}
 
 function Wait-ParakeetHealth {
     param(
-        [int]$TimeoutSeconds = 60
+        [int]$TimeoutSeconds = $DefaultParakeetHealthTimeoutSeconds
     )
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
@@ -37,11 +42,15 @@ Push-Location $RepoRoot
 try {
     Write-Host "==> Ensuring canonical Parakeet CPU container is running..." -ForegroundColor Blue
     docker compose -f $ComposeFile up -d parakeet-cpu | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "docker compose up failed (exit code $LASTEXITCODE)."
+    }
     Wait-ParakeetHealth
 
-    if (Test-Path $ConfigPath) {
-        $env:COLDVOX_CONFIG_PATH = $ConfigPath
+    if (-not (Test-Path $ConfigPath)) {
+        throw "Missing Windows HTTP remote override: $ConfigPath"
     }
+    $env:COLDVOX_CONFIG_PATH = $ConfigPath
 
     Write-Host "==> Detecting Python environment..." -ForegroundColor Blue
     $base = uv run python -c "import sys; print(sys.base_prefix)"

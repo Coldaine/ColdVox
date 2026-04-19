@@ -1,3 +1,15 @@
+---
+doc_type: runbook
+subsystem: stt
+status: active
+freshness: current
+preservation: preserve
+summary: Windows operator path for the canonical Parakeet HTTP/container STT lane — preflight, smoke, and live validation against the parakeet-cpu container on localhost:5092
+signals: ['stt', 'windows', 'parakeet', 'http-remote', 'docker', 'runbook']
+created: 2026-04-19
+last_verified: 2026-04-19
+---
+
 # Windows Live Runbook
 
 This is the Windows operator path for the canonical Parakeet HTTP/container lane.
@@ -79,13 +91,16 @@ Each validation run writes artifacts to:
 logs/windows-validation/<timestamp>-<mode>/
 ```
 
-That directory contains:
+That directory contains, for every mode:
 
 - captured stdout
 - captured stderr
 - direct backend health/transcription responses
+
+Additional artifacts are produced only by the `Live` mode:
+
 - `summary.txt`
-- copied runtime logs when the live runtime starts
+- copied runtime log files from `logs/coldvox.log`
 
 ## Review / Merge Protocol
 

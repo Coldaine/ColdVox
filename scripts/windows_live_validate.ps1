@@ -24,6 +24,13 @@ $TestWavPath = Join-Path $RepoRoot 'crates/app/test_data/test_1.wav'
 $HealthUrl = 'http://localhost:5092/health'
 $TranscriptionsUrl = 'http://localhost:5092/v1/audio/transcriptions'
 $FeatureList = 'http-remote,text-injection-enigo'
+$DefaultParakeetHealthTimeoutSeconds = if ($env:COLDVOX_PARAKEET_HEALTH_TIMEOUT_SECONDS) {
+    [int]$env:COLDVOX_PARAKEET_HEALTH_TIMEOUT_SECONDS
+} else {
+    180
+}
+$TranscriptionMaxTimeSeconds = 180
+$TranscriptionProcessTimeoutSeconds = 200
 
 function Write-Step {
     param([string]$Message)
@@ -59,13 +66,27 @@ function Invoke-LoggedProcess {
     $stderr = Join-Path $ArtifactRoot "$Name.stderr.log"
 
     Write-Step $Name
-    $process = Start-Process `
-        -FilePath $FilePath `
-        -ArgumentList $ArgumentList `
-        -WorkingDirectory $RepoRoot `
-        -RedirectStandardOutput $stdout `
-        -RedirectStandardError $stderr `
-        -PassThru
+    # Use ProcessStartInfo.ArgumentList (not Start-Process -ArgumentList) so arguments
+    # containing spaces (e.g., $RepoRoot-derived paths) are quoted correctly.
+    # See PowerShell/PowerShell#5576 for the Start-Process -ArgumentList quoting gap.
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = $FilePath
+    $startInfo.WorkingDirectory = $RepoRoot
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    if ($null -ne $ArgumentList) {
+        foreach ($arg in $ArgumentList) {
+            $startInfo.ArgumentList.Add([string]$arg)
+        }
+    }
+
+    $process = [System.Diagnostics.Process]@{ StartInfo = $startInfo }
+    [void]$process.Start()
+
+    # Drain stdout/stderr asynchronously to avoid deadlock when either buffer fills.
+    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+    $stderrTask = $process.StandardError.ReadToEndAsync()
 
     $timedOut = $false
     if ($TimeoutSeconds -gt 0) {
@@ -83,6 +104,11 @@ function Invoke-LoggedProcess {
     } else {
         $process.WaitForExit()
     }
+
+    $stdoutContent = $stdoutTask.GetAwaiter().GetResult()
+    $stderrContent = $stderrTask.GetAwaiter().GetResult()
+    Set-Content -Path $stdout -Value $stdoutContent -NoNewline -Encoding UTF8
+    Set-Content -Path $stderr -Value $stderrContent -NoNewline -Encoding UTF8
 
     foreach ($path in @($stdout, $stderr)) {
         if (Test-Path $path) {
@@ -109,7 +135,7 @@ function Invoke-LoggedProcess {
 
 function Wait-ParakeetHealth {
     param(
-        [int]$TimeoutSeconds = 60
+        [int]$TimeoutSeconds = $DefaultParakeetHealthTimeoutSeconds
     )
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
@@ -180,11 +206,14 @@ function Invoke-Preflight {
 
     $transcription = Invoke-LoggedProcess -Name 'parakeet-transcription-http' -FilePath 'curl.exe' -ArgumentList @(
         '-sS',
+        '--fail-with-body',
+        '--max-time', [string]$TranscriptionMaxTimeSeconds,
         '-X', 'POST',
         $TranscriptionsUrl,
         '-F', "file=@$TestWavPath",
-        '-F', 'model=parakeet-tdt-0.6b-v2'
-    )
+        '-F', 'model=parakeet-tdt-0.6b-v2',
+        '-F', 'response_format=json'
+    ) -TimeoutSeconds $TranscriptionProcessTimeoutSeconds
     $transcriptionBody = Get-Content $transcription.StdoutPath -Raw
     if ($transcriptionBody -notmatch '"text"\s*:') {
         throw "Unexpected transcription response: $transcriptionBody"
