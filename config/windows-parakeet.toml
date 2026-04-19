@@ -1,16 +1,15 @@
-# Windows live override for the supported local GPU path.
+# Windows live override for the canonical HTTP/container Parakeet path.
 # Use via `COLDVOX_CONFIG_PATH=config/windows-parakeet.toml`.
 #
-# The normal startup path still discovers `config/default.toml`.
-# `config/plugins.json` remains plugin-manager persistence and does not replace
-# this file when launching `coldvox` directly.
+# The normal startup path still discovers `config/default.toml` plus `config/plugins.json`.
+# This override keeps Windows launchers on the canonical http-remote profile while
+# enabling Enigo for text injection.
 
 [injection]
 allow_enigo = true
 
 [stt]
-preferred = "parakeet"
+preferred = "http-remote"
 fallbacks = []
-require_local = true
+require_local = false
 language = "en"
-

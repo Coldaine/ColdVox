@@ -55,10 +55,10 @@ fn test_settings_new_default() {
 }
 
 #[test]
-fn test_settings_from_path_loads_default_mock_profile() {
+fn test_settings_from_path_uses_repo_remote_transport_defaults() {
     let settings = Settings::from_path(get_test_config_path()).expect("load default config");
 
-    assert_eq!(settings.stt.preferred.as_deref(), Some("mock"));
+    assert!(settings.stt.preferred.is_none());
     assert_eq!(settings.stt.remote.base_url, "http://localhost:5092");
     assert_eq!(settings.stt.remote.api_path, "/v1/audio/transcriptions");
     assert_eq!(settings.stt.remote.health_path, "/health");
