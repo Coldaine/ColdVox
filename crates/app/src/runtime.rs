@@ -42,7 +42,9 @@ impl From<ActivationMode> for crate::stt::session::ActivationMode {
         match val {
             ActivationMode::Vad => crate::stt::session::ActivationMode::Vad,
             ActivationMode::Hotkey => crate::stt::session::ActivationMode::Hotkey,
-            ActivationMode::AlwaysOnPushToTranscribe => crate::stt::session::ActivationMode::AlwaysOnPushToTranscribe,
+            ActivationMode::AlwaysOnPushToTranscribe => {
+                crate::stt::session::ActivationMode::AlwaysOnPushToTranscribe
+            }
         }
     }
 }
@@ -300,7 +302,9 @@ impl AppHandle {
                     Some(self.metrics.clone()),
                 )?
             }
-            ActivationMode::Hotkey | ActivationMode::AlwaysOnPushToTranscribe => crate::hotkey::spawn_hotkey_listener(self.raw_vad_tx.clone()),
+            ActivationMode::Hotkey | ActivationMode::AlwaysOnPushToTranscribe => {
+                crate::hotkey::spawn_hotkey_listener(self.raw_vad_tx.clone())
+            }
         };
         {
             let mut trigger_guard = self.trigger_handle.lock();
@@ -471,7 +475,9 @@ pub async fn start(
             })?;
             vad_handle
         }
-        ActivationMode::Hotkey | ActivationMode::AlwaysOnPushToTranscribe => spawn_hotkey_listener(raw_vad_tx.clone()),
+        ActivationMode::Hotkey | ActivationMode::AlwaysOnPushToTranscribe => {
+            spawn_hotkey_listener(raw_vad_tx.clone())
+        }
     };
 
     // Log successful VAD processor spawn
@@ -577,14 +583,16 @@ pub async fn start(
                         VadEvent::SpeechStart { .. } => {
                             let source = match activation_mode {
                                 ActivationMode::Vad => SessionSource::Vad,
-                                ActivationMode::Hotkey | ActivationMode::AlwaysOnPushToTranscribe => SessionSource::Hotkey,
+                                ActivationMode::Hotkey
+                                | ActivationMode::AlwaysOnPushToTranscribe => SessionSource::Hotkey,
                             };
                             Some(SessionEvent::Start(source, Instant::now()))
                         }
                         VadEvent::SpeechEnd { .. } => {
                             let source = match activation_mode {
                                 ActivationMode::Vad => SessionSource::Vad,
-                                ActivationMode::Hotkey | ActivationMode::AlwaysOnPushToTranscribe => SessionSource::Hotkey,
+                                ActivationMode::Hotkey
+                                | ActivationMode::AlwaysOnPushToTranscribe => SessionSource::Hotkey,
                             };
                             Some(SessionEvent::End(source, Instant::now()))
                         }

@@ -55,7 +55,6 @@ impl ParakeetModelVariant {
         // Approximate: 1.1B * 4 bytes (fp32) ≈ 4.4GB + overhead
         5000 // 5GB to be safe
     }
-
 }
 
 impl Default for ParakeetModelVariant {
@@ -89,31 +88,16 @@ impl GpuProvider {
     #[cfg(feature = "parakeet")]
     fn to_execution_provider(&self) -> ExecutionProvider {
         match self {
-            Self::Cuda => {
-                #[cfg(feature = "parakeet-cuda")]
-                {
-                    ExecutionProvider::Cuda
-                }
-
-                #[cfg(not(feature = "parakeet-cuda"))]
-                {
-                    ExecutionProvider::Cpu
-                }
-            }
+            Self::Cuda => ExecutionProvider::Cuda,
             Self::TensorRt => {
                 #[cfg(feature = "parakeet-tensorrt")]
                 {
                     ExecutionProvider::TensorRT
                 }
 
-                #[cfg(all(feature = "parakeet-cuda", not(feature = "parakeet-tensorrt")))]
+                #[cfg(not(feature = "parakeet-tensorrt"))]
                 {
                     ExecutionProvider::Cuda
-                }
-
-                #[cfg(not(any(feature = "parakeet-cuda", feature = "parakeet-tensorrt")))]
-                {
-                    ExecutionProvider::Cpu
                 }
             }
         }
@@ -168,18 +152,19 @@ impl ParakeetPlugin {
     #[cfg(feature = "parakeet")]
     fn resolve_model_path(&self, config: &TranscriptionConfig) -> Result<PathBuf, ColdVoxError> {
         let mut candidates = Vec::new();
+        if let Ok(path) = env::var("PARAKEET_MODEL_PATH") {
+            push_unique_path(&mut candidates, PathBuf::from(path));
+        }
         if !config.model_path.is_empty() && config.model_path != "base.en" {
-            candidates.push(PathBuf::from(&config.model_path));
+            push_unique_path(&mut candidates, PathBuf::from(&config.model_path));
         }
         if let Some(path) = self.model_path.clone() {
-            candidates.push(path);
+            push_unique_path(&mut candidates, path);
         }
-        if let Ok(path) = env::var("PARAKEET_MODEL_PATH") {
-            candidates.push(PathBuf::from(path));
-        }
+        self.push_discovered_model_candidates(&mut candidates);
 
         for path in candidates {
-            if path.exists() {
+            if path.is_dir() || path.is_file() {
                 return Ok(path);
             }
 
@@ -190,18 +175,43 @@ impl ParakeetPlugin {
             );
         }
 
-        if let Some(cache_dir) = dirs::cache_dir() {
-            let cached_model = cache_dir.join("parakeet").join(self.variant.model_identifier());
-            if cached_model.exists() {
-                return Ok(cached_model);
-            }
-        }
-
         Err(SttError::LoadFailed(
-            "Parakeet model not found. Set PARAKEET_MODEL_PATH or provide a valid model_path."
+            "Parakeet model not found. Checked PARAKEET_MODEL_PATH, config model_path, local cache, Windows shared model roots, and Hugging Face caches. Set PARAKEET_MODEL_PATH or provide a valid model_path."
                 .to_string(),
         )
         .into())
+    }
+
+    #[cfg(feature = "parakeet")]
+    fn push_discovered_model_candidates(&self, candidates: &mut Vec<PathBuf>) {
+        if let Some(cache_dir) = dirs::cache_dir() {
+            push_unique_path(
+                candidates,
+                cache_dir
+                    .join("parakeet")
+                    .join(self.variant.model_identifier()),
+            );
+        }
+
+        #[cfg(windows)]
+        {
+            let model_id = self.variant.model_identifier();
+
+            for root in [
+                Path::new(r"D:\AIModels\speech\stt"),
+                Path::new(r"D:\AIModels\speech"),
+            ] {
+                push_repo_layout_candidates(candidates, root, model_id);
+            }
+        }
+
+        for hub_root in candidate_huggingface_hub_roots() {
+            push_huggingface_snapshot_candidates(
+                candidates,
+                &hub_root,
+                self.variant.model_identifier(),
+            );
+        }
     }
 
     /// Verify GPU is available (CUDA required)
@@ -236,6 +246,108 @@ impl ParakeetPlugin {
 impl Default for ParakeetPlugin {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(feature = "parakeet")]
+fn push_unique_path(candidates: &mut Vec<PathBuf>, path: PathBuf) {
+    if !candidates.iter().any(|candidate| candidate == &path) {
+        candidates.push(path);
+    }
+}
+
+#[cfg(feature = "parakeet")]
+fn push_repo_layout_candidates(candidates: &mut Vec<PathBuf>, root: &Path, model_id: &str) {
+    let mut nested = root.to_path_buf();
+    let mut leaf = None;
+    for segment in model_id.split('/') {
+        nested.push(segment);
+        leaf = Some(segment);
+    }
+    push_unique_path(candidates, nested);
+
+    if let Some(leaf) = leaf {
+        push_unique_path(candidates, root.join(leaf));
+    }
+}
+
+#[cfg(feature = "parakeet")]
+fn candidate_huggingface_hub_roots() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+
+    for var in ["HF_HUB_CACHE", "HUGGINGFACE_HUB_CACHE"] {
+        if let Ok(path) = env::var(var) {
+            push_unique_path(&mut roots, PathBuf::from(path));
+        }
+    }
+
+    if let Ok(path) = env::var("HF_HOME") {
+        push_unique_path(&mut roots, PathBuf::from(path).join("hub"));
+    }
+
+    if let Ok(path) = env::var("XDG_CACHE_HOME") {
+        push_unique_path(
+            &mut roots,
+            PathBuf::from(path).join("huggingface").join("hub"),
+        );
+    }
+
+    if let Some(home_dir) = dirs::home_dir() {
+        push_unique_path(
+            &mut roots,
+            home_dir.join(".cache").join("huggingface").join("hub"),
+        );
+    }
+
+    if let Some(cache_dir) = dirs::cache_dir() {
+        push_unique_path(&mut roots, cache_dir.join("huggingface").join("hub"));
+    }
+
+    #[cfg(windows)]
+    for root in [
+        PathBuf::from(r"D:\AIModels\hf\.cache\hub"),
+        PathBuf::from(r"D:\AIModels\hf\.hf_home\hub"),
+    ] {
+        push_unique_path(&mut roots, root);
+    }
+
+    roots
+}
+
+#[cfg(feature = "parakeet")]
+fn push_huggingface_snapshot_candidates(
+    candidates: &mut Vec<PathBuf>,
+    hub_root: &Path,
+    model_id: &str,
+) {
+    let snapshots_dir = hub_root
+        .join(format!("models--{}", model_id.replace('/', "--")))
+        .join("snapshots");
+
+    let Ok(entries) = std::fs::read_dir(&snapshots_dir) else {
+        return;
+    };
+
+    let mut snapshots: Vec<(std::time::SystemTime, PathBuf)> = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        .map(|path| {
+            let modified = path
+                .metadata()
+                .and_then(|metadata| metadata.modified())
+                .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+            (modified, path)
+        })
+        .collect();
+    snapshots.sort_by(|(left_time, left_path), (right_time, right_path)| {
+        right_time
+            .cmp(left_time)
+            .then_with(|| left_path.cmp(right_path))
+    });
+
+    for (_, snapshot) in snapshots {
+        push_unique_path(candidates, snapshot);
     }
 }
 
@@ -284,7 +396,7 @@ impl SttPlugin for ParakeetPlugin {
             streaming: false, // Batch processing only for now
             batch: true,
             word_timestamps: true, // parakeet-rs provides token-level timestamps
-            confidence_scores: true,
+            confidence_scores: false,
             speaker_diarization: false, // Can be added later via pyannote
             auto_punctuation: true,     // Both variants support punctuation
             custom_vocabulary: false,
@@ -316,8 +428,8 @@ impl SttPlugin for ParakeetPlugin {
                 ..Default::default()
             };
 
-            let model = Parakeet::from_pretrained(&model_path, Some(exec_config)).map_err(
-                |err| {
+            let model =
+                Parakeet::from_pretrained(&model_path, Some(exec_config)).map_err(|err| {
                     error!(
                         target: "coldvox::stt::parakeet",
                         error = %err,
@@ -327,8 +439,7 @@ impl SttPlugin for ParakeetPlugin {
                         "Failed to load Parakeet model: {}. Ensure CUDA GPU is available.",
                         err
                     ))
-                },
-            )?;
+                })?;
 
             self.model = Some(model);
             self.audio_buffer.clear();
@@ -460,7 +571,9 @@ impl SttPlugin for ParakeetPlugin {
                         .map(|token| WordInfo {
                             start: token.start,
                             end: token.end,
-                            conf: 1.0,
+                            // parakeet-rs does not expose per-token confidence; use a neutral
+                            // sentinel because this plugin does not provide confidence scores.
+                            conf: 0.0,
                             text: token.text.clone(),
                         })
                         .collect(),
@@ -639,7 +752,7 @@ impl SttPluginFactory for ParakeetPluginFactory {
                 warn!(
                     target: "coldvox::stt::parakeet",
                     path = %path.display(),
-                    "Model path does not exist; will auto-download on first use"
+                    "Model path does not exist; initialization will fail until a valid model path is configured"
                 );
             }
         }
@@ -709,5 +822,31 @@ mod tests {
 
         env::remove_var("PARAKEET_VARIANT");
         env::remove_var("PARAKEET_DEVICE");
+    }
+
+    #[cfg(feature = "parakeet")]
+    #[test]
+    fn huggingface_snapshot_candidates_prefer_newer_snapshots() {
+        let temp = std::env::temp_dir().join(format!(
+            "coldvox-parakeet-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time before unix epoch")
+                .as_nanos()
+        ));
+        let snapshots_dir = temp
+            .join("models--nvidia--parakeet-tdt-1.1b")
+            .join("snapshots");
+        let older = snapshots_dir.join("0001");
+        std::fs::create_dir_all(&older).expect("create older snapshot");
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        let newer = snapshots_dir.join("0002");
+        std::fs::create_dir_all(&newer).expect("create newer snapshot");
+
+        let mut candidates = Vec::new();
+        push_huggingface_snapshot_candidates(&mut candidates, &temp, "nvidia/parakeet-tdt-1.1b");
+
+        assert_eq!(candidates, vec![newer, older]);
+        std::fs::remove_dir_all(&temp).expect("clean temp dir");
     }
 }

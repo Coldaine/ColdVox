@@ -241,6 +241,7 @@ impl AtspiInjector {
 
         #[cfg(not(feature = "atspi"))]
         {
+            let _ = context;
             warn!("AT-SPI injector compiled without 'atspi' feature");
             Err(InjectionError::Other(
                 "AT-SPI feature is disabled at compile time".to_string(),
@@ -432,6 +433,7 @@ impl AtspiInjector {
 
         #[cfg(not(feature = "atspi"))]
         {
+            let _ = context;
             warn!("AT-SPI injector compiled without 'atspi' feature");
             Err(InjectionError::Other(
                 "AT-SPI feature is disabled at compile time".to_string(),

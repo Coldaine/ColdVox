@@ -6,11 +6,16 @@
 //! To run this test, use the following command:
 //! `cargo test -p coldvox-text-injection --features wl_clipboard test_wl_copy_stdin_piping`
 
+#[cfg(unix)]
 use crate::injectors::clipboard::ClipboardInjector;
+#[cfg(unix)]
 use crate::types::{InjectionConfig, InjectionContext};
+#[cfg(unix)]
 use std::process::Command;
+#[cfg(unix)]
 use std::time::Duration;
 
+#[cfg(unix)]
 use super::test_utils::{command_exists, is_wayland_environment, read_clipboard_with_wl_paste};
 
 /// Test that wl-copy properly receives content via stdin

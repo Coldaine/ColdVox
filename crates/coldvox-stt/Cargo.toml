@@ -32,8 +32,7 @@ default = []
 moonshine = ["dep:pyo3", "dep:tempfile", "dep:hound"]  # ✅ Working: Python-based, CPU/GPU
 parakeet = ["dep:parakeet-rs", "parakeet-rs/cuda"]
 http-remote = ["dep:hound", "dep:reqwest"]
-parakeet-cuda = ["parakeet", "parakeet-rs/cuda"]
-parakeet-tensorrt = ["parakeet-cuda", "parakeet-rs/tensorrt"]
+parakeet-tensorrt = ["parakeet", "parakeet-rs/tensorrt"]
 
 [dev-dependencies]
 tokio = { version = "1.52", features = ["rt-multi-thread", "macros", "io-util", "net", "time"] }

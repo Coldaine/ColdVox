@@ -60,8 +60,7 @@ pub struct TranscriptionConfig {
 impl Default for TranscriptionConfig {
     fn default() -> Self {
         // Try to get model path from environment, falling back to default
-        let model_path =
-            std::env::var("STT_MODEL_PATH").unwrap_or_else(|_| "base.en".to_string());
+        let model_path = std::env::var("STT_MODEL_PATH").unwrap_or_else(|_| "base.en".to_string());
 
         Self {
             enabled: false,

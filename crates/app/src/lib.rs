@@ -190,12 +190,17 @@ impl Settings {
         plugin_overrides: Option<&PluginSelectionConfig>,
     ) -> PluginSelectionConfig {
         PluginSelectionConfig {
-            preferred_plugin: plugin_overrides
-                .and_then(|cfg| cfg.preferred_plugin.clone())
-                .or_else(|| stt.preferred.clone()),
-            fallback_plugins: plugin_overrides
-                .map(|cfg| cfg.fallback_plugins.clone())
-                .unwrap_or_else(|| stt.fallbacks.clone()),
+            preferred_plugin: stt
+                .preferred
+                .clone()
+                .or_else(|| plugin_overrides.and_then(|cfg| cfg.preferred_plugin.clone())),
+            fallback_plugins: if stt.fallbacks.is_empty() {
+                plugin_overrides
+                    .map(|cfg| cfg.fallback_plugins.clone())
+                    .unwrap_or_default()
+            } else {
+                stt.fallbacks.clone()
+            },
             require_local: stt.require_local,
             max_memory_mb: stt.max_mem_mb,
             required_language: stt.language.clone(),
@@ -619,11 +624,25 @@ impl Settings {
 }
 
 pub(crate) fn discover_plugin_selection_config_path() -> Option<PathBuf> {
-    if let Ok(custom) = env::var("COLDVOX_PLUGIN_CONFIG_PATH") {
+    if let Some(custom) = env::var_os("COLDVOX_PLUGIN_CONFIG_PATH") {
         let path = PathBuf::from(custom);
-        if path.exists() {
+        if path.is_file() {
+            tracing::info!(
+                "Using plugin config from COLDVOX_PLUGIN_CONFIG_PATH: {}",
+                path.display()
+            );
             return Some(path);
         }
+
+        tracing::warn!(
+            "COLDVOX_PLUGIN_CONFIG_PATH is set but does not point to an existing file: {}",
+            path.display()
+        );
+        return None;
+    }
+
+    if explicit_startup_config_path().is_some() {
+        return None;
     }
 
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").ok().map(PathBuf::from);
@@ -652,6 +671,12 @@ fn discover_plugin_selection_config_path_with(
     }
 
     None
+}
+
+fn explicit_startup_config_path() -> Option<PathBuf> {
+    let custom = env::var_os("COLDVOX_CONFIG_PATH")?;
+    let path = PathBuf::from(custom);
+    path.exists().then_some(path)
 }
 
 fn is_legacy_app_local_plugin_config_path(path: &Path) -> bool {
@@ -714,9 +739,10 @@ pub mod test_utils;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     #[test]
-    fn build_runtime_plugin_selection_prefers_canonical_plugin_owner() {
+    fn build_runtime_plugin_selection_prefers_settings_config() {
         let stt = SttSettings {
             preferred: Some("mock".to_string()),
             fallbacks: vec!["mock".to_string()],
@@ -738,8 +764,8 @@ mod tests {
             }),
         );
 
-        assert_eq!(selection.preferred_plugin.as_deref(), Some("http-remote"));
-        assert!(selection.fallback_plugins.is_empty());
+        assert_eq!(selection.preferred_plugin.as_deref(), Some("mock"));
+        assert_eq!(selection.fallback_plugins, vec!["mock"]);
     }
 
     #[cfg(feature = "http-remote")]
@@ -826,5 +852,87 @@ mod tests {
         }
         // If the deprecated file doesn't exist, the test passes implicitly since
         // the resolved path correctly points to the repo-root config
+    }
+
+    #[test]
+    #[serial]
+    fn explicit_startup_config_disables_implicit_plugin_overrides() {
+        let temp = tempfile::tempdir().expect("create tempdir");
+        let repo_root = temp.path();
+        let root_config_dir = repo_root.join("config");
+        let app_dir = repo_root.join("crates/app");
+        let explicit_config_path = root_config_dir.join("windows-parakeet.toml");
+        fs::create_dir_all(&root_config_dir).expect("create root config dir");
+        fs::create_dir_all(&app_dir).expect("create app dir");
+        fs::write(root_config_dir.join("plugins.json"), "{}").expect("write root plugin config");
+        fs::write(&explicit_config_path, "[stt]\npreferred = \"parakeet\"\n")
+            .expect("write explicit startup config");
+
+        let original_cwd = env::current_dir().expect("capture cwd");
+        let original_config = env::var_os("COLDVOX_CONFIG_PATH");
+        let original_plugin = env::var_os("COLDVOX_PLUGIN_CONFIG_PATH");
+
+        env::set_current_dir(&app_dir).expect("set cwd");
+        env::set_var("COLDVOX_CONFIG_PATH", &explicit_config_path);
+        env::remove_var("COLDVOX_PLUGIN_CONFIG_PATH");
+
+        let resolved = discover_plugin_selection_config_path();
+
+        if let Some(value) = original_config {
+            env::set_var("COLDVOX_CONFIG_PATH", value);
+        } else {
+            env::remove_var("COLDVOX_CONFIG_PATH");
+        }
+        if let Some(value) = original_plugin {
+            env::set_var("COLDVOX_PLUGIN_CONFIG_PATH", value);
+        } else {
+            env::remove_var("COLDVOX_PLUGIN_CONFIG_PATH");
+        }
+        env::set_current_dir(original_cwd).expect("restore cwd");
+
+        assert!(resolved.is_none());
+    }
+
+    #[test]
+    #[serial]
+    fn invalid_startup_config_keeps_implicit_plugin_overrides_available() {
+        let temp = tempfile::tempdir().expect("create tempdir");
+        let repo_root = temp.path();
+        let root_config_dir = repo_root.join("config");
+        let app_dir = repo_root.join("crates/app");
+        let root_plugins_path = root_config_dir.join("plugins.json");
+        let invalid_config_path = root_config_dir.join("missing.toml");
+        fs::create_dir_all(&root_config_dir).expect("create root config dir");
+        fs::create_dir_all(&app_dir).expect("create app dir");
+        fs::write(&root_plugins_path, "{}").expect("write root plugin config");
+
+        let original_config = env::var_os("COLDVOX_CONFIG_PATH");
+        let original_plugin = env::var_os("COLDVOX_PLUGIN_CONFIG_PATH");
+
+        env::set_var("COLDVOX_CONFIG_PATH", &invalid_config_path);
+        env::remove_var("COLDVOX_PLUGIN_CONFIG_PATH");
+
+        assert!(explicit_startup_config_path().is_none());
+
+        let resolved = discover_plugin_selection_config_path_with(Some(&app_dir), Some(&app_dir))
+            .expect("resolve canonical plugin config path")
+            .canonicalize()
+            .expect("canonicalize resolved plugin config path");
+
+        if let Some(value) = original_config {
+            env::set_var("COLDVOX_CONFIG_PATH", value);
+        } else {
+            env::remove_var("COLDVOX_CONFIG_PATH");
+        }
+        if let Some(value) = original_plugin {
+            env::set_var("COLDVOX_PLUGIN_CONFIG_PATH", value);
+        } else {
+            env::remove_var("COLDVOX_PLUGIN_CONFIG_PATH");
+        }
+
+        let expected = root_plugins_path
+            .canonicalize()
+            .expect("canonicalize expected plugin config path");
+        assert_eq!(resolved, expected);
     }
 }

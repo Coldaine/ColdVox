@@ -1,57 +1,110 @@
 # AGENTS.md
 
-Canonical AI agent instructions for ColdVox.
+Canonical AI agent instructions for ColdVox. This file is the source of truth for all agent tools.
 
-## Repo Truth
+## Anchor
 
-- Windows 11 is the priority environment.
-- The checked-in startup config is intentionally test-friendly: `config/default.toml` defaults to `mock`.
-- The supported Windows live path for this wave is `COLDVOX_CONFIG_PATH=config/windows-parakeet.toml` plus `PARAKEET_MODEL_PATH` on NVIDIA/CUDA hardware.
-- `config/plugins.json` is plugin-manager persistence, not the operator-facing startup source of truth.
-- The Windows GUI is out of scope for this wave. `coldvox-gui` is a stub smoke target only.
-- CI is not the authoritative gate for this wave. Local Windows validation is.
+- Product and technical anchor: `docs/northstar.md`
+- Current execution state: `docs/plans/current-status.md`
+- Architecture direction: `docs/architecture.md`
+- CI source of truth: `docs/dev/CI/architecture.md`
 
-## Recent Branch Reality
+If guidance conflicts, use this precedence:
+1. `docs/northstar.md`
+2. `docs/plans/current-status.md`
+3. `docs/dev/CI/architecture.md`
 
-- `main` contains the current trunk we should build on.
-- The old Qt remediation line from closed PR `#389` is not a valid base for new work.
-- Start fresh branches from `origin/main` or from the current stacked branch tip, never from the old remediation line.
+## Current Product Direction & Reality
 
-## Commands
+- **Target OS:** Windows 11 priority.
+- **Python Environment:** Exclusively managed by `uv`. Do NOT use `mise` or raw `pip` for Python packages. Ensure `.python-version` is respected.
+- **STT Backend:**
+  - **Moonshine:** The current working backend, but considered a fragile dependency due to PyO3.
+  - **Parakeet:** The designated successor for a pure-Rust/Windows-native STT pipeline (CUDA/DirectML). It *does* compile; focus on runtime validation.
+  - **Vaporware:** The `whisper`, `coqui`, `leopard`, and `silero-stt` feature flags are dead stubs. Do not attempt to use them.
 
-Crate-scoped commands are still preferred for iteration:
+## Project Overview
 
-```powershell
-cargo check -p coldvox-stt
-cargo test -p coldvox-foundation --lib --locked
-cargo test -p coldvox-app --test golden_master --locked
-cargo fmt --all -- --check
-```
+ColdVox is a Rust voice pipeline: audio capture -> VAD -> STT -> text injection.
+Multi-crate Cargo workspace under `crates/`.
 
-Windows local validation:
-
-```powershell
-just windows-run-preflight
-just windows-smoke
-just test
-```
-
-Optional live validation during the Windows test gate:
-
-```powershell
-$env:COLDVOX_RUN_WINDOWS_LIVE = '1'
-just test
-```
-
-Direct live validation:
-
-```powershell
-just windows-live
-```
+Key crates to know:
+- `coldvox-app` (Main execution and binaries)
+- `coldvox-audio` (Capture and resampling via rubato)
+- `coldvox-stt` (STT Plugin logic)
+- `coldvox-text-injection` (Output injection logic)
 
 ## Working Rules
 
-- Prefer the local Windows gate over CI status for this wave.
-- Keep the default path deterministic for tests; do not flip the checked-in default away from `mock`.
-- Only claim the Windows live path is validated when you have local artifacts under `logs/windows-validation/`.
-- Do not describe the GUI as Windows-ready.
+**DO:**
+- Use `cargo {cmd} -p {crate}` for iteration speed, but finish with `cargo check --workspace --all-targets`.
+- Only use live testing (real microphone/`.wav` files) to test VAD and STT. Do not mock audio buffers.
+- Check `docs/plans/current-status.md` for what currently works and what's broken.
+
+**DO NOT:**
+- Claim Whisper or Parakeet are currently production-ready.
+- Modify Python dependencies without using `uv`.
+- Auto-run commands that destroy data or commit unverified changes.
+
+## Commands
+
+File-scoped (preferred):
+```bash
+cargo check -p coldvox-stt
+cargo clippy -p coldvox-audio
+cargo test -p coldvox-text-injection
+cargo fmt --all -- --check
+```
+
+Workspace (when needed):
+```bash
+./scripts/local_ci.sh
+cargo clippy --workspace --all-targets --locked
+cargo test --workspace --locked
+cargo build --workspace --locked
+```
+
+Run:
+```bash
+cargo run -p coldvox-app --bin coldvox
+cargo run -p coldvox-app --bin tui_dashboard
+cargo run --features text-injection,moonshine
+```
+
+## Feature Flags
+
+- `silero`: Silero VAD
+- `text-injection`: text injection backends
+- `moonshine`: Current working STT backend (Python-based, CPU/GPU)
+- `parakeet`: planned backend work; not current reliable path
+- `examples`: example binaries
+- `live-hardware-tests`: hardware test suites
+
+## CI Environment
+
+Canonical CI policy is `docs/dev/CI/architecture.md`.
+
+Principle:
+- GitHub-hosted runners handle fast general CI work.
+- Self-hosted Fedora/Nobara runner handles hardware-dependent tests.
+
+Do not use:
+- Xvfb on self-hosted runner
+- `apt-get` on Fedora runner
+- `DISPLAY=:99` in self-hosted jobs
+
+## Key Files
+
+- Main entry: `crates/app/src/main.rs`
+- Audio capture: `crates/coldvox-audio/src/capture.rs`
+- VAD engine: `crates/coldvox-vad-silero/src/silero_wrapper.rs`
+- STT plugins: `crates/coldvox-stt/src/plugins/`
+- Text injection manager: `crates/coldvox-text-injection/src/manager.rs`
+- Build detection: `crates/app/build.rs`
+
+## PR Checklist
+
+- `./scripts/local_ci.sh` passes (or equivalent crate-scoped checks)
+- Docs updated for behavior/direction changes
+- `CHANGELOG.md` updated for user-visible changes
+- No secrets committed
