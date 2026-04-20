@@ -202,11 +202,12 @@ impl GuiBridge {
                                             let text_owned = text.to_string();
                                             let text_q = QString::from(&text_owned);
                                             qt_thread.queue(move |mut qGuiBridge| {
-                                                let new_final = format!(
-                                                    "{}\n{}",
-                                                    qGuiBridge.as_ref().final_transcript(),
-                                                    text_owned
-                                                );
+                                                let existing = qGuiBridge.as_ref().final_transcript().to_string();
+                                                let new_final = if existing.is_empty() {
+                                                    text_owned.clone()
+                                                } else {
+                                                    format!("{}\n{}", existing, text_owned)
+                                                };
                                                 qGuiBridge.as_mut().set_final_transcript(
                                                     QString::from(&new_final),
                                                 );

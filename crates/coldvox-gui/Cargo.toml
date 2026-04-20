@@ -17,7 +17,7 @@ cxx-qt = { version = "0.7", optional = true }
 cxx-qt-lib = { version = "0.7", features = ["qt_qml", "qt_gui"], optional = true }
 # Real pipeline bindings — only needed when Qt UI is enabled.
 # coldvox-app needs an STT feature (like `moonshine`) so that AppHandle::stt_rx exists.
-coldvox-app = { path = "../app", optional = true, features = ["moonshine"] }
+coldvox-app = { path = "../app", optional = true, features = ["parakeet"] }
 tokio = { version = "1", features = ["full"], optional = true }
 tracing = { version = "0.1", optional = true }
 

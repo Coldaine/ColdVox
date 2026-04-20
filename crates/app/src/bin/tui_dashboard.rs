@@ -6,7 +6,7 @@
 use chrono::Local;
 use clap::{builder::BoolishValueParser, Parser, ValueEnum};
 use coldvox_app::runtime::{self as app_runtime, ActivationMode};
-#[cfg(feature = "whisper")]
+#[cfg(any(feature = "whisper", feature = "parakeet"))]
 use coldvox_app::stt::TranscriptionEvent;
 use coldvox_vad::types::VadEvent;
 use crossterm::{
@@ -132,15 +132,15 @@ enum AppEvent {
     Vad(VadEvent),
     /// Internal control signal: runtime replaced (after restart)
     AppReplaced(app_runtime::AppHandle),
-    #[cfg(feature = "whisper")]
+    #[cfg(any(feature = "whisper", feature = "parakeet"))]
     Transcription(TranscriptionEvent),
-    #[cfg(feature = "whisper")]
+    #[cfg(any(feature = "whisper", feature = "parakeet"))]
     PluginLoad(String),
-    #[cfg(feature = "whisper")]
+    #[cfg(any(feature = "whisper", feature = "parakeet"))]
     PluginUnload(String),
-    #[cfg(feature = "whisper")]
+    #[cfg(any(feature = "whisper", feature = "parakeet"))]
     PluginSwitch(String),
-    #[cfg(feature = "whisper")]
+    #[cfg(any(feature = "whisper", feature = "parakeet"))]
     PluginStatusUpdate,
 }
 
@@ -180,26 +180,26 @@ struct DashboardState {
     has_metrics_snapshot: bool,
     current_tab: Tab,
     /// Last final transcript (if STT enabled)
-    #[cfg(feature = "whisper")]
+    #[cfg(any(feature = "whisper", feature = "parakeet"))]
     last_transcript: Option<String>,
 
-    #[cfg(feature = "whisper")]
+    #[cfg(any(feature = "whisper", feature = "parakeet"))]
     plugin_manager:
         Option<Arc<tokio::sync::RwLock<coldvox_app::stt::plugin_manager::SttPluginManager>>>,
 
-    #[cfg(feature = "whisper")]
+    #[cfg(any(feature = "whisper", feature = "parakeet"))]
     plugin_current: Option<String>,
 
-    #[cfg(feature = "whisper")]
+    #[cfg(any(feature = "whisper", feature = "parakeet"))]
     plugin_active_count: usize,
 
-    #[cfg(feature = "whisper")]
+    #[cfg(any(feature = "whisper", feature = "parakeet"))]
     plugin_transcription_requests: u64,
 
-    #[cfg(feature = "whisper")]
+    #[cfg(any(feature = "whisper", feature = "parakeet"))]
     plugin_success: u64,
 
-    #[cfg(feature = "whisper")]
+    #[cfg(any(feature = "whisper", feature = "parakeet"))]
     plugin_failures: u64,
 
     // Audio dump options
@@ -274,19 +274,19 @@ impl Default for DashboardState {
             },
             has_metrics_snapshot: false,
             current_tab: Tab::Audio,
-            #[cfg(feature = "whisper")]
+            #[cfg(any(feature = "whisper", feature = "parakeet"))]
             last_transcript: None,
-            #[cfg(feature = "whisper")]
+            #[cfg(any(feature = "whisper", feature = "parakeet"))]
             plugin_manager: None,
-            #[cfg(feature = "whisper")]
+            #[cfg(any(feature = "whisper", feature = "parakeet"))]
             plugin_current: None,
-            #[cfg(feature = "whisper")]
+            #[cfg(any(feature = "whisper", feature = "parakeet"))]
             plugin_active_count: 0,
-            #[cfg(feature = "whisper")]
+            #[cfg(any(feature = "whisper", feature = "parakeet"))]
             plugin_transcription_requests: 0,
-            #[cfg(feature = "whisper")]
+            #[cfg(any(feature = "whisper", feature = "parakeet"))]
             plugin_success: 0,
-            #[cfg(feature = "whisper")]
+            #[cfg(any(feature = "whisper", feature = "parakeet"))]
             plugin_failures: 0,
 
             dump_audio: true,
@@ -470,7 +470,7 @@ async fn run_app(
                                         #[allow(unused_mut)]
                                         let mut app = app;
                                         // Extract plugin manager for UI access before moving app
-                                        #[cfg(feature = "whisper")]
+                                        #[cfg(any(feature = "whisper", feature = "parakeet"))]
                                         {
                                             state.plugin_manager = app.plugin_manager.clone();
                                         }
@@ -483,7 +483,7 @@ async fn run_app(
                                         });
 
                                         // Forward STT events to UI (if enabled)
-                                        #[cfg(feature = "whisper")]
+                                        #[cfg(any(feature = "whisper", feature = "parakeet"))]
                                         if let Some(mut stt_rx) = app.stt_rx.take() {
                                             let ui_tx2 = tx.clone();
                                             tokio::spawn(async move {
@@ -654,7 +654,7 @@ async fn run_app(
                         KeyCode::Char('l') | KeyCode::Char('L') => {
                             // Load plugin (only when running)
                             if state.is_running {
-                                #[cfg(feature = "whisper")]
+                                #[cfg(any(feature = "whisper", feature = "parakeet"))]
                                 {
                                     if let Some(ref pm) = state.plugin_manager {
                                         let pm_clone = pm.clone();
@@ -674,7 +674,7 @@ async fn run_app(
                         KeyCode::Char('u') | KeyCode::Char('U') => {
                             // Unload plugin (only when running)
                             if state.is_running {
-                                #[cfg(feature = "whisper")]
+                                #[cfg(any(feature = "whisper", feature = "parakeet"))]
                                 {
                                     if let Some(ref pm) = state.plugin_manager {
                                         let pm_clone = pm.clone();
@@ -691,7 +691,7 @@ async fn run_app(
                         KeyCode::Char('w') | KeyCode::Char('W') => {
                             // Switch plugin (only when running and in plugins tab)
                             if state.is_running && matches!(state.current_tab, Tab::Plugins) {
-                                #[cfg(feature = "whisper")]
+                                #[cfg(any(feature = "whisper", feature = "parakeet"))]
                                 {
                                     if let Some(ref pm) = state.plugin_manager {
                                         let pm_clone = pm.clone();
@@ -733,7 +733,7 @@ async fn run_app(
                         state.app = Some(app);
                         state.is_running = true;
                     }
-                        #[cfg(feature = "whisper")]
+                        #[cfg(any(feature = "whisper", feature = "parakeet"))]
                         AppEvent::Transcription(tevent) => {
                             match tevent.clone() {
                                 TranscriptionEvent::Partial { utterance_id, text, .. } => {
@@ -752,7 +752,7 @@ async fn run_app(
                                 }
                             }
                         }
-                        #[cfg(feature = "whisper")]
+                        #[cfg(any(feature = "whisper", feature = "parakeet"))]
                         AppEvent::PluginLoad(plugin_id) => {
                             state.plugin_current = Some(plugin_id.clone());
                             state.plugin_active_count += 1;
@@ -764,7 +764,7 @@ async fn run_app(
                             }
                             state.log(LogLevel::Success, format!("Plugin loaded: {}", plugin_id));
                         }
-                        #[cfg(feature = "whisper")]
+                        #[cfg(any(feature = "whisper", feature = "parakeet"))]
                         AppEvent::PluginUnload(plugin_id) => {
                             if state.plugin_current.as_ref() == Some(&plugin_id) {
                                 state.plugin_current = None;
@@ -780,7 +780,7 @@ async fn run_app(
                             }
                             state.log(LogLevel::Info, format!("Plugin unloaded: {}", plugin_id));
                         }
-                        #[cfg(feature = "whisper")]
+                        #[cfg(any(feature = "whisper", feature = "parakeet"))]
                         AppEvent::PluginSwitch(plugin_id) => {
                             state.plugin_current = Some(plugin_id.clone());
                             // Update metrics from shared sink
@@ -791,7 +791,7 @@ async fn run_app(
                             }
                             state.log(LogLevel::Info, format!("Switched to plugin: {}", plugin_id));
                         }
-                        #[cfg(feature = "whisper")]
+                        #[cfg(any(feature = "whisper", feature = "parakeet"))]
                         AppEvent::PluginStatusUpdate => {
                             // Update plugin status (could refresh metrics)
                             state.log(LogLevel::Debug, "Plugin status updated".to_string());
@@ -1079,7 +1079,7 @@ fn draw_status(f: &mut Frame, area: Rect, state: &DashboardState) {
     status_text.push(Line::from(
         state.last_vad_event.as_deref().unwrap_or("None"),
     ));
-    #[cfg(feature = "whisper")]
+    #[cfg(any(feature = "whisper", feature = "parakeet"))]
     {
         status_text.push(Line::from(""));
         status_text.push(Line::from("Last Transcript (final):"));
@@ -1153,7 +1153,7 @@ fn draw_plugins(f: &mut Frame, area: Rect, #[allow(unused_variables)] state: &Da
 
     let mut plugin_lines: Vec<Line> = Vec::new();
 
-    #[cfg(feature = "whisper")]
+    #[cfg(any(feature = "whisper", feature = "parakeet"))]
     {
         // Display available plugins from plugin manager
         if let Some(ref pm) = state.plugin_manager {
@@ -1179,7 +1179,7 @@ fn draw_plugins(f: &mut Frame, area: Rect, #[allow(unused_variables)] state: &Da
         }
     }
 
-    #[cfg(not(feature = "whisper"))]
+    #[cfg(not(any(feature = "whisper", feature = "parakeet")))]
     {
         plugin_lines.push(Line::from("STT plugins require 'whisper' feature"));
     }
@@ -1202,7 +1202,7 @@ fn draw_plugin_status(
 
     let mut status_lines: Vec<Line> = Vec::new();
 
-    #[cfg(feature = "whisper")]
+    #[cfg(any(feature = "whisper", feature = "parakeet"))]
     {
         // Current plugin
         let current = state.plugin_current.as_deref().unwrap_or("None");
@@ -1258,7 +1258,7 @@ fn draw_plugin_status(
         status_lines.push(Line::from("[U] Unload Plugin  [W] Switch"));
     }
 
-    #[cfg(not(feature = "whisper"))]
+    #[cfg(not(any(feature = "whisper", feature = "parakeet")))]
     {
         status_lines.push(Line::from("STT plugins require 'whisper' feature"));
     }

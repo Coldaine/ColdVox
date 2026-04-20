@@ -458,9 +458,6 @@ impl SttPluginManager {
         if let Some(ref metrics) = self.metrics_sink {
             metrics.stt_gc_runs.fetch_add(1, Ordering::Relaxed);
         }
-        if let Some(ref metrics) = self.metrics_sink {
-            metrics.stt_gc_runs.fetch_add(1, Ordering::Relaxed);
-        }
 
         let gc_policy = match &self.selection_config.gc_policy {
             Some(policy) if policy.enabled => policy,
@@ -470,12 +467,20 @@ impl SttPluginManager {
         let now = Instant::now();
         let ttl_secs = gc_policy.model_ttl_secs as u64;
 
-        // First, collect the IDs of inactive plugins
+        let active_plugin_id: Option<String> = {
+            let guard = self.current_plugin.read().await;
+            guard.as_ref().map(|p| p.info().id.clone())
+        };
+
+        // First, collect the IDs of inactive plugins (excluding the active one)
         let inactive_plugins: Vec<String> = {
             let activity = self.last_activity.read().await;
             activity
                 .iter()
                 .filter_map(|(plugin_id, last_used)| {
+                    if active_plugin_id.as_deref() == Some(plugin_id.as_str()) {
+                        return None; // never GC the currently selected plugin
+                    }
                     if now.duration_since(*last_used).as_secs() > ttl_secs {
                         Some(plugin_id.clone())
                     } else {

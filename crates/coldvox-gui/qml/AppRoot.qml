@@ -146,8 +146,8 @@ Window {
     menu: Menu {
       MenuItem { text: expanded ? "Hide" : "Show"; onTriggered: bridge.expanded = !bridge.expanded }
       MenuSeparator {}
-      MenuItem { text: (root.stateCode === 1) ? "Stop" : "Start"; onTriggered: { if (root.stateCode === 1) bridge.cmd_stop(); else bridge.cmd_start(); } }
-      MenuItem { text: "Pause/Resume"; onTriggered: bridge.cmd_toggle_pause() }
+      MenuItem { text: (root.stateCode === 2) ? "Stop" : "Start"; onTriggered: { if (root.stateCode === 2) bridge.cmd_stop(); else bridge.cmd_start(); } }
+      MenuItem { text: "Pause/Resume"; onTriggered: { if (bridge.state === 2) bridge.cmd_pause(); else if (bridge.state === 3) bridge.cmd_resume(); } }
       MenuItem { text: "Clear"; onTriggered: bridge.cmd_clear() }
       MenuSeparator {}
       MenuItem { text: "Settings"; onTriggered: settingsWin.visible = true }

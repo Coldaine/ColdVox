@@ -259,10 +259,12 @@ Window {
         ControlButton { label: "⏹"; onClicked: { st = 2; if (typeof bridge !== 'undefined' && bridge.cmd_stop) bridge.cmd_stop() } }
         // Pause / Resume
         ControlButton {
-          label: st === 1 ? "⏸" : "▶"
+          label: (typeof bridge !== 'undefined' && bridge.state === 2) ? "⏸" : "▶"
           onClicked: {
-            if (typeof bridge !== 'undefined' && bridge.cmd_toggle_pause) bridge.cmd_toggle_pause()
-            st = (st === 1) ? 0 : 1
+            if (typeof bridge !== 'undefined') {
+              if (bridge.state === 2) bridge.cmd_pause()
+              else if (bridge.state === 3) bridge.cmd_resume()
+            }
           }
         }
         // Clear — resets transcript state via bridge cmd_clear, falls back to clearing local aliases
