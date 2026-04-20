@@ -112,10 +112,6 @@ impl SttPluginManager {
             last_unloaded_plugin_id: Arc::new(RwLock::new(None)),
         };
 
-        // Load existing configuration if available
-        #[allow(clippy::let_underscore_future)]
-        let _ = manager.load_config();
-
         manager
     }
 
@@ -285,12 +281,21 @@ impl SttPluginManager {
 
                 let now = Instant::now();
 
+                // Snapshot the active plugin ID so GC never evicts it
+                let active_plugin_id: Option<String> = {
+                    let guard = current_plugin.read().await;
+                    guard.as_ref().map(|p| p.info().id.clone())
+                };
+
                 // First, collect the IDs of inactive plugins
                 let inactive_plugins: Vec<String> = {
                     let activity = last_activity.read().await;
                     activity
                         .iter()
                         .filter_map(|(plugin_id, last_used)| {
+                            if active_plugin_id.as_deref() == Some(plugin_id.as_str()) {
+                                return None; // never GC the currently selected plugin
+                            }
                             if now.duration_since(*last_used).as_secs() > ttl_secs as u64 {
                                 Some(plugin_id.clone())
                             } else {

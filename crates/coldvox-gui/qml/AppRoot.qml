@@ -17,8 +17,16 @@ Window {
   // Properties mirrored here for convenience
   property alias expanded: bridge.expanded
   property int stateCode: bridge.state
-  property int level: bridge.level
-  property string transcript: bridge.transcript
+  // Audio level is not yet surfaced by the bridge; default to 0
+  property int level: 0
+  // Combine final + partial transcript for display; partial shown live, final accumulates
+  property string displayTranscript: {
+    var ft = bridge.final_transcript
+    var pt = bridge.partial_transcript
+    if (ft.length === 0) return pt
+    if (pt.length === 0) return ft
+    return ft + "\n" + pt
+  }
 
   // Window geometry and persistence
   readonly property int collapsedWidth: 240
@@ -79,7 +87,7 @@ Window {
       anchors.fill: parent
       onPressed: root.startDrag(mouse)
       onPositionChanged: root.doDrag(mouse)
-      onClicked: bridge.toggle_expand()
+      onClicked: bridge.expanded = !bridge.expanded
     }
   }
 
@@ -90,10 +98,13 @@ Window {
     visible: expanded
     stateCode: root.stateCode
     level: root.level
-    transcript: root.transcript
+    transcript: root.displayTranscript
 
     onStop: bridge.cmd_stop()
-    onPauseResume: bridge.cmd_toggle_pause()
+    onPauseResume: {
+      if (bridge.state === 2) bridge.cmd_pause()       // Active -> Paused
+      else if (bridge.state === 3) bridge.cmd_resume() // Paused -> Active
+    }
     onClear: bridge.cmd_clear()
     onOpenSettings: settingsWin.visible = true
 
@@ -123,7 +134,7 @@ Window {
   // Local shortcut (prototype). Global hotkey to be wired via backend later.
   Shortcut {
     sequences: [ "Ctrl+Shift+Space" ]
-    onActivated: bridge.toggle_expand()
+    onActivated: bridge.expanded = !bridge.expanded
   }
 
   // System tray icon and menu (works well on Plasma). On GNOME, requires extension.
@@ -133,7 +144,7 @@ Window {
     icon.name: "microphone-sensitivity-high"
     tooltip: expanded ? "ColdVox: Visible" : "ColdVox"
     menu: Menu {
-      MenuItem { text: expanded ? "Hide" : "Show"; onTriggered: bridge.toggle_expand() }
+      MenuItem { text: expanded ? "Hide" : "Show"; onTriggered: bridge.expanded = !bridge.expanded }
       MenuSeparator {}
       MenuItem { text: (root.stateCode === 1) ? "Stop" : "Start"; onTriggered: { if (root.stateCode === 1) bridge.cmd_stop(); else bridge.cmd_start(); } }
       MenuItem { text: "Pause/Resume"; onTriggered: bridge.cmd_toggle_pause() }
@@ -145,40 +156,5 @@ Window {
     }
   }
 
-  // ---- DEMO SIMULATION ----
-  // Audio level pulse
-  Timer {
-    interval: 80; running: true; repeat: true
-    property int t: 0
-    onTriggered: {
-      t = (t + 1) % 1000
-      const lv = Math.round(50 + 40 * Math.sin(t / 20.0))
-      bridge.demo_set_level(lv)
-    }
-  }
-  // Transcript growth while in Recording
-  Timer {
-    interval: 600; running: true; repeat: true
-    property var words: ["hello","world","from","coldvox","demo","overlay","speaking","fast","is","fun"]
-    onTriggered: {
-      if (root.stateCode === 1) {
-        const w = words[Math.floor(Math.random() * words.length)]
-        bridge.demo_append_delta(w)
-      }
-    }
-  }
-  // Processing -> Complete after stop
-  Timer {
-    id: processingTimer
-    interval: 1500; repeat: false
-    onTriggered: bridge.state = 3 // Complete
-  }
-  Connections {
-    target: bridge
-    function onStateChanged() {
-      if (bridge.state === 2) { // Processing
-        processingTimer.start()
-      }
-    }
-  }
+
 }

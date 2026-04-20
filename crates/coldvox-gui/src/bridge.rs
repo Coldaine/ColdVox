@@ -243,6 +243,13 @@ impl GuiBridge {
                     }
                     Err(e) => {
                         tracing::error!("Failed to start ColdVox pipeline: {}", e);
+                        let msg = e.to_string();
+                        let _ = qt_thread.queue(move |mut bridge| {
+                            bridge.as_mut().set_last_error(
+                                cxx_qt_lib::QString::from(&msg),
+                            );
+                            bridge.as_mut().set_state(AppState::Error);
+                        });
                     }
                 }
             });

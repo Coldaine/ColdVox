@@ -18,9 +18,8 @@ Window {
   // Expanded spec: responsive 600-800 width, 200-400 height
   property bool expanded: settings.expanded
 
-  // Basic state vars (stubbed if no Rust bridge provided)
-  // state: 0=ready, 1=recording, 2=processing
-  property int st: 0
+  // Reflects bridge.state when bridge is available; falls back to 0 (Idle)
+  property int st: typeof bridge !== 'undefined' ? bridge.state : 0
   property int level: 0
 
   // Alias bridge transcript properties for direct QML binding.
@@ -222,6 +221,7 @@ Window {
             font.bold: true
             lineHeight: 1.5
             text: root.final_transcript
+            onTextChanged: scroll.scrollToBottom()
             Behavior on opacity { NumberAnimation { duration: 200 } }
           }
 
@@ -235,6 +235,7 @@ Window {
             font.italic: true
             lineHeight: 1.5
             text: root.partial_transcript
+            onTextChanged: scroll.scrollToBottom()
             Behavior on opacity { NumberAnimation { duration: 150 } }
           }
         }

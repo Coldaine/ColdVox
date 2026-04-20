@@ -6,6 +6,7 @@ Window {
   id: win
   title: "ColdVox Settings"
   visible: false
+  property real opacityValue: 0.3
   width: 480
   height: 600
   minimumWidth: 400
@@ -77,7 +78,7 @@ Window {
           RowLayout {
             Layout.fillWidth: true
             Label { text: "Transparency"; Layout.preferredWidth: 120 }
-            Slider { Layout.fillWidth: true; from: 0.1; to: 0.8; value: 0.3 }
+            Slider { Layout.fillWidth: true; from: 0.1; to: 0.8; value: win.opacityValue; onMoved: win.opacityValue = value }
           }
           RowLayout {
             Layout.fillWidth: true
