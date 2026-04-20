@@ -57,6 +57,11 @@ path = "tests/tui_dashboard_manual_test.rs"
 name = "verify_mock_injection_fix"
 path = "tests/verify_mock_injection_fix.rs"
 
+[[test]]
+name = "http_remote_wiring_live"
+path = "tests/http_remote_wiring_live.rs"
+required-features = ["http-remote"]
+
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
