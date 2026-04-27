@@ -35,6 +35,7 @@ if ($LASTEXITCODE -ne 0) { throw "docker compose up failed (exit $LASTEXITCODE)"
 Write-Host "==> waiting for http://localhost:5092/health (timeout ${HealthTimeoutSeconds}s)"
 $deadline = (Get-Date).AddSeconds($HealthTimeoutSeconds)
 $healthy = $false
+$lastHealthError = $null
 while ((Get-Date) -lt $deadline) {
     try {
         $r = Invoke-WebRequest -Uri 'http://localhost:5092/health' -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop
@@ -43,11 +44,15 @@ while ((Get-Date) -lt $deadline) {
             break
         }
     } catch {
-        # fall through to unconditional sleep below
+        $lastHealthError = $_
+        Write-Verbose "Health probe failed: $($_.Exception.Message)"
     }
     Start-Sleep -Seconds 2
 }
 if (-not $healthy) {
+    if ($lastHealthError) {
+        throw "parakeet-cpu did not report healthy at /health within ${HealthTimeoutSeconds}s. Last probe error: $($lastHealthError.Exception.Message)"
+    }
     throw "parakeet-cpu did not report healthy at /health within ${HealthTimeoutSeconds}s"
 }
 Write-Host "    OK"
