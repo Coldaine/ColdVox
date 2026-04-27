@@ -67,6 +67,12 @@ windows-smoke:
 windows-live:
     pwsh -NoProfile -File scripts/windows_live_validate.ps1 -Mode Live
 
+# Live integration tests against the parakeet-cpu HTTP container.
+# Brings the container up via docker compose, waits for /health, then runs
+# both the plugin-level and the app-level wiring tests with -- --ignored.
+integration-parakeet:
+    pwsh -NoProfile -File scripts/integration_parakeet.ps1
+
 # Windows-local test gate. Keep the required matrix package-scoped so it stays
 # meaningful on Windows even while the wider workspace still includes
 # non-Windows members.
